@@ -1,4 +1,5 @@
 ﻿use std::ops::{Add, Sub, Mul, Div, Neg};
+use std::fmt::{Debug, Formatter};
 
 // create Float marker trait that identifies floating point arithmetic
 // create Fixed marker trait that identifies fixed point arithmetic
@@ -8,7 +9,7 @@
 
 // GENERAL =========================================================================================
 /// General number methods and identifier
-pub trait Number: Add<impl Number> + Sub + Mul + Div + Neg {
+pub trait Number: Add + Sub + Mul + Div + Neg + Copy + Debug {
     fn zero() -> Self;
     fn one() -> Self;
 }
@@ -24,11 +25,15 @@ pub trait FixedNumber: Number {
 // PRIVATE =========================================================================================
 
 /// The Real number implementation for this library (can create your own)
-#[derive(Debug, Copy, Clone)]
-// pub struct Real<T: NumberType>(T);
 pub struct Real<T: FixedType>(T);
-#[derive(Debug, Copy, Clone)]
 pub struct RealF<T: FloatType>(T);
+
+pub type Real16 = Real<i16>;
+pub type Real32 = Real<i32>;
+pub type Real64 = Real<i64>;
+pub type Real128 = Real<i128>;
+pub type RealF32 = RealF<f32>;
+pub type RealF64 = RealF<f64>;
 
 /// scale factor (how many bits wide is the fractional digits) for fixed point arithmetic (compile time const for less overhead), for more flexibility (in increasing strength and performance costs):
 /// if you want end-user flexibility: look into reading env variables
@@ -46,7 +51,7 @@ trait Sz64 {}
 trait Sz128 {}
 trait FloatType: NumberType {}
 trait FixedType: NumberType {}
-trait NumberType: Add + Sub + Mul + Div + Neg {}
+trait NumberType: Add + Sub + Mul + Div + Neg + Copy + Debug {}
 
 impl NumberType for f32 {}
 impl NumberType for f64 {}
@@ -99,9 +104,34 @@ impl<T: FloatType> FloatNumber for RealF<T> {
 impl<T: FixedType> FixedNumber for Real<T> {
 }
 
+// OTHER TRAIT IMPLS
+
+impl<T: FloatType> Clone for RealF<T> {
+    fn clone(&self) -> Self {
+        self.0.clone()
+    }
+}
+impl<T: FloatType> Copy for RealF<T> {}
+impl<T: FloatType> Debug for RealF<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+impl<T: FixedType> Clone for Real<T> {
+    fn clone(&self) -> Self {
+        self.0.clone()
+    }
+}
+impl<T: FixedType> Copy for Real<T> {}
+impl<T: FixedType> Debug for Real<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
+
 // FLOAT OPERATOR OVERLOADS
 // can rely on auto-deref for FloatType instead of impl all the overloads again, but for the sake of type safety...
-// only same type operations will be supported
+// only same type operations will be supported! (float - float or fixed - fixed)
 
 impl<T: FloatType> Add for RealF<T> {
     type Output = Self;
@@ -134,10 +164,76 @@ impl<T: FloatType> Neg for RealF<T> {
     }
 }
 
-// FIXED OPERATOR OVERLOADS
+// FIXED OPERATOR OVERLOADS (WITH OTHERS)
 // use macros please!
 // add checks to make sure no overflow occurs!
 
+macro_rules! fixed_add {
+    ( $([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),* ) => {
+        $(
+        impl<T: FixedType + $from, A: FixedType + $to> Add<Real<A>> for Real<T> {
+            type Output = Self;
+            fn add(self, rhs: Real<A>) -> Self::Output { self.0 + rhs.0 }
+        }
+        )*
+    };
+}
+macro_rules! fixed_sub {
+    ( $([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),* ) => {
+        $(
+        impl<T: FixedType + $from, A: FixedType + $to> Sub<Real<A>> for Real<T> {
+            type Output = Self;
+            fn sub(self, rhs: Real<A>) -> Self::Output { self.0 - rhs.0 }
+        }
+        )*
+    };
+}
+macro_rules! fixed_mul {
+    ( $([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),* ) => {
+        $(
+        impl<T: FixedType + $from, A: FixedType + $to> Mul<Real<A>> for Real<T> {
+            type Output = Self;
+            fn mul(self, rhs: Real<A>) -> Self::Output { self.0 * rhs.0 }
+        }
+        )*
+    };
+}
+macro_rules! fixed_div {
+    ( $([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),* ) => {
+        $(
+        impl<T: FixedType + $from, A: FixedType + $to> Div<Real<A>> for Real<T> {
+            type Output = Self;
+            fn div(self, rhs: Real<A>) -> Self::Output { self.0 / rhs.0 }
+        }
+        )*
+    };
+}
+
+macro_rules! apply_fixed_ops {
+    ($($in_macro:ident),*) => {
+        $(
+        $in_macro!(
+            [Sz128, Sz64, 128, 64],
+            [Sz128, Sz32, 128, 32],
+            [Sz128, Sz16, 128, 16],
+            [Sz64, Sz128, 64, 128],
+            [Sz64, Sz32, 64, 32],
+            [Sz64, Sz16, 64, 16],
+            [Sz32, Sz128, 32, 128],
+            [Sz32, Sz64, 32, 64],
+            [Sz32, Sz16, 32, 16],
+            [Sz16, Sz128, 16, 128],
+            [Sz16, Sz64, 16, 64],
+            [Sz16, Sz32, 16, 32]
+        );
+        )*
+    };
+}
+
+apply_fixed_ops!(fixed_add, fixed_sub, fixed_mul, fixed_div);
+
+// FIXED OPERATOR OVERLOADS (WITH ITSELF)
+// minimum requirement for number trait
 
 impl<T: FixedType> Add for Real<T> {
     type Output = Self;
@@ -145,24 +241,28 @@ impl<T: FixedType> Add for Real<T> {
         self.0 + rhs.0
     }
 }
+
 impl<T: FixedType> Sub for Real<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         self.0 - rhs.0
     }
 }
+
 impl<T: FixedType> Mul for Real<T> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         self.0 * rhs.0
     }
 }
+
 impl<T: FixedType> Div for Real<T> {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
         self.0 / rhs.0
     }
 }
+
 impl<T: FixedType> Neg for Real<T> {
     type Output = Self;
     fn neg(self) -> Self::Output {
