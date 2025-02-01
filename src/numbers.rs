@@ -8,11 +8,9 @@
 
 // GENERAL =========================================================================================
 /// General number methods and identifier
-pub trait Number: Add<Self::T> + Sub<Self::T> + Mul<Self::T> + Div<Self::T> + Neg {
-    type T;
-
-    fn zero() -> Self::T;
-    fn one() -> Self::T;
+pub trait Number: Add + Sub + Mul + Div + Neg{
+    fn zero() -> Self;
+    fn one() -> Self;
 }
 
 /// Float-point number specific methods and identifier
@@ -29,7 +27,10 @@ pub trait FixedNumber: Number {
 
 /// The Real number implementation for this library (can create your own)
 #[derive(Debug, Copy, Clone)]
-pub struct Real<T: NumberType>(T);
+// pub struct Real<T: NumberType>(T);
+pub struct Real<T: FixedType>(T);
+#[derive(Debug, Copy, Clone)]
+pub struct RealF<T: FloatType>(T);
 
 /// scale factor (how many bits wide is the fractional digits) for fixed point arithmetic (compile time const for less overhead), for more flexibility (in increasing strength and performance costs):
 /// if you want end-user flexibility: look into reading env variables
@@ -70,35 +71,31 @@ impl FixedType for i128 {}
 
 /// Generic Number implementation for float types
 /// TODO: instead of using explicit float primitives, define trait bounds to require From and Into using f32 for example instead
-impl<T: FloatType> Number for Real<T> {
-    type T = T;
-
-    fn zero() -> Self::T {
-        0.0
+impl<T: FloatType> Number for RealF<T> {
+    fn zero() -> Self {
+        RealF(0.0)
     }
 
-    fn one() -> Self::T {
-        1.0
+    fn one() -> Self {
+        RealF(1.0)
     }
 }
 
 /// Generic Number implementation for fixed types
 /// TODO: instead of using explicit integer primitives, define trait bounds to require From and Into using i32 for example instead
-impl<T: FixedType> Number for Real<T> {
-    type T = T;
-
-    fn zero() -> Self::T {
-        0
+impl<L: FixedType> Number for Real<L> {
+    fn zero() -> Self {
+        Real(0)
     }
 
-    fn one() -> Self::T {
-        1
+    fn one() -> Self {
+        Real(1)
     }
 }
 
 // FLOAT/FIXED FUNCTIONS
 
-impl<T: FloatType> FloatNumber for Real<T> {
+impl<T: FloatType> FloatNumber for RealF<T> {
     type T = T;
 }
 
@@ -110,31 +107,31 @@ impl<T: FixedType> FixedNumber for Real<T> {
 // can rely on auto-deref for FloatType instead of impl all the overloads again, but for the sake of type safety...
 // only same type operations will be supported
 
-impl<T: FloatType, A: FloatType> Add<A> for Real<T> {
+impl<T: FloatType> Add for RealF<T> {
     type Output = Self;
-    fn add(self, rhs: Real<A>) -> Self::Output {
+    fn add(self, rhs: Self) -> Self::Output {
         self.0 + rhs.0
     }
 }
-impl<T: FloatType, A: FloatType> Sub<A> for Real<T> {
+impl<T: FloatType> Sub for RealF<T> {
     type Output = Self;
-    fn sub(self, rhs: Real<A>) -> Self::Output {
+    fn sub(self, rhs: Self) -> Self::Output {
         self.0 - rhs.0
     }
 }
-impl<T: FloatType, A: FloatType> Mul<A> for Real<T> {
+impl<T: FloatType> Mul for RealF<T> {
     type Output = Self;
-    fn mul(self, rhs: Real<A>) -> Self::Output {
+    fn mul(self, rhs: Self) -> Self::Output {
         self.0 * rhs.0
     }
 }
-impl<T: FloatType, A: FloatType> Div<A> for Real<T> {
+impl<T: FloatType> Div for RealF<T> {
     type Output = Self;
-    fn div(self, rhs: Real<A>) -> Self::Output {
+    fn div(self, rhs: Self) -> Self::Output {
         self.0 / rhs.0
     }
 }
-impl<T: FloatType> Neg for Real<T> {
+impl<T: FloatType> Neg for RealF<T> {
     type Output = Self;
     fn neg(self) -> Self::Output {
         -self.0
@@ -144,6 +141,7 @@ impl<T: FloatType> Neg for Real<T> {
 // FIXED OPERATOR OVERLOADS
 // use macros please!
 // add checks to make sure no overflow occurs!
+
 
 impl<T: FixedType> Add for Real<T> {
     type Output = Self;
@@ -157,112 +155,21 @@ impl<T: FixedType> Sub for Real<T> {
         self.0 - rhs.0
     }
 }
+impl<T: FixedType> Mul for Real<T> {
+    type Output = Self;
+    fn mul(self, rhs: Self) -> Self::Output {
+        self.0 * rhs.0
+    }
+}
+impl<T: FixedType> Div for Real<T> {
+    type Output = Self;
+    fn div(self, rhs: Self) -> Self::Output {
+        self.0 / rhs.0
+    }
+}
 impl<T: FixedType> Neg for Real<T> {
     type Output = Self;
     fn neg(self) -> Self::Output {
         -self.0
     }
 }
-
-macro_rules! fixed_add {
-    ($([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),*) => {
-        $(
-        impl<T: FixedType + $from, A: FixedType + $to> Add<A> for Real<T> {
-            type Output = Self;
-            fn add(self, rhs: Real<A>) -> Self::Output {
-                let max_scale = $self_from.max($scale_to);
-                let lhs_val = self.0.checked_shl(max_scale - $scale_from)?;
-                let rhs_val = self.0.checked_shl(max_scale - $scale_to)?;
-                lhs_val.checked_add(rhs_val)?
-            }
-        }
-        )*
-    };
-}
-
-macro_rules! fixed_sub {
-    ($([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),*) => {
-        $(
-        impl<T: FixedType + $from, A: FixedType + $to> Sub<A> for Real<T> {
-            type Output = Self;
-            fn sub(self, rhs: Real<A>) -> Self::Output {
-                let max_scale = $self_from.max($scale_to);
-                let lhs_val = self.0.checked_shl(max_scale - $scale_from)?;
-                let rhs_val = self.0.checked_shl(max_scale - $scale_to)?;
-                lhs_val.checked_sub(rhs_val)?
-            }
-        }
-        )*
-    };
-}
-
-macro_rules! fixed_mul {
-    ($([$to:ident, $sz:ident, $scale_from:expr, $scale_to:expr]),*) => {
-        $(
-        impl<T: FixedType + $sz, A: FixedType + $to> Mul<A> for Real<T> {
-            type Output = Self;
-            fn mul(self, rhs: Real<A>) -> Self::Output {
-                Real(((self.0 as i64 * rhs.0 as i64) >> ($scale_from + $scale_to)) as T)
-            }
-        }
-        )*
-    };
-}
-
-macro_rules! fixed_div {
-    ($([$to:ident, $sz:ident, $scale_from:expr, $scale_to:expr]),*) => {
-        $(
-        impl<T: FixedType + $sz, A: FixedType + $to> Div<A> for Real<T> {
-            type Output = Self;
-            fn div(self, rhs: Real<A>) -> Self::Output {
-                Real(((self.0 as i64 / rhs.0 as i64) << ($scale_from.max($scale_to))) as T)
-            }
-        }
-        )*
-    };
-}
-
-fixed_add!(
-    [Sz128, Sz64, 128, 64],
-    [Sz128, Sz32, 128, 32],
-    [Sz128, Sz16, 128, 16],
-    [Sz64, Sz128, 64, 128],
-    [Sz64, Sz32, 64, 32],
-    [Sz64, Sz16, 64, 16],
-    [Sz32, Sz128, 32, 128],
-    [Sz32, Sz64, 32, 64],
-    [Sz32, Sz16, 32, 16]
-);
-fixed_sub!(
-    [Sz128, Sz64, 128, 64],
-    [Sz128, Sz32, 128, 32],
-    [Sz128, Sz16, 128, 16],
-    [Sz64, Sz128, 64, 128],
-    [Sz64, Sz32, 64, 32],
-    [Sz64, Sz16, 64, 16],
-    [Sz32, Sz128, 32, 128],
-    [Sz32, Sz64, 32, 64],
-    [Sz32, Sz16, 32, 16]
-);
-fixed_mul!(
-    [Sz128, Sz64, 128, 64],
-    [Sz128, Sz32, 128, 32],
-    [Sz128, Sz16, 128, 16],
-    [Sz64, Sz128, 64, 128],
-    [Sz64, Sz32, 64, 32],
-    [Sz64, Sz16, 64, 16],
-    [Sz32, Sz128, 32, 128],
-    [Sz32, Sz64, 32, 64],
-    [Sz32, Sz16, 32, 16]
-);
-fixed_div!(
-    [Sz128, Sz64, 128, 64],
-    [Sz128, Sz32, 128, 32],
-    [Sz128, Sz16, 128, 16],
-    [Sz64, Sz128, 64, 128],
-    [Sz64, Sz32, 64, 32],
-    [Sz64, Sz16, 64, 16],
-    [Sz32, Sz128, 32, 128],
-    [Sz32, Sz64, 32, 64],
-    [Sz32, Sz16, 32, 16]
-);

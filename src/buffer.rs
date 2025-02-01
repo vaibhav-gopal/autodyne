@@ -1,7 +1,4 @@
-﻿use crate::numbers;
-use crate::numbers::{Complex32, Real};
-
-pub struct AudioBuffer {
+﻿pub struct AudioBuffer {
     data: Vec<f32>
 }
 
