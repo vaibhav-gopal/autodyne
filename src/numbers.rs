@@ -165,9 +165,9 @@ impl<T: FixedType> Neg for Real<T> {
 }
 
 macro_rules! fixed_add {
-    ($([$to:ident, $sz:ident, $scale_from:expr, $scale_to:expr]),*) => {
+    ($([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),*) => {
         $(
-        impl<T: FixedType + $sz, A: FixedType + $to> Add<A> for Real<T> {
+        impl<T: FixedType + $from, A: FixedType + $to> Add<A> for Real<T> {
             type Output = Self;
             fn add(self, rhs: Real<A>) -> Self::Output {
                 let max_scale = $self_from.max($scale_to);
@@ -181,9 +181,9 @@ macro_rules! fixed_add {
 }
 
 macro_rules! fixed_sub {
-    ($([$to:ident, $sz:ident, $scale_from:expr, $scale_to:expr]),*) => {
+    ($([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),*) => {
         $(
-        impl<T: FixedType + $sz, A: FixedType + $to> Sub<A> for Real<T> {
+        impl<T: FixedType + $from, A: FixedType + $to> Sub<A> for Real<T> {
             type Output = Self;
             fn sub(self, rhs: Real<A>) -> Self::Output {
                 let max_scale = $self_from.max($scale_to);
@@ -202,7 +202,7 @@ macro_rules! fixed_mul {
         impl<T: FixedType + $sz, A: FixedType + $to> Mul<A> for Real<T> {
             type Output = Self;
             fn mul(self, rhs: Real<A>) -> Self::Output {
-                (self.0 as i64 * rhs.0 as i64) >> ($scale_from + $scale_to)
+                Real(((self.0 as i64 * rhs.0 as i64) >> ($scale_from + $scale_to)) as T)
             }
         }
         )*
@@ -215,8 +215,54 @@ macro_rules! fixed_div {
         impl<T: FixedType + $sz, A: FixedType + $to> Div<A> for Real<T> {
             type Output = Self;
             fn div(self, rhs: Real<A>) -> Self::Output {
-                (self.0 as i64 / rhs.0 as i64) << ($scale_from.max($scale_to))
+                Real(((self.0 as i64 / rhs.0 as i64) << ($scale_from.max($scale_to))) as T)
             }
+        }
         )*
     };
 }
+
+fixed_add!(
+    [Sz128, Sz64, 128, 64],
+    [Sz128, Sz32, 128, 32],
+    [Sz128, Sz16, 128, 16],
+    [Sz64, Sz128, 64, 128],
+    [Sz64, Sz32, 64, 32],
+    [Sz64, Sz16, 64, 16],
+    [Sz32, Sz128, 32, 128],
+    [Sz32, Sz64, 32, 64],
+    [Sz32, Sz16, 32, 16]
+);
+fixed_sub!(
+    [Sz128, Sz64, 128, 64],
+    [Sz128, Sz32, 128, 32],
+    [Sz128, Sz16, 128, 16],
+    [Sz64, Sz128, 64, 128],
+    [Sz64, Sz32, 64, 32],
+    [Sz64, Sz16, 64, 16],
+    [Sz32, Sz128, 32, 128],
+    [Sz32, Sz64, 32, 64],
+    [Sz32, Sz16, 32, 16]
+);
+fixed_mul!(
+    [Sz128, Sz64, 128, 64],
+    [Sz128, Sz32, 128, 32],
+    [Sz128, Sz16, 128, 16],
+    [Sz64, Sz128, 64, 128],
+    [Sz64, Sz32, 64, 32],
+    [Sz64, Sz16, 64, 16],
+    [Sz32, Sz128, 32, 128],
+    [Sz32, Sz64, 32, 64],
+    [Sz32, Sz16, 32, 16]
+);
+fixed_div!(
+    [Sz128, Sz64, 128, 64],
+    [Sz128, Sz32, 128, 32],
+    [Sz128, Sz16, 128, 16],
+    [Sz64, Sz128, 64, 128],
+    [Sz64, Sz32, 64, 32],
+    [Sz64, Sz16, 64, 16],
+    [Sz32, Sz128, 32, 128],
+    [Sz32, Sz64, 32, 64],
+    [Sz32, Sz16, 32, 16]
+);
