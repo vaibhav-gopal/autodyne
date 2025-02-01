@@ -8,19 +8,17 @@
 
 // GENERAL =========================================================================================
 /// General number methods and identifier
-pub trait Number: Add + Sub + Mul + Div + Neg{
+pub trait Number: Add<impl Number> + Sub + Mul + Div + Neg {
     fn zero() -> Self;
     fn one() -> Self;
 }
 
 /// Float-point number specific methods and identifier
 pub trait FloatNumber: Number {
-    type T;
 }
 
 /// Fixed-point number specific methods and identifier
 pub trait FixedNumber: Number {
-    type T;
 }
 
 // PRIVATE =========================================================================================
@@ -83,7 +81,7 @@ impl<T: FloatType> Number for RealF<T> {
 
 /// Generic Number implementation for fixed types
 /// TODO: instead of using explicit integer primitives, define trait bounds to require From and Into using i32 for example instead
-impl<L: FixedType> Number for Real<L> {
+impl<T: FixedType> Number for Real<T> {
     fn zero() -> Self {
         Real(0)
     }
@@ -96,11 +94,9 @@ impl<L: FixedType> Number for Real<L> {
 // FLOAT/FIXED FUNCTIONS
 
 impl<T: FloatType> FloatNumber for RealF<T> {
-    type T = T;
 }
 
 impl<T: FixedType> FixedNumber for Real<T> {
-    type T = T;
 }
 
 // FLOAT OPERATOR OVERLOADS
