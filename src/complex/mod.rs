@@ -96,6 +96,6 @@ impl<T: Number> Complex<T> {
     
     /// Get magnitude / abs of complex number
     pub fn norm(&self) -> T {
-        self.im.atan2
+        self.im.0.atan2
     }
 }

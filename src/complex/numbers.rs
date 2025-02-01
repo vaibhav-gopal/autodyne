@@ -1,4 +1,5 @@
-﻿use std::ops::{Add, Sub, Mul, Div, Neg};
+﻿use std::cmp::Ordering;
+use std::ops::{Add, Sub, Mul, Div, Neg};
 use std::fmt::{Debug, Formatter};
 
 // create Float marker trait that identifies floating point arithmetic
@@ -9,18 +10,54 @@ use std::fmt::{Debug, Formatter};
 
 // GENERAL =========================================================================================
 /// General number methods and identifier
-pub trait Number: Add + Sub + Mul + Div + Neg + Copy + Debug {
+pub trait Number: Add + Sub + Mul + Div + Neg + PartialEq + PartialOrd + Copy + Debug + From<Self>{
     fn zero() -> Self;
     fn one() -> Self;
+    fn floor(self) -> Self;
+    fn ceil(self) -> Self;
+    fn round(self) -> Self;
+    fn trunc(self) -> Self;
+    fn fract(self) -> Self;
+    fn pow(self, n: &Self) -> Self;
+    fn powf(self, n: &Self) -> Self;
+    fn sqrt(self) -> Self;
+    fn cbrt(self) -> Self;
+    fn exp(self) -> Self;
+    fn ln(self) -> Self;
+    fn log(self, base: &Self) -> Self;
+    fn log2(self) -> Self;
+    fn log10(self) -> Self;
+    fn hypot(self, other: &Self) -> Self;
+    fn sin(self) -> Self;
+    fn cos(self) -> Self;
+    fn tan(self) -> Self;
+    fn asin(self) -> Self;
+    fn acos(self) -> Self;
+    fn atan(self) -> Self;
+    fn atan2(self) -> Self;
+    fn sinh(self) -> Self;
+    fn cosh(self) -> Self;
+    fn tanh(self) -> Self;
+    fn asinh(self) -> Self;
+    fn acosh(self) -> Self;
+    fn atanh(self) -> Self;
+    fn abs(self) -> Self;
+    fn clamp(self, min: &Self, max: &Self) -> Self;
+    fn signum(self) -> Self;
+    fn max(self, other: &Self) -> Self;
+    fn min(self, other: &Self) -> Self;
+    fn to_deg(self) -> Self;
+    fn to_rad(self) -> Self;
+    fn inv(self) -> Self;
+    fn pi() -> Self;
+    fn e() -> Self;
+    fn tau() -> Self;
 }
 
-/// Float-point number specific methods and identifier
-pub trait FloatNumber: Number {
-}
-
-/// Fixed-point number specific methods and identifier
-pub trait FixedNumber: Number {
-}
+/// Float-point number identifier
+pub trait FloatNumber: Number {}
+/// Fixed-point number identifier
+pub trait FixedNumber: Number {}
 
 // PRIVATE =========================================================================================
 
@@ -51,7 +88,7 @@ trait Sz64 {}
 trait Sz128 {}
 trait FloatType: NumberType {}
 trait FixedType: NumberType {}
-trait NumberType: Add + Sub + Mul + Div + Neg + Copy + Debug {}
+trait NumberType: Add + Sub + Mul + Div + Neg + Copy + Debug + PartialEq + PartialOrd {}
 
 impl NumberType for f32 {}
 impl NumberType for f64 {}
@@ -72,6 +109,9 @@ impl FixedType for i32 {}
 impl FixedType for i64 {}
 impl FixedType for i128 {}
 
+impl<T: FloatType> FloatNumber for RealF<T> {}
+impl<T: FixedType> FixedNumber for Real<T> {}
+
 /// Generic Number implementation for float types
 /// TODO: instead of using explicit float primitives, define trait bounds to require From and Into using f32 for example instead
 impl<T: FloatType> Number for RealF<T> {
@@ -81,6 +121,162 @@ impl<T: FloatType> Number for RealF<T> {
 
     fn one() -> Self {
         RealF(1.0)
+    }
+
+    fn floor(self) -> Self {
+        todo!()
+    }
+
+    fn ceil(self) -> Self {
+        todo!()
+    }
+
+    fn round(self) -> Self {
+        todo!()
+    }
+
+    fn trunc(self) -> Self {
+        todo!()
+    }
+
+    fn fract(self) -> Self {
+        todo!()
+    }
+
+    fn pow(self, n: &Self) -> Self {
+        todo!()
+    }
+
+    fn powf(self, n: &Self) -> Self {
+        todo!()
+    }
+
+    fn sqrt(self) -> Self {
+        todo!()
+    }
+
+    fn cbrt(self) -> Self {
+        todo!()
+    }
+
+    fn exp(self) -> Self {
+        todo!()
+    }
+
+    fn ln(self) -> Self {
+        todo!()
+    }
+
+    fn log(self, base: &Self) -> Self {
+        todo!()
+    }
+
+    fn log2(self) -> Self {
+        todo!()
+    }
+
+    fn log10(self) -> Self {
+        todo!()
+    }
+
+    fn hypot(self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn sin(self) -> Self {
+        todo!()
+    }
+
+    fn cos(self) -> Self {
+        todo!()
+    }
+
+    fn tan(self) -> Self {
+        todo!()
+    }
+
+    fn asin(self) -> Self {
+        todo!()
+    }
+
+    fn acos(self) -> Self {
+        todo!()
+    }
+
+    fn atan(self) -> Self {
+        todo!()
+    }
+
+    fn atan2(self) -> Self {
+        todo!()
+    }
+
+    fn sinh(self) -> Self {
+        todo!()
+    }
+
+    fn cosh(self) -> Self {
+        todo!()
+    }
+
+    fn tanh(self) -> Self {
+        todo!()
+    }
+
+    fn asinh(self) -> Self {
+        todo!()
+    }
+
+    fn acosh(self) -> Self {
+        todo!()
+    }
+
+    fn atanh(self) -> Self {
+        todo!()
+    }
+
+    fn abs(self) -> Self {
+        todo!()
+    }
+
+    fn clamp(self, min: &Self, max: &Self) -> Self {
+        todo!()
+    }
+
+    fn signum(self) -> Self {
+        todo!()
+    }
+
+    fn max(self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn min(self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn to_deg(self) -> Self {
+        todo!()
+    }
+
+    fn to_rad(self) -> Self {
+        todo!()
+    }
+
+    fn inv(self) -> Self {
+        todo!()
+    }
+
+    fn pi() -> Self {
+        todo!()
+    }
+
+    fn e() -> Self {
+        todo!()
+    }
+
+    fn tau() -> Self {
+        todo!()
     }
 }
 
@@ -94,14 +290,162 @@ impl<T: FixedType> Number for Real<T> {
     fn one() -> Self {
         Real(1)
     }
-}
 
-// FLOAT/FIXED FUNCTIONS
+    fn floor(self) -> Self {
+        todo!()
+    }
 
-impl<T: FloatType> FloatNumber for RealF<T> {
-}
+    fn ceil(self) -> Self {
+        todo!()
+    }
 
-impl<T: FixedType> FixedNumber for Real<T> {
+    fn round(self) -> Self {
+        todo!()
+    }
+
+    fn trunc(self) -> Self {
+        todo!()
+    }
+
+    fn fract(self) -> Self {
+        todo!()
+    }
+
+    fn pow(self, n: &Self) -> Self {
+        todo!()
+    }
+
+    fn powf(self, n: &Self) -> Self {
+        todo!()
+    }
+
+    fn sqrt(self) -> Self {
+        todo!()
+    }
+
+    fn cbrt(self) -> Self {
+        todo!()
+    }
+
+    fn exp(self) -> Self {
+        todo!()
+    }
+
+    fn ln(self) -> Self {
+        todo!()
+    }
+
+    fn log(self, base: &Self) -> Self {
+        todo!()
+    }
+
+    fn log2(self) -> Self {
+        todo!()
+    }
+
+    fn log10(self) -> Self {
+        todo!()
+    }
+
+    fn hypot(self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn sin(self) -> Self {
+        todo!()
+    }
+
+    fn cos(self) -> Self {
+        todo!()
+    }
+
+    fn tan(self) -> Self {
+        todo!()
+    }
+
+    fn asin(self) -> Self {
+        todo!()
+    }
+
+    fn acos(self) -> Self {
+        todo!()
+    }
+
+    fn atan(self) -> Self {
+        todo!()
+    }
+
+    fn atan2(self) -> Self {
+        todo!()
+    }
+
+    fn sinh(self) -> Self {
+        todo!()
+    }
+
+    fn cosh(self) -> Self {
+        todo!()
+    }
+
+    fn tanh(self) -> Self {
+        todo!()
+    }
+
+    fn asinh(self) -> Self {
+        todo!()
+    }
+
+    fn acosh(self) -> Self {
+        todo!()
+    }
+
+    fn atanh(self) -> Self {
+        todo!()
+    }
+
+    fn abs(self) -> Self {
+        todo!()
+    }
+
+    fn clamp(self, min: &Self, max: &Self) -> Self {
+        todo!()
+    }
+
+    fn signum(self) -> Self {
+        todo!()
+    }
+
+    fn max(self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn min(self, other: &Self) -> Self {
+        todo!()
+    }
+
+    fn to_deg(self) -> Self {
+        todo!()
+    }
+
+    fn to_rad(self) -> Self {
+        todo!()
+    }
+
+    fn inv(self) -> Self {
+        todo!()
+    }
+
+    fn pi() -> Self {
+        todo!()
+    }
+
+    fn e() -> Self {
+        todo!()
+    }
+
+    fn tau() -> Self {
+        todo!()
+    }
 }
 
 // OTHER TRAIT IMPLS
@@ -111,18 +455,20 @@ impl<T: FloatType> Clone for RealF<T> {
         self.0.clone()
     }
 }
-impl<T: FloatType> Copy for RealF<T> {}
-impl<T: FloatType> Debug for RealF<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
 impl<T: FixedType> Clone for Real<T> {
     fn clone(&self) -> Self {
         self.0.clone()
     }
 }
+
+impl<T: FloatType> Copy for RealF<T> {}
 impl<T: FixedType> Copy for Real<T> {}
+
+impl<T: FloatType> Debug for RealF<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
+}
 impl<T: FixedType> Debug for Real<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
@@ -161,6 +507,21 @@ impl<T: FloatType> Neg for RealF<T> {
     type Output = Self;
     fn neg(self) -> Self::Output {
         -self.0
+    }
+}
+impl<T: FloatType> PartialEq for RealF<T> {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+impl<T: FloatType> PartialOrd for RealF<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+impl<T: FloatType> From<Self> for RealF<T> {
+    fn from(value: T) -> Self {
+        todo!()
     }
 }
 
@@ -208,7 +569,6 @@ macro_rules! fixed_div {
         )*
     };
 }
-
 macro_rules! apply_fixed_ops {
     ($($in_macro:ident),*) => {
         $(
@@ -229,7 +589,6 @@ macro_rules! apply_fixed_ops {
         )*
     };
 }
-
 apply_fixed_ops!(fixed_add, fixed_sub, fixed_mul, fixed_div);
 
 // FIXED OPERATOR OVERLOADS (WITH ITSELF)
@@ -241,31 +600,42 @@ impl<T: FixedType> Add for Real<T> {
         self.0 + rhs.0
     }
 }
-
 impl<T: FixedType> Sub for Real<T> {
     type Output = Self;
     fn sub(self, rhs: Self) -> Self::Output {
         self.0 - rhs.0
     }
 }
-
 impl<T: FixedType> Mul for Real<T> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
         self.0 * rhs.0
     }
 }
-
 impl<T: FixedType> Div for Real<T> {
     type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
         self.0 / rhs.0
     }
 }
-
 impl<T: FixedType> Neg for Real<T> {
     type Output = Self;
     fn neg(self) -> Self::Output {
         -self.0
+    }
+}
+impl<T: FixedType> PartialEq for Real<T> {
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+impl<T: FixedType> PartialOrd for Real<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        todo!()
+    }
+}
+impl<T: FixedType> From<Self> for Real<T> {
+    fn from(value: T) -> Self {
+        todo!()
     }
 }
