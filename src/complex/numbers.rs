@@ -7,10 +7,11 @@ use std::fmt::{Debug, Formatter};
 // SHOULD NOT INTRODUCE RUNTIME CONSTRAINTS (should never check if number is floatnumber or fixednumber!)
 // USE OPERATOR OVERLOADS AND ZERO-COST ABSTRACTIONS WHERE YOU CAN
 // HOWEVER, YOU CAN!! --> use floatnumber and fixednumber as trait bounds (compile time not run time)
+// TODO: SIMD!!!
 
 // GENERAL =========================================================================================
 /// General number methods and identifier
-pub trait Number: Add + Sub + Mul + Div + Neg + PartialEq + PartialOrd + Copy + Debug + From<Self>{
+pub trait Number: Add + Sub + Mul + Div + Neg + PartialEq + PartialOrd + Copy + Debug{
     fn zero() -> Self;
     fn one() -> Self;
     fn floor(self) -> Self;
@@ -474,6 +475,36 @@ impl<T: FixedType> Debug for Real<T> {
         todo!()
     }
 }
+impl<T: FloatType> From<Self> for RealF<T> {
+    fn from(value: Self) -> Self {
+        RealF(value.0)
+    }
+}
+impl<T: FloatType, A: FixedType> From<Real<A>> for RealF<T> {
+    fn from(value: Real<A>) -> Self {
+        todo!()
+    }
+}
+impl<T: FloatType, A: NumberType> From<A> for RealF<T> {
+    fn from(value: A) -> Self {
+        RealF(value)
+    }
+}
+impl<T: FixedType> From<Self> for Real<T> {
+    fn from(value: Self) -> Self {
+        Real(value.0)
+    }
+}
+impl<T: FixedType, A: FloatType> From<RealF<A>> for Real<T> {
+    fn from(value: Real<A>) -> Self {
+        todo!()
+    }
+}
+impl<T: FixedType, A: NumberType> From<A> for Real<T> {
+    fn from(value: A) -> Self {
+        Real(value)
+    }
+}
 
 // FLOAT OPERATOR OVERLOADS
 // can rely on auto-deref for FloatType instead of impl all the overloads again, but for the sake of type safety...
@@ -511,17 +542,12 @@ impl<T: FloatType> Neg for RealF<T> {
 }
 impl<T: FloatType> PartialEq for RealF<T> {
     fn eq(&self, other: &Self) -> bool {
-        todo!()
+        self.0.eq(other.0)
     }
 }
 impl<T: FloatType> PartialOrd for RealF<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-impl<T: FloatType> From<Self> for RealF<T> {
-    fn from(value: T) -> Self {
-        todo!()
+        self.0.partial_cmp(other.0)
     }
 }
 
@@ -530,7 +556,7 @@ impl<T: FloatType> From<Self> for RealF<T> {
 // add checks to make sure no overflow occurs!
 
 macro_rules! fixed_add {
-    ( $([$from:ident, $to:ident, $scale_from:expr, $scale_to:expr]),* ) => {
+    ( $([$from:ident, $to:ident, $scale_from:ident, $scale_to:expr]),* ) => {
         $(
         impl<T: FixedType + $from, A: FixedType + $to> Add<Real<A>> for Real<T> {
             type Output = Self;
@@ -569,22 +595,23 @@ macro_rules! fixed_div {
         )*
     };
 }
+
 macro_rules! apply_fixed_ops {
     ($($in_macro:ident),*) => {
         $(
         $in_macro!(
-            [Sz128, Sz64, 128, 64],
-            [Sz128, Sz32, 128, 32],
-            [Sz128, Sz16, 128, 16],
-            [Sz64, Sz128, 64, 128],
-            [Sz64, Sz32, 64, 32],
-            [Sz64, Sz16, 64, 16],
-            [Sz32, Sz128, 32, 128],
-            [Sz32, Sz64, 32, 64],
-            [Sz32, Sz16, 32, 16],
-            [Sz16, Sz128, 16, 128],
-            [Sz16, Sz64, 16, 64],
-            [Sz16, Sz32, 16, 32]
+            [Sz128, Sz64, SCALE_FACTOR_128, SCALE_FACTOR_64],
+            [Sz128, Sz32, SCALE_FACTOR_128, SCALE_FACTOR_32],
+            [Sz128, Sz16, SCALE_FACTOR_128, SCALE_FACTOR_16],
+            [Sz64, Sz128, SCALE_FACTOR_64, SCALE_FACTOR_128],
+            [Sz64, Sz32, SCALE_FACTOR_64, SCALE_FACTOR_32],
+            [Sz64, Sz16, SCALE_FACTOR_64, SCALE_FACTOR_16],
+            [Sz32, Sz128, SCALE_FACTOR_32, SCALE_FACTOR_128],
+            [Sz32, Sz64, SCALE_FACTOR_32, SCALE_FACTOR_64],
+            [Sz32, Sz16, SCALE_FACTOR_32, SCALE_FACTOR_16],
+            [Sz16, Sz128, SCALE_FACTOR_16, SCALE_FACTOR_128],
+            [Sz16, Sz64, SCALE_FACTOR_16, SCALE_FACTOR_64],
+            [Sz16, Sz32, SCALE_FACTOR_16, SCALE_FACTOR_32]
         );
         )*
     };
@@ -626,16 +653,11 @@ impl<T: FixedType> Neg for Real<T> {
 }
 impl<T: FixedType> PartialEq for Real<T> {
     fn eq(&self, other: &Self) -> bool {
-        todo!()
+        self.0.eq(other.0)
     }
 }
 impl<T: FixedType> PartialOrd for Real<T> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        todo!()
-    }
-}
-impl<T: FixedType> From<Self> for Real<T> {
-    fn from(value: T) -> Self {
-        todo!()
+        self.0.partial_cmp(other.0)
     }
 }
