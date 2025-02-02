@@ -1,9 +1,10 @@
-﻿mod numbers;
-pub use numbers::*;
+﻿use super::*;
+use super::real::*;
+use super::realf::*;
 
 /// Complex number in Cartesian form
 /// Usually you'll want to use Complex32 and Complex64 instead
-pub struct Complex<T: Number>{
+pub struct Complex<T: RealUnit + PrimitiveUnit>{
     /// Real portion
     pub re: T,
     /// Complex portion
@@ -45,19 +46,19 @@ macro_rules! im {
     };
 }
 
-impl<T: Number> Default for Complex<T> {
+impl<T: RealUnit + PrimitiveUnit> Default for Complex<T> {
     /// Create an empty Complex number
     fn default() -> Self {
         Complex::new(T::zero(), T::zero())
     }
 }
 
-impl<T: Number> Complex<T> {
+impl<T: RealUnit + PrimitiveUnit> Complex<T> {
     /// Create a new Complex number
     pub fn new(re: T, im: T) -> Complex<T> {
         Complex {re, im}
     }
-    
+
     /// Create a real unit
     pub fn re() -> Complex<T> {
         complex!(T::one(), T::zero())
@@ -72,28 +73,28 @@ impl<T: Number> Complex<T> {
     pub fn norm_sqr(&self) -> T {
         self.re * self.re + self.im * self.im;
     }
-    
+
     /// Multiply by a constant/scalar
     pub fn scale(&self, k: T) -> Complex<T> {
         complex!(self.re * k, self.im * k)
     }
-    
+
     /// Divide by a constant/scalar
     pub fn unscale(&self, k: T) -> Complex<T> {
         complex!(self.re / k, self.im * k)
     }
-    
+
     /// Return complex conjugate
     pub fn conj(&self) -> Complex<T> {
         complex!(self.re, -self.im)
     }
-    
+
     /// Return complex inverse
     pub fn inv(&self) -> Complex<T> {
         let norm_sqr = self.norm_sqr();
         complex!(self.re / norm_sqr, -self.im / norm_sqr)
     }
-    
+
     /// Get magnitude / abs of complex number
     pub fn norm(&self) -> T {
         self.im.0.atan2
