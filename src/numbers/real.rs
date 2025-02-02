@@ -11,32 +11,12 @@ pub type Real16 = Real<i16>;
 pub type Real32 = Real<i32>;
 pub type Real64 = Real<i64>;
 pub type Real128 = Real<i128>;
+
+// GENERAL IMPLEMENTATIONS =========================================================================
+
 impl<T: FixedType> Real<T> {
     pub fn new(val: T) -> Self {
         Self(val)
-    }
-}
-impl<i16> RealUnit for Real<i16> {
-    const MANTISSA_DIGITS: u32 = 8;
-}
-impl<i32> RealUnit for Real<i32> {
-    const MANTISSA_DIGITS: u32 = 16;
-}
-impl<i64> RealUnit for Real<i64> {
-    const MANTISSA_DIGITS: u32 = 32;
-}
-impl<i128> RealUnit for Real<i128> {
-    const MANTISSA_DIGITS: u32 = 64;
-}
-/// Generic Number implementation for fixed types
-/// TODO: instead of using explicit integer primitives, define trait bounds to require From and Into using i32 for example instead
-impl<T: FixedType> Number for Real<T> {
-    fn zero() -> Self {
-        Real::new(0)?
-    }
-
-    fn one() -> Self {
-        Real::new(1)?
     }
 }
 impl<T: FixedType> Clone for Real<T> {
@@ -49,6 +29,71 @@ impl<T: FixedType> Debug for Real<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
+}
+
+// UNIT IMPLEMENTATIONS ============================================================================
+
+impl<T: FixedType> Unit for Real<T> {}
+impl<T: FixedType> PrimitiveUnit for Real<T> {}
+
+impl<T: FixedType> IntUnit for Real<T> {
+    fn zero() -> Self {
+        Real::new(0)
+    }
+    fn one() -> Self {
+        Real::new(1)
+    }
+    fn pow(self, n: &impl IntUnit) -> Self {
+        todo!()
+    }
+    fn signum(self) -> Self {
+        todo!()
+    }
+    fn abs(self) -> Self {
+        todo!()
+    }
+    fn max(self, other: &impl IntUnit) -> Self {
+        todo!()
+    }
+    fn min(self, other: &impl IntUnit) -> Self {
+        todo!()
+    }
+    fn clamp(self, min: &impl IntUnit, max: &impl IntUnit) -> Self {
+        todo!()
+    }
+}
+
+macro_rules! specialization {
+    () => {};
+}
+
+impl<T: FixedType + Sz16> RealUnit for Real<T> {
+    const MANTISSA_DIGITS: u32 = 8;
+    const EPSILON: Self = Real(0);
+    const INFINITY: Self = Real(0);
+    const NAN: Self = Real(0);
+    const NEG_INFINITY: Self = Real(0);
+}
+impl<T: FixedType + Sz32> RealUnit for Real<T> {
+    const MANTISSA_DIGITS: u32 = 16;
+    const EPSILON: Self = Real(0);
+    const INFINITY: Self = Real(0);
+    const NAN: Self = Real(0);
+    const NEG_INFINITY: Self = Real(0);
+}
+impl<T: FixedType + Sz64> RealUnit for Real<T> {
+    const MANTISSA_DIGITS: u32 = 32;
+    const EPSILON: Self = Real(0);
+    const INFINITY: Self = Real(0);
+    const NAN: Self = Real(0);
+    const NEG_INFINITY: Self = Real(0);
+}
+impl<T: FixedType + Sz128> RealUnit for Real<T> {
+    const MANTISSA_DIGITS: u32 = 64;
+    const EPSILON: Self = Real(0);
+    const INFINITY: Self = Real(0);
+    const NAN: Self = Real(0);
+    const NEG_INFINITY: Self = Real(0);
 }
 
 // FIXED OPERATOR OVERLOADS (WITH OTHERS)

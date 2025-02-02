@@ -2,13 +2,13 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 // Private marker traits for QOL
-pub trait Sz16 {}
-pub trait Sz32 {}
-pub trait Sz64 {}
-pub trait Sz128 {}
-pub trait FloatType: NumberType {}
-pub trait FixedType: NumberType {}
-pub trait NumberType: Add + Sub + Mul + Div + Neg + Copy + Debug + PartialEq + PartialOrd {}
+pub(crate) trait Sz16 {}
+pub(crate) trait Sz32 {}
+pub(crate) trait Sz64 {}
+pub(crate) trait Sz128 {}
+pub(crate) trait FloatType: NumberType {}
+pub(crate) trait FixedType: NumberType {}
+pub(crate) trait NumberType: Add + Sub + Mul + Div + Neg + Copy + Debug + PartialEq + PartialOrd {}
 
 impl NumberType for f32 {}
 impl NumberType for f64 {}

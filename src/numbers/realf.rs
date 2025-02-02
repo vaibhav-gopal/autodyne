@@ -1,6 +1,7 @@
 ﻿use std::cmp::Ordering;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use crate::numbers::real::Real;
 use super::*;
 use super::markers::*;
 
@@ -14,15 +15,12 @@ impl<T: FloatType> RealF<T> {
         Self(val)
     }
 }
-/// Generic Number implementation for float types
-/// TODO: instead of using explicit float primitives, define trait bounds to require From and Into using f32 for example instead
-impl<T: FloatType> Number for RealF<T> {
-    fn zero() -> Self {
-        RealF::new(0.0)?
-    }
 
-    fn one() -> Self {
-        RealF::new(1.0)?
+// GENERAL IMPLEMENTATIONS =========================================================================
+
+impl<T: FloatType> RealF<T> {
+    pub fn new(val: T) -> Self {
+        Self(val)
     }
 }
 impl<T: FloatType> Clone for RealF<T> {
@@ -30,13 +28,58 @@ impl<T: FloatType> Clone for RealF<T> {
         self.0.clone()
     }
 }
-
 impl<T: FloatType> Copy for RealF<T> {}
-
 impl<T: FloatType> Debug for RealF<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         todo!()
     }
+}
+
+// UNIT IMPLEMENTATIONS ============================================================================
+
+impl<T: FloatType> Unit for RealF<T> {}
+impl<T: FloatType> PrimitiveUnit for RealF<T> {}
+
+impl<T: FloatType> IntUnit for RealF<T> {
+    fn zero() -> Self {
+        RealF::new(0)
+    }
+    fn one() -> Self {
+        RealF::new(1)
+    }
+    fn pow(self, n: &impl IntUnit) -> Self {
+        todo!()
+    }
+    fn signum(self) -> Self {
+        todo!()
+    }
+    fn abs(self) -> Self {
+        todo!()
+    }
+    fn max(self, other: &impl IntUnit) -> Self {
+        todo!()
+    }
+    fn min(self, other: &impl IntUnit) -> Self {
+        todo!()
+    }
+    fn clamp(self, min: &impl IntUnit, max: &impl IntUnit) -> Self {
+        todo!()
+    }
+}
+
+impl<T: FloatType + Sz32> RealUnit for RealF<T> {
+    const MANTISSA_DIGITS: u32 = 8;
+    const EPSILON: Self = RealF(0);
+    const INFINITY: Self = RealF(0);
+    const NAN: Self = RealF(0);
+    const NEG_INFINITY: Self = RealF(0);
+}
+impl<T: FixedType + Sz64> RealUnit for RealF<T> {
+    const MANTISSA_DIGITS: u32 = 16;
+    const EPSILON: Self = RealF(0);
+    const INFINITY: Self = RealF(0);
+    const NAN: Self = RealF(0);
+    const NEG_INFINITY: Self = RealF(0);
 }
 
 // FLOAT OPERATOR OVERLOADS
