@@ -39,10 +39,11 @@ macro_rules! complex {
     () => {
         Complex::default()
     };
-    ($re:expr, $im: expr) => {
+    ($re:expr, $im:expr) => {
         Complex::new($re, $im)
     };
 }
+
 #[macro_export]
 macro_rules! re {
     () => {

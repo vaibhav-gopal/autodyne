@@ -1,4 +1,11 @@
-﻿use std::ops::{Add, Sub, Mul, Div, Neg};
+﻿/// Module for extending the primitive types and introducing a system for working with signals, and data
+/// todo:
+/// - add documentation to all traits
+/// - add documentation for each new unit type
+/// - abstract SIMD operations
+/// - implement the fixed-point unit type
+
+use std::ops::{Add, Sub, Mul, Div, Neg};
 use std::fmt::{Debug};
 
 mod markers;
@@ -6,16 +13,9 @@ pub mod complex;
 pub mod real;
 pub mod real_fixed;
 
-// Currently using the newtype and generic/impl trait pattern
-// only use static dispatch and zero-cost abstractions (no dynamic dispatch)
-// avoid runtime overheads
-// TODO: SIMD!!!
-// TODO: Specialization macro? (for T specific associated constants on traits)
-// TODO: Delegation macro? (for underlying type methods on newtypes)
-
 // GENERAL =========================================================================================
 /// Trait for general number operations
-pub trait Unit: Add + Sub + Mul + Div + Neg + PartialEq + Copy + Debug{}
+pub trait Unit: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> + PartialEq + Copy + Debug{}
 
 /// Marker trait for identifying single field types ; used by units composed of other units
 pub trait PrimitiveUnit: Unit {}
