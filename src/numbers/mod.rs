@@ -85,7 +85,7 @@ pub trait ComplexUnit<T>: Unit {
     /// Return an imaginary unit
     fn im() -> Self;
     /// Square of the norm ; re^2 + im^2
-    fn norm_sqr(&self) -> T;
+    fn norm_sqrt(&self) -> T;
     /// Multiply by a constant/scalar
     fn scale(&self, k: T) -> Self;
     /// Divide by a constant/scalar

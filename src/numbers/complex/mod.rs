@@ -75,7 +75,7 @@ impl<T: RealUnit + PrimitiveUnit> ComplexUnit<T> for Complex<T> {
         Complex::new(T::zero(), T::one())
     }
 
-    fn norm_sqr(&self) -> T {
+    fn norm_sqrt(&self) -> T {
         todo!()
     }
 
@@ -131,20 +131,27 @@ impl<T: RealUnit + PrimitiveUnit> Sub for Complex<T> {
     }
 }
 impl<T: RealUnit + PrimitiveUnit> Mul for Complex<T> {
-    type Output = ();
+    type Output = Self;
     fn mul(self, rhs: Self) -> Self::Output {
-        todo!()
+        Complex::new(
+            self.re * rhs.re - self.im * rhs.im,
+            self.re * rhs.im + self.im * rhs.re
+        )
     }
 }
 impl<T: RealUnit + PrimitiveUnit> Div for Complex<T> {
-    type Output = ();
+    type Output = Self;
     fn div(self, rhs: Self) -> Self::Output {
-        todo!()
+        let norm_sqrt = rhs.norm_sqrt();
+        Complex::new(
+            (self.re * rhs.re + self.im * rhs.im) / norm_sqrt,
+            (self.im * rhs.re - self.re * rhs.im) / norm_sqrt
+        )
     }
 }
 impl<T: RealUnit + PrimitiveUnit> Neg for Complex<T> {
-    type Output = ();
+    type Output = Self;
     fn neg(self) -> Self::Output {
-        todo!()
+        Complex::new(-self.re, -self.im)
     }
 }
