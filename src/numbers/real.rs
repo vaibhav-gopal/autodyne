@@ -4,6 +4,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use super::*;
 use super::markers::*;
 
+use delegate::delegate;
+
 /// Real (fixed-point) number type
 #[repr(transparent)]
 pub struct Real<T: FixedType>(T);
@@ -63,37 +65,41 @@ impl<T: FixedType> IntUnit for Real<T> {
     }
 }
 
-macro_rules! specialization {
-    () => {};
-}
+// THE ISSUE (DELEGATION)
+// solution: impl Deref trait on all newtypes --> will automatically deref until method call is found
+// solution: macro to delegate functions
 
-impl<T: FixedType + Sz16> RealUnit for Real<T> {
-    const MANTISSA_DIGITS: u32 = 8;
-    const EPSILON: Self = Real(0);
-    const INFINITY: Self = Real(0);
-    const NAN: Self = Real(0);
-    const NEG_INFINITY: Self = Real(0);
-}
-impl<T: FixedType + Sz32> RealUnit for Real<T> {
-    const MANTISSA_DIGITS: u32 = 16;
-    const EPSILON: Self = Real(0);
-    const INFINITY: Self = Real(0);
-    const NAN: Self = Real(0);
-    const NEG_INFINITY: Self = Real(0);
-}
-impl<T: FixedType + Sz64> RealUnit for Real<T> {
-    const MANTISSA_DIGITS: u32 = 32;
-    const EPSILON: Self = Real(0);
-    const INFINITY: Self = Real(0);
-    const NAN: Self = Real(0);
-    const NEG_INFINITY: Self = Real(0);
-}
-impl<T: FixedType + Sz128> RealUnit for Real<T> {
-    const MANTISSA_DIGITS: u32 = 64;
-    const EPSILON: Self = Real(0);
-    const INFINITY: Self = Real(0);
-    const NAN: Self = Real(0);
-    const NEG_INFINITY: Self = Real(0);
+// THE ISSUE (SPECIALIZATION)
+// need the following some shared state between types of fixed point reals
+// specifically, assigning how many fractional digits per fixed-point type
+
+// can hard code every function to use specific fractional digits per operation via macros
+
+// can have an associated constant per fixed-point type (most sound approach)
+// however, do not want to reimplement every RealUnit method every time I want to specialize into a concrete fixed-point type
+// (i.e. need some sort of blanket implementation and then specific implementations per type for the associated constants)
+// solutions:
+// - macro that copies code over all possible specializations
+
+// - delegate specializations to inner fields...?? (delegate the constants to inner field) (best solution, if it works)
+// - maybe a proc macro that uses the above macro to achieve specialization???
+
+impl<T: FixedType> RealUnit for Real<T> {
+    
+    delegate! {
+        to self.0 {
+            const NAN: Self;
+            const INFINITY: Self;
+            const NEG_INFINITY: Self;
+            const EPSILON: Self;
+            const MANTISSA_DIGITS: u32;
+        }
+    }
+    const NAN: Self;
+    const INFINITY: Self;
+    const NEG_INFINITY: Self;
+    const EPSILON: Self;
+    const MANTISSA_DIGITS: u32;
 }
 
 // FIXED OPERATOR OVERLOADS (WITH OTHERS)

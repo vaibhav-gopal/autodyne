@@ -3,9 +3,21 @@
 version = 4
 
 [[package]]
+name = "delegate"
+version = "0.13.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297806318ef30ad066b15792a8372858020ae3ca2e414ee6c2133b1eb9e9e945"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "dsp_lib"
 version = "0.1.0"
 dependencies = [
+ "delegate",
  "thiserror",
 ]
 

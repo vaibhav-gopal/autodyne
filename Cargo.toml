@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 thiserror = "2.0.11"
+delegate = "0.13.2"
 
 [features]
 default = []
