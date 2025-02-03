@@ -2,9 +2,9 @@
 use std::fmt::{Debug};
 
 mod markers;
-pub mod real;
-pub mod realf;
 pub mod complex;
+pub mod real;
+pub mod real_fixed;
 
 // Currently using the newtype and generic/impl trait pattern
 // only use static dispatch and zero-cost abstractions (no dynamic dispatch)
@@ -15,22 +15,22 @@ pub mod complex;
 
 // GENERAL =========================================================================================
 /// Trait for general number operations
-pub trait Unit: Add + Sub + Mul + Div + Neg + PartialEq + PartialOrd + Copy + Debug{}
+pub trait Unit: Add + Sub + Mul + Div + Neg + PartialEq + Copy + Debug{}
 
 /// Marker trait for identifying single field types ; used by units composed of other units
 pub trait PrimitiveUnit: Unit {}
 
 /// Trait for data containing integer number operations
 /// Defines minimum operations that can apply to any integer and return a valid, usable result
-pub trait IntUnit: Unit {
+pub trait IntUnit: Unit + PartialOrd {
     fn zero() -> Self;
     fn one() -> Self;
-    fn pow(self, n: &impl IntUnit) -> Self;
+    fn pow(self, n: Self) -> Self;
     fn signum(self) -> Self;
     fn abs(self) -> Self;
-    fn max(self, other: &impl IntUnit) -> Self;
-    fn min(self, other: &impl IntUnit) -> Self;
-    fn clamp(self, min: &impl IntUnit, max: &impl IntUnit) -> Self;
+    fn max(self, other: Self) -> Self;
+    fn min(self, other: Self) -> Self;
+    fn clamp(self, min: Self, max: Self) -> Self;
 }
 
 /// Trait for data containing real number operations
@@ -41,28 +41,31 @@ pub trait RealUnit: IntUnit {
     const NEG_INFINITY: Self;
     const EPSILON: Self;
     const MANTISSA_DIGITS: u32;
+    const PI: Self;
+    const E: Self;
+    const TAU: Self;
     fn recip(self) -> Self;
     fn floor(self) -> Self;
     fn ceil(self) -> Self;
     fn round(self) -> Self;
     fn trunc(self) -> Self;
     fn fract(self) -> Self;
-    fn powf(self, n: &impl RealUnit) -> Self;
+    fn powf(self, n: Self) -> Self;
     fn sqrt(self) -> Self;
     fn cbrt(self) -> Self;
     fn exp(self) -> Self;
     fn ln(self) -> Self;
-    fn log(self, base: &impl RealUnit) -> Self;
+    fn log(self, base: Self) -> Self;
     fn log2(self) -> Self;
     fn log10(self) -> Self;
-    fn hypot(self, other: &impl RealUnit) -> Self;
+    fn hypot(self, other: Self) -> Self;
     fn sin(self) -> Self;
     fn cos(self) -> Self;
     fn tan(self) -> Self;
     fn asin(self) -> Self;
     fn acos(self) -> Self;
     fn atan(self) -> Self;
-    fn atan2(self) -> Self;
+    fn atan2(self, other: Self) -> Self;
     fn sinh(self) -> Self;
     fn cosh(self) -> Self;
     fn tanh(self) -> Self;
@@ -71,9 +74,6 @@ pub trait RealUnit: IntUnit {
     fn atanh(self) -> Self;
     fn to_deg(self) -> Self;
     fn to_rad(self) -> Self;
-    fn pi() -> Self;
-    fn e() -> Self;
-    fn tau() -> Self;
     fn is_nan(&self) -> bool;
     fn is_inf(&self) -> bool;
 }
@@ -96,7 +96,12 @@ pub trait ComplexUnit<T>: Unit {
     fn inv(&self) -> Self;
     /// Get magnitude / abs of complex number
     fn norm(&self) -> T;
+    /// Calculate the principal argument
+    fn arg(&self) -> T;
+    /// Get polar form representation
+    fn to_polar(&self) -> (T, T);
+    /// Get complex number from polar form
+    fn from_polar(r: T, theta: T) -> Self;
+    /// Compute e^(self)
+    fn exp(&self) -> Self;
 }
-
-/// Trait for data utilizing simd (vectorized) operations
-pub trait SIMDUnit: Unit {}
