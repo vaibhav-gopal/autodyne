@@ -1,30 +1,35 @@
-﻿use super::*;
+﻿use std::fmt::Formatter;
+/// Using extension traits compared to newtypes ; extending the primitive types
+/// Although for fixed-point I could go the wrapper type way similar to complex
 
-/// Real (floating-point) number type
-#[repr(transparent)]
-pub struct RealF<T: FixedType>(T);
-pub type Real16 = RealF<i16>;
-pub type Real32 = RealF<i32>;
-pub type Real64 = RealF<i64>;
+use super::*;
+use super::markers::*;
+
+use delegate::delegate;
+
+// #[repr(transparent)]
+// pub struct RealF<T: FixedType>(T);
+// pub type Real16 = crate::units::real_fixed::real_fixed_new::RealF<i16>;
+// pub type Real32 = crate::units::real_fixed::real_fixed_new::RealF<i32>;
+// pub type Real64 = crate::units::real_fixed::real_fixed_new::RealF<i64>;
 
 // GENERAL IMPLEMENTATIONS =========================================================================
 
-impl<T: FixedType> RealF<T> {
-    pub fn new(val: T) -> Self {
-        Self(val)
-    }
-}
-impl<T: FixedType> Clone for RealF<T> {
-    fn clone(&self) -> Self {
-        RealF(self.0.clone())
-    }
-}
-impl<T: FixedType> Copy for RealF<T> {}
-impl<T: FixedType> Debug for RealF<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
+// impl<T: FixedType> crate::units::real_fixed::real_fixed_new::RealF<T> {
+//     pub fn new(val: T) -> Self {
+//         Self(val)
+//     }
+// }
+// impl<T: FixedType> Clone for crate::units::real_fixed::real_fixed_new::RealF<T> {
+//     fn clone(&self) -> Self {
+//         crate::units::real_fixed::real_fixed_new::RealF(self.0.clone())
+//     }
+// }
+// impl<T: FixedType> Copy for crate::units::real_fixed::real_fixed_new::RealF<T> {}
+// impl<T: FixedType> Debug for crate::units::real_fixed::real_fixed_new::RealF<T> {
+//     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+//     }
+// }
 
 // UNIT IMPLEMENTATIONS ============================================================================
 

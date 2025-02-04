@@ -1,16 +1,19 @@
-﻿use dsp_lib::numbers::real::*;
-use dsp_lib::numbers::complex::*;
-use dsp_lib::numbers::*;
-use dsp_lib::{complex, re, im};
+﻿use dsp_lib::{
+    complex, 
+    re, 
+    im, 
+    buffer::*,
+    units::{
+        *,
+        complex::*
+    }
+};
 
 fn main() {
-    let a: f32 = 64.0;
-    let b: f32 = 32.0;
+    let bruh = 32f32;
+    let comp = complex!(32f32, 38f32);
+    let res = bruh * comp.re;
     
-    let result = a + b;
-    let comp = Complex::new(a + b, a + b);
-    let comp2 = Complex::new(comp.re + comp.im, comp.im - comp.re);
-    let result2 = re!(32f32) + im!(64f32);
-
+    println!("{}", res);
     ()
 }

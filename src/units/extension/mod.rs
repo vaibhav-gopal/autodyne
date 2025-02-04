@@ -1,11 +1,7 @@
 ﻿/// Using extension traits compared to newtypes ; extending the primitive types
 
 use super::*;
-use super::markers::*;
-
 use delegate::delegate;
-
-mod real_new;
 
 impl Unit for f32 {}
 impl Unit for f64 {}

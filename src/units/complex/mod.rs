@@ -67,7 +67,9 @@ macro_rules! im {
 
 impl<T: RealUnit + PrimitiveUnit> Unit for Complex<T> {}
 
-impl<T: RealUnit + PrimitiveUnit> ComplexUnit<T> for Complex<T> {
+impl<T: RealUnit + PrimitiveUnit> ComplexUnit for Complex<T> {
+    type Item = T;
+    
     fn re() -> Self {
         Complex::new(T::one(), T::zero())
     }
@@ -76,15 +78,15 @@ impl<T: RealUnit + PrimitiveUnit> ComplexUnit<T> for Complex<T> {
         Complex::new(T::zero(), T::one())
     }
 
-    fn norm_sqrt(&self) -> T {
+    fn norm_sqrt(&self) -> Self::Item {
         todo!()
     }
 
-    fn scale(&self, k: T) -> Self {
+    fn scale(&self, k: Self::Item) -> Self {
         todo!()
     }
 
-    fn unscale(&self, k: T) -> Self {
+    fn unscale(&self, k: Self::Item) -> Self {
         todo!()
     }
 
@@ -96,19 +98,19 @@ impl<T: RealUnit + PrimitiveUnit> ComplexUnit<T> for Complex<T> {
         todo!()
     }
 
-    fn norm(&self) -> T {
+    fn norm(&self) -> Self::Item {
         todo!()
     }
 
-    fn arg(&self) -> T {
+    fn arg(&self) -> Self::Item {
         todo!()
     }
 
-    fn to_polar(&self) -> (T, T) {
+    fn to_polar(&self) -> (Self::Item, Self::Item) {
         todo!()
     }
 
-    fn from_polar(r: T, theta: T) -> Self {
+    fn from_polar(r: Self::Item, theta: Self::Item) -> Self {
         todo!()
     }
 

@@ -1,17 +1,21 @@
-﻿/// Module for extending the primitive types and introducing a system for working with signals, and data
+﻿/// Module for extending the primitive types and introducing a system for working with primitive data (numbers)
 /// todo:
 /// - add documentation to all traits
 /// - add documentation for each new unit type
-/// - abstract SIMD operations
-/// - implement the fixed-point unit type
+/// - abstract SIMD operations (later ; prob needs to be its own module)
+/// - implement the fixed-point unit type (later)
+/// - add tests (next)
+/// - make more macros to derive more arithmetic operations (next)
 
 use std::ops::{Add, Sub, Mul, Div, Neg};
 use std::fmt::{Debug};
 
 mod markers;
+mod extension;
+
 pub mod complex;
-pub mod real;
 pub mod real_fixed;
+pub mod real;
 
 // GENERAL =========================================================================================
 /// Trait for general number operations
@@ -79,29 +83,30 @@ pub trait RealUnit: IntUnit {
 }
 
 /// Trait for data containing complex number operations
-pub trait ComplexUnit<T>: Unit {
+pub trait ComplexUnit: Unit {
+    type Item;
     /// Return a real unit
     fn re() -> Self;
     /// Return an imaginary unit
     fn im() -> Self;
     /// Square of the norm ; re^2 + im^2
-    fn norm_sqrt(&self) -> T;
+    fn norm_sqrt(&self) -> Self::Item;
     /// Multiply by a constant/scalar
-    fn scale(&self, k: T) -> Self;
+    fn scale(&self, k: Self::Item) -> Self;
     /// Divide by a constant/scalar
-    fn unscale(&self, k: T) -> Self;
+    fn unscale(&self, k: Self::Item) -> Self;
     /// Return complex conjugate
     fn conj(&self) -> Self;
     /// Return complex inverse
     fn inv(&self) -> Self;
     /// Get magnitude / abs of complex number
-    fn norm(&self) -> T;
+    fn norm(&self) -> Self::Item;
     /// Calculate the principal argument
-    fn arg(&self) -> T;
+    fn arg(&self) -> Self::Item;
     /// Get polar form representation
-    fn to_polar(&self) -> (T, T);
+    fn to_polar(&self) -> (Self::Item, Self::Item);
     /// Get complex number from polar form
-    fn from_polar(r: T, theta: T) -> Self;
+    fn from_polar(r: Self::Item, theta: Self::Item) -> Self;
     /// Compute e^(self)
     fn exp(&self) -> Self;
 }
