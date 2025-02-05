@@ -1,0 +1,4 @@
+﻿
+pub struct Signal<T> {
+    
+}
