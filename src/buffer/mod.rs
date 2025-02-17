@@ -9,7 +9,6 @@
 /// - find a way to represent basic DSP functions (as iterator adapters and traits? or as plain functions?)
 /// - find a way to represent chunkable buffers (for real-time applications), Iterators have next_chunk as a nightly feature and there also iterators with the specific feature of chunking in the iter_tools crate
 ///     - should I just use the iter_tools for chunking? (only problem is that it provides so many blanket impl that I don't need)
-///     - should honestly just use it yeah...
 
 use std::ops::{Add, Sub, Mul, Div, Neg};
 use std::fmt::{Debug};

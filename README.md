@@ -9,7 +9,10 @@
 - should have a respectable selection of useful and common DSP operations
   - see the JUCE library documentation for their DSP related functions and try to get most of the functionality they have
 - should support extending the crate with user-given DSP functions that are **easy** to create and work with
+- should allow creation of modulation and demodulation DSP operations that can be user defined **easily** (for future me: remember modulation is process of **encoding** information into a carrier signal to be transmitted)
+  - should have a basic implementation of IQ modulation and demodulation
 - OPTIONAL: creating a type of "signal" graph / pipeline (a system...), and passing in audio (basis of most audio plugins / engines)
+  - should easily represent sampling rate differences between stages and account for it
   - implementation details to be determined ; probably not scoped to this library
 
 ## Units
