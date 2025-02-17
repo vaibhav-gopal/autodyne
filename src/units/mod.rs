@@ -15,7 +15,6 @@ mod extension;
 
 pub mod complex;
 pub mod real_fixed;
-pub mod real;
 
 // GENERAL =========================================================================================
 /// Trait for general number operations
