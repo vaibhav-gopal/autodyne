@@ -13,48 +13,45 @@
 
 use std::ops::{Deref, DerefMut, Index, IndexMut};
 use std::fmt::{Debug};
+use std::io::{BufRead, Read, Seek, Write};
 use crate::units::*;
 
-mod extension;
 pub mod adapters;
-pub mod ops;
+pub mod buffer;
 
 // GENERAL =========================================================================================
 
-#[repr(transparent)]
-pub struct Buffer<T> {
-    data: Vec<T>
-}
-
-#[repr(transparent)]
-pub struct BufferView<'a, T> {
-    slice: &'a [T],
-}
-
-#[repr(transparent)]
-pub struct BufferViewMut<'a, T> {
-    slice: &'a mut [T],
-}
-
-/// Trait for general buffer applications : stored in program memory
-pub trait IntoBuffer: PartialEq + Debug + IntoIterator + Index<usize> + AsRef<[Self::Item]> {
-    type Item;
-}
-
-pub trait FromBuffer: IntoBuffer {}
-
-/// Trait that provides static buffer operations
-pub trait BufferOps<T: Buffer> {
-    // associated adapter methods
-    fn conv(input: &T, impulse: &T, output: &mut T, state: &mut T);
-}
-
-/// Signal traits : not stored in program memory
+/// Signal trait
 /// - use std::io as much as possible for this or computations
 ///     - specifically in std::io use BufRead (and by ext Read), Seek, and Write traits
 ///     - this enables "signals" to be used as reader or writers in io applications
-/// Procedural signal (available immediately ; through computation)
-pub trait ProcSignal {}
+/// - maybe have Deref and DerefMut as supertraits as well
+/// - or AsRef and AsMut
+/// - separate arithmetic operations into a separate SignalOps trait
+pub trait Signal: IntoIterator {
+    type View;
+    fn view(&self) -> Self::View;
+    fn len(&self) -> usize {
+        self.view().len()
+    }
+}
 
-/// Streamed signal (not available immediately ; through i/o, wait for new data)
-pub trait StreamSignal {}
+/// Mutable Signal Trait
+pub trait SignalMut: Signal {
+    type ViewMut;
+    fn view_mut(&mut self) -> Self::ViewMut;
+}
+
+/// Main Signal Operations Trait
+pub trait SignalOps: Signal {}
+
+/// Signal
+pub trait SignalIO: Signal + BufRead + Read + Seek + Write {}
+
+/// Signal conversion trait
+pub trait IntoSignal<T: Signal>: IntoIterator {
+    fn into_signal(self) -> T;
+}
+pub trait FromSignal<T: Signal> {
+    fn from_signal(signal: T) -> Self;
+}
