@@ -22,30 +22,37 @@ pub mod buffer;
 // GENERAL =========================================================================================
 
 /// Signal trait
-/// - use std::io as much as possible for this or computations
-///     - specifically in std::io use BufRead (and by ext Read), Seek, and Write traits
-///     - this enables "signals" to be used as reader or writers in io applications
-/// - maybe have Deref and DerefMut as supertraits as well
-/// - or AsRef and AsMut
-/// - separate arithmetic operations into a separate SignalOps trait
-pub trait Signal: IntoIterator {
-    type View;
-    fn view(&self) -> Self::View;
-    fn len(&self) -> usize {
-        self.view().len()
-    }
+/// - must guarantee non-mutable access to an underlying buffer via a slice
+pub trait Signal: 
+    IntoIterator<Item = Self::Sample> + 
+    Deref<Target = [Self::Sample]> +
+    Debug
+{
+    type Sample: PrimitiveUnit;
+    fn view(&self) -> &[Self::Sample];
 }
 
 /// Mutable Signal Trait
-pub trait SignalMut: Signal {
-    type ViewMut;
-    fn view_mut(&mut self) -> Self::ViewMut;
+/// - guarantees mutable access to an underlying buffer via a slice
+pub trait SignalMut:
+    Signal + 
+    DerefMut<Target = [Self::Sample]>
+{
+    fn view_mut(&mut self) -> &mut [Self::Sample];
+}
+
+/// 
+pub trait SignalContainer:
+    Signal
+{
+    
+    fn as_container(&self) -> 
 }
 
 /// Main Signal Operations Trait
 pub trait SignalOps: Signal {}
 
-/// Signal
+/// Signal input/output trait for io bound signal operations
 pub trait SignalIO: Signal + BufRead + Read + Seek + Write {}
 
 /// Signal conversion trait
