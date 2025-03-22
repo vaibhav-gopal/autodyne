@@ -22,7 +22,7 @@ pub mod buffer;
 // GENERAL =========================================================================================
 
 /// Signal trait
-/// - must guarantee non-mutable access to an underlying buffer via a slice
+/// - must guarantee immutable access to an underlying buffer via a slice
 pub trait Signal: 
     IntoIterator<Item = Self::Sample> + 
     Deref<Target = [Self::Sample]> +
@@ -33,7 +33,7 @@ pub trait Signal:
 }
 
 /// Mutable Signal Trait
-/// - guarantees mutable access to an underlying buffer via a slice
+/// - must guarantee mutable (interior) access to an underlying buffer via a slice
 pub trait SignalMut:
     Signal + 
     DerefMut<Target = [Self::Sample]>
@@ -41,12 +41,15 @@ pub trait SignalMut:
     fn view_mut(&mut self) -> &mut [Self::Sample];
 }
 
-/// 
-pub trait SignalContainer:
-    Signal
-{
-    
-    fn as_container(&self) -> 
+/// Owned + Growth (Container) Signal Trait
+pub trait ResizableSignal: SignalMut {
+    type Container;
+    fn resize();
+    fn clear();
+    fn append();
+    fn as_container(&self) -> &Self::Container;
+    fn as_container_mut(&mut self) -> &mut Self::Container;
+    fn into_container(self) -> Self::Container;
 }
 
 /// Main Signal Operations Trait
