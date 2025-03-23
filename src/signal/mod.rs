@@ -11,12 +11,13 @@
 ///     - should I just use the iter_tools for chunking? (only problem is that it provides so many blanket impl that I don't need)
 ///     - maybe we don't even need this... since chunking is only really only useful for streaming data into some buffer continuously via another thread while reading it
 
-use std::ops::{Deref, DerefMut, Index, IndexMut};
+use std::ops::{Add, Deref, DerefMut, Div, Index, Mul, Neg, Sub};
 use std::fmt::{Debug};
 use std::io::{BufRead, Read, Seek, Write};
 use crate::units::*;
 
 pub mod adapters;
+pub mod ndarray;
 pub mod buffer;
 
 // GENERAL =========================================================================================
@@ -32,7 +33,7 @@ pub trait Signal:
     AsRef<[Self::Sample]> + 
     Deref<Target = [Self::Sample]>
 {
-    type Sample: PrimitiveUnit;
+    type Sample: Unit;
     fn view(&self) -> &[Self::Sample];
 }
 
@@ -65,8 +66,9 @@ pub trait SignalResizable: SignalOwned {
 }
 
 /// Main Signal Operations Trait
-pub trait SignalOps: Signal {}
+pub trait SignalOps: Signal + Add + Mul + Div + Sub + Neg {
+    fn dot();
+}
 
-
+/// Procedurally Generated or Streamed Signal
 pub trait SignalStream: Signal + BufRead + Read + Seek + Write {}
-pub trait SignalProc: Signal {}
