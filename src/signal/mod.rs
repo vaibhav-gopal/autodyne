@@ -21,47 +21,52 @@ pub mod buffer;
 
 // GENERAL =========================================================================================
 
-/// Signal trait
-/// - must guarantee immutable access to an underlying buffer via a slice
-pub trait Signal: 
+/// Signal trait : buffer backed data
+/// - must guarantee immutable access to the underlying data via a slice
+///     - must guarantee an iterator can be made on the underlying data
+/// - must guarantee that there is an underlying buffer from which we can take a slice
+///     - consequence : all streamed or procedural signals must be buffer-backed
+pub trait Signal:
+    Debug +
     IntoIterator<Item = Self::Sample> + 
-    Deref<Target = [Self::Sample]> +
-    Debug
+    AsRef<[Self::Sample]> + 
+    Deref<Target = [Self::Sample]>
 {
     type Sample: PrimitiveUnit;
     fn view(&self) -> &[Self::Sample];
 }
 
 /// Mutable Signal Trait
-/// - must guarantee mutable (interior) access to an underlying buffer via a slice
+/// - must guarantee mutable (interior) access to the underlying data via a slice
 pub trait SignalMut:
     Signal + 
+    AsMut<[Self::Sample]> +
     DerefMut<Target = [Self::Sample]>
 {
     fn view_mut(&mut self) -> &mut [Self::Sample];
 }
 
-/// Owned + Growth (Container) Signal Trait
-pub trait ResizableSignal: SignalMut {
+/// Container Mutable Signal Trait
+/// - must guarantee that access to the underlying buffer is permitted
+///     - underlying buffer may or may not have interior mutability, so we choose worst case (SignalMut bound)
+/// - must guarantee there is ownership of the underlying buffer
+pub trait SignalOwned: SignalMut {
     type Container;
-    fn resize();
-    fn clear();
-    fn append();
     fn as_container(&self) -> &Self::Container;
     fn as_container_mut(&mut self) -> &mut Self::Container;
     fn into_container(self) -> Self::Container;
 }
 
+/// Resizeable Container Signal Trait
+pub trait SignalResizable: SignalOwned {
+    fn resize(&mut self, new_len: usize, fill_value: Self::Sample);
+    fn clear(&mut self);
+    fn append(&mut self, value: Self::Sample);
+}
+
 /// Main Signal Operations Trait
 pub trait SignalOps: Signal {}
 
-/// Signal input/output trait for io bound signal operations
-pub trait SignalIO: Signal + BufRead + Read + Seek + Write {}
 
-/// Signal conversion trait
-pub trait IntoSignal<T: Signal>: IntoIterator {
-    fn into_signal(self) -> T;
-}
-pub trait FromSignal<T: Signal> {
-    fn from_signal(signal: T) -> Self;
-}
+pub trait SignalStream: Signal + BufRead + Read + Seek + Write {}
+pub trait SignalProc: Signal {}
