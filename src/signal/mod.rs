@@ -35,6 +35,9 @@ pub trait Signal:
 {
     type Sample: Unit;
     fn view(&self) -> &[Self::Sample];
+    fn len(&self) -> usize {
+        self.view().len()
+    }
 }
 
 /// Mutable Signal Trait
@@ -66,8 +69,14 @@ pub trait SignalResizable: SignalOwned {
 }
 
 /// Main Signal Operations Trait
+/// - guarantees element-wise arithmetic via op overload
+/// - guarantees single-value broadcast via op overload
 pub trait SignalOps: Signal + Add + Mul + Div + Sub + Neg {
-    fn dot();
+    fn try_add();
+    fn try_mul();
+    fn try_div();
+    fn try_sub();
+    fn try_neg();
 }
 
 /// Procedurally Generated or Streamed Signal
