@@ -9,48 +9,6 @@ impl Unit for f64 {}
 impl PrimitiveUnit for f32 {}
 impl PrimitiveUnit for f64 {}
 
-impl IntUnit for f32 {
-    fn zero() -> Self {
-        0f32
-    }
-
-    fn one() -> Self {
-        1f32
-    }
-    
-    delegate! {
-        to self {
-            fn signum(self) -> Self;
-            fn abs(self) -> Self;
-            fn pow(self, n: Self) -> Self;
-            fn max(self, other: Self) -> Self;
-            fn min(self, other: Self) -> Self;
-            fn clamp(self, min: Self, max: Self) -> Self;
-        }
-    }
-}
-
-impl IntUnit for f64 {
-    fn zero() -> Self {
-        0f64
-    }
-
-    fn one() -> Self {
-        1f64
-    }
-
-    delegate! {
-        to self {
-            fn signum(self) -> Self;
-            fn abs(self) -> Self;
-            fn pow(self, n: Self) -> Self;
-            fn max(self, other: Self) -> Self;
-            fn min(self, other: Self) -> Self;
-            fn clamp(self, min: Self, max: Self) -> Self;
-        }
-    }
-}
-
 impl RealUnit for f32 {
     const NAN: Self = Self::NAN;
     const INFINITY: Self = Self::INFINITY;
@@ -60,9 +18,19 @@ impl RealUnit for f32 {
     const PI: Self = std::f32::consts::PI;
     const E: Self = std::f32::consts::E;
     const TAU: Self = std::f32::consts::TAU;
+    fn zero() -> Self { 0f32 }
+    fn one() -> Self { 1f32 }
 
     delegate! {
+        #[through(f32)]
+        #[allow(unconditional_recursion)]
         to self {
+            fn pow(self, n: Self) -> Self;
+            fn signum(self) -> Self;
+            fn abs(self) -> Self;
+            fn max(self, other: Self) -> Self;
+            fn min(self, other: Self) -> Self;
+            fn clamp(self, min: Self, max: Self) -> Self;
             fn recip(self) -> Self;
             fn floor(self) -> Self;
             fn ceil(self) -> Self;
@@ -112,9 +80,19 @@ impl RealUnit for f64 {
     const PI: Self = std::f64::consts::PI;
     const E: Self = std::f64::consts::E;
     const TAU: Self = std::f64::consts::TAU;
-
+    fn zero() -> Self { 0f64 }
+    fn one() -> Self { 1f64 }
+    
     delegate! {
+        #[through(f64)]
+        #[allow(unconditional_recursion)]
         to self {
+            fn signum(self) -> Self;
+            fn abs(self) -> Self;
+            fn pow(self, n: Self) -> Self;
+            fn max(self, other: Self) -> Self;
+            fn min(self, other: Self) -> Self;
+            fn clamp(self, min: Self, max: Self) -> Self;
             fn recip(self) -> Self;
             fn floor(self) -> Self;
             fn ceil(self) -> Self;

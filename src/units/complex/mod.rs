@@ -2,7 +2,7 @@
 
 /// Complex number in Cartesian form
 /// Usually you'll want to use Complex32 and Complex64 instead
-#[derive(Eq, PartialEq, Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Copy, Clone, Debug, PartialOrd)]
 pub struct Complex<T: RealUnit + PrimitiveUnit>{
     /// Real portion
     pub re: T,

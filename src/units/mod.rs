@@ -10,21 +10,25 @@
 use std::ops::{Add, Sub, Mul, Div, Neg};
 use std::fmt::{Debug};
 
-mod markers;
 mod extension;
 
 pub mod complex;
 
 // GENERAL =========================================================================================
-/// Trait for general number operations
-pub trait Unit: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> + PartialEq + Copy + Debug{}
+/// Trait for general signed primitive data operations
+/// must be able : perform basic arithmetic, be comparable and be copyable
+/// therefore, must be : in memory
+pub trait Unit: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> + PartialEq + PartialOrd + Copy + Debug{}
 
 /// Marker trait for identifying single field types ; used by units composed of other units
 pub trait PrimitiveUnit: Unit {}
 
+
+// FUNCTIONAL SUBSETS ==============================================================================
+
 /// Trait for data containing integer number operations
 /// Defines minimum operations that can apply to any integer and return a valid, usable result
-pub trait IntUnit: Unit + PartialOrd {
+pub trait IntUnit: Unit + Eq + Ord {
     fn zero() -> Self;
     fn one() -> Self;
     fn pow(self, n: Self) -> Self;
@@ -37,7 +41,7 @@ pub trait IntUnit: Unit + PartialOrd {
 
 /// Trait for data containing real number operations
 /// Defines minimum operations that can apply to any real number and return a valid, usable result
-pub trait RealUnit: IntUnit {
+pub trait RealUnit: Unit {
     const NAN: Self;
     const INFINITY: Self;
     const NEG_INFINITY: Self;
@@ -46,6 +50,14 @@ pub trait RealUnit: IntUnit {
     const PI: Self;
     const E: Self;
     const TAU: Self;
+    fn zero() -> Self;
+    fn one() -> Self;
+    fn pow(self, n: Self) -> Self;
+    fn signum(self) -> Self;
+    fn abs(self) -> Self;
+    fn max(self, other: Self) -> Self;
+    fn min(self, other: Self) -> Self;
+    fn clamp(self, min: Self, max: Self) -> Self;
     fn recip(self) -> Self;
     fn floor(self) -> Self;
     fn ceil(self) -> Self;

@@ -11,10 +11,11 @@
 ///     - should I just use the iter_tools for chunking? (only problem is that it provides so many blanket impl that I don't need)
 ///     - maybe we don't even need this... since chunking is only really only useful for streaming data into some buffer continuously via another thread while reading it
 
-use std::ops::{Add, Deref, DerefMut, Div, Index, Mul, Neg, Sub};
+use std::ops::{Add, Deref, DerefMut, Div, Mul, Neg, Sub};
 use std::fmt::{Debug};
 use std::io::{BufRead, Read, Seek, Write};
 use crate::units::*;
+use thiserror::Error;
 
 pub mod adapters;
 pub mod ndarray;
@@ -34,9 +35,8 @@ pub trait Signal:
     Deref<Target = [Self::Sample]>
 {
     type Sample: Unit;
-    fn view(&self) -> &[Self::Sample];
-    fn len(&self) -> usize {
-        self.view().len()
+    fn len(&self) -> usize { 
+        self.as_ref().len()
     }
 }
 
@@ -47,7 +47,6 @@ pub trait SignalMut:
     AsMut<[Self::Sample]> +
     DerefMut<Target = [Self::Sample]>
 {
-    fn view_mut(&mut self) -> &mut [Self::Sample];
 }
 
 /// Container Mutable Signal Trait
@@ -69,14 +68,24 @@ pub trait SignalResizable: SignalOwned {
 }
 
 /// Main Signal Operations Trait
-/// - guarantees element-wise arithmetic via op overload
+/// - guarantees element-wise arithmetic via trait methods
 /// - guarantees single-value broadcast via op overload
-pub trait SignalOps: Signal + Add + Mul + Div + Sub + Neg {
-    fn try_add();
-    fn try_mul();
-    fn try_div();
-    fn try_sub();
-    fn try_neg();
+pub trait SignalOps: Signal + Add<Self::Sample> + Mul<Self::Sample> + Div<Self::Sample> + Sub<Self::Sample> + Neg {
+    type SignalOutput: SignalOps;
+    fn sig_add<T: AsRef<[Self::Sample]>>(&self, rhs: T) -> Result<Self::SignalOutput, SignalOpsError>;
+    fn sig_sub<T: AsRef<[Self::Sample]>>(&self, rhs: T) -> Result<Self::SignalOutput, SignalOpsError>;
+    fn sig_mul<T: AsRef<[Self::Sample]>>(&self, rhs: T) -> Result<Self::SignalOutput, SignalOpsError>;
+    fn sig_div<T: AsRef<[Self::Sample]>>(&self, rhs: T) -> Result<Self::SignalOutput, SignalOpsError>;
+    fn sig_add_assign<T: AsRef<[Self::Sample]>>(&mut self, rhs: T) -> Result<(), SignalOpsError>;
+    fn sig_sub_assign<T: AsRef<[Self::Sample]>>(&mut self, rhs: T) -> Result<(), SignalOpsError>;
+    fn sig_mul_assign<T: AsRef<[Self::Sample]>>(&mut self, rhs: T) -> Result<(), SignalOpsError>;
+    fn sig_div_assign<T: AsRef<[Self::Sample]>>(&mut self, rhs: T) -> Result<(), SignalOpsError>;
+}
+
+#[derive(Error, Debug)]
+pub enum SignalOpsError {
+    #[error("Buffers are not the same size! {0} != {1}")]
+    BufferMismatch(usize, usize),
 }
 
 /// Procedurally Generated or Streamed Signal
