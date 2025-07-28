@@ -1,4 +1,4 @@
-﻿# DSP Library
+﻿# Autodyne - DSP and Numerical Library
 
 ## Goals
 - should be as performant as possible
