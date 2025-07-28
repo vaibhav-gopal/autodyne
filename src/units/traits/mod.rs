@@ -3,9 +3,6 @@ use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 /// Elementary operations
 pub trait UnitOps: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Rem<Output = Self> {}
-impl<T> UnitOps for T
-where
-    T: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Rem<Output = Self> {}
 
 /// Units are:
 /// 1. In memory (Copy, implies Sized)
@@ -59,7 +56,9 @@ pub trait PhysicalRepr: Copy + Sized + Debug {
 /// Describes the property of unit to be simplified/alternatively viewed w.r.t another unit
 pub trait Symbolic {
     type Base: Unit;
-    fn dismantle(self) -> Self::Base;
+    fn dismantle(self) -> Option<Self::Base> {
+        None
+    }
 }
 
 /// Describes the property of a unit having an inverse representation (guarantees self.inv().inv() == self)
@@ -80,9 +79,6 @@ mod properties {
     
     /// Describes a unit that has total order and reflexivity
     pub trait OrderedReflexive: Ordered + Ord + Eq {}
-    impl<T> OrderedReflexive for T
-    where T:
-        Unit + Ordered + Ord + Eq {}
     
     /// Defines bounds on values
     pub trait Bounded: Unit {
@@ -111,26 +107,19 @@ mod ops {
     use std::ops::{BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr};
     use super::Unit;
     
-    // Auto-marker traits
+    // Marker traits
     pub trait Bitwise: Unit + Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self> + Shl<Output = Self> + Shr<Output = Self> {}
-    impl<T> Bitwise for T
-    where
-        T: Unit + Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self> + Shl<Output = Self> + Shr<Output = Self> {}
 
     // Opt-In Traits
-    pub trait Pow<RHS = Self>: Unit {
-        type Output;
+    pub trait Exp<RHS = Self>: Unit {
+        type Output: Unit;
         fn pow(self, rhs: RHS) -> Self::Output;
+        fn root(self, n: RHS) -> Self::Output;
         fn sq(self) -> Self::Output;
         fn cb(self) -> Self::Output;
-    }
-    pub trait Root<RHS = Self>: Unit {
-        type Output;
-        fn root(self, n: RHS) -> Self::Output;
         fn sqrt(self) -> Self::Output;
         fn cbrt(self) -> Self::Output;
     }
-    pub trait Exp<RHS = Self>: Pow<Output = Self> + Root<Output = Self> {}
 }
 pub use ops::*;
 
@@ -175,12 +164,12 @@ mod cast {
         fn as_(self) -> T;
     }
     
-    pub trait CastPrimitive<T: 'static + Copy>: FromPrimitive + ToPrimitive + AsPrimitive<T> {}
+    pub trait CastPrimitive: FromPrimitive + ToPrimitive {}
 }
 pub use cast::*;
 
-pub trait Integer<T: 'static + Copy>: Unit + OrderedReflexive + Bounded + Bitwise + Exp + CastPrimitive<T> {}
-pub trait Float<T: 'static + Copy>: Unit + Ordered + BoundedSigned + Exp + CastPrimitive<T> {
+pub trait Integer: Unit + OrderedReflexive + Bounded + Bitwise + Exp + CastPrimitive {}
+pub trait Float: Unit + Ordered + BoundedSigned + Exp + CastPrimitive {
     /// Special states
     const NAN: Self;
     const INFINITY: Self;
