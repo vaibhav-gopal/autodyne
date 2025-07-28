@@ -7,41 +7,14 @@
 /// - add tests (next)
 /// - make more macros to derive more arithmetic operations (next)
 
-use std::ops::{Add, Sub, Mul, Div, Neg};
-use std::fmt::{Debug};
-
 mod extension;
 
-pub mod complex;
-
-// GENERAL =========================================================================================
-/// Trait for general signed primitive data operations
-/// must be able : perform basic arithmetic, be comparable and be copyable
-/// therefore, must be : in memory
-pub trait Unit: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> + PartialEq + PartialOrd + Copy + Debug{}
-
-/// Marker trait for identifying single field types ; used by units composed of other units
-pub trait PrimitiveUnit: Unit {}
-
-
-// FUNCTIONAL SUBSETS ==============================================================================
-
-/// Trait for data containing integer number operations
-/// Defines minimum operations that can apply to any integer and return a valid, usable result
-pub trait IntUnit: Unit + Eq + Ord {
-    fn zero() -> Self;
-    fn one() -> Self;
-    fn pow(self, n: Self) -> Self;
-    fn signum(self) -> Self;
-    fn abs(self) -> Self;
-    fn max(self, other: Self) -> Self;
-    fn min(self, other: Self) -> Self;
-    fn clamp(self, min: Self, max: Self) -> Self;
-}
+mod traits;
+pub use traits::*;
 
 /// Trait for data containing real number operations
 /// Defines minimum operations that can apply to any real number and return a valid, usable result
-pub trait RealUnit: Unit {
+pub trait RealUnit {
     const NAN: Self;
     const INFINITY: Self;
     const NEG_INFINITY: Self;
@@ -50,8 +23,6 @@ pub trait RealUnit: Unit {
     const PI: Self;
     const E: Self;
     const TAU: Self;
-    fn zero() -> Self;
-    fn one() -> Self;
     fn pow(self, n: Self) -> Self;
     fn signum(self) -> Self;
     fn abs(self) -> Self;
@@ -90,33 +61,4 @@ pub trait RealUnit: Unit {
     fn to_rad(self) -> Self;
     fn is_nan(&self) -> bool;
     fn is_inf(&self) -> bool;
-}
-
-/// Trait for data containing complex number operations
-pub trait ComplexUnit: Unit {
-    type Item;
-    /// Return a real unit
-    fn re() -> Self;
-    /// Return an imaginary unit
-    fn im() -> Self;
-    /// Square of the norm ; re^2 + im^2
-    fn norm_sqrt(&self) -> Self::Item;
-    /// Multiply by a constant/scalar
-    fn scale(&self, k: Self::Item) -> Self;
-    /// Divide by a constant/scalar
-    fn unscale(&self, k: Self::Item) -> Self;
-    /// Return complex conjugate
-    fn conj(&self) -> Self;
-    /// Return complex inverse
-    fn inv(&self) -> Self;
-    /// Get magnitude / abs of complex number
-    fn norm(&self) -> Self::Item;
-    /// Calculate the principal argument
-    fn arg(&self) -> Self::Item;
-    /// Get polar form representation
-    fn to_polar(&self) -> (Self::Item, Self::Item);
-    /// Get complex number from polar form
-    fn from_polar(r: Self::Item, theta: Self::Item) -> Self;
-    /// Compute e^(self)
-    fn exp(&self) -> Self;
 }

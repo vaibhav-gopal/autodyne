@@ -42,7 +42,6 @@ impl<T: Unit> DerefMut for Buffer<T> {
 // std::ops and SignalOps Implementations ===========================================
 
 impl<T: Unit> SignalOps for Buffer<T> {
-    type SignalOutput = Buffer<T>;
     impl_buffer_sigop_and_assign!(add, sig_add, sig_add_assign, BufferMismatch, |(x, y)| x + y);
     impl_buffer_sigop_and_assign!(sub, sig_sub, sig_sub_assign, BufferMismatch, |(x, y)| x - y);
     impl_buffer_sigop_and_assign!(mul, sig_mul, sig_mul_assign, BufferMismatch, |(x, y)| x * y);

@@ -1,13 +1,9 @@
 ﻿/// Using extension traits compared to newtypes ; extending the primitive types
-
 use super::*;
 use delegate::delegate;
 
-impl Unit for f32 {}
-impl Unit for f64 {}
-
-impl PrimitiveUnit for f32 {}
-impl PrimitiveUnit for f64 {}
+mod f32;
+mod f64;
 
 impl RealUnit for f32 {
     const NAN: Self = Self::NAN;
@@ -18,8 +14,6 @@ impl RealUnit for f32 {
     const PI: Self = std::f32::consts::PI;
     const E: Self = std::f32::consts::E;
     const TAU: Self = std::f32::consts::TAU;
-    fn zero() -> Self { 0f32 }
-    fn one() -> Self { 1f32 }
 
     delegate! {
         #[through(f32)]
@@ -80,8 +74,6 @@ impl RealUnit for f64 {
     const PI: Self = std::f64::consts::PI;
     const E: Self = std::f64::consts::E;
     const TAU: Self = std::f64::consts::TAU;
-    fn zero() -> Self { 0f64 }
-    fn one() -> Self { 1f64 }
     
     delegate! {
         #[through(f64)]
