@@ -1,30 +1,23 @@
 ﻿use super::*;
 
-pub trait Integer: Unit + OrderedReflexive + Bounded + Bitwise + Exp + CastPrimitive {}
+pub trait Integer: Unit + OrderedReflexive + Bounded + Bitwise + ExpPowDynamic<u32> + CastPrimitive {}
 
 macro_rules! impl_integer {
     ($SrcT:ident) => {
         impl Integer for $SrcT {}
         impl Bitwise for $SrcT {}
-        impl Exp for $SrcT {
+        impl ExpBasic for $SrcT {
             type Output = $SrcT;
-            fn pow(self, rhs: RHS) -> Self::Output {
+            fn _sq(self) -> <Self as ExpBasic>::Output {
+                $SrcT::pow(self, 2u32)
+            }
+            fn _sqrt(self) -> <Self as ExpBasic>::Output {
+                $SrcT::isqrt(self)
+            }
+        }
+        impl ExpPowDynamic<u32> for $SrcT {
+            fn _pow(self, rhs: u32) -> <Self as ExpBasic>::Output {
                 $SrcT::pow(self, rhs)
-            }
-            fn root(self, n: RHS) -> Self::Output {
-                $SrcT::root(self, n)
-            }
-            fn sq(self) -> Self::Output {
-                self.pow(2)
-            }
-            fn cb(self) -> Self::Output {
-                self.pow(3)
-            }
-            fn sqrt(self) -> Self::Output {
-                self.root(2)
-            }
-            fn cbrt(self) -> Self::Output {
-                self.root(3)
             }
         }
     }
@@ -48,45 +41,46 @@ macro_rules! impl_basic_unit_bounds {
         impl Unit for $SrcT {}
         impl UnitOps for $SrcT {}
         impl Zero for $SrcT {
-            const ZERO: Self = $SrcT::ZERO;
+            const _ZERO: Self = $SrcT::ZERO;
         }
         impl One for $SrcT {
-            const ONE: Self = $SrcT::ONE;
+            const _ONE: Self = $SrcT::ONE;
         }
         impl Inv for $SrcT {
-            fn inv(self) -> Self {
-                self.recip()
+            fn _inv(self) -> Self {
+                self._recip()
             }
         }
         impl Symbolic for $SrcT {
             type Base = $SrcT;
         }
         impl PhysicalRepr for $SrcT {
-            const BITS: u32 = $SrcT::BITS;
-            const BYTES: usize = size_of::<$SrcT>();
-            type BitsRepr: Unit + Bitwise + Bounded + Eq = $SrcReprT;
-            fn from_bits(v: Self::BitsRepr) -> Self {
+            const _BITS: u32 = $SrcT::BITS;
+            const _BYTES: usize = size_of::<$SrcT>();
+            type BitsRepr = $SrcReprT;
+            type BytesRepr = [u8; size_of::<$SrcT>()];
+            fn _from_bits(v: Self::BitsRepr) -> Self {
                 v as Self
             }
-            fn to_bits(self) -> Self::BitsRepr {
+            fn _to_bits(self) -> Self::BitsRepr {
                 self as Self::BitsRepr
             }
-            fn from_be_bytes(bytes: [u8; Self::BYTES]) -> Self {
+            fn _from_be_bytes(bytes: Self::BytesRepr) -> Self {
                 $SrcT::from_be_bytes(bytes)
             }
-            fn from_le_bytes(bytes: [u8; Self::BYTES]) -> Self {
+            fn _from_le_bytes(bytes: Self::BytesRepr) -> Self {
                 $SrcT::from_le_bytes(bytes)
             }
-            fn from_ne_bytes(bytes: [u8; Self::BYTES]) -> Self {
+            fn _from_ne_bytes(bytes: Self::BytesRepr) -> Self {
                 $SrcT::from_ne_bytes(bytes)
             }
-            fn to_be_bytes(self) -> [u8; Self::BYTES] {
+            fn _to_be_bytes(self) -> Self::BytesRepr {
                 $SrcT::to_be_bytes(self)
             }
-            fn to_le_bytes(self) -> [u8; Self::BYTES] {
+            fn _to_le_bytes(self) -> Self::BytesRepr {
                 $SrcT::to_le_bytes(self)
             }
-            fn to_ne_bytes(self) -> [u8; Self::BYTES] {
+            fn _to_ne_bytes(self) -> Self::BytesRepr {
                 $SrcT::to_ne_bytes(self)
             }
         }
@@ -109,20 +103,20 @@ impl_basic_unit_bounds!(isize, usize);
 macro_rules! impl_properties {
     ($SrcT:ident) => {
         impl Ordered for $SrcT {
-            fn min(self, other: self) -> Self {
+            fn _min(self, other: Self) -> Self {
                 $SrcT::min(self, other)
             }
-            fn max(self, other: self) -> Self {
+            fn _max(self, other: Self) -> Self {
                 $SrcT::max(self, other)
             }
-            fn clamp(self, min: self, max: self) -> Self {
+            fn _clamp(self, min: Self, max: Self) -> Self {
                 $SrcT::clamp(self, min, max)
             }
         }
         impl OrderedReflexive for $SrcT {}
         impl Bounded for $SrcT {
-            const MIN: Self = $SrcT::MIN;
-            const MAX: Self = $SrcT::MAX;
+            const _MIN: Self = $SrcT::MIN;
+            const _MAX: Self = $SrcT::MAX;
         }
     }
 }
@@ -143,23 +137,23 @@ impl_properties!(isize);
 macro_rules! impl_properties_signed {
     ($SrcT:ident) => {
         impl Signed for $SrcT {
-            const NEG_ONE: Self = -$SrcT::ONE;
-            const SIGN_MASK: Self::BitsRepr = Self::BitsRepr::ONE << ($SrcT::BITS - 1);
-            fn abs(self) -> Self {
+            const _NEG_ONE: Self = -$SrcT::_ONE;
+            const _SIGN_MASK: Self::BitsRepr = Self::BitsRepr::_ONE << ($SrcT::_BITS - 1);
+            fn _abs(self) -> Self {
                 $SrcT::abs(self)
             }
-            fn signum(self) -> Self {
+            fn _signum(self) -> Self {
                 $SrcT::signum(self)
             }
-            fn is_positive(self) -> bool {
+            fn _is_positive(self) -> bool {
                 $SrcT::is_positive(self)
             }
-            fn is_negative(self) -> bool {
+            fn _is_negative(self) -> bool {
                 $SrcT::is_negative(self)
             }
         }
         impl BoundedSigned for $SrcT {
-            const MIN_POSITIVE: Self = $SrcT::ZERO;
+            const _MIN_POSITIVE: Self = $SrcT::_ZERO;
         }
     }
 }

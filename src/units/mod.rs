@@ -24,3 +24,15 @@ pub use integer::*;
 
 mod float;
 pub use float::*;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_add() {
+        let a = 2f32;
+        let b = 3f32;
+        assert_eq!(a + b, 5f32)
+    }
+}

@@ -13,8 +13,8 @@
     fn from_u128(n: u128) -> Option<Self>;
     fn from_f32(n: f32) -> Option<Self>;
     fn from_f64(n: f64) -> Option<Self>;
-    fn from_str(n: &str) -> Option<Self>;
-    fn from(n: impl ToPrimitive) -> Option<Self>;
+    // fn from_str(n: &str) -> Option<Self>;
+    // fn from(n: impl ToPrimitive) -> Option<Self>;
 }
 
 pub trait ToPrimitive: Copy {
@@ -32,8 +32,8 @@ pub trait ToPrimitive: Copy {
     fn to_u128(&self) -> Option<u128>;
     fn to_f32(&self) -> Option<f32>;
     fn to_f64(&self) -> Option<f64>;
-    fn to_str(&self) -> Option<String>;
-    fn to(&self) -> Option<impl FromPrimitive>;
+    // fn to_str(&self) -> Option<String>;
+    // fn to(&self) -> Option<impl FromPrimitive>;
 }
 
 pub trait CastPrimitive: FromPrimitive + ToPrimitive {}
@@ -280,12 +280,12 @@ impl_to_primitive_int!(i64);
 impl_to_primitive_int!(i128);
 impl_to_primitive_int!(isize);
 
-impl_to_primitive_int!(u8);
-impl_to_primitive_int!(u16);
-impl_to_primitive_int!(u32);
-impl_to_primitive_int!(u64);
-impl_to_primitive_int!(u128);
-impl_to_primitive_int!(usize);
+impl_to_primitive_uint!(u8);
+impl_to_primitive_uint!(u16);
+impl_to_primitive_uint!(u32);
+impl_to_primitive_uint!(u64);
+impl_to_primitive_uint!(u128);
+impl_to_primitive_uint!(usize);
 
 impl_to_primitive_float!(f32);
 impl_to_primitive_float!(f64);

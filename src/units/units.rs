@@ -3,66 +3,67 @@ use std::fmt::Debug;
 use super::*;
 
 /// Elementary operations
-pub trait UnitOps: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Rem<Output = Self> {}
+pub trait UnitOps: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Rem<Output = Self> + PartialEq + Copy + Sized {}
 
 /// Units are:
 /// 1. In memory (Copy, implies Sized)
 /// 2. Support elementary arithmetic (UnitOps)
 /// 3. Part of a set of values (PartialEq)
 /// 4. Have a multiplicative and additive identity (Zero and One)
-pub trait Unit: PhysicalRepr + PartialEq + Zero + One + UnitOps + Inv + Symbolic {}
+pub trait Unit: PhysicalRepr + Zero + One + UnitOps + Inv + Symbolic {}
 
 /// Defines the additive identity
-pub trait Zero: Add<Output=Self> + Sub<Output=Self> {
-    const ZERO: Self;
-    fn is_zero(&self) -> bool {
-        self.eq(Self::ZERO)
+pub trait Zero: UnitOps {
+    const _ZERO: Self;
+    fn _is_zero(&self) -> bool {
+        self.eq(&Self::_ZERO)
     }
-    fn set_zero(&mut self) {
-        self = Self::ZERO;
+    fn _set_zero(&mut self) {
+        *self = Self::_ZERO;
     }
 }
 
 /// Defines the multiplicative identity
-pub trait One: Mul<Output = Self> + Div<Output = Self> + Sized {
-    const ONE: Self;
-    fn is_one(&self) -> bool {
-        self.eq(Self::ONE)
+pub trait One: UnitOps {
+    const _ONE: Self;
+    fn _is_one(&self) -> bool {
+        self.eq(&Self::_ONE)
     }
-    fn set_one(&mut self) {
-        self = Self::ONE;
+    fn _set_one(&mut self) {
+        *self = Self::_ONE;
     }
-    fn recip(self) -> Self {
-        Self::ONE / self
+    fn _recip(self) -> Self {
+        Self::_ONE / self
     }
 }
 
 pub trait PhysicalRepr: Copy + Sized + Debug {
     /// bit-width of the datatype
-    const BITS: u32;
-    const BYTES: usize;
+    const _BITS: u32;
+    const _BYTES: usize;
     /// A type that can represent the bits / base-2 internal representation of the unit
     type BitsRepr: Unit + Bitwise + Bounded + Eq;
+    type BytesRepr;
     /// Casting from raw bits and bytes
-    fn from_bits(v: Self::BitsRepr) -> Self;
-    fn to_bits(self) -> Self::BitsRepr;
-    fn from_be_bytes(bytes: [u8; Self::BYTES]) -> Self;
-    fn from_le_bytes(bytes: [u8; Self::BYTES]) -> Self;
-    fn from_ne_bytes(bytes: [u8; Self::BYTES]) -> Self;
-    fn to_be_bytes(self) -> [u8; Self::BYTES];
-    fn to_le_bytes(self) -> [u8; Self::BYTES];
-    fn to_ne_bytes(self) -> [u8; Self::BYTES];
+    fn _from_bits(v: Self::BitsRepr) -> Self;
+    fn _to_bits(self) -> Self::BitsRepr;
+    fn _from_be_bytes(bytes: Self::BytesRepr) -> Self;
+    fn _from_le_bytes(bytes: Self::BytesRepr) -> Self;
+    fn _from_ne_bytes(bytes: Self::BytesRepr) -> Self;
+    fn _to_be_bytes(self) -> Self::BytesRepr;
+    fn _to_le_bytes(self) -> Self::BytesRepr;
+    fn _to_ne_bytes(self) -> Self::BytesRepr;
 }
 
 /// Describes the property of unit to be simplified/alternatively viewed w.r.t another unit
-pub trait Symbolic {
+pub trait Symbolic: UnitOps {
     type Base: Unit;
-    fn dismantle(self) -> Option<Self::Base> {
+    fn _dismantle(self) -> Option<Self::Base> {
         None
     }
 }
 
 /// Describes the property of a unit having an inverse representation (guarantees self.inv().inv() == self)
-pub trait Inv {
-    fn inv(self) -> Self;
+pub trait Inv: UnitOps {
+    fn _inv(self) -> Self;
 }
