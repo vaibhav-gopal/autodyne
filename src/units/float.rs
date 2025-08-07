@@ -29,25 +29,25 @@ pub trait Float: Unit + Ordered + BoundedSigned + ExpFloat + CastPrimitive {
 }
 
 macro_rules! impl_float {
-    ($SrcT:ident) => {
+    ($SrcT:ident, $SigBits:expr) => {
         impl Float for $SrcT {
             const _NAN: Self = $SrcT::NAN;
             const _INFINITY: Self = $SrcT::INFINITY;
             const _NEG_INFINITY: Self = $SrcT::NEG_INFINITY;
             const _EPSILON: Self = $SrcT::EPSILON;
-            const _SIG_BITS: u32 = $SrcT::SIG_BITS;
-            const _EXP_BITS: u32 = $SrcT::EXP_BITS;
-            const _SIG_MASK: Self::BitsRepr = $SrcT::SIG_MASK;
-            const _EXP_MASK: Self::BitsRepr = $SrcT::EXP_MASK;
+            const _SIG_BITS: u32 = $SigBits;
+            const _EXP_BITS: u32 = Self::_BITS - Self::_SIG_BITS - 1;
+            const _SIG_MASK: Self::BitsRepr = (1 << Self::_SIG_BITS) - 1;
+            const _EXP_MASK: Self::BitsRepr = ! (Self::_SIG_MASK | Self::_SIGN_MASK);
             const _DIGITS: u32 = $SrcT::DIGITS;
             const _MANTISSA_DIGITS: u32 = $SrcT::MANTISSA_DIGITS;
             const _MIN_EXP: i32 = $SrcT::MIN_EXP;
             const _MAX_EXP: i32 = $SrcT::MAX_EXP;
             const _MIN_10_EXP: i32 = $SrcT::MIN_10_EXP;
             const _MAX_10_EXP: i32 = $SrcT::MAX_10_EXP;
-            const _PI: Self = $SrcT::PI;
-            const _E: Self = $SrcT::E();
-            const _TAU: Self = $SrcT::TAU();
+            const _PI: Self = 3.14159265358979323 as $SrcT;
+            const _E: Self = 2.71828182845904523 as $SrcT;
+            const _TAU: Self = Self::_PI * 2.0;
             fn _floor(self) -> Self {
                 $SrcT::floor(self)
             }
@@ -112,18 +112,18 @@ macro_rules! impl_float {
     }
 }
 
-impl_float!(f32);
-impl_float!(f64);
+impl_float!(f32, 23);
+impl_float!(f64, 52);
 
 macro_rules! impl_basic_unit_bounds {
     ($SrcT:ident, $SrcReprT:ident) => {
         impl Unit for $SrcT {}
         impl UnitOps for $SrcT {}
         impl Zero for $SrcT {
-            const _ZERO: Self = $SrcT::ZERO;
+            const _ZERO: Self = 0 as $SrcT;
         }
         impl One for $SrcT {
-            const _ONE: Self = $SrcT::ONE;
+            const _ONE: Self = 1 as $SrcT;
             fn _recip(self) -> Self {
                 $SrcT::recip(self)
             }
@@ -137,7 +137,7 @@ macro_rules! impl_basic_unit_bounds {
             type Base = $SrcT;
         }
         impl PhysicalRepr for $SrcT {
-            const _BITS: u32 = $SrcT::BITS;
+            const _BITS: u32 = size_of::<$SrcT>() as u32 * 8;
             const _BYTES: usize = size_of::<$SrcT>();
             type BitsRepr = $SrcReprT;
             type BytesRepr = [u8; size_of::<$SrcT>()];
@@ -198,8 +198,8 @@ impl_properties!(f64);
 macro_rules! impl_properties_signed {
     ($SrcT:ident) => {
         impl Signed for $SrcT {
-            const _NEG_ONE: Self = $SrcT::NEG_ONE;
-            const _SIGN_MASK: Self::BitsRepr = $SrcT::SIGN_MASK;
+            const _NEG_ONE: Self = -$SrcT::_ONE;
+            const _SIGN_MASK: Self::BitsRepr = 1 << ($SrcT::_BITS - 1);
             fn _abs(self) -> Self {
                 $SrcT::abs(self)
             }

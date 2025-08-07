@@ -5,10 +5,10 @@ edition = "2021"
 
 [dependencies]
 thiserror = "2.0.12"
-delegate = "0.13.2"
+delegate = "0.13.3"
 
 [dev-dependencies]
-criterion = "0.5.1"
+criterion = "0.6.0"
 
 [features]
 default = []

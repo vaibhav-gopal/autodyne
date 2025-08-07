@@ -41,10 +41,10 @@ macro_rules! impl_basic_unit_bounds {
         impl Unit for $SrcT {}
         impl UnitOps for $SrcT {}
         impl Zero for $SrcT {
-            const _ZERO: Self = $SrcT::ZERO;
+            const _ZERO: Self = 0 as $SrcT;
         }
         impl One for $SrcT {
-            const _ONE: Self = $SrcT::ONE;
+            const _ONE: Self = 1 as $SrcT;
         }
         impl Inv for $SrcT {
             fn _inv(self) -> Self {
@@ -55,7 +55,7 @@ macro_rules! impl_basic_unit_bounds {
             type Base = $SrcT;
         }
         impl PhysicalRepr for $SrcT {
-            const _BITS: u32 = $SrcT::BITS;
+            const _BITS: u32 = size_of::<$SrcT>() as u32 * 8;
             const _BYTES: usize = size_of::<$SrcT>();
             type BitsRepr = $SrcReprT;
             type BytesRepr = [u8; size_of::<$SrcT>()];
