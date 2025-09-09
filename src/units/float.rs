@@ -133,9 +133,6 @@ macro_rules! impl_basic_unit_bounds {
                 self._recip()
             }
         }
-        impl Symbolic for $SrcT {
-            type Base = $SrcT;
-        }
         impl PhysicalRepr for $SrcT {
             const _BITS: u32 = size_of::<$SrcT>() as u32 * 8;
             const _BYTES: usize = size_of::<$SrcT>();

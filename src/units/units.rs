@@ -10,7 +10,7 @@ pub trait UnitOps: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> 
 /// 2. Support elementary arithmetic (UnitOps)
 /// 3. Part of a set of values (PartialEq)
 /// 4. Have a multiplicative and additive identity (Zero and One)
-pub trait Unit: PhysicalRepr + Zero + One + UnitOps + Inv + Symbolic {}
+pub trait Unit: PhysicalRepr + Zero + One + UnitOps + Inv {}
 
 /// Defines the additive identity
 pub trait Zero: UnitOps {
@@ -37,7 +37,7 @@ pub trait One: UnitOps {
     }
 }
 
-pub trait PhysicalRepr: Copy + Sized + Debug {
+pub trait PhysicalRepr: Copy + Sized + Debug + 'static {
     /// bit-width of the datatype
     const _BITS: u32;
     const _BYTES: usize;
@@ -53,14 +53,6 @@ pub trait PhysicalRepr: Copy + Sized + Debug {
     fn _to_be_bytes(self) -> Self::BytesRepr;
     fn _to_le_bytes(self) -> Self::BytesRepr;
     fn _to_ne_bytes(self) -> Self::BytesRepr;
-}
-
-/// Describes the property of unit to be simplified/alternatively viewed w.r.t another unit
-pub trait Symbolic: UnitOps {
-    type Base: Unit;
-    fn _dismantle(self) -> Option<Self::Base> {
-        None
-    }
 }
 
 /// Describes the property of a unit having an inverse representation (guarantees self.inv().inv() == self)
