@@ -13,3 +13,7 @@ hound = "3.5.1"
 
 [features]
 default = []
+
+[[bench]]
+name = "dsp"
+harness = false

@@ -1,4 +1,4 @@
-﻿# Autodyne - DSP and Numerical Library
+# Autodyne - DSP and Numerical Library
 
 ## Goals
 - should be as performant as possible
@@ -15,11 +15,41 @@
   - should easily represent sampling rate differences between stages and account for it
   - implementation details to be determined ; probably not scoped to this library
 
-## Units
-- defines traits that represent real number operations
-- defines a complex unit type
-- also defines a new type that works on fixed point arithmetic (todo)
+## What works today
 
-## Buffers
-- defines an extension trait that represents operations on fixed-size signals/data (buffers)
-- iterator adaptors define lazy operations on buffers
+Everything is generic over `f32` / `f64`. Processors are constructed once (that's where any allocation
+happens) and then run in place on `&mut [T]` blocks, so they are safe to call from an audio callback.
+
+| module | contents |
+|---|---|
+| `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...) and `Complex<T>` |
+| `osc` | `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse`; each is also an infinite iterator |
+| `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch), `magnitude_at` for analytic responses |
+| `spectral` | radix-2 `Fft` (forward, inverse, real input) and a reference `dft` |
+| `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
+| `signal` | the planned `Signal` trait hierarchy (design only, not implemented yet) |
+
+```rust
+use autodyne::filter::{Biquad, BUTTERWORTH_Q};
+use autodyne::osc::Sine;
+
+let mut block = [0.0f32; 512];
+let mut tone = Sine::new(440.0, 48_000.0);
+let mut lowpass = Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q as f32);
+
+tone.fill(&mut block);      // generate
+lowpass.process(&mut block); // filter in place
+```
+
+### Examples
+Both write WAV files to `target/examples-out/`:
+
+- `cargo run --release --example tone`: a 440 Hz tone, the same tone with noise, and the noisy one low-passed; prints the noise reduction and the FFT peak
+- `cargo run --release --example fm_radio`: an FM radio link (modulate, 12 kHz carrier, noisy channel, demodulate); prints the audio SNR
+
+### Tests and benchmarks
+- `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips)
+- `cargo bench`: baseline throughput per 512-sample block (for comparison once SIMD work starts)
+
+## Not here
+The `flux` IR/compiler experiment (a JAX/XLA-style tracer and compiler) lives on the `flux` branch.
