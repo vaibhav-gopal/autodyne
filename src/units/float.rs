@@ -1,6 +1,6 @@
 ﻿use super::*;
 
-pub trait Float: Unit + Ordered + BoundedSigned + ExpFloat + CastPrimitive {
+pub trait Float: Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive {
     /// Special states
     const _NAN: Self;
     const _INFINITY: Self;
@@ -26,6 +26,11 @@ pub trait Float: Unit + Ordered + BoundedSigned + ExpFloat + CastPrimitive {
     fn _round(self) -> Self;
     fn _trunc(self) -> Self;
     fn _fract(self) -> Self;
+    /// Converts an f64 constant (sample rates, frequencies, coefficients) into this float type.
+    /// Panics only if the value is out of range for Self, which f64 -> f32 constants never are in practice.
+    fn _lit(v: f64) -> Self {
+        Self::from_f64(v).expect("f64 constant out of range for target float")
+    }
 }
 
 macro_rules! impl_float {
@@ -45,9 +50,9 @@ macro_rules! impl_float {
             const _MAX_EXP: i32 = $SrcT::MAX_EXP;
             const _MIN_10_EXP: i32 = $SrcT::MIN_10_EXP;
             const _MAX_10_EXP: i32 = $SrcT::MAX_10_EXP;
-            const _PI: Self = 3.14159265358979323 as $SrcT;
-            const _E: Self = 2.71828182845904523 as $SrcT;
-            const _TAU: Self = Self::_PI * 2.0;
+            const _PI: Self = std::$SrcT::consts::PI;
+            const _E: Self = std::$SrcT::consts::E;
+            const _TAU: Self = std::$SrcT::consts::TAU;
             fn _floor(self) -> Self {
                 $SrcT::floor(self)
             }
@@ -81,6 +86,35 @@ macro_rules! impl_float {
         impl ExpRootDynamic<Self> for $SrcT {
             fn _root(self, n: Self) -> <Self as ExpBasic>::Output {
                 $SrcT::powf(self, n._recip())
+            }
+        }
+        impl Trig for $SrcT {
+            fn _sin(self) -> Self {
+                $SrcT::sin(self)
+            }
+            fn _cos(self) -> Self {
+                $SrcT::cos(self)
+            }
+            fn _tan(self) -> Self {
+                $SrcT::tan(self)
+            }
+            fn _sin_cos(self) -> (Self, Self) {
+                $SrcT::sin_cos(self)
+            }
+            fn _asin(self) -> Self {
+                $SrcT::asin(self)
+            }
+            fn _acos(self) -> Self {
+                $SrcT::acos(self)
+            }
+            fn _atan(self) -> Self {
+                $SrcT::atan(self)
+            }
+            fn _atan2(self, other: Self) -> Self {
+                $SrcT::atan2(self, other)
+            }
+            fn _hypot(self, other: Self) -> Self {
+                $SrcT::hypot(self, other)
             }
         }
         impl ExpFloat for $SrcT {

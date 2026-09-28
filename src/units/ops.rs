@@ -23,6 +23,22 @@ pub trait ExpRootDynamic<RHS>: ExpBasic {
     fn _root(self, n: RHS) -> <Self as ExpBasic>::Output;
 }
 
+/// Trigonometric functions (radians)
+pub trait Trig: Unit {
+    fn _sin(self) -> Self;
+    fn _cos(self) -> Self;
+    fn _tan(self) -> Self;
+    /// (sin(self), cos(self)) ; cheaper than calling both separately
+    fn _sin_cos(self) -> (Self, Self);
+    fn _asin(self) -> Self;
+    fn _acos(self) -> Self;
+    fn _atan(self) -> Self;
+    /// four-quadrant arctangent of self / other
+    fn _atan2(self, other: Self) -> Self;
+    /// sqrt(self^2 + other^2) without intermediate overflow
+    fn _hypot(self, other: Self) -> Self;
+}
+
 pub trait ExpFloat<RHS = Self>: ExpRootDynamic<RHS> + ExpPowDynamic<RHS> {
     /// e^self
     fn _exp(self) -> <Self as ExpBasic>::Output;

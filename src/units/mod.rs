@@ -3,7 +3,6 @@
 /// - abstract SIMD operations (way later ; or just use nightly)
 /// - implement the bigint, fixed-point and bigfloat types (way later)
 /// - add tests and benchmarks (next)
-/// - implement the complex type (later)
 
 mod cast;
 pub use cast::*;
@@ -24,6 +23,9 @@ mod float;
 mod reflection;
 
 pub use float::*;
+
+mod complex;
+pub use complex::*;
 
 #[cfg(test)]
 mod tests {
