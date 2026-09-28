@@ -158,6 +158,55 @@ impl<T: Float> BiquadCoeffs<T> {
         let b1 = T::_lit(-2.0) * cos_w;
         Self::normalized(T::_ONE, b1, T::_ONE, T::_ONE + alpha, b1, T::_ONE - alpha)
     }
+    /// Unity gain at every frequency; only the phase changes (by 180 degrees at `center`).
+    /// Building block for phasers and phase-alignment.
+    pub fn allpass(center: T, sample_rate: T, q: T) -> Self {
+        let (cos_w, alpha) = Self::rbj(center, sample_rate, q);
+        let a1 = T::_lit(-2.0) * cos_w;
+        Self::normalized(T::_ONE - alpha, a1, T::_ONE + alpha, T::_ONE + alpha, a1, T::_ONE - alpha)
+    }
+    /// Boosts or cuts by `gain_db` around `center` (a bell), unity far away; higher q = narrower bell.
+    pub fn peaking(center: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        let (cos_w, alpha) = Self::rbj(center, sample_rate, q);
+        let a = Self::shelf_amplitude(gain_db);
+        let a1 = T::_lit(-2.0) * cos_w;
+        Self::normalized(T::_ONE + alpha * a, a1, T::_ONE - alpha * a, T::_ONE + alpha / a, a1, T::_ONE - alpha / a)
+    }
+    /// Boosts or cuts everything below `corner` by `gain_db`; q = BUTTERWORTH_Q gives the steepest
+    /// slope without overshoot (cookbook shelf slope S = 1).
+    pub fn low_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        let (cos_w, alpha) = Self::rbj(corner, sample_rate, q);
+        let a = Self::shelf_amplitude(gain_db);
+        let (ap1, am1, two) = (a + T::_ONE, a - T::_ONE, T::_lit(2.0));
+        let k = two * a._sqrt() * alpha;
+        Self::normalized(
+            a * (ap1 - am1 * cos_w + k),
+            two * a * (am1 - ap1 * cos_w),
+            a * (ap1 - am1 * cos_w - k),
+            ap1 + am1 * cos_w + k,
+            -two * (am1 + ap1 * cos_w),
+            ap1 + am1 * cos_w - k,
+        )
+    }
+    /// Boosts or cuts everything above `corner` by `gain_db`; see `low_shelf` for q.
+    pub fn high_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        let (cos_w, alpha) = Self::rbj(corner, sample_rate, q);
+        let a = Self::shelf_amplitude(gain_db);
+        let (ap1, am1, two) = (a + T::_ONE, a - T::_ONE, T::_lit(2.0));
+        let k = two * a._sqrt() * alpha;
+        Self::normalized(
+            a * (ap1 + am1 * cos_w + k),
+            -two * a * (am1 + ap1 * cos_w),
+            a * (ap1 + am1 * cos_w - k),
+            ap1 - am1 * cos_w + k,
+            two * (am1 - ap1 * cos_w),
+            ap1 - am1 * cos_w - k,
+        )
+    }
+    /// The cookbook's A = 10^(dB/40): the square root of the linear gain, split between numerator and denominator.
+    fn shelf_amplitude(gain_db: T) -> T {
+        crate::gain::db_to_gain(gain_db)._sqrt()
+    }
     /// Gain at `frequency` (1.0 = unchanged).
     pub fn magnitude_at(&self, frequency: T, sample_rate: T) -> T {
         magnitude_response(&[self.b0, self.b1, self.b2], &[T::_ONE, self.a1, self.a2], frequency, sample_rate)
@@ -187,6 +236,18 @@ impl<T: Float> Biquad<T> {
     }
     pub fn notch(center: T, sample_rate: T, q: T) -> Self {
         Self::new(BiquadCoeffs::notch(center, sample_rate, q))
+    }
+    pub fn allpass(center: T, sample_rate: T, q: T) -> Self {
+        Self::new(BiquadCoeffs::allpass(center, sample_rate, q))
+    }
+    pub fn peaking(center: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        Self::new(BiquadCoeffs::peaking(center, sample_rate, q, gain_db))
+    }
+    pub fn low_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        Self::new(BiquadCoeffs::low_shelf(corner, sample_rate, q, gain_db))
+    }
+    pub fn high_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        Self::new(BiquadCoeffs::high_shelf(corner, sample_rate, q, gain_db))
     }
     pub fn coeffs(&self) -> &BiquadCoeffs<T> {
         &self.coeffs
@@ -302,6 +363,47 @@ mod tests {
         let notch = BiquadCoeffs::notch(2000.0, FS, 5.0);
         assert!(notch.magnitude_at(2000.0, FS) < 1e-9, "notch center");
         assert_close(notch.magnitude_at(200.0, FS), 1.0, 1e-3, "notch passband");
+    }
+
+    #[test]
+    fn eq_shapes_hit_their_gains() {
+        let db = |g: f64| 20.0 * g.log10();
+        let q = BUTTERWORTH_Q;
+        for gain_db in [-12.0, -3.0, 6.0, 12.0] {
+            let bell = BiquadCoeffs::peaking(2000.0, FS, 1.0, gain_db);
+            assert_close(db(bell.magnitude_at(2000.0, FS)), gain_db, 1e-9, "peaking center");
+            assert_close(db(bell.magnitude_at(20.0, FS)), 0.0, 0.01, "peaking far below");
+
+            let low = BiquadCoeffs::low_shelf(500.0, FS, q, gain_db);
+            assert_close(db(low.magnitude_at(1e-3, FS)), gain_db, 1e-6, "low shelf DC");
+            assert_close(db(low.magnitude_at(20_000.0, FS)), 0.0, 0.01, "low shelf top");
+            // a shelf is half-way (in dB) at its corner frequency
+            assert_close(db(low.magnitude_at(500.0, FS)), gain_db / 2.0, 1e-9, "low shelf corner");
+
+            let high = BiquadCoeffs::high_shelf(5000.0, FS, q, gain_db);
+            assert_close(db(high.magnitude_at(23_999.0, FS)), gain_db, 0.01, "high shelf top");
+            assert_close(db(high.magnitude_at(1e-3, FS)), 0.0, 1e-6, "high shelf DC");
+            assert_close(db(high.magnitude_at(5000.0, FS)), gain_db / 2.0, 1e-9, "high shelf corner");
+        }
+        let flat = BiquadCoeffs::peaking(2000.0, FS, 1.0, 0.0);
+        assert_close(flat.magnitude_at(777.0, FS), 1.0, 1e-12, "0 dB peaking is transparent");
+    }
+
+    #[test]
+    fn allpass_is_flat_and_shifts_phase_by_180_at_center() {
+        let ap = BiquadCoeffs::allpass(3000.0, FS, 0.7);
+        for f in [10.0, 300.0, 3000.0, 12_000.0, 23_000.0] {
+            assert_close(ap.magnitude_at(f, FS), 1.0, 1e-9, "allpass magnitude");
+        }
+        // at the center frequency the output is the inverted input (steady state)
+        let mut bq = Biquad::new(ap);
+        let mut buf = vec![0.0; 48_000];
+        Sine::new(3000.0, FS).fill(&mut buf);
+        let input = buf.clone();
+        bq.process(&mut buf);
+        for n in 24_000..24_100 {
+            assert_close(buf[n], -input[n], 1e-6, "allpass inversion at center");
+        }
     }
 
     #[test]
