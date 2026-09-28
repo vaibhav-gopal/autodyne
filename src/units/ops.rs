@@ -1,4 +1,4 @@
-﻿use std::ops::{BitAnd, BitOr, BitXor, Neg, Not, Shl, Shr};
+﻿use std::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
 use super::*;
 
 // Marker traits

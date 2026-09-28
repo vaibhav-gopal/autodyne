@@ -14,6 +14,7 @@
 use std::ops::{Add, AddAssign, Deref, DerefMut, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use std::fmt::{Debug};
 use std::io::{BufRead, Read, Seek, Write};
+use thiserror::Error;
 use crate::units::*;
 
 pub mod adapters;
@@ -35,7 +36,7 @@ pub trait Signal:
     FromIterator<Self::Sample> +
     AsRef<[Self::Sample]> + 
     Deref<Target = [Self::Sample]> +
-    From<&[Self::Sample]> + From<Self::Container>
+    for<'a> From<&'a [Self::Sample]> + From<Self::Container>
 {
     type Sample: Unit;
     type Container: FromIterator<Self::Sample>;
