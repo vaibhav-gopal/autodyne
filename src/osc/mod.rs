@@ -86,6 +86,55 @@ impl<T: Float> Sine<T> {
 
 impl_generator_blocks!(Sine);
 
+// PHASOR ==========================================================================================
+
+/// Complex oscillator: yields e^(i*2*pi*f*n/fs), i.e. (cos, sin) together from one phase accumulator.
+/// This is the local oscillator for IQ modulation / demodulation (and a numerically controlled oscillator).
+#[derive(Debug, Clone, Copy)]
+pub struct Phasor<T: Float> {
+    phase: T,
+    increment: T,
+}
+
+impl<T: Float> Phasor<T> {
+    pub fn new(frequency: T, sample_rate: T) -> Self {
+        Self { phase: T::_ZERO, increment: frequency / sample_rate }
+    }
+    pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
+        self.increment = frequency / sample_rate;
+    }
+    pub fn reset(&mut self) {
+        self.phase = T::_ZERO;
+    }
+    #[inline]
+    pub fn next_sample(&mut self) -> Complex<T> {
+        let out = Complex::cis(T::_TAU * self.phase);
+        self.phase = self.phase + self.increment;
+        if self.phase >= T::_ONE {
+            self.phase = self.phase - T::_ONE;
+        } else if self.phase < T::_ZERO {
+            // negative frequencies are valid for a complex oscillator
+            self.phase = self.phase + T::_ONE;
+        }
+        out
+    }
+    pub fn fill(&mut self, out: &mut [Complex<T>]) {
+        for s in out {
+            *s = self.next_sample();
+        }
+    }
+}
+
+impl<T: Float> Iterator for Phasor<T> {
+    type Item = Complex<T>;
+    fn next(&mut self) -> Option<Complex<T>> {
+        Some(self.next_sample())
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (usize::MAX, None)
+    }
+}
+
 // NOISE ===========================================================================================
 
 /// Uniform white noise in [-amplitude, amplitude).
@@ -205,6 +254,19 @@ mod tests {
         let expected = [0.5, 0.0, -0.5, 0.0];
         for (g, e) in got.iter().zip(expected) {
             assert!((g - e).abs() < 1e-6, "{got:?}");
+        }
+    }
+
+    #[test]
+    fn phasor_is_cos_plus_i_sin_and_supports_negative_frequency() {
+        let (f, fs) = (1000.0, 48_000.0);
+        let mut pos = Phasor::new(f, fs);
+        let mut neg = Phasor::new(-f, fs);
+        for n in 0..1000 {
+            let w = f64::_TAU * f * n as f64 / fs;
+            let (p, q) = (pos.next_sample(), neg.next_sample());
+            assert!((p - Complex::new(w.cos(), w.sin())).norm() < 1e-9, "sample {n}");
+            assert!((q - p.conj()).norm() < 1e-9, "sample {n}");
         }
     }
 
