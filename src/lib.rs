@@ -5,3 +5,5 @@ pub mod filter;
 pub mod spectral;
 pub mod iq;
 pub mod gain;
+pub mod delay;
+pub mod resample;
