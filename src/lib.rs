@@ -1,5 +1,6 @@
 pub mod units;
 pub mod signal;
+pub mod simd;
 pub mod osc;
 pub mod filter;
 pub mod spectral;

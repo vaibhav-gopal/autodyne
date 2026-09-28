@@ -8,22 +8,28 @@
 use crate::filter::design_lowpass;
 use crate::units::*;
 
+/// Input samples per chunk in `Resampler::process`.
+const RESAMPLE_CHUNK: usize = 128;
+
 fn gcd(a: u64, b: u64) -> u64 {
     if b == 0 { a } else { gcd(b, a % b) }
 }
 
 /// Streaming rational resampler. Allocates in `new`; `process` does not.
+///
+/// Each output is one SIMD dot product of a polyphase branch (stored reversed) with the recent input,
+/// oldest first. As in `Fir`, input goes through a linear buffer a chunk at a time, so every window is a
+/// plain slice written before it is read.
 #[derive(Debug, Clone)]
 pub struct Resampler<T: Float> {
     up: usize,
     down: usize,
     /// taps per polyphase branch
     branch_len: usize,
-    /// branch p holds prototype taps h[p], h[p + L], h[p + 2L], ... (zero padded): poly[p * branch_len + k]
+    /// branch p holds prototype taps h[p + kL] (zero padded), reversed: poly[p * branch_len + (branch_len - 1 - k)]
     poly: Vec<T>,
-    /// ring of the last `branch_len` input samples
-    history: Vec<T>,
-    newest: usize,
+    /// previous branch_len - 1 inputs (oldest first), followed by room for one chunk of new input
+    buf: Vec<T>,
     /// position of the next output in the upsampled timeline, relative to the newest input sample
     phase: usize,
     /// prototype filter delay in upsampled samples
@@ -56,15 +62,14 @@ impl<T: Float> Resampler<T> {
         let branch_len = proto.len().div_ceil(up);
         let mut poly = vec![T::_ZERO; up * branch_len];
         for (i, &h) in proto.iter().enumerate() {
-            poly[(i % up) * branch_len + i / up] = h;
+            poly[(i % up) * branch_len + (branch_len - 1 - i / up)] = h;
         }
         Self {
             up,
             down,
             branch_len,
             poly,
-            history: vec![T::_ZERO; branch_len],
-            newest: branch_len - 1,
+            buf: vec![T::_ZERO; branch_len - 1 + RESAMPLE_CHUNK],
             phase: 0,
             prototype_delay: (proto.len() - 1) as f64 / 2.0,
         }
@@ -86,7 +91,7 @@ impl<T: Float> Resampler<T> {
     }
 
     pub fn reset(&mut self) {
-        self.history.iter_mut().for_each(|s| *s = T::_ZERO);
+        self.buf.iter_mut().for_each(|s| *s = T::_ZERO);
         self.phase = 0;
     }
 
@@ -95,20 +100,43 @@ impl<T: Float> Resampler<T> {
     /// `max_output_len`. Panics if `out` is too small.
     pub fn process(&mut self, input: &[T], out: &mut [T]) -> usize {
         assert!(out.len() >= self.max_output_len(input.len()), "output buffer too small; use max_output_len");
-        let mut written = 0;
-        for &x in input {
-            self.newest = if self.newest + 1 == self.branch_len { 0 } else { self.newest + 1 };
-            self.history[self.newest] = x;
-            // Every output whose upsampled position falls in [newest * L, newest * L + L) needs no newer input.
-            while self.phase < self.up {
-                let branch = &self.poly[self.phase * self.branch_len..][..self.branch_len];
-                let (newer, older) = self.history.split_at(self.newest + 1);
-                let recent = newer.iter().rev().chain(older.iter().rev());
-                out[written] = branch.iter().zip(recent).fold(T::_ZERO, |acc, (&h, &s)| acc + h * s);
-                written += 1;
-                self.phase += self.down;
+        #[cfg(target_arch = "x86_64")]
+        {
+            if crate::simd::avx2_available() {
+                // SAFETY: AVX2 support was just checked.
+                return unsafe { self.process_avx2(input, out) };
             }
-            self.phase -= self.up;
+        }
+        self.process_block(input, out)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn process_avx2(&mut self, input: &[T], out: &mut [T]) -> usize {
+        self.process_block(input, out)
+    }
+
+    /// The block loop; `inline(always)` so the baseline and AVX2 versions each get their own copy.
+    #[inline(always)]
+    fn process_block(&mut self, input: &[T], out: &mut [T]) -> usize {
+        let k = self.branch_len;
+        let mut written = 0;
+        for chunk in input.chunks(RESAMPLE_CHUNK) {
+            let m = chunk.len();
+            self.buf[k - 1..k - 1 + m].copy_from_slice(chunk);
+            for i in 0..m {
+                let window = &self.buf[i..i + k]; // the k inputs ending at chunk[i], oldest first
+                // Every output whose upsampled position falls in [i * L, i * L + L) needs no newer input.
+                while self.phase < self.up {
+                    let branch = &self.poly[self.phase * k..][..k];
+                    out[written] = crate::simd::dot_kernel(branch, window);
+                    written += 1;
+                    self.phase += self.down;
+                }
+                self.phase -= self.up;
+            }
+            // the last k-1 inputs become the history for the next chunk
+            self.buf.copy_within(m..m + k - 1, 0);
         }
         written
     }
@@ -159,6 +187,39 @@ mod tests {
         let mut out = vec![0.0f32; rs.max_output_len(block.len())];
         let total: usize = (0..100).map(|_| rs.process(&block, &mut out)).sum();
         assert_eq!(total, 48_000 * 147 / 160); // exactly 44100 for one second of input
+    }
+
+    #[test]
+    fn block_size_does_not_change_the_result() {
+        // one big call vs uneven blocks (crossing the internal chunk size) must give identical output
+        let input: Vec<f64> = Sine::new(1_000.0, 48_000.0).take(5_000).collect();
+        let mut whole = Resampler::new(48_000, 44_100);
+        let mut expected = vec![0.0; whole.max_output_len(input.len())];
+        let n = whole.process(&input, &mut expected);
+
+        let mut split = Resampler::new(48_000, 44_100);
+        let mut got = Vec::new();
+        let mut scratch = vec![0.0; split.max_output_len(700)];
+        for block in input.chunks(1).take(3).chain(input[3..].chunks(700)) {
+            let m = split.process(block, &mut scratch);
+            got.extend_from_slice(&scratch[..m]);
+        }
+        assert_eq!(got.len(), n);
+        for (a, b) in got.iter().zip(&expected) {
+            assert!((a - b).abs() < 1e-12);
+        }
+    }
+
+    #[test]
+    fn baseline_path_matches_dispatched_path() {
+        let input: Vec<f32> = Sine::new(1_000.0, 48_000.0).take(2_000).collect();
+        let (mut a, mut b) = (Resampler::new(48_000, 44_100), Resampler::new(48_000, 44_100));
+        let (mut out_a, mut out_b) = (vec![0.0; a.max_output_len(2_000)], vec![0.0; b.max_output_len(2_000)]);
+        let n = a.process(&input, &mut out_a);
+        assert_eq!(b.process_block(&input, &mut out_b), n);
+        for (x, y) in out_a[..n].iter().zip(&out_b[..n]) {
+            assert!((x - y).abs() < 1e-5);
+        }
     }
 
     #[test]

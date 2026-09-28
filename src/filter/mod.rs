@@ -33,21 +33,32 @@ fn magnitude_response<T: Float>(b: &[T], a: &[T], frequency: T, sample_rate: T) 
 // FIR =============================================================================================
 
 /// Finite impulse response filter: y[n] = sum_k h[k] * x[n - k].
-/// History is a ring buffer sized to the tap count, so processing never allocates.
+///
+/// Each output is one SIMD dot product (`simd::dot_kernel`) of the taps, stored reversed, with the
+/// last N inputs, oldest first. Input is processed in chunks through a linear buffer: the previous
+/// N-1 inputs, then the chunk. Every window is a plain slice of it, and the chunk is copied in before
+/// any output is computed. Writing each sample just before reading it back as part of a wide vector
+/// load would stall on every sample (the CPU can't forward a narrow store into a wider load).
+/// Processing never allocates.
 #[derive(Debug, Clone)]
 pub struct Fir<T: Float> {
     taps: Vec<T>,
-    history: Vec<T>,
-    /// index of the most recently written sample in `history`
-    pos: usize,
+    /// taps in reverse order, aligned with the oldest-first input window
+    reversed: Vec<T>,
+    /// previous N-1 inputs (oldest first), followed by room for one chunk of new input
+    buf: Vec<T>,
 }
+
+/// Samples per chunk in `Fir::process`; the cost of carrying history between chunks is spread over this many.
+const FIR_CHUNK: usize = 128;
 
 impl<T: Float> Fir<T> {
     /// Panics if `taps` is empty.
     pub fn new(taps: Vec<T>) -> Self {
         assert!(!taps.is_empty(), "a FIR filter needs at least one tap");
         let n = taps.len();
-        Self { taps, history: vec![T::_ZERO; n], pos: n - 1 }
+        let reversed = taps.iter().rev().copied().collect();
+        Self { taps, reversed, buf: vec![T::_ZERO; n - 1 + FIR_CHUNK] }
     }
     /// Linear-phase low-pass (windowed sinc, Blackman window). See `design_lowpass`.
     pub fn lowpass(cutoff: T, sample_rate: T, num_taps: usize) -> Self {
@@ -57,22 +68,43 @@ impl<T: Float> Fir<T> {
         &self.taps
     }
     pub fn reset(&mut self) {
-        self.history.iter_mut().for_each(|s| *s = T::_ZERO);
+        self.buf.iter_mut().for_each(|s| *s = T::_ZERO);
     }
-    #[inline]
+    /// Filters one sample. Costs an extra O(N) copy per call; for blocks use `process`.
     pub fn process_sample(&mut self, x: T) -> T {
-        let n = self.taps.len();
-        self.pos = if self.pos + 1 == n { 0 } else { self.pos + 1 };
-        self.history[self.pos] = x;
-        // walk backwards through history (newest -> oldest) while walking forward through the taps
-        let (newer, older) = self.history.split_at(self.pos + 1);
-        let recent = newer.iter().rev().chain(older.iter().rev());
-        self.taps.iter().zip(recent).fold(T::_ZERO, |acc, (&h, &x)| acc + h * x)
+        let mut one = [x];
+        self.process(&mut one);
+        one[0]
     }
     /// Filters `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
-        for s in block {
-            *s = self.process_sample(*s);
+        #[cfg(target_arch = "x86_64")]
+        {
+            if crate::simd::avx2_available() {
+                // SAFETY: AVX2 support was just checked.
+                return unsafe { self.process_avx2(block) };
+            }
+        }
+        self.process_block(block)
+    }
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn process_avx2(&mut self, block: &mut [T]) {
+        self.process_block(block)
+    }
+    /// The block loop; `inline(always)` so the baseline and AVX2 versions each get their own copy.
+    #[inline(always)]
+    fn process_block(&mut self, block: &mut [T]) {
+        let n = self.taps.len();
+        for chunk in block.chunks_mut(FIR_CHUNK) {
+            let m = chunk.len();
+            self.buf[n - 1..n - 1 + m].copy_from_slice(chunk);
+            // output i uses inputs i ..= i + N-1 of the buffer: N-1 older samples then input i itself
+            for (i, y) in chunk.iter_mut().enumerate() {
+                *y = crate::simd::dot_kernel(&self.reversed, &self.buf[i..i + n]);
+            }
+            // the last N-1 inputs become the history for the next chunk
+            self.buf.copy_within(m..m + n - 1, 0);
         }
     }
     /// Gain at `frequency` (1.0 = unchanged).
@@ -323,6 +355,53 @@ mod tests {
         Fir::new(taps.clone()).process(&mut ir);
         assert_eq!(&ir[..4], &taps[..]);
         assert_eq!(&ir[4..], &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn fir_is_seamless_across_chunks_and_block_sizes() {
+        // blocks smaller than, larger than and straddling the internal chunk size, plus single samples
+        let taps: Vec<f64> = Noise::new(11).take(67).collect();
+        let input: Vec<f64> = Noise::new(12).take(1_000).collect();
+        let reference = convolve(&input, &taps);
+        let mut fir = Fir::new(taps.clone());
+        let mut out = input.clone();
+        let mut start = 0;
+        for size in [37, 300, 1, 128, 129, 5].iter().cycle() {
+            if start == out.len() {
+                break;
+            }
+            let end = (start + size).min(out.len());
+            if *size == 1 {
+                out[start] = fir.process_sample(out[start]);
+            } else {
+                fir.process(&mut out[start..end]);
+            }
+            start = end;
+        }
+        for (n, (a, b)) in out.iter().zip(&reference).enumerate() {
+            assert_close(*a, *b, 1e-12, &format!("sample {n}"));
+        }
+    }
+
+    #[test]
+    fn fir_baseline_path_matches_dispatched_path() {
+        // this machine / CI may always take the AVX2 path; exercise the baseline loop directly too
+        let taps: Vec<f32> = Noise::new(13).take(31).collect();
+        let input: Vec<f32> = Noise::new(14).take(500).collect();
+        let (mut a, mut b) = (input.clone(), input);
+        Fir::new(taps.clone()).process(&mut a);
+        Fir::new(taps).process_block(&mut b);
+        for (x, y) in a.iter().zip(&b) {
+            assert!((x - y).abs() < 1e-5);
+        }
+    }
+
+    #[test]
+    fn single_tap_fir_is_a_gain() {
+        let mut fir = Fir::new(vec![0.5]);
+        let mut buf = [2.0, -4.0, 6.0];
+        fir.process(&mut buf);
+        assert_eq!(buf, [1.0, -2.0, 3.0]);
     }
 
     #[test]

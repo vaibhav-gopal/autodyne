@@ -30,6 +30,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
 | `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
 | `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
+| `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir` and `Resampler`) |
 | `signal` | the planned `Signal` trait hierarchy (design only, not implemented yet) |
 
 ```rust
@@ -53,7 +54,8 @@ Both write WAV files to `target/examples-out/`:
 
 ### Tests and benchmarks
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips)
-- `cargo bench`: baseline throughput per 512-sample block (for comparison once SIMD work starts)
+- `cargo bench`: throughput per 512-sample block. The SIMD pass made FIR filtering 4.5-13x faster
+  (more taps, bigger win) and resampling 6-11x faster than the scalar versions.
 
 ## Not here
 The `flux` IR/compiler experiment (a JAX/XLA-style tracer and compiler) lives on the `flux` branch.
