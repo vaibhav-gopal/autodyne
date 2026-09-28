@@ -24,9 +24,12 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 |---|---|
 | `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...) and `Complex<T>` |
 | `osc` | `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse`; each is also an infinite iterator |
-| `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch), `magnitude_at` for analytic responses |
+| `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch, all-pass, peaking, low/high shelf), `magnitude_at` for analytic responses |
 | `spectral` | radix-2 `Fft` (forward, inverse, real input) and a reference `dft` |
 | `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
+| `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
+| `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
+| `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
 | `signal` | the planned `Signal` trait hierarchy (design only, not implemented yet) |
 
 ```rust
@@ -46,6 +49,7 @@ Both write WAV files to `target/examples-out/`:
 
 - `cargo run --release --example tone`: a 440 Hz tone, the same tone with noise, and the noisy one low-passed; prints the noise reduction and the FFT peak
 - `cargo run --release --example fm_radio`: an FM radio link (modulate, 12 kHz carrier, noisy channel, demodulate); prints the audio SNR
+- `cargo run --release --example effects`: a melody through EQ and echo, rendered at 48 kHz and resampled to 44.1 kHz
 
 ### Tests and benchmarks
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips)

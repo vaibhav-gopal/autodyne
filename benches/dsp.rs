@@ -3,7 +3,10 @@
 
 use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use autodyne::delay::Echo;
 use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
+use autodyne::gain::Gain;
+use autodyne::resample::Resampler;
 use autodyne::iq::{IqDemodulator, IqModulator};
 use autodyne::osc::{Noise, Sine};
 use autodyne::spectral::Fft;
@@ -77,5 +80,32 @@ fn iq(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, oscillators, filters, fft, iq);
+fn effects(c: &mut Criterion) {
+    let mut g = c.benchmark_group("effects");
+    g.throughput(Throughput::Elements(BLOCK as u64));
+    let input = noise_block();
+    let mut buf = input.clone();
+
+    let mut echo = Echo::new(1.0, FS);
+    echo.set_immediate(0.3, 0.5, 0.5);
+    g.bench_function("echo", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        echo.process(black_box(&mut buf));
+    }));
+
+    let mut gain = Gain::new(1.0, 0.02, FS);
+    g.bench_function("gain", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        gain.process(black_box(&mut buf));
+    }));
+
+    for (from, to) in [(48_000, 44_100), (44_100, 48_000), (48_000, 16_000)] {
+        let mut rs = Resampler::<f32>::new(from, to);
+        let mut out = vec![0.0f32; rs.max_output_len(BLOCK)];
+        g.bench_function(format!("resample {from}->{to}"), |b| b.iter(|| rs.process(black_box(&input), &mut out)));
+    }
+    g.finish();
+}
+
+criterion_group!(benches, oscillators, filters, fft, iq, effects);
 criterion_main!(benches);

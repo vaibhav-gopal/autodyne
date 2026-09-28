@@ -30,6 +30,7 @@ jobs:
         run: |
           cargo run --release --example tone
           cargo run --release --example fm_radio
+          cargo run --release --example effects
       - name: Benchmarks compile
         run: cargo bench --no-run
       # Clippy errors fail the build; warnings are reported but allowed while older modules are reworked.
