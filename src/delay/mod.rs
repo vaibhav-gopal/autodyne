@@ -49,6 +49,22 @@ impl<T: Float> DelayLine<T> {
         let (a, b) = (self.read(i), self.buffer[(self.newest + self.buffer.len() - i - 1) % self.buffer.len()]);
         a + (b - a) * frac
     }
+    /// Like `read_frac`, with 4-point cubic (Hermite) interpolation: nearly flat frequency response, so
+    /// repeated reads (as in feedback delay networks) don't dull the highs the way linear interpolation
+    /// does. `delay` is clamped to [1, max_delay - 1], since the curve needs a sample on each side.
+    #[inline]
+    pub fn read_cubic(&self, delay: T) -> T {
+        let d = delay._max(T::_ONE)._min(T::_lit(self.max_delay() as f64 - 1.0));
+        let whole = d._floor();
+        let t = d - whole;
+        let i = whole.to_usize().unwrap_or(1);
+        let (y0, y1, y2, y3) = (self.read(i - 1), self.read(i), self.read(i + 1), self.buffer[(self.newest + self.buffer.len() - i - 2) % self.buffer.len()]);
+        let half = T::_lit(0.5);
+        let c1 = half * (y2 - y0);
+        let c2 = y0 - T::_lit(2.5) * y1 + T::_lit(2.0) * y2 - half * y3;
+        let c3 = half * (y3 - y0) + T::_lit(1.5) * (y1 - y2);
+        ((c3 * t + c2) * t + c1) * t + y1
+    }
 }
 
 /// Feedback echo: each repeat is `feedback` times the previous one, mixed with the dry signal.
@@ -162,6 +178,19 @@ mod tests {
         assert_eq!(line.read_frac(2.25), 6.75);
         assert_eq!(line.read_frac(0.0), 9.0);
         assert_eq!(line.read_frac(-3.0), 9.0); // clamped
+    }
+
+    #[test]
+    fn cubic_reads_are_exact_on_smooth_signals() {
+        // Hermite interpolation reproduces quadratics exactly
+        let mut line = DelayLine::new(32);
+        let f = |n: f64| 0.01 * n * n - 0.3 * n + 2.0;
+        for n in 0..20 {
+            line.push(f(n as f64));
+        }
+        for d in [1.0, 2.5, 7.25, 12.9] {
+            assert!((line.read_cubic(d) - f(19.0 - d)).abs() < 1e-12, "delay {d}");
+        }
     }
 
     #[test]

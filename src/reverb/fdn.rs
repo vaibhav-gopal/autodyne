@@ -11,6 +11,12 @@ const LENGTHS_44K: [f64; LINES] = [1_116.0, 1_188.0, 1_277.0, 1_356.0, 1_422.0, 
 /// Input diffusers (all-pass lengths at 44.1 kHz): smear transients into a dense wash before the network.
 const DIFFUSERS_44K: [f64; 4] = [225.0, 341.0, 441.0, 556.0];
 const MAX_SIZE: f64 = 2.0;
+/// Largest delay sweep, in samples at 48 kHz (at modulation 1).
+const MAX_MOD_48K: f64 = 12.0;
+/// Sweep rates per line (Hz): slow, and not simple ratios of each other, so the lines never move in step.
+const MOD_RATES: [f64; LINES] = [0.23, 0.29, 0.37, 0.41, 0.47, 0.53, 0.59, 0.67];
+/// Samples between updates of the swept delays: at these rates a delay moves ~0.01 samples per update.
+const MOD_INTERVAL: usize = 16;
 const MAX_PREDELAY: f64 = 0.25;
 
 /// Signs mixing the input into the lines and the lines into the outputs: three distinct rows of an
@@ -62,7 +68,8 @@ impl<T: Float> Diffuser<T> {
 /// damped (one-pole low-pass), scaled so the tail falls 60 dB in `decay` seconds, mixed by an
 /// orthogonal Hadamard matrix and fed back. Left and right are different orthogonal mixes of the
 /// lines. `size` scales every delay (bigger room, sparser early echoes); `damping` sets how fast the
-/// highs die away. Needs a stereo buffer. Allocates only in `new` (sized for the largest `size`).
+/// highs die away; `modulation` slowly sweeps each line's delay so long tails don't ring metallically.
+/// Needs a stereo buffer. Allocates only in `new` (sized for the largest `size`).
 #[derive(Debug, Clone)]
 pub struct Reverb<T: Float> {
     sample_rate: T,
@@ -71,6 +78,18 @@ pub struct Reverb<T: Float> {
     gains: [T; LINES],
     lowpass: [T; LINES],
     damping_coeff: T,
+    /// per-line triangle LFO phase (cycles) and increment (cycles per sample)
+    mod_phase: [T; LINES],
+    mod_increment: [T; LINES],
+    /// sweep depth in samples
+    mod_depth: T,
+    modulation: T,
+    /// previous output of each line's all-pass interpolator
+    allpass_state: [T; LINES],
+    /// per-line integer delay and all-pass coefficient, refreshed every MOD_INTERVAL samples
+    mod_whole: [usize; LINES],
+    mod_eta: [T; LINES],
+    mod_countdown: usize,
     diffusers: Vec<Diffuser<T>>,
     predelay_line: DelayLine<T>,
     predelay: usize,
@@ -83,18 +102,30 @@ pub struct Reverb<T: Float> {
 }
 
 impl<T: Float> Reverb<T> {
-    /// A medium room: size 1, 1.8 s decay, damping at 6 kHz, 20 ms pre-delay, 30% mix, full width.
+    /// A medium room: size 1, 1.8 s decay, damping at 6 kHz, 20 ms pre-delay, modulation 0.5, 30% mix,
+    /// full width.
     pub fn new(sample_rate: T) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
         let scale = fs / 44_100.0;
         let smoothed = |v: f64| SmoothedValue::new(T::_lit(v)).with_ramp_seconds(T::_lit(0.02), sample_rate);
         let mut reverb = Self {
             sample_rate,
-            lines: LENGTHS_44K.iter().map(|&l| DelayLine::new((l * scale * MAX_SIZE).ceil() as usize + 1)).collect(),
+            lines: LENGTHS_44K
+                .iter()
+                .map(|&l| DelayLine::new((l * scale * MAX_SIZE + MAX_MOD_48K * fs / 48_000.0).ceil() as usize + 2))
+                .collect(),
             lengths: [1; LINES],
             gains: [T::_ZERO; LINES],
             lowpass: [T::_ZERO; LINES],
             damping_coeff: T::_ONE,
+            mod_phase: std::array::from_fn(|i| T::_lit(i as f64 / LINES as f64)),
+            mod_increment: std::array::from_fn(|i| T::_lit(MOD_RATES[i] / fs)),
+            mod_depth: T::_ZERO,
+            modulation: T::_lit(0.5),
+            allpass_state: [T::_ZERO; LINES],
+            mod_whole: [0; LINES],
+            mod_eta: [T::_ZERO; LINES],
+            mod_countdown: 0,
             diffusers: DIFFUSERS_44K
                 .iter()
                 .map(|&l| {
@@ -131,6 +162,7 @@ impl<T: Float> Reverb<T> {
         // at the top of the range the low-pass is bypassed (coefficient 1) rather than left slightly
         // closed: even a mild loss per pass adds up over the many passes of a long decay
         self.damping_coeff = if fc >= 0.45 * fs { T::_ONE } else { T::_lit(1.0 - (-std::f64::consts::TAU * fc / fs).exp()) };
+        self.mod_depth = self.modulation * T::_lit(MAX_MOD_48K * fs / 48_000.0);
         let predelay = (self.predelay_seconds.to_f64().unwrap_or(0.0) * fs).round() as usize;
         self.predelay = predelay.min(self.predelay_line.max_delay());
     }
@@ -168,6 +200,15 @@ impl<T: Float> Reverb<T> {
     pub fn predelay(&self) -> T {
         self.predelay_seconds
     }
+    /// How much the delay lines sweep (0..1, up to ~12 samples at 48 kHz), which smears the network's
+    /// resonances so long tails don't ring metallically. 0 = static delays.
+    pub fn set_modulation(&mut self, amount: T) {
+        self.modulation = amount._clamp(T::_ZERO, T::_ONE);
+        self.update();
+    }
+    pub fn modulation(&self) -> T {
+        self.modulation
+    }
     /// 0 = dry only, 1 = reverb only.
     pub fn set_mix(&mut self, mix: T) {
         self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
@@ -187,11 +228,35 @@ impl<T: Float> Reverb<T> {
         self.diffusers.iter_mut().for_each(|d| d.line.reset());
         self.predelay_line.reset();
         self.lowpass = [T::_ZERO; LINES];
+        self.mod_phase = std::array::from_fn(|i| T::_lit(i as f64 / LINES as f64));
+        self.allpass_state = [T::_ZERO; LINES];
+        self.mod_countdown = 0;
+    }
+
+    /// Advances the triangle LFOs by MOD_INTERVAL samples and recomputes each line's swept delay as an
+    /// integer part plus an all-pass coefficient. The integer part is chosen so the fraction stays in
+    /// [0.5, 1.5), which keeps the coefficient within (-0.2, 0.34], far from the unstable edge at 1.
+    fn update_modulation(&mut self) {
+        for i in 0..LINES {
+            let p = self.mod_phase[i];
+            let tri = T::_lit(4.0) * (p - T::_lit(0.5))._abs() - T::_ONE;
+            self.mod_phase[i] = (p + self.mod_increment[i] * T::_lit(MOD_INTERVAL as f64))._fract();
+            let delay = T::_lit(self.lengths[i] as f64 - 1.0) + self.mod_depth * tri;
+            let whole = (delay - T::_lit(0.5))._floor();
+            let frac = delay - whole;
+            self.mod_eta[i] = (T::_ONE - frac) / (T::_ONE + frac);
+            self.mod_whole[i] = whole.to_usize().unwrap_or(0);
+        }
     }
 
     /// One stereo frame: returns the wet (left, right) for a mono input.
     #[inline]
     fn tick(&mut self, input: T) -> (T, T) {
+        if self.mod_countdown == 0 {
+            self.update_modulation();
+            self.mod_countdown = MOD_INTERVAL;
+        }
+        self.mod_countdown -= 1;
         self.predelay_line.push(input);
         let mut x = self.predelay_line.read(self.predelay);
         for d in &mut self.diffusers {
@@ -200,7 +265,17 @@ impl<T: Float> Reverb<T> {
         let mut state = [T::_ZERO; LINES];
         let (mut left, mut right) = (T::_ZERO, T::_ZERO);
         for i in 0..LINES {
-            let out = self.lines[i].read(self.lengths[i] - 1);
+            let out = if self.mod_depth == T::_ZERO {
+                self.lines[i].read(self.lengths[i] - 1)
+            } else {
+                // the fractional part goes through a first-order all-pass interpolator, whose magnitude
+                // response is exactly flat, so the loop loses no energy to interpolation and the decay
+                // time stays exact (linear or cubic interpolation dull the highs a little every pass)
+                let (x0, x1) = (self.lines[i].read(self.mod_whole[i]), self.lines[i].read(self.mod_whole[i] + 1));
+                let y = self.mod_eta[i] * (x0 - self.allpass_state[i]) + x1;
+                self.allpass_state[i] = y;
+                y
+            };
             left = left + T::_lit(LEFT_SIGNS[i]) * out;
             right = right + T::_lit(RIGHT_SIGNS[i]) * out;
             self.lowpass[i] = self.lowpass[i] + self.damping_coeff * (out - self.lowpass[i]);
@@ -272,6 +347,40 @@ mod tests {
         3.0 * (t25 - t5) as f64 / FS
     }
 
+    /// How sharply the tail's spectrum peaks: the mean, over the strongest bins, of each bin's power
+    /// relative to the median power around it. Static delay networks ring at sharp modal peaks.
+    fn modal_peakiness(modulation: f64) -> f64 {
+        let mut reverb = Reverb::new(FS);
+        reverb.set_decay(8.0);
+        reverb.set_damping(24_000.0);
+        reverb.set_modulation(modulation);
+        let (l, _) = impulse_response(&mut reverb, 2.5);
+        let n = 65_536;
+        let tail = &l[(1.0 * FS) as usize..][..n];
+        let mut fft = RealFft::new(n);
+        let mut spectrum = vec![Complex::zero(); fft.spectrum_len()];
+        fft.forward(tail, &mut spectrum);
+        let power: Vec<f64> = spectrum.iter().map(|z| z.norm_sqr()).collect();
+        // 100 Hz - 4 kHz, where the modes are most audible
+        let (lo, hi) = (100 * n / FS as usize, 4_000 * n / FS as usize);
+        let mut ratios: Vec<f64> = (lo..hi)
+            .map(|k| {
+                let mut around: Vec<f64> = power[k - 64..k + 64].to_vec();
+                around.sort_by(f64::total_cmp);
+                power[k] / around[64]
+            })
+            .collect();
+        ratios.sort_by(|a, b| b.total_cmp(a));
+        ratios[..50].iter().sum::<f64>() / 50.0
+    }
+
+    #[test]
+    fn modulation_smears_modal_peaks() {
+        let (static_delays, modulated) = (modal_peakiness(0.0), modal_peakiness(1.0));
+        println!("modal peakiness: {static_delays:.1} static, {modulated:.1} modulated");
+        assert!(modulated < 0.5 * static_delays, "static {static_delays:.1} vs modulated {modulated:.1}");
+    }
+
     #[test]
     fn hadamard_is_orthogonal() {
         let mut x = [1.0, 2.0, -3.0, 0.5, 0.0, 4.0, -1.0, 2.5];
@@ -293,7 +402,7 @@ mod tests {
             let (l, _) = impulse_response(&mut reverb, rt60 * 1.5);
             let measured = measured_rt60(&l);
             println!("RT60 set {rt60} s, measured {measured:.3} s");
-            assert!((measured / rt60 - 1.0).abs() < 0.15, "set {rt60} s, measured {measured:.3} s");
+            assert!((measured / rt60 - 1.0).abs() < 0.05, "set {rt60} s, measured {measured:.3} s");
         }
     }
 
