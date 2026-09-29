@@ -10,6 +10,8 @@ thiserror = "2.0.12"
 cpal = "0.18.2"
 criterion = "0.6.0"
 hound = "3.5.1"
+midir = "0.11.0"
+rtrb = "0.4.0"
 
 [features]
 default = []

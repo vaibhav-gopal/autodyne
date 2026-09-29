@@ -29,6 +29,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
 | `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
 | `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
+| `synth` | `MidiMessage` parsing, the `Voice` trait, `Poly` (voice allocation and stealing, sustain pedal, pitch bend, sample-accurate events) and `SynthVoice` (oscillator -> enveloped resonant low-pass -> ADSR) |
 | `envelope` | `Adsr`: exact linear segments, click-free retrigger / release; a VCA `Processor` and a modulation `Source` |
 | `distortion` | `Waveshaper` (tanh, soft clip, hard clip, fold) with smoothed drive / output / mix |
 | `dynamics` | `EnvelopeFollower`, `Compressor` (soft knee, attack/release, makeup), `Compressor::limiter` |
@@ -57,9 +58,9 @@ let level = block.rms_db();  // analyse: every slice is a signal
 ```
 
 ### Examples
-`cargo run --release --example live [seconds]` plays a looping arpeggio (band-limited saw, resonant low-pass,
-ADSR, oversampled saturation) through a stereo chain (chorus, linked compressor, echo, width, limiter) on your
-default output device, rendered live in the audio callback.
+`cargo run --release --example live [seconds] [--demo]` is a playable 8-voice synth: plug in a MIDI keyboard (or it
+plays a built-in chord sequence), through oversampled saturation and a stereo chain (chorus, linked compressor, echo,
+width, limiter), rendered live in the audio callback. MIDI reaches the audio thread through a lock-free ring buffer.
 
 The others write WAV files to `target/examples-out/`:
 

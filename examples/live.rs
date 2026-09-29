@@ -1,13 +1,17 @@
-//! Real-time playback: a looping arpeggio through a stereo effects chain, rendered inside the audio
-//! callback of the default output device.
+//! A playable polyphonic synth on your default audio output.
 //!
-//!     cargo run --release --example live             # plays for 10 seconds
-//!     cargo run --release --example live -- 30       # plays for 30 seconds
+//!     cargo run --release --example live                # MIDI keyboard if one is connected, else a demo; 10 s
+//!     cargo run --release --example live -- 60          # play for 60 seconds
+//!     cargo run --release --example live -- 30 --demo   # always use the demo sequence
 //!
-//! Voice: band-limited saw -> resonant low-pass -> ADSR -> 4x oversampled tanh saturation.
-//! Then: auto-panner (mono -> stereo) -> per-channel EQ + chorus (LFOs half a cycle apart) -> linked
-//! compressor -> per-channel echo -> stereo width -> linked limiter at -3 dBFS.
-//! Everything is allocated before the stream starts; the callback only processes.
+//! Signal path: MIDI -> 8-voice `Poly<SynthVoice>` (band-limited saw -> enveloped resonant low-pass ->
+//! ADSR) -> gain -> 4x oversampled tanh saturation -> panner (mono -> stereo) -> per-channel EQ +
+//! chorus (LFOs half a cycle apart) -> linked compressor -> per-channel echo -> stereo width ->
+//! linked limiter at -3 dBFS.
+//!
+//! MIDI arrives on midir's thread and reaches the audio thread through a lock-free ring buffer
+//! (rtrb), so the audio callback never locks or allocates. Without a MIDI input (or with --demo), a
+//! built-in sequencer plays chords under an arpeggio, with every event on its exact sample.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -16,22 +20,20 @@ use std::time::Duration;
 use autodyne::channels::{AudioBuffer, Linked, MultiProcessor, Panner, PerChannel, StereoWidth};
 use autodyne::delay::Echo;
 use autodyne::distortion::{Shape, Waveshaper};
-use autodyne::envelope::Adsr;
 use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
+use autodyne::gain::Gain;
 use autodyne::modulation::ModulatedDelay;
-use autodyne::osc::{Oscillator, Waveform};
+use autodyne::params::Parameterized;
 use autodyne::resample::Oversampled;
+use autodyne::synth::{MidiMessage, Poly, SynthVoice, TimedEvent};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
+use rtrb::{Consumer, RingBuffer};
 
 /// Largest block rendered at once; bigger device buffers are handled in pieces.
 const MAX_FRAMES: usize = 1024;
-/// C major arpeggio, up and back down (Hz)
-const NOTES: [f32; 6] = [261.63, 329.63, 392.00, 523.25, 392.00, 329.63];
-const STEP_SECONDS: f32 = 0.18;
-/// fraction of each step the note sounds for
-const GATE_FRACTION: f32 = 0.7;
+const VOICES: usize = 8;
 
 type StereoChain = (
     PerChannel<(Biquad<f32>, ModulatedDelay<f32>)>,
@@ -41,26 +43,87 @@ type StereoChain = (
     Linked<Compressor<f32>>,
 );
 
-struct Synth {
-    sample_rate: f32,
-    voice: Oscillator<f32>,
-    filter: Biquad<f32>,
-    amp: Adsr<f32>,
-    drive: Oversampled<Waveshaper<f32>, f32>,
+// DEMO SEQUENCE ===================================================================================
+
+/// C - Am - F - G, one chord per 8 steps, with an arpeggio over it.
+const CHORDS: [[u8; 4]; 4] = [[48, 60, 64, 67], [45, 57, 60, 64], [41, 57, 60, 65], [43, 55, 59, 62]];
+const ARP: [u8; 8] = [72, 76, 79, 84, 79, 76, 72, 67];
+
+/// Emits note events with sample offsets inside each block.
+struct Sequencer {
     step_len: usize,
     gate_len: usize,
-    pos_in_step: usize,
-    note: usize,
+    pos: usize,
+    step: usize,
+}
+
+impl Sequencer {
+    fn new(sample_rate: f32) -> Self {
+        let step_len = (0.16 * sample_rate) as usize;
+        Self { step_len, gate_len: step_len * 2 / 3, pos: 0, step: 0 }
+    }
+
+    fn events(&mut self, frames: usize, out: &mut Vec<TimedEvent>) {
+        let note = |offset, on: bool, note| TimedEvent {
+            offset,
+            message: if on {
+                MidiMessage::NoteOn { channel: 0, note, velocity: 90 }
+            } else {
+                MidiMessage::NoteOff { channel: 0, note, velocity: 0 }
+            },
+        };
+        let mut t = 0;
+        while t < frames {
+            if self.pos == 0 {
+                if self.step.is_multiple_of(8) {
+                    let chord = (self.step / 8) % CHORDS.len();
+                    let previous = (chord + CHORDS.len() - 1) % CHORDS.len();
+                    if self.step > 0 {
+                        CHORDS[previous].iter().for_each(|&n| out.push(note(t, false, n)));
+                    }
+                    CHORDS[chord].iter().for_each(|&n| out.push(note(t, true, n)));
+                }
+                out.push(note(t, true, ARP[self.step % ARP.len()]));
+            } else if self.pos == self.gate_len {
+                out.push(note(t, false, ARP[self.step % ARP.len()]));
+            }
+            let next = if self.pos < self.gate_len { self.gate_len } else { self.step_len };
+            let n = (next - self.pos).min(frames - t);
+            t += n;
+            self.pos += n;
+            if self.pos == self.step_len {
+                self.pos = 0;
+                self.step += 1;
+            }
+        }
+    }
+}
+
+// ENGINE ==========================================================================================
+
+struct Engine {
+    poly: Poly<SynthVoice<f32>>,
+    level: Gain<f32>,
+    drive: Oversampled<Waveshaper<f32>, f32>,
     pan: Panner<f32>,
-    pan_phase: f32,
     chain: StereoChain,
+    midi: Option<Consumer<MidiMessage>>,
+    demo: Option<Sequencer>,
+    events: Vec<TimedEvent>,
     mono: Vec<f32>,
     stereo: AudioBuffer<f32>,
 }
 
-impl Synth {
-    fn new(sample_rate: f32) -> Self {
-        let step_len = (STEP_SECONDS * sample_rate) as usize;
+impl Engine {
+    fn new(sample_rate: f32, midi: Option<Consumer<MidiMessage>>) -> Self {
+        let mut poly = Poly::new(VOICES, MAX_FRAMES, |_| SynthVoice::new(sample_rate));
+        // a warmer patch than the defaults, set through the same parameter API a host would use
+        for (id, value) in [("cutoff_hz", 700.0), ("resonance", 2.0), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
+            poly.set_param_by_id(id, value).expect("known parameter");
+        }
+        let mut shaper = Waveshaper::new(Shape::Tanh, 4.0 * sample_rate); // runs at 4x the rate
+        shaper.set_drive_db(6.0);
+        shaper.set_output_db(-3.0);
         let mut compressor = Compressor::new(sample_rate);
         compressor.set_threshold_db(-18.0);
         compressor.set_makeup_db(3.0);
@@ -75,73 +138,97 @@ impl Synth {
             PerChannel::new(2, |ch| {
                 let mut echo = Echo::new(1.0, sample_rate);
                 // slightly different times per side give a wider echo
-                echo.set_immediate(if ch == 0 { 0.36 } else { 0.27 }, 0.4, 0.3);
+                echo.set_immediate(if ch == 0 { 0.36 } else { 0.27 }, 0.35, 0.25);
                 echo
             }),
             StereoWidth::new(1.3, sample_rate),
             Linked(Compressor::limiter(-3.0, 0.05, sample_rate)),
         );
+        let demo = midi.is_none().then(|| Sequencer::new(sample_rate));
         Self {
-            sample_rate,
-            voice: Oscillator::new(Waveform::Saw, NOTES[0], sample_rate).with_amplitude(0.3),
-            filter: Biquad::lowpass(1_800.0, sample_rate, 1.5),
-            amp: Adsr::new(0.005, 0.12, 0.5, 0.15, sample_rate),
-            drive: {
-                // the saturator runs at 4x the rate, so it is built for that rate
-                let mut ws = Waveshaper::new(Shape::Tanh, 4.0 * sample_rate);
-                ws.set_drive_db(9.0);
-                ws.set_output_db(-4.0);
-                Oversampled::new(ws, 4, MAX_FRAMES)
-            },
-            step_len,
-            gate_len: (step_len as f32 * GATE_FRACTION) as usize,
-            pos_in_step: 0,
-            note: 0,
+            poly,
+            level: Gain::new(0.2, 0.0, sample_rate), // several voices sum; leave headroom
+            drive: Oversampled::new(shaper, 4, MAX_FRAMES),
             pan: Panner::new(0.0, sample_rate),
-            pan_phase: 0.0,
             chain,
+            midi,
+            demo,
+            events: Vec::with_capacity(64),
             mono: vec![0.0; MAX_FRAMES],
             stereo: AudioBuffer::new(2, MAX_FRAMES),
         }
     }
 
-    /// Renders `frames` (<= MAX_FRAMES) stereo frames into `self.stereo`.
+    /// Renders `frames` (<= MAX_FRAMES) stereo frames. Called on the audio thread: no allocation.
     fn render(&mut self, frames: usize) -> &AudioBuffer<f32> {
-        // Note on/off events land on exact samples: split the block at each event.
-        let mut done = 0;
-        while done < frames {
-            if self.pos_in_step == 0 {
-                self.voice.set_frequency(NOTES[self.note], self.sample_rate);
-                self.amp.note_on();
-            } else if self.pos_in_step == self.gate_len {
-                self.amp.note_off();
-            }
-            let next_event = if self.pos_in_step < self.gate_len { self.gate_len } else { self.step_len };
-            let n = (next_event - self.pos_in_step).min(frames - done);
-            let part = &mut self.mono[done..done + n];
-            self.voice.fill(part);
-            self.filter.process(part);
-            self.amp.process(part);
-            self.drive.process(part);
-            done += n;
-            self.pos_in_step += n;
-            if self.pos_in_step == self.step_len {
-                self.pos_in_step = 0;
-                self.note = (self.note + 1) % NOTES.len();
+        if let Some(midi) = &mut self.midi {
+            while let Ok(message) = midi.pop() {
+                self.poly.handle(message); // applied at the start of the block
             }
         }
-
-        // slow auto-pan, 0.1 Hz; the panner smooths between block-rate position updates
-        self.pan_phase = (self.pan_phase + frames as f32 * 0.1 / self.sample_rate).fract();
-        self.pan.set_position(0.6 * (std::f32::consts::TAU * self.pan_phase).sin());
-        self.pan.process(&self.mono[..frames], &mut self.stereo);
+        self.events.clear();
+        if let Some(demo) = &mut self.demo {
+            demo.events(frames, &mut self.events); // a handful per block, within the reserved capacity
+        }
+        let mono = &mut self.mono[..frames];
+        self.poly.render_events(mono, &self.events);
+        self.level.process(mono);
+        self.drive.process(mono);
+        self.pan.process(mono, &mut self.stereo);
         self.chain.process(&mut self.stereo);
         &self.stereo
     }
 }
 
+// MIDI + AUDIO ====================================================================================
+
+/// Connects to the first MIDI input port, forwarding parsed messages into a ring buffer.
+/// Returns the connection (keep it alive) and the audio-side consumer, or None without MIDI.
+fn open_midi() -> Option<(midir::MidiInputConnection<()>, Consumer<MidiMessage>)> {
+    let input = match midir::MidiInput::new("autodyne live") {
+        Ok(input) => input,
+        Err(e) => {
+            eprintln!("MIDI unavailable: {e}");
+            return None;
+        }
+    };
+    let ports = input.ports();
+    let Some(port) = ports.first() else {
+        println!("no MIDI input ports found");
+        return None;
+    };
+    let name = input.port_name(port).unwrap_or_else(|_| "unnamed port".into());
+    let (mut producer, consumer) = RingBuffer::new(1024);
+    let connection = input
+        .connect(
+            port,
+            "autodyne-live-in",
+            move |_timestamp, bytes, _| {
+                if let Some(message) = MidiMessage::parse(bytes) {
+                    let _ = producer.push(message); // if the audio thread falls behind, drop rather than block
+                }
+            },
+            (),
+        )
+        .map_err(|e| eprintln!("could not open MIDI input {name}: {e}"))
+        .ok()?;
+    println!("MIDI input: {name}");
+    Some((connection, consumer))
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let seconds: u64 = std::env::args().nth(1).map(|s| s.parse()).transpose()?.unwrap_or(10);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let seconds: u64 = args.iter().find_map(|a| a.parse().ok()).unwrap_or(10);
+    let force_demo = args.iter().any(|a| a == "--demo");
+
+    let midi = if force_demo { None } else { open_midi() };
+    let (_connection, consumer) = match midi {
+        Some((c, rx)) => (Some(c), Some(rx)),
+        None => {
+            println!("no MIDI input in use: playing the demo sequence");
+            (None, None)
+        }
+    };
 
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or("no output device found")?;
@@ -151,30 +238,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let played = Arc::new(AtomicUsize::new(0));
     match config.sample_format() {
-        SampleFormat::F32 => run::<f32>(&device, config.into(), seconds, played.clone())?,
-        SampleFormat::F64 => run::<f64>(&device, config.into(), seconds, played.clone())?,
-        SampleFormat::I16 => run::<i16>(&device, config.into(), seconds, played.clone())?,
-        SampleFormat::I32 => run::<i32>(&device, config.into(), seconds, played.clone())?,
-        SampleFormat::U16 => run::<u16>(&device, config.into(), seconds, played.clone())?,
+        SampleFormat::F32 => run::<f32>(&device, config.into(), seconds, consumer, played.clone())?,
+        SampleFormat::F64 => run::<f64>(&device, config.into(), seconds, consumer, played.clone())?,
+        SampleFormat::I16 => run::<i16>(&device, config.into(), seconds, consumer, played.clone())?,
+        SampleFormat::I32 => run::<i32>(&device, config.into(), seconds, consumer, played.clone())?,
+        SampleFormat::U16 => run::<u16>(&device, config.into(), seconds, consumer, played.clone())?,
         other => return Err(format!("unsupported sample format {other}").into()),
     }
     println!("played {} frames", played.load(Ordering::Relaxed));
     Ok(())
 }
 
-fn run<T>(device: &cpal::Device, config: StreamConfig, seconds: u64, played: Arc<AtomicUsize>) -> Result<(), Box<dyn std::error::Error>>
+fn run<T>(
+    device: &cpal::Device,
+    config: StreamConfig,
+    seconds: u64,
+    midi: Option<Consumer<MidiMessage>>,
+    played: Arc<AtomicUsize>,
+) -> Result<(), Box<dyn std::error::Error>>
 where
     T: SizedSample + FromSample<f32>,
 {
     let channels = config.channels as usize;
-    let mut synth = Synth::new(config.sample_rate as f32);
+    let mut engine = Engine::new(config.sample_rate as f32, midi);
 
     let stream = device.build_output_stream(
         config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| {
             for chunk in data.chunks_mut(MAX_FRAMES * channels) {
                 let frames = chunk.len() / channels;
-                let stereo = synth.render(frames);
+                let stereo = engine.render(frames);
                 let (left, right) = (stereo.channel(0), stereo.channel(1));
                 for (f, frame) in chunk.chunks_mut(channels).enumerate() {
                     // map stereo onto whatever the device has: mono gets the sum, extra channels silence
