@@ -398,6 +398,20 @@ pub struct NdViewMut<'a, T> {
     layout: Layout,
 }
 
+impl<T> fmt::Debug for NdView<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let l = &self.layout;
+        f.debug_struct("NdView").field("shape", &l.shape).field("strides", &l.strides).field("offset", &l.offset).finish()
+    }
+}
+
+impl<T> fmt::Debug for NdViewMut<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let l = &self.layout;
+        f.debug_struct("NdViewMut").field("shape", &l.shape).field("strides", &l.strides).field("offset", &l.offset).finish()
+    }
+}
+
 /// Checks that a layout stays inside `len` elements.
 fn checked_layout(len: usize, shape: &[usize], strides: &[usize], offset: usize) -> Result<Layout, NdError> {
     let shape = Dims::new(shape)?;
