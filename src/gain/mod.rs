@@ -101,6 +101,11 @@ impl<T: Float> Gain<T> {
     pub fn gain(&self) -> T {
         self.gain.target()
     }
+    /// Finishes any ramp in progress immediately (the only state a gain has).
+    pub fn reset(&mut self) {
+        let target = self.gain.target();
+        self.gain.set_immediate(target);
+    }
     /// Applies the gain to `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         if self.gain.is_smoothing() {
