@@ -8,6 +8,7 @@ thiserror = "2.0.12"
 delegate = "0.13.3"
 
 [dev-dependencies]
+cpal = "0.18.2"
 criterion = "0.6.0"
 hound = "3.5.1"
 

@@ -9,6 +9,7 @@ use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::resample::Resampler;
 use autodyne::iq::{IqDemodulator, IqModulator};
+use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::osc::{Noise, Sine};
 use autodyne::spectral::Fft;
 use autodyne::units::Complex;
@@ -114,5 +115,23 @@ fn effects(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, oscillators, filters, fft, iq, effects);
+fn modulation(c: &mut Criterion) {
+    let mut g = c.benchmark_group("modulation");
+    g.throughput(Throughput::Elements(BLOCK as u64));
+    let input = noise_block();
+    let mut buf = input.clone();
+    let mut chorus = ModulatedDelay::chorus(FS);
+    g.bench_function("chorus", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        chorus.process(black_box(&mut buf));
+    }));
+    let mut phaser = Phaser::new(6, FS);
+    g.bench_function("phaser (6 stages)", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        phaser.process(black_box(&mut buf));
+    }));
+    g.finish();
+}
+
+criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation);
 criterion_main!(benches);
