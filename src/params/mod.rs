@@ -15,6 +15,7 @@ use thiserror::Error;
 use crate::channels::{Linked, Panner, PerChannel, StereoWidth};
 use crate::delay::Echo;
 use crate::dynamics::{Compressor, EnvelopeFollower};
+use crate::envelope::Adsr;
 use crate::filter::{Biquad, Fir};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
@@ -466,6 +467,17 @@ parameterized!(Phaser, "Phaser",
             _ => p.set_mix(t(v)),
         }
     },
+);
+
+parameterized!(Adsr, "ADSR",
+    infos: |_s| [
+        ParamInfo::new("attack_s", "Attack", Seconds, 0.0, 10.0, 0.005),
+        ParamInfo::new("decay_s", "Decay", Seconds, 0.0, 10.0, 0.1),
+        ParamInfo::new("sustain", "Sustain", Fraction, 0.0, 1.0, 0.7),
+        ParamInfo::new("release_s", "Release", Seconds, 0.0, 20.0, 0.3),
+    ],
+    read: |p, i| match i { 0 => f(p.attack()), 1 => f(p.decay()), 2 => f(p.sustain()), _ => f(p.release()) },
+    write: |p, i, v| match i { 0 => p.set_attack(t(v)), 1 => p.set_decay(t(v)), 2 => p.set_sustain(t(v)), _ => p.set_release(t(v)) },
 );
 
 parameterized!(StereoWidth, "Stereo width",
