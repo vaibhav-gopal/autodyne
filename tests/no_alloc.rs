@@ -13,10 +13,12 @@ use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
-use autodyne::osc::{Impulse, Noise, Phasor, Sine};
+use autodyne::distortion::{Shape, Waveshaper};
+use autodyne::envelope::Adsr;
+use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform};
 use autodyne::params::Parameterized;
 use autodyne::prelude::*;
-use autodyne::resample::Resampler;
+use autodyne::resample::{Oversampled, Resampler};
 use autodyne::spectral::Fft;
 use autodyne::units::{Complex, DType};
 
@@ -96,6 +98,14 @@ fn processors_do_not_allocate() {
     assert_no_alloc("Phaser", || phaser.process(&mut block));
     let mut chain = (Biquad::lowpass(5_000.0, FS, BUTTERWORTH_Q), Compressor::new(FS), Echo::new(0.2, FS));
     assert_no_alloc("tuple chain", || chain.process(&mut block));
+    let mut adsr = Adsr::new(0.01, 0.1, 0.5, 0.2, FS);
+    assert_no_alloc("Adsr", || {
+        adsr.note_on();
+        adsr.process(&mut block);
+        adsr.note_off();
+    });
+    let mut shaper = Oversampled::new(Waveshaper::new(Shape::Tanh, 4.0 * FS), 4, 256);
+    assert_no_alloc("Oversampled<Waveshaper>", || shaper.process(&mut block));
 }
 
 #[test]
@@ -103,6 +113,8 @@ fn generators_sources_and_streams_do_not_allocate() {
     let mut block = vec![0.0f64; 512];
     let mut sine = Sine::new(440.0, FS);
     assert_no_alloc("Sine::fill", || sine.fill(&mut block));
+    let mut saw = Oscillator::new(Waveform::Saw, 440.0, FS);
+    assert_no_alloc("Oscillator::fill", || saw.fill(&mut block));
     let mut noise = Noise::new(3);
     assert_no_alloc("Noise::add_to", || noise.add_to(&mut block));
     let mut imp = Impulse::new();

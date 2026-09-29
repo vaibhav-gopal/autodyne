@@ -15,7 +15,9 @@ use thiserror::Error;
 use crate::channels::{Linked, Panner, PerChannel, StereoWidth};
 use crate::delay::Echo;
 use crate::dynamics::{Compressor, EnvelopeFollower};
+use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
+use crate::resample::Oversampled;
 use crate::filter::{Biquad, Fir};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
@@ -479,6 +481,35 @@ parameterized!(Adsr, "ADSR",
     read: |p, i| match i { 0 => f(p.attack()), 1 => f(p.decay()), 2 => f(p.sustain()), _ => f(p.release()) },
     write: |p, i, v| match i { 0 => p.set_attack(t(v)), 1 => p.set_decay(t(v)), 2 => p.set_sustain(t(v)), _ => p.set_release(t(v)) },
 );
+
+parameterized!(Waveshaper, "Waveshaper",
+    infos: |_s| [
+        ParamInfo::new("drive_db", "Drive", Decibels, 0.0, 48.0, 0.0),
+        ParamInfo::new("output_db", "Output", Decibels, -24.0, 24.0, 0.0),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0),
+    ],
+    read: |p, i| match i { 0 => f(p.drive_db()), 1 => f(p.output_db()), _ => f(p.mix()) },
+    write: |p, i, v| match i { 0 => p.set_drive_db(t(v)), 1 => p.set_output_db(t(v)), _ => p.set_mix(t(v)) },
+);
+
+/// An oversampled processor has exactly the parameters of the processor inside.
+impl<P: Parameterized, T: Float> Parameterized for Oversampled<P, T> {
+    fn param_count(&self) -> usize {
+        self.inner().param_count()
+    }
+    fn param_info(&self, index: usize) -> Option<ParamInfo> {
+        self.inner().param_info(index)
+    }
+    fn param_group(&self, index: usize) -> Option<&'static str> {
+        self.inner().param_group(index)
+    }
+    fn get_param(&self, index: usize) -> Option<f64> {
+        self.inner().get_param(index)
+    }
+    fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
+        self.inner_mut().set_param(index, value)
+    }
+}
 
 parameterized!(StereoWidth, "Stereo width",
     infos: |_s| [ParamInfo::new("width", "Width", Fraction, 0.0, 4.0, 1.0)],

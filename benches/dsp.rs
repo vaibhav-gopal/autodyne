@@ -4,13 +4,15 @@
 use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use autodyne::delay::Echo;
+use autodyne::distortion::{Shape, Waveshaper};
+use autodyne::envelope::Adsr;
 use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
-use autodyne::resample::Resampler;
+use autodyne::resample::{Oversampled, Resampler};
 use autodyne::iq::{IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
-use autodyne::osc::{Noise, Sine};
+use autodyne::osc::{Noise, Oscillator, Sine, Waveform};
 use autodyne::spectral::Fft;
 use autodyne::units::Complex;
 
@@ -29,6 +31,8 @@ fn oscillators(c: &mut Criterion) {
     g.bench_function("sine", |b| b.iter(|| sine.fill(black_box(&mut buf))));
     let mut noise = Noise::new(1);
     g.bench_function("noise", |b| b.iter(|| noise.fill(black_box(&mut buf))));
+    let mut saw = Oscillator::new(Waveform::Saw, 440.0, FS);
+    g.bench_function("saw (polyblep)", |b| b.iter(|| saw.fill(black_box(&mut buf))));
     g.finish();
 }
 
@@ -133,5 +137,29 @@ fn modulation(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation);
+fn synth(c: &mut Criterion) {
+    let mut g = c.benchmark_group("synth");
+    g.throughput(Throughput::Elements(BLOCK as u64));
+    let input = noise_block();
+    let mut buf = input.clone();
+    let mut adsr = Adsr::new(0.01, 0.1, 0.7, 0.3, FS);
+    adsr.note_on();
+    g.bench_function("adsr", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        adsr.process(black_box(&mut buf));
+    }));
+    let mut shaper = Waveshaper::new(Shape::Tanh, FS);
+    g.bench_function("waveshaper tanh", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        shaper.process(black_box(&mut buf));
+    }));
+    let mut over = Oversampled::new(Waveshaper::new(Shape::Tanh, 4.0 * FS), 4, BLOCK);
+    g.bench_function("waveshaper tanh, 4x oversampled", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        over.process(black_box(&mut buf));
+    }));
+    g.finish();
+}
+
+criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation, synth);
 criterion_main!(benches);

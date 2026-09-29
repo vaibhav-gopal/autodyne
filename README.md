@@ -23,17 +23,19 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | module | contents |
 |---|---|
 | `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...), `Complex<T>`, and reflection: `DType` (runtime element type) and `Reflection` |
-| `osc` | `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse`; each is also an infinite iterator |
+| `osc` | band-limited `Oscillator` (saw / pulse with PolyBLEP, triangle, sine), `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse` |
 | `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch, all-pass, peaking, low/high shelf), `magnitude_at` for analytic responses |
 | `spectral` | radix-2 `Fft` (forward, inverse, real input) and a reference `dft` |
 | `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
 | `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
 | `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
+| `envelope` | `Adsr`: exact linear segments, click-free retrigger / release; a VCA `Processor` and a modulation `Source` |
+| `distortion` | `Waveshaper` (tanh, soft clip, hard clip, fold) with smoothed drive / output / mix |
 | `dynamics` | `EnvelopeFollower`, `Compressor` (soft knee, attack/release, makeup), `Compressor::limiter` |
 | `modulation` | `ModulatedDelay` (`chorus` / `flanger` presets), `Phaser` (swept all-pass stages) |
 | `processor` | the `Processor` trait all effects share; tuples are zero-cost chains, `Vec<Box<dyn Processor>>` is a runtime chain |
 | `channels` | planar `AudioBuffer` (+ interleave conversion, `[channel, time]` n-d view), `MultiProcessor`, `PerChannel`, `Linked(compressor)`, `StereoWidth`, `Panner` |
-| `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
+| `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) and `Oversampled<P>` (runs any processor at 2x / 4x / 8x; 4x cuts tanh saturation aliasing by ~39 dB) |
 | `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir` and `Resampler`) |
 | `signal` | the core abstraction. Any sample slice, `Vec`, array or `NdArray` is a signal: `Signal` (levels, norms, statistics, argmax, inner/angle/distance, convolved/correlated/resampled), `SignalMut` (gain, normalize, fades, cumsum/diff, projection, pointwise math with `Broadcast` policies), `ComplexSignal`. Capability tiers `SignalOwned` / `SignalResizable` unlock `SigOwnedOps` / `SigResizeOps`. `Source`s compose lazily (`scaled`, `mix`, `through`). Streams: `SignalRead` / `SignalWrite` / `SignalSeek` with `SampleReader` / `SampleWriter` at the byte boundary. `NdArray` + zero-copy `NdView`s whose lanes are signals, with axis labels |
 | `params` | `ParamInfo` (range, unit, scale, normalized 0..1, formatting) and `Parameterized` for every processor, tuple / `Vec` chains and linked `PerChannel` |
@@ -55,8 +57,9 @@ let level = block.rms_db();  // analyse: every slice is a signal
 ```
 
 ### Examples
-`cargo run --release --example live [seconds]` plays a looping arpeggio through a stereo chain (chorus, linked
-compressor, echo, width, limiter) on your default output device, rendered live in the audio callback.
+`cargo run --release --example live [seconds]` plays a looping arpeggio (band-limited saw, resonant low-pass,
+ADSR, oversampled saturation) through a stereo chain (chorus, linked compressor, echo, width, limiter) on your
+default output device, rendered live in the audio callback.
 
 The others write WAV files to `target/examples-out/`:
 
@@ -67,7 +70,7 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
 ### Tests and benchmarks
-- `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips)
+- `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips), and `tests/no_alloc.rs` proves processing never allocates
 - `cargo bench`: throughput per 512-sample block. The SIMD pass made FIR filtering 4.5-13x faster
   (more taps, bigger win) and resampling 6-11x faster than the scalar versions.
 

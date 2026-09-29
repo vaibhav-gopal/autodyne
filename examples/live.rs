@@ -4,8 +4,9 @@
 //!     cargo run --release --example live             # plays for 10 seconds
 //!     cargo run --release --example live -- 30       # plays for 30 seconds
 //!
-//! Chain: sine voice -> note gate -> auto-panner (mono -> stereo) -> per-channel EQ + chorus (LFOs half a
-//! cycle apart) -> linked compressor -> per-channel echo -> stereo width -> linked limiter at -3 dBFS.
+//! Voice: band-limited saw -> resonant low-pass -> ADSR -> 4x oversampled tanh saturation.
+//! Then: auto-panner (mono -> stereo) -> per-channel EQ + chorus (LFOs half a cycle apart) -> linked
+//! compressor -> per-channel echo -> stereo width -> linked limiter at -3 dBFS.
 //! Everything is allocated before the stream starts; the callback only processes.
 
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -14,11 +15,13 @@ use std::time::Duration;
 
 use autodyne::channels::{AudioBuffer, Linked, MultiProcessor, Panner, PerChannel, StereoWidth};
 use autodyne::delay::Echo;
+use autodyne::distortion::{Shape, Waveshaper};
+use autodyne::envelope::Adsr;
 use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
-use autodyne::gain::Gain;
 use autodyne::modulation::ModulatedDelay;
-use autodyne::osc::Sine;
+use autodyne::osc::{Oscillator, Waveform};
+use autodyne::resample::Oversampled;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 
@@ -40,8 +43,10 @@ type StereoChain = (
 
 struct Synth {
     sample_rate: f32,
-    voice: Sine<f32>,
-    gate: Gain<f32>,
+    voice: Oscillator<f32>,
+    filter: Biquad<f32>,
+    amp: Adsr<f32>,
+    drive: Oversampled<Waveshaper<f32>, f32>,
     step_len: usize,
     gate_len: usize,
     pos_in_step: usize,
@@ -78,8 +83,16 @@ impl Synth {
         );
         Self {
             sample_rate,
-            voice: Sine::new(NOTES[0], sample_rate).with_amplitude(0.3),
-            gate: Gain::new(0.0, 0.005, sample_rate),
+            voice: Oscillator::new(Waveform::Saw, NOTES[0], sample_rate).with_amplitude(0.3),
+            filter: Biquad::lowpass(1_800.0, sample_rate, 1.5),
+            amp: Adsr::new(0.005, 0.12, 0.5, 0.15, sample_rate),
+            drive: {
+                // the saturator runs at 4x the rate, so it is built for that rate
+                let mut ws = Waveshaper::new(Shape::Tanh, 4.0 * sample_rate);
+                ws.set_drive_db(9.0);
+                ws.set_output_db(-4.0);
+                Oversampled::new(ws, 4, MAX_FRAMES)
+            },
             step_len,
             gate_len: (step_len as f32 * GATE_FRACTION) as usize,
             pos_in_step: 0,
@@ -99,15 +112,17 @@ impl Synth {
         while done < frames {
             if self.pos_in_step == 0 {
                 self.voice.set_frequency(NOTES[self.note], self.sample_rate);
-                self.gate.set_gain(1.0);
+                self.amp.note_on();
             } else if self.pos_in_step == self.gate_len {
-                self.gate.set_gain(0.0);
+                self.amp.note_off();
             }
             let next_event = if self.pos_in_step < self.gate_len { self.gate_len } else { self.step_len };
             let n = (next_event - self.pos_in_step).min(frames - done);
             let part = &mut self.mono[done..done + n];
             self.voice.fill(part);
-            self.gate.process(part);
+            self.filter.process(part);
+            self.amp.process(part);
+            self.drive.process(part);
             done += n;
             self.pos_in_step += n;
             if self.pos_in_step == self.step_len {

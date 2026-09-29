@@ -4,9 +4,14 @@
 //! anything above the new Nyquist, then keep every M-th sample. The polyphase form computes only the
 //! filter taps that land on real input samples, so each output costs about `taps_per_phase`
 //! multiply-adds regardless of L.
+//!
+//! [`Oversampled`] uses a pair of resamplers to run any processor at a multiple of the sample rate.
 
 use crate::filter::design_lowpass;
 use crate::units::*;
+
+mod oversample;
+pub use oversample::*;
 
 /// Input samples per chunk in `Resampler::process`.
 const RESAMPLE_CHUNK: usize = 128;

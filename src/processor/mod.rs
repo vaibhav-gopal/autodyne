@@ -88,12 +88,13 @@ macro_rules! forward_processor {
 
 use crate::delay::Echo;
 use crate::dynamics::{Compressor, EnvelopeFollower};
+use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::filter::{Biquad, Fir};
 use crate::gain::Gain;
 use crate::modulation::{ModulatedDelay, Phaser};
 
-forward_processor!(Biquad, Fir, Gain, Echo, Compressor, EnvelopeFollower, ModulatedDelay, Phaser, Adsr);
+forward_processor!(Biquad, Fir, Gain, Echo, Compressor, EnvelopeFollower, ModulatedDelay, Phaser, Adsr, Waveshaper);
 
 #[cfg(test)]
 mod tests {
