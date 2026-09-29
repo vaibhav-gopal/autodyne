@@ -9,4 +9,5 @@ pub mod iq;
 pub mod gain;
 pub mod delay;
 pub mod dynamics;
+pub mod modulation;
 pub mod resample;

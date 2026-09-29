@@ -90,8 +90,9 @@ use crate::delay::Echo;
 use crate::dynamics::{Compressor, EnvelopeFollower};
 use crate::filter::{Biquad, Fir};
 use crate::gain::Gain;
+use crate::modulation::{ModulatedDelay, Phaser};
 
-forward_processor!(Biquad, Fir, Gain, Echo, Compressor, EnvelopeFollower);
+forward_processor!(Biquad, Fir, Gain, Echo, Compressor, EnvelopeFollower, ModulatedDelay, Phaser);
 
 #[cfg(test)]
 mod tests {
