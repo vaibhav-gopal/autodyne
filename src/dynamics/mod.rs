@@ -151,14 +151,21 @@ impl<T: Float> Compressor<T> {
             t + over * self.slope // above the knee: the ratio applies
         }
     }
+    /// Advances one sample given the detector level (a linear peak, >= 0) and returns the linear gain
+    /// to apply, makeup included. `process_sample` feeds it |x|; linked multichannel compression feeds
+    /// it the loudest channel so every channel gets the same gain.
     #[inline]
-    pub fn process_sample(&mut self, x: T) -> T {
+    pub fn gain_for_level(&mut self, level: T) -> T {
         // floor at -200 dB so silence gives a finite level (log of 0 is -infinity)
-        let level_db = gain_to_db(x._abs()._max(T::_lit(1e-10)));
+        let level_db = gain_to_db(level._max(T::_lit(1e-10)));
         let target = level_db - self.output_level_db(level_db);
         let coeff = if target > self.reduction_db { self.attack } else { self.release };
         self.reduction_db = coeff * self.reduction_db + (T::_ONE - coeff) * target;
-        x * db_to_gain(self.makeup_db - self.reduction_db)
+        db_to_gain(self.makeup_db - self.reduction_db)
+    }
+    #[inline]
+    pub fn process_sample(&mut self, x: T) -> T {
+        x * self.gain_for_level(x._abs())
     }
     /// Compresses `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
