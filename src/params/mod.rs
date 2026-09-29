@@ -29,6 +29,9 @@ pub enum ParamUnit {
     Seconds,
     /// a ratio such as 4:1
     Ratio,
+    /// output change per input change above a threshold (1 / ratio, 0..1); displayed as a ratio,
+    /// with 0 shown as ∞:1
+    Slope,
     /// 0..1, displayed as a percentage
     Fraction,
 }
@@ -100,6 +103,8 @@ impl ParamInfo {
             ParamUnit::Seconds if value.abs() < 1.0 => format!("{:.1} ms", value * 1000.0),
             ParamUnit::Seconds => format!("{value:.2} s"),
             ParamUnit::Ratio => format!("{value:.1}:1"),
+            ParamUnit::Slope if value <= 0.0 => "∞:1".to_string(),
+            ParamUnit::Slope => format!("{:.1}:1", 1.0 / value),
             ParamUnit::Fraction => format!("{:.0}%", value * 100.0),
             ParamUnit::None => format!("{value:.3}"),
         }
@@ -361,7 +366,7 @@ macro_rules! parameterized {
     };
 }
 
-use ParamUnit::{Decibels, Fraction, Hertz, Ratio, Seconds};
+use ParamUnit::{Decibels, Fraction, Hertz, Seconds, Slope};
 
 parameterized!(Gain, "Gain",
     infos: |_s| [ParamInfo::new("gain_db", "Gain", Decibels, -60.0, 24.0, 0.0)],
@@ -382,8 +387,8 @@ parameterized!(Echo, "Echo",
 parameterized!(Compressor, "Compressor",
     infos: |_s| [
         ParamInfo::new("threshold_db", "Threshold", Decibels, -60.0, 0.0, -18.0),
-        // 100:1 stands in for a limiter's infinite ratio
-        ParamInfo::new("ratio", "Ratio", Ratio, 1.0, 100.0, 4.0).log(),
+        // the slope (1 / ratio) rather than the ratio: finite for every setting, 0 is a limiter
+        ParamInfo::new("slope", "Slope", Slope, 0.0, 1.0, 0.25),
         ParamInfo::new("knee_db", "Knee", Decibels, 0.0, 24.0, 6.0),
         ParamInfo::new("attack_s", "Attack", Seconds, 0.0, 0.5, 0.010),
         ParamInfo::new("release_s", "Release", Seconds, 0.001, 5.0, 0.100).log(),
@@ -391,7 +396,7 @@ parameterized!(Compressor, "Compressor",
     ],
     read: |p, i| match i {
         0 => f(p.threshold_db()),
-        1 => f(p.ratio()).min(100.0),
+        1 => f(p.slope()),
         2 => f(p.knee_db()),
         3 => f(p.attack()),
         4 => f(p.release()),
@@ -399,7 +404,7 @@ parameterized!(Compressor, "Compressor",
     },
     write: |p, i, v| match i {
         0 => p.set_threshold_db(t(v)),
-        1 => p.set_ratio(t(v)),
+        1 => p.set_slope(t(v)),
         2 => p.set_knee_db(t(v)),
         3 => p.set_attack(t(v)),
         4 => p.set_release(t(v)),
@@ -549,11 +554,14 @@ mod tests {
         let mut c = Compressor::<f32>::new(48_000.0);
         assert_eq!(c.param_count(), 6);
         assert_eq!(c.get_param_by_id("threshold_db"), Some(-18.0));
-        assert_eq!(c.set_param_by_id("ratio", 8.0), Ok(8.0));
+        assert_eq!(c.set_param_by_id("slope", 0.125), Ok(0.125));
         assert!((c.ratio() - 8.0).abs() < 1e-6);
+        assert_eq!(c.param_info(1).unwrap().format(0.125), "8.0:1");
         assert_eq!(c.set_param_by_id("threshold_db", -200.0), Ok(-60.0)); // clamped
         assert_eq!(c.set_param_by_id("nope", 1.0), Err(ParamError::UnknownId("nope".into())));
-        assert_eq!(Compressor::<f64>::limiter(-1.0, 0.05, FS).get_param_by_id("ratio"), Some(100.0));
+        let limiter = Compressor::<f64>::limiter(-1.0, 0.05, FS);
+        assert_eq!(limiter.get_param_by_id("slope"), Some(0.0));
+        assert_eq!(limiter.param_info(1).unwrap().format(0.0), "∞:1");
     }
 
     #[test]
@@ -568,6 +576,21 @@ mod tests {
         assert!(echo.restore(&[0.1]).is_err());
         // ranges follow the instance: this echo was built for at most 1 s of delay
         assert_eq!(echo.param_info(0).unwrap().max, 1.0);
+    }
+
+    #[test]
+    fn limiter_survives_a_preset_round_trip() {
+        // snapshot -> restore into a default compressor must give back the same limiter
+        let original = Compressor::<f64>::limiter(-6.0, 0.05, FS);
+        let mut restored = Compressor::new(FS);
+        restored.restore(&original.snapshot()).unwrap();
+        assert!(restored.ratio().is_infinite());
+
+        let loud: Vec<f64> = crate::osc::Sine::new(100.0, FS).take(9_600).collect();
+        let (mut a, mut b) = (loud.clone(), loud);
+        original.clone().process(&mut a);
+        restored.process(&mut b);
+        assert_eq!(a, b);
     }
 
     #[test]

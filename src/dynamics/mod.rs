@@ -119,7 +119,7 @@ impl<T: Float> Compressor<T> {
     pub fn limiter(threshold_db: T, release_seconds: T, sample_rate: T) -> Self {
         let mut c = Self::new(sample_rate);
         c.set_threshold_db(threshold_db);
-        c.slope = T::_ZERO;
+        c.set_slope(T::_ZERO);
         c.set_knee_db(T::_ZERO);
         c.set_attack(T::_ZERO);
         c.set_release(release_seconds);
@@ -132,6 +132,14 @@ impl<T: Float> Compressor<T> {
     /// `T::_INFINITY` makes a limiter.
     pub fn set_ratio(&mut self, ratio: T) {
         self.slope = T::_ONE / ratio._max(T::_ONE);
+    }
+    /// Output dB per input dB above the threshold (1 / ratio), clamped to [0, 1]: 1 = no compression,
+    /// 0.25 = 4:1, 0 = limiting. Unlike the ratio this is always finite, so it is what hosts see.
+    pub fn set_slope(&mut self, slope: T) {
+        self.slope = slope._clamp(T::_ZERO, T::_ONE);
+    }
+    pub fn slope(&self) -> T {
+        self.slope
     }
     /// Width of the soft knee in dB, centered on the threshold; 0 = hard knee.
     pub fn set_knee_db(&mut self, db: T) {
