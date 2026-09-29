@@ -1,16 +1,19 @@
-//! A small effects chain: a melody -> EQ (low shelf + presence bell) -> echo, rendered at 48 kHz and
-//! then resampled to 44.1 kHz. Writes both versions as WAV.
+//! A small effects chain: a melody -> EQ (low shelf + presence bell) -> compressor -> echo -> limiter,
+//! rendered at 48 kHz and then resampled to 44.1 kHz. Writes both versions as WAV.
 //!
 //!     cargo run --release --example effects               # writes to target/examples-out/
 //!     cargo run --release --example effects -- <out_dir>
 //!
-//! Notes are gated with `Gain` so each note fades in and out instead of clicking.
+//! The whole chain is one tuple of processors (see `autodyne::processor`); notes are gated by the
+//! `Gain` at its front so each note fades in and out instead of clicking.
 
 use std::path::Path;
 use autodyne::delay::Echo;
+use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::osc::Sine;
+use autodyne::processor::Processor;
 use autodyne::resample::Resampler;
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -26,28 +29,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fs = SAMPLE_RATE as f32;
 
     let mut osc = Sine::new(440.0, fs).with_amplitude(0.4);
-    let mut gate = Gain::new(0.0, 0.01, fs); // 10 ms fades
-    let mut low_shelf = Biquad::low_shelf(200.0, fs, BUTTERWORTH_Q as f32, 4.0);
-    let mut presence = Biquad::peaking(2_500.0, fs, 1.0, 3.0);
+    let mut compressor = Compressor::new(fs);
+    compressor.set_threshold_db(-20.0);
+    compressor.set_makeup_db(4.0);
     let mut echo = Echo::new(1.0, fs);
     echo.set_immediate(0.3, 0.45, 0.35);
+    let mut chain = (
+        Gain::new(0.0, 0.01, fs), // note gate, 10 ms fades
+        Biquad::low_shelf(200.0, fs, BUTTERWORTH_Q as f32, 4.0),
+        Biquad::peaking(2_500.0, fs, 1.0, 3.0),
+        compressor,
+        echo,
+        Compressor::limiter(-1.0, 0.05, fs), // keep the result under -1 dBFS
+    );
 
     let mut rendered = Vec::new();
     let mut block = [0.0f32; BLOCK_SIZE];
     for &(freq, blocks) in &MELODY {
         if freq > 0.0 {
             osc.set_frequency(freq, fs);
-            gate.set_gain(1.0);
+            chain.0.set_gain(1.0);
         }
         for b in 0..blocks {
             if b + 5 == blocks {
-                gate.set_gain(0.0); // start the release 50 ms before the note ends
+                chain.0.set_gain(0.0); // start the release 50 ms before the note ends
             }
             osc.fill(&mut block);
-            gate.process(&mut block);
-            low_shelf.process(&mut block);
-            presence.process(&mut block);
-            echo.process(&mut block);
+            chain.process(&mut block);
             rendered.extend_from_slice(&block);
         }
     }

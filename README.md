@@ -29,6 +29,8 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
 | `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
 | `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
+| `dynamics` | `EnvelopeFollower`, `Compressor` (soft knee, attack/release, makeup), `Compressor::limiter` |
+| `processor` | the `Processor` trait all effects share; tuples are zero-cost chains, `Vec<Box<dyn Processor>>` is a runtime chain |
 | `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
 | `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir` and `Resampler`) |
 | `signal` | the planned `Signal` trait hierarchy (design only, not implemented yet) |
@@ -50,7 +52,7 @@ Both write WAV files to `target/examples-out/`:
 
 - `cargo run --release --example tone`: a 440 Hz tone, the same tone with noise, and the noisy one low-passed; prints the noise reduction and the FFT peak
 - `cargo run --release --example fm_radio`: an FM radio link (modulate, 12 kHz carrier, noisy channel, demodulate); prints the audio SNR
-- `cargo run --release --example effects`: a melody through EQ and echo, rendered at 48 kHz and resampled to 44.1 kHz
+- `cargo run --release --example effects`: a melody through a processor chain (EQ, compressor, echo, limiter), rendered at 48 kHz and resampled to 44.1 kHz
 
 ### Tests and benchmarks
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips)

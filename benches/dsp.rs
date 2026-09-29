@@ -4,6 +4,7 @@
 use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use autodyne::delay::Echo;
+use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::resample::Resampler;
@@ -91,6 +92,12 @@ fn effects(c: &mut Criterion) {
     g.bench_function("echo", |b| b.iter(|| {
         buf.copy_from_slice(&input);
         echo.process(black_box(&mut buf));
+    }));
+
+    let mut compressor = Compressor::new(FS);
+    g.bench_function("compressor", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        compressor.process(black_box(&mut buf));
     }));
 
     let mut gain = Gain::new(1.0, 0.02, FS);

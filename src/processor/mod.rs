@@ -87,10 +87,11 @@ macro_rules! forward_processor {
 }
 
 use crate::delay::Echo;
+use crate::dynamics::{Compressor, EnvelopeFollower};
 use crate::filter::{Biquad, Fir};
 use crate::gain::Gain;
 
-forward_processor!(Biquad, Fir, Gain, Echo);
+forward_processor!(Biquad, Fir, Gain, Echo, Compressor, EnvelopeFollower);
 
 #[cfg(test)]
 mod tests {
