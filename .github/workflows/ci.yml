@@ -36,8 +36,10 @@ jobs:
           cargo run --release --example tone
           cargo run --release --example fm_radio
           cargo run --release --example effects
+          cargo run --release --example host -- f64 threshold_db=-30
+          cargo run --release --example interop
       - name: Benchmarks compile
         run: cargo bench --no-run
-      # Clippy errors fail the build; warnings are reported but allowed while older modules are reworked.
+      # The crate is warning-free; keep it that way.
       - name: Clippy
-        run: cargo clippy --all-targets
+        run: cargo clippy --all-targets -- -D warnings

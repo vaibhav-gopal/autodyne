@@ -22,7 +22,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 
 | module | contents |
 |---|---|
-| `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...) and `Complex<T>` |
+| `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...), `Complex<T>`, and reflection: `DType` (runtime element type) and `Reflection` |
 | `osc` | `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse`; each is also an infinite iterator |
 | `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch, all-pass, peaking, low/high shelf), `magnitude_at` for analytic responses |
 | `spectral` | radix-2 `Fft` (forward, inverse, real input) and a reference `dft` |
@@ -35,7 +35,9 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `channels` | planar `AudioBuffer` (+ interleave conversion), `MultiProcessor`, `PerChannel`, linked `Compressor`, `StereoWidth`, `Panner` |
 | `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
 | `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir` and `Resampler`) |
-| `signal` | the core abstraction: any sample slice is a signal. `Signal` (levels, norms, statistics, argmax, inner/angle/distance, convolve/correlate/resampled), `SignalMut` (gain, normalize, fades, cumsum/diff, projection, pointwise math with `Broadcast` policies), `ComplexSignal`, and lazily composed `Source`s (`scaled`, `mix`, `through(processor)`) |
+| `signal` | the core abstraction. Any sample slice, `Vec`, array or `NdArray` is a signal: `Signal` (levels, norms, statistics, argmax, inner/angle/distance, convolved/correlated/resampled), `SignalMut` (gain, normalize, fades, cumsum/diff, projection, pointwise math with `Broadcast` policies), `ComplexSignal`. Capability tiers `SignalOwned` / `SignalResizable` unlock `SigOwnedOps` / `SigResizeOps`. `Source`s compose lazily (`scaled`, `mix`, `through`). Streams: `SignalRead` / `SignalWrite` / `SignalSeek` with `SampleReader` / `SampleWriter` at the byte boundary. `NdArray` + zero-copy `NdView`s whose lanes are signals, with axis labels |
+| `params` | `ParamInfo` (range, unit, scale, normalized 0..1, formatting) and `Parameterized` for every processor, tuple / `Vec` chains and linked `PerChannel` |
+| `dynamic` | runtime-typed data and processing: `DynArray` (any dtype, casts, bytes), zero-copy `DynView` over external memory, `DynProcessor` built at runtime with `build_dyn` |
 
 ```rust
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
@@ -58,6 +60,8 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example tone`: a 440 Hz tone, the same tone with noise, and the noisy one low-passed; prints the noise reduction and the FFT peak
 - `cargo run --release --example fm_radio`: an FM radio link (modulate, 12 kHz carrier, noisy channel, demodulate); prints the audio SNR
 - `cargo run --release --example effects`: a melody through a processor chain (EQ, compressor, echo, limiter), rendered at 48 kHz and resampled to 44.1 kHz
+- `cargo run --release --example host -- [f32|f64] [id=value ...]`: a host picking the sample type at runtime, listing and setting parameters by id, processing, and printing a preset
+- `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
 ### Tests and benchmarks
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips)
