@@ -6,6 +6,8 @@
 //! - [`DynView`] / [`DynViewMut`]: raw bytes from elsewhere, described by dtype + shape (+ strides),
 //!   viewed as typed [`NdView`]s without copying when aligned.
 //! - [`dyn_match!`](crate::dyn_match): runs generic code on whatever element type a `DynArray` holds.
+//! - [`DynProcessor`]: processors with a runtime sample type and runtime-accessible parameters, built
+//!   with [`build_dyn`] from a [`ProcessorFactory`].
 
 use std::mem::size_of;
 
@@ -13,6 +15,9 @@ use thiserror::Error;
 
 use crate::signal::{Endian, NdArray, NdError, NdView, NdViewMut, MAX_DIMS};
 use crate::units::*;
+
+mod processor;
+pub use processor::*;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum DynError {
