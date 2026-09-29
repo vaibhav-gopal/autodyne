@@ -18,6 +18,7 @@ use crate::dynamics::{Compressor, EnvelopeFollower};
 use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
+use crate::synth::{Poly, SynthVoice, Voice};
 use crate::filter::{Biquad, Fir};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
@@ -508,6 +509,71 @@ impl<P: Parameterized, T: Float> Parameterized for Oversampled<P, T> {
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
         self.inner_mut().set_param(index, value)
+    }
+}
+
+parameterized!(SynthVoice, "Synth voice",
+    infos: |_s| [
+        ParamInfo::new("cutoff_hz", "Cutoff", Hertz, 20.0, 20_000.0, 800.0).log(),
+        ParamInfo::new("resonance", "Resonance", ParamUnit::None, 0.5, 12.0, 1.2).log(),
+        ParamInfo::new("env_amount", "Filter env (octaves)", ParamUnit::None, 0.0, 6.0, 3.0),
+        ParamInfo::new("amp_attack_s", "Amp attack", Seconds, 0.0, 10.0, 0.005),
+        ParamInfo::new("amp_decay_s", "Amp decay", Seconds, 0.0, 10.0, 0.3),
+        ParamInfo::new("amp_sustain", "Amp sustain", Fraction, 0.0, 1.0, 0.6),
+        ParamInfo::new("amp_release_s", "Amp release", Seconds, 0.0, 20.0, 0.3),
+        ParamInfo::new("filter_attack_s", "Filter attack", Seconds, 0.0, 10.0, 0.002),
+        ParamInfo::new("filter_decay_s", "Filter decay", Seconds, 0.0, 10.0, 0.25),
+        ParamInfo::new("filter_sustain", "Filter sustain", Fraction, 0.0, 1.0, 0.2),
+        ParamInfo::new("filter_release_s", "Filter release", Seconds, 0.0, 20.0, 0.3),
+    ],
+    read: |p, i| match i {
+        0 => f(p.cutoff()),
+        1 => f(p.resonance()),
+        2 => f(p.env_amount()),
+        3 => f(p.amp_env().attack()),
+        4 => f(p.amp_env().decay()),
+        5 => f(p.amp_env().sustain()),
+        6 => f(p.amp_env().release()),
+        7 => f(p.filter_env().attack()),
+        8 => f(p.filter_env().decay()),
+        9 => f(p.filter_env().sustain()),
+        _ => f(p.filter_env().release()),
+    },
+    write: |p, i, v| match i {
+        0 => p.set_cutoff(t(v)),
+        1 => p.set_resonance(t(v)),
+        2 => p.set_env_amount(t(v)),
+        3 => p.amp_env_mut().set_attack(t(v)),
+        4 => p.amp_env_mut().set_decay(t(v)),
+        5 => p.amp_env_mut().set_sustain(t(v)),
+        6 => p.amp_env_mut().set_release(t(v)),
+        7 => p.filter_env_mut().set_attack(t(v)),
+        8 => p.filter_env_mut().set_decay(t(v)),
+        9 => p.filter_env_mut().set_sustain(t(v)),
+        _ => p.filter_env_mut().set_release(t(v)),
+    },
+);
+
+/// One set of parameters controlling every voice.
+impl<V: Voice + Parameterized> Parameterized for Poly<V> {
+    fn param_count(&self) -> usize {
+        self.voices().first().map_or(0, Parameterized::param_count)
+    }
+    fn param_info(&self, index: usize) -> Option<ParamInfo> {
+        self.voices().first()?.param_info(index)
+    }
+    fn param_group(&self, index: usize) -> Option<&'static str> {
+        self.voices().first()?.param_group(index)
+    }
+    fn get_param(&self, index: usize) -> Option<f64> {
+        self.voices().first()?.get_param(index)
+    }
+    fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
+        let mut applied = Err(ParamError::UnknownIndex(index));
+        for v in self.voices_mut() {
+            applied = Ok(v.set_param(index, value)?);
+        }
+        applied
     }
 }
 

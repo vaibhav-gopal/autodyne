@@ -20,6 +20,7 @@ use autodyne::params::Parameterized;
 use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
 use autodyne::spectral::Fft;
+use autodyne::synth::{MidiMessage, Poly, SynthVoice, TimedEvent};
 use autodyne::units::{Complex, DType};
 
 struct Counting;
@@ -227,4 +228,23 @@ fn parameters_and_dynamic_processing_do_not_allocate() {
     let mut dynamic = build_dyn(&Comp, DType::F32, FS).unwrap();
     let mut block = vec![0.25f32; 512];
     assert_no_alloc("DynProcessor::process_dyn", || dynamic.process_dyn(DynBlock::F32(&mut block)).unwrap());
+}
+
+#[test]
+fn polyphonic_synth_does_not_allocate() {
+    let mut poly = Poly::new(8, 256, |_| SynthVoice::new(FS));
+    let mut out = vec![0.0; 512];
+    let on = |offset, note| TimedEvent { offset, message: MidiMessage::NoteOn { channel: 0, note, velocity: 100 } };
+    let off = |offset, note| TimedEvent { offset, message: MidiMessage::NoteOff { channel: 0, note, velocity: 0 } };
+    let events = [on(0, 60), on(10, 64), on(20, 67), off(300, 60), on(400, 72)];
+    assert_no_alloc("Poly::render_events with note on/off", || poly.render_events(&mut out, &events));
+    assert_no_alloc("Poly::handle + render (stealing, pedal, bend)", || {
+        for n in 40..60 {
+            poly.handle(MidiMessage::NoteOn { channel: 0, note: n, velocity: 90 });
+        }
+        poly.handle(MidiMessage::ControlChange { channel: 0, controller: 64, value: 127 });
+        poly.handle(MidiMessage::PitchBend { channel: 0, value: 3000 });
+        poly.render(&mut out);
+        poly.set_param_by_id("cutoff_hz", 2_000.0).unwrap();
+    });
 }
