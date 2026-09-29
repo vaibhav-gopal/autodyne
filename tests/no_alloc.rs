@@ -19,7 +19,8 @@ use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform};
 use autodyne::params::Parameterized;
 use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
-use autodyne::spectral::Fft;
+use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
+use autodyne::spectral::{Fft, RealFft};
 use autodyne::synth::{MidiMessage, Poly, SynthVoice, TimedEvent};
 use autodyne::units::{Complex, DType};
 
@@ -246,5 +247,28 @@ fn polyphonic_synth_does_not_allocate() {
         poly.handle(MidiMessage::PitchBend { channel: 0, value: 3000 });
         poly.render(&mut out);
         poly.set_param_by_id("cutoff_hz", 2_000.0).unwrap();
+    });
+}
+
+#[test]
+fn reverbs_and_real_fft_do_not_allocate() {
+    let mut rfft = RealFft::<f64>::new(1_024);
+    let signal = vec![0.1; 1_024];
+    let mut spectrum = vec![Complex::zero(); rfft.spectrum_len()];
+    let mut back = vec![0.0; 1_024];
+    assert_no_alloc("RealFft forward + inverse", || {
+        rfft.forward(&signal, &mut spectrum);
+        rfft.inverse(&spectrum, &mut back);
+    });
+
+    let mut conv = Convolver::new(&synthetic_ir(0.5, FS, 1), 256, FS);
+    let mut block: Vec<f64> = Noise::new(8).take(700).collect();
+    assert_no_alloc("Convolver (0.5 s IR, uneven block)", || conv.process(&mut block));
+
+    let mut reverb = Reverb::new(FS);
+    let mut stereo = AudioBuffer::new(2, 512);
+    assert_no_alloc("Reverb", || {
+        reverb.process(&mut stereo);
+        reverb.set_param_by_id("decay_s", 3.0).unwrap();
     });
 }

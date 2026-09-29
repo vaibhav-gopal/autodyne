@@ -13,7 +13,9 @@ use autodyne::resample::{Oversampled, Resampler};
 use autodyne::iq::{IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::osc::{Noise, Oscillator, Sine, Waveform};
-use autodyne::spectral::Fft;
+use autodyne::channels::{AudioBuffer, MultiProcessor};
+use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
+use autodyne::spectral::{Fft, RealFft};
 use autodyne::units::Complex;
 
 const FS: f32 = 48_000.0;
@@ -161,5 +163,35 @@ fn synth(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation, synth);
+fn reverb(c: &mut Criterion) {
+    let mut g = c.benchmark_group("reverb");
+    g.throughput(Throughput::Elements(BLOCK as u64));
+    let input = noise_block();
+    let mut stereo = AudioBuffer::new(2, BLOCK);
+    let mut fdn = Reverb::new(FS);
+    g.bench_function("fdn (stereo)", |b| b.iter(|| {
+        stereo.channel_mut(0).copy_from_slice(&input);
+        stereo.channel_mut(1).copy_from_slice(&input);
+        fdn.process(black_box(&mut stereo));
+    }));
+    let mut buf = input.clone();
+    let mut conv = Convolver::new(&synthetic_ir(1.0f32, FS, 1), 256, FS);
+    g.bench_function("convolver, 1 s IR, block 256", |b| b.iter(|| {
+        buf.copy_from_slice(&input);
+        conv.process(black_box(&mut buf));
+    }));
+    g.finish();
+
+    let mut g = c.benchmark_group("real fft vs complex fft");
+    let real: Vec<f32> = Noise::new(3).take(4_096).collect();
+    let mut rfft = RealFft::<f32>::new(4_096);
+    let mut spectrum = vec![Complex::zero(); rfft.spectrum_len()];
+    g.bench_function("real 4096", |b| b.iter(|| rfft.forward(black_box(&real), &mut spectrum)));
+    let fft = Fft::<f32>::new(4_096);
+    let mut full = vec![Complex::zero(); 4_096];
+    g.bench_function("complex 4096 (real input)", |b| b.iter(|| fft.forward_real(black_box(&real), &mut full)));
+    g.finish();
+}
+
+criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation, synth, reverb);
 criterion_main!(benches);

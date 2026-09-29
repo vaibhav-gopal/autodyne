@@ -18,6 +18,7 @@ use crate::dynamics::{Compressor, EnvelopeFollower};
 use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
+use crate::reverb::{Convolver, Reverb};
 use crate::synth::{Poly, SynthVoice, Voice};
 use crate::filter::{Biquad, Fir};
 use crate::gain::{gain_to_db, Gain};
@@ -576,6 +577,39 @@ impl<V: Voice + Parameterized> Parameterized for Poly<V> {
         applied
     }
 }
+
+parameterized!(Reverb, "Reverb",
+    infos: |_s| [
+        ParamInfo::new("size", "Size", ParamUnit::None, 0.25, 2.0, 1.0),
+        ParamInfo::new("decay_s", "Decay", Seconds, 0.05, 30.0, 1.8).log(),
+        ParamInfo::new("damping_hz", "Damping", Hertz, 500.0, 24_000.0, 6_000.0).log(),
+        ParamInfo::new("predelay_s", "Pre-delay", Seconds, 0.0, 0.25, 0.02),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.3),
+        ParamInfo::new("width", "Width", Fraction, 0.0, 1.0, 1.0),
+    ],
+    read: |p, i| match i {
+        0 => f(p.size()),
+        1 => f(p.decay()),
+        2 => f(p.damping()),
+        3 => f(p.predelay()),
+        4 => f(p.mix()),
+        _ => f(p.width()),
+    },
+    write: |p, i, v| match i {
+        0 => p.set_size(t(v)),
+        1 => p.set_decay(t(v)),
+        2 => p.set_damping(t(v)),
+        3 => p.set_predelay(t(v)),
+        4 => p.set_mix(t(v)),
+        _ => p.set_width(t(v)),
+    },
+);
+
+parameterized!(Convolver, "Convolver",
+    infos: |_s| [ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0)],
+    read: |p, _i| f(p.mix()),
+    write: |p, _i, v| p.set_mix(t(v)),
+);
 
 parameterized!(StereoWidth, "Stereo width",
     infos: |_s| [ParamInfo::new("width", "Width", Fraction, 0.0, 4.0, 1.0)],

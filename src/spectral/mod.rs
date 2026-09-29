@@ -1,9 +1,12 @@
-//! Spectral analysis: a reference DFT and a radix-2 FFT.
+//! Spectral analysis: a reference DFT, a radix-2 FFT, and [`RealFft`] for real signals (about twice as fast).
 //!
 //! Sign convention: forward `X[k] = sum_n x[n] e^(-i 2 pi k n / N)`; inverse divides by N,
 //! so `inverse(forward(x)) == x`.
 
 use crate::units::*;
+
+mod real;
+pub use real::*;
 
 /// Naive O(n^2) discrete Fourier transform. Exact by definition, so it is the reference the FFT is tested
 /// against; also usable for any length (the FFT needs a power of two). Allocates the output.
