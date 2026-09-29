@@ -6,8 +6,8 @@
 //!
 //! Signal path: MIDI -> 8-voice `Poly<SynthVoice>` (band-limited saw -> enveloped resonant low-pass ->
 //! ADSR) -> gain -> 4x oversampled tanh saturation -> panner (mono -> stereo) -> per-channel EQ +
-//! chorus (LFOs half a cycle apart) -> linked compressor -> per-channel echo -> stereo width ->
-//! linked limiter at -3 dBFS.
+//! chorus (LFOs half a cycle apart) -> linked compressor -> per-channel echo -> FDN reverb -> stereo
+//! width -> linked limiter at -3 dBFS.
 //!
 //! MIDI arrives on midir's thread and reaches the audio thread through a lock-free ring buffer
 //! (rtrb), so the audio callback never locks or allocates. Without a MIDI input (or with --demo), a
@@ -26,6 +26,7 @@ use autodyne::gain::Gain;
 use autodyne::modulation::ModulatedDelay;
 use autodyne::params::Parameterized;
 use autodyne::resample::Oversampled;
+use autodyne::reverb::Reverb;
 use autodyne::synth::{MidiMessage, Poly, SynthVoice, TimedEvent};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
@@ -39,6 +40,7 @@ type StereoChain = (
     PerChannel<(Biquad<f32>, ModulatedDelay<f32>)>,
     Linked<Compressor<f32>>,
     PerChannel<Echo<f32>>,
+    Reverb<f32>,
     StereoWidth<f32>,
     Linked<Compressor<f32>>,
 );
@@ -138,9 +140,15 @@ impl Engine {
             PerChannel::new(2, |ch| {
                 let mut echo = Echo::new(1.0, sample_rate);
                 // slightly different times per side give a wider echo
-                echo.set_immediate(if ch == 0 { 0.36 } else { 0.27 }, 0.35, 0.25);
+                echo.set_immediate(if ch == 0 { 0.36 } else { 0.27 }, 0.3, 0.15);
                 echo
             }),
+            {
+                let mut reverb = Reverb::new(sample_rate);
+                reverb.set_decay(2.2);
+                reverb.set_mix(0.25);
+                reverb
+            },
             StereoWidth::new(1.3, sample_rate),
             Linked(Compressor::limiter(-3.0, 0.05, sample_rate)),
         );
