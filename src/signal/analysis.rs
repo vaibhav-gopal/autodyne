@@ -137,13 +137,13 @@ pub trait Signal {
     // Length-changing operations (allocate) ======================================================
 
     /// Full linear convolution with `kernel`: `len + kernel.len() - 1` samples.
-    fn convolve(&self, kernel: &[Self::Sample]) -> Vec<Self::Sample> {
+    fn convolved(&self, kernel: &[Self::Sample]) -> Vec<Self::Sample> {
         crate::filter::convolve(self.samples(), kernel)
     }
     /// Full cross-correlation with `other`. Element `k` corresponds to lag `k - (other.len() - 1)`:
     /// the sum over n of self[n + lag] * other[n]. The peak's position shows how far `self` is
     /// delayed relative to `other`.
-    fn correlate(&self, other: &[Self::Sample]) -> Vec<Self::Sample> {
+    fn correlated(&self, other: &[Self::Sample]) -> Vec<Self::Sample> {
         let reversed: Vec<_> = other.iter().rev().copied().collect();
         crate::filter::convolve(self.samples(), &reversed)
     }
@@ -174,6 +174,20 @@ pub trait Signal {
 }
 
 impl<T: Float> Signal for [T] {
+    type Sample = T;
+    fn samples(&self) -> &[T] {
+        self
+    }
+}
+
+impl<T: Float> Signal for Vec<T> {
+    type Sample = T;
+    fn samples(&self) -> &[T] {
+        self
+    }
+}
+
+impl<T: Float, const N: usize> Signal for [T; N] {
     type Sample = T;
     fn samples(&self) -> &[T] {
         self
@@ -264,10 +278,10 @@ mod tests {
     fn correlation_finds_a_delay() {
         let pulse = [0.0, 1.0, 0.5, 0.0, 0.0, 0.0];
         let delayed = [0.0, 0.0, 0.0, 1.0, 0.5, 0.0]; // same shape, 2 samples later
-        let corr = delayed.correlate(&pulse);
+        let corr = delayed.correlated(&pulse);
         let lag = corr.argmax().unwrap() as isize - (pulse.len() as isize - 1);
         assert_eq!(lag, 2);
-        assert_eq!([1.0, 2.0].convolve(&[1.0, 1.0]), [1.0, 3.0, 2.0]);
+        assert_eq!([1.0, 2.0].convolved(&[1.0, 1.0]), [1.0, 3.0, 2.0]);
     }
 
     #[test]

@@ -30,11 +30,13 @@
 
 mod analysis;
 mod complex;
+mod container;
 mod source;
 mod transform;
 
 pub use analysis::*;
 pub use complex::*;
+pub use container::*;
 pub use source::*;
 pub use transform::*;
 

@@ -185,6 +185,18 @@ impl<T: Float> SignalMut for [T] {
     }
 }
 
+impl<T: Float> SignalMut for Vec<T> {
+    fn samples_mut(&mut self) -> &mut [T] {
+        self
+    }
+}
+
+impl<T: Float, const N: usize> SignalMut for [T; N] {
+    fn samples_mut(&mut self) -> &mut [T] {
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
