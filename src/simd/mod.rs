@@ -20,7 +20,7 @@ use crate::units::*;
 /// floating-point add latency.
 const LANES: usize = 16;
 
-/// Dot product: sum of a[i] * b[i]. Panics if the lengths differ.
+/// Dot product: `sum of a[i] * b[i]`. Panics if the lengths differ.
 ///
 /// Summation order differs from a plain left-to-right loop, so results can differ in the last few
 /// bits (usually more accurate, since the partial sums are smaller).

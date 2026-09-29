@@ -29,7 +29,7 @@ pub trait ComplexSignal {
         let x = self.samples();
         (0..x.len()).reduce(|best, i| if x[i].norm_sqr() > x[best].norm_sqr() { i } else { best })
     }
-    /// Hermitian inner product: sum of a[n] * conj(b[n]).
+    /// Hermitian inner product: `sum of a[n] * conj(b[n])`.
     fn inner(&self, other: &[Complex<Self::Real>]) -> Result<Complex<Self::Real>, SignalError> {
         let x = self.samples();
         if x.len() != other.len() {

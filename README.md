@@ -32,14 +32,16 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `dynamics` | `EnvelopeFollower`, `Compressor` (soft knee, attack/release, makeup), `Compressor::limiter` |
 | `modulation` | `ModulatedDelay` (`chorus` / `flanger` presets), `Phaser` (swept all-pass stages) |
 | `processor` | the `Processor` trait all effects share; tuples are zero-cost chains, `Vec<Box<dyn Processor>>` is a runtime chain |
-| `channels` | planar `AudioBuffer` (+ interleave conversion), `MultiProcessor`, `PerChannel`, linked `Compressor`, `StereoWidth`, `Panner` |
+| `channels` | planar `AudioBuffer` (+ interleave conversion, `[channel, time]` n-d view), `MultiProcessor`, `PerChannel`, `Linked(compressor)`, `StereoWidth`, `Panner` |
 | `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
 | `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir` and `Resampler`) |
 | `signal` | the core abstraction. Any sample slice, `Vec`, array or `NdArray` is a signal: `Signal` (levels, norms, statistics, argmax, inner/angle/distance, convolved/correlated/resampled), `SignalMut` (gain, normalize, fades, cumsum/diff, projection, pointwise math with `Broadcast` policies), `ComplexSignal`. Capability tiers `SignalOwned` / `SignalResizable` unlock `SigOwnedOps` / `SigResizeOps`. `Source`s compose lazily (`scaled`, `mix`, `through`). Streams: `SignalRead` / `SignalWrite` / `SignalSeek` with `SampleReader` / `SampleWriter` at the byte boundary. `NdArray` + zero-copy `NdView`s whose lanes are signals, with axis labels |
 | `params` | `ParamInfo` (range, unit, scale, normalized 0..1, formatting) and `Parameterized` for every processor, tuple / `Vec` chains and linked `PerChannel` |
+| `prelude` | `use autodyne::prelude::*` brings every trait and the common types into scope |
 | `dynamic` | runtime-typed data and processing: `DynArray` (any dtype, casts, bytes), zero-copy `DynView` over external memory, `DynProcessor` built at runtime with `build_dyn` |
 
 ```rust
+use autodyne::prelude::*;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::osc::Sine;
 
@@ -47,8 +49,9 @@ let mut block = [0.0f32; 512];
 let mut tone = Sine::new(440.0, 48_000.0);
 let mut lowpass = Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q as f32);
 
-tone.fill(&mut block);      // generate
+tone.fill(&mut block);       // generate
 lowpass.process(&mut block); // filter in place
+let level = block.rms_db();  // analyse: every slice is a signal
 ```
 
 ### Examples

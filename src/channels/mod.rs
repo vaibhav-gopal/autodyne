@@ -3,8 +3,8 @@
 //! Processors in this crate are mono. For more channels:
 //! - `PerChannel` runs an independent copy of a processor on each channel (EQ, echo, chorus with
 //!   offset LFOs, ...).
-//! - Linked processors look at all channels together so the image doesn't shift: a `Compressor`
-//!   used as a `MultiProcessor` reacts to the loudest channel and turns every channel down equally.
+//! - `Linked` processors look at all channels together so the image doesn't shift:
+//!   `Linked(compressor)` reacts to the loudest channel and turns every channel down equally.
 //! - `StereoWidth` and `Panner` work on the stereo pair itself.
 //!
 //! Audio APIs usually deliver interleaved frames (L R L R ...); `AudioBuffer::copy_from_interleaved`
@@ -152,20 +152,27 @@ impl<T: Float, P: Processor<T>> MultiProcessor<T> for PerChannel<P> {
     }
 }
 
+/// Runs a processor *linked* across channels: one detector sees every channel and one gain is applied
+/// to all of them, so the stereo image doesn't lean when one side is louder. A separate wrapper (rather
+/// than implementing both traits on the processor) keeps every type either mono (`Processor`) or
+/// multichannel (`MultiProcessor`), so calls are never ambiguous.
+#[derive(Debug, Clone, Copy)]
+pub struct Linked<P>(pub P);
+
 /// Linked compression: the loudest channel drives one gain applied to all channels.
-impl<T: Float> MultiProcessor<T> for Compressor<T> {
+impl<T: Float> MultiProcessor<T> for Linked<Compressor<T>> {
     fn process(&mut self, buffer: &mut AudioBuffer<T>) {
         let (n, max) = (buffer.channels, buffer.max_frames);
         for f in 0..buffer.frames {
             let level = (0..n).fold(T::_ZERO, |m, ch| m._max(buffer.data[ch * max + f]._abs()));
-            let g = self.gain_for_level(level);
+            let g = self.0.gain_for_level(level);
             for ch in 0..n {
                 buffer.data[ch * max + f] = buffer.data[ch * max + f] * g;
             }
         }
     }
     fn reset(&mut self) {
-        Compressor::reset(self)
+        self.0.reset()
     }
 }
 
@@ -346,8 +353,8 @@ mod tests {
         let mut buf = AudioBuffer::new(2, 4_800);
         buf.channel_mut(0).iter_mut().for_each(|s| *s = 0.9); // loud left
         buf.channel_mut(1).iter_mut().for_each(|s| *s = 0.05); // quiet right
-        let mut c = Compressor::new(FS);
-        MultiProcessor::process(&mut c, &mut buf);
+        let mut c = Linked(Compressor::new(FS));
+        c.process(&mut buf);
         for f in 0..buf.frames() {
             assert!((buf.channel(0)[f] / 0.9 - buf.channel(1)[f] / 0.05).abs() < 1e-12, "frame {f}");
         }

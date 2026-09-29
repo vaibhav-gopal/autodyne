@@ -12,7 +12,7 @@
 
 use thiserror::Error;
 
-use crate::channels::{Panner, PerChannel, StereoWidth};
+use crate::channels::{Linked, Panner, PerChannel, StereoWidth};
 use crate::delay::Echo;
 use crate::dynamics::{Compressor, EnvelopeFollower};
 use crate::filter::{Biquad, Fir};
@@ -270,6 +270,25 @@ impl<P: Parameterized + ?Sized> Parameterized for Box<P> {
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
         (**self).set_param(index, value)
+    }
+}
+
+/// A linked processor has exactly the parameters of the processor it wraps.
+impl<P: Parameterized> Parameterized for Linked<P> {
+    fn param_count(&self) -> usize {
+        self.0.param_count()
+    }
+    fn param_info(&self, index: usize) -> Option<ParamInfo> {
+        self.0.param_info(index)
+    }
+    fn param_group(&self, index: usize) -> Option<&'static str> {
+        self.0.param_group(index)
+    }
+    fn get_param(&self, index: usize) -> Option<f64> {
+        self.0.get_param(index)
+    }
+    fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
+        self.0.set_param(index, value)
     }
 }
 

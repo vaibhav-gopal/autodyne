@@ -1,6 +1,6 @@
 //! Spectral analysis: a reference DFT and a radix-2 FFT.
 //!
-//! Sign convention: forward X[k] = sum_n x[n] e^(-i 2 pi k n / N); inverse divides by N,
+//! Sign convention: forward `X[k] = sum_n x[n] e^(-i 2 pi k n / N)`; inverse divides by N,
 //! so `inverse(forward(x)) == x`.
 
 use crate::units::*;

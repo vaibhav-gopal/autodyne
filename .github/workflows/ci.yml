@@ -30,6 +30,10 @@ jobs:
         run: cargo test --all-targets
       - name: Doc tests
         run: cargo test --doc
+      - name: Docs build without warnings
+        run: cargo doc --no-deps
+        env:
+          RUSTDOCFLAGS: -D warnings
       # `live` needs a sound device, so CI only builds it (via --all-targets above)
       - name: Examples run
         run: |

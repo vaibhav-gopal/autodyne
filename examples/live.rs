@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use autodyne::channels::{AudioBuffer, MultiProcessor, Panner, PerChannel, StereoWidth};
+use autodyne::channels::{AudioBuffer, Linked, MultiProcessor, Panner, PerChannel, StereoWidth};
 use autodyne::delay::Echo;
 use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
@@ -32,10 +32,10 @@ const GATE_FRACTION: f32 = 0.7;
 
 type StereoChain = (
     PerChannel<(Biquad<f32>, ModulatedDelay<f32>)>,
-    Compressor<f32>,
+    Linked<Compressor<f32>>,
     PerChannel<Echo<f32>>,
     StereoWidth<f32>,
-    Compressor<f32>,
+    Linked<Compressor<f32>>,
 );
 
 struct Synth {
@@ -66,7 +66,7 @@ impl Synth {
                     ModulatedDelay::chorus(sample_rate).with_lfo_phase(ch as f32 * 0.5),
                 )
             }),
-            compressor,
+            Linked(compressor),
             PerChannel::new(2, |ch| {
                 let mut echo = Echo::new(1.0, sample_rate);
                 // slightly different times per side give a wider echo
@@ -74,7 +74,7 @@ impl Synth {
                 echo
             }),
             StereoWidth::new(1.3, sample_rate),
-            Compressor::limiter(-3.0, 0.05, sample_rate),
+            Linked(Compressor::limiter(-3.0, 0.05, sample_rate)),
         );
         Self {
             sample_rate,

@@ -32,7 +32,7 @@ fn magnitude_response<T: Float>(b: &[T], a: &[T], frequency: T, sample_rate: T) 
 
 // FIR =============================================================================================
 
-/// Finite impulse response filter: y[n] = sum_k h[k] * x[n - k].
+/// Finite impulse response filter: `y[n] = sum_k h[k] * x[n - k]`.
 ///
 /// Each output is one SIMD dot product (`simd::dot_kernel`) of the taps, stored reversed, with the
 /// last N inputs, oldest first. Input is processed in chunks through a linear buffer: the previous

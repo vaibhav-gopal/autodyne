@@ -141,7 +141,7 @@ pub trait Signal {
         crate::filter::convolve(self.samples(), kernel)
     }
     /// Full cross-correlation with `other`. Element `k` corresponds to lag `k - (other.len() - 1)`:
-    /// the sum over n of self[n + lag] * other[n]. The peak's position shows how far `self` is
+    /// the sum over n of `self[n + lag] * other[n]`. The peak's position shows how far `self` is
     /// delayed relative to `other`.
     fn correlated(&self, other: &[Self::Sample]) -> Vec<Self::Sample> {
         let reversed: Vec<_> = other.iter().rev().copied().collect();

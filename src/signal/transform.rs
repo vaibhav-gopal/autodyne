@@ -88,7 +88,7 @@ pub trait SignalMut: Signal {
 
     // Running operations =========================================================================
 
-    /// Running sum: y[n] = x[0] + ... + x[n] (discrete integration).
+    /// Running sum: `y[n] = x[0] + ... + x[n]` (discrete integration).
     fn cumsum(&mut self) {
         let mut acc = Self::Sample::_ZERO;
         for x in self.samples_mut() {
@@ -96,7 +96,7 @@ pub trait SignalMut: Signal {
             *x = acc;
         }
     }
-    /// First difference: y[n] = x[n] - x[n-1], with x[-1] = 0 so the length is kept and
+    /// First difference: `y[n] = x[n] - x[n-1]`, with `x[-1] = 0` so the length is kept and
     /// `cumsum` undoes it exactly.
     fn diff(&mut self) {
         let mut prev = Self::Sample::_ZERO;
@@ -123,7 +123,7 @@ pub trait SignalMut: Signal {
 
     // Pointwise math between signals =============================================================
 
-    /// self[i] = f(self[i], other'[i]) for every i, where `other'` is `other` extended per `mode`.
+    /// `self[i] = f(self[i], other'[i])` for every i, where `other'` is `other` extended per `mode`.
     fn zip_apply(
         &mut self,
         other: &[Self::Sample],

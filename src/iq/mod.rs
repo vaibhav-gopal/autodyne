@@ -1,13 +1,14 @@
 //! IQ (quadrature) modulation and demodulation, plus the AM / PM / FM views of complex baseband.
 //!
 //! A complex baseband sample z = I + iQ rides on a real carrier as
-//!     s[n] = Re{ z[n] e^(i w n) } = I cos(w n) - Q sin(w n)
+//! `s[n] = Re{ z[n] e^(i w n) } = I cos(w n) - Q sin(w n)`
 //! and the demodulator recovers z by mixing back down and low-pass filtering. AM, PM and FM are all
 //! just choices of z: AM varies |z| (read it with `envelope`), PM varies arg z (`phase`), and FM varies
 //! the rate of change of arg z (`FmModulator` / `FmDiscriminator`).
 
 use crate::filter::Biquad;
 use crate::osc::Phasor;
+use crate::signal::ComplexSignal;
 use crate::units::*;
 
 // CARRIER =========================================================================================
@@ -81,20 +82,14 @@ impl<T: Float> IqDemodulator<T> {
 
 // BASEBAND VIEWS ==================================================================================
 
-/// AM demodulation: |z| per sample. Panics if the lengths differ.
+/// AM demodulation: |z| per sample (`ComplexSignal::magnitudes_into`). Panics if the lengths differ.
 pub fn envelope<T: Float>(baseband: &[Complex<T>], out: &mut [T]) {
-    assert_eq!(baseband.len(), out.len(), "baseband and output lengths must match");
-    for (o, z) in out.iter_mut().zip(baseband) {
-        *o = z.norm();
-    }
+    baseband.magnitudes_into(out).expect("baseband and output lengths must match");
 }
 
-/// PM demodulation: arg z per sample, in (-pi, pi]. Panics if the lengths differ.
+/// PM demodulation: arg z per sample, in (-pi, pi] (`ComplexSignal::phases_into`). Panics if the lengths differ.
 pub fn phase<T: Float>(baseband: &[Complex<T>], out: &mut [T]) {
-    assert_eq!(baseband.len(), out.len(), "baseband and output lengths must match");
-    for (o, z) in out.iter_mut().zip(baseband) {
-        *o = z.arg();
-    }
+    baseband.phases_into(out).expect("baseband and output lengths must match");
 }
 
 /// FM modulation to baseband: a message value of 1.0 shifts the instantaneous frequency by `deviation` Hz.
@@ -133,7 +128,7 @@ impl<T: Float> FmModulator<T> {
     }
 }
 
-/// FM demodulation from baseband: the phase step between consecutive samples, arg(z[n] * conj(z[n-1])),
+/// FM demodulation from baseband: the phase step between consecutive samples, `arg(z[n] * conj(z[n-1]))`,
 /// is the instantaneous frequency; dividing by the modulator's `deviation` returns the message.
 /// Using the product rather than subtracting two args avoids phase-unwrapping problems.
 #[derive(Debug, Clone, Copy)]

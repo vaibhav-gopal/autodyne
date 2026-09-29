@@ -4,7 +4,9 @@
 //! - as an infinite `Iterator` (lazy, composes with the std adapters: `sine.take(n).zip(noise)...`)
 //! - as a block processor: `fill` overwrites a buffer, `add_to` mixes into one.
 //!   Neither allocates, so both are safe to call from a real-time audio callback.
+//! - as a `signal::Source`, to compose lazily (`mix`, `scaled`, `through`) or stream (`stream_for`).
 
+use crate::signal::Source;
 use crate::units::*;
 
 /// Implements the block-processing methods for a generator that has `fn next_sample(&mut self) -> T`.
@@ -22,6 +24,16 @@ macro_rules! impl_generator_blocks {
                 for s in out {
                     *s = *s + self.next_sample();
                 }
+            }
+        }
+
+        impl<T: Float> Source for $Gen<T> {
+            type Sample = T;
+            fn next_sample(&mut self) -> T {
+                $Gen::next_sample(self)
+            }
+            fn fill(&mut self, out: &mut [T]) {
+                $Gen::fill(self, out)
             }
         }
 
@@ -122,6 +134,16 @@ impl<T: Float> Phasor<T> {
         for s in out {
             *s = self.next_sample();
         }
+    }
+}
+
+impl<T: Float> Source for Phasor<T> {
+    type Sample = Complex<T>;
+    fn next_sample(&mut self) -> Complex<T> {
+        Phasor::next_sample(self)
+    }
+    fn fill(&mut self, out: &mut [Complex<T>]) {
+        Phasor::fill(self, out)
     }
 }
 

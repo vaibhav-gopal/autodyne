@@ -1,7 +1,6 @@
 use std::ops::{Add, Mul};
 
 use super::SourceStream;
-use crate::osc::{Impulse, Noise, Phasor, Sine};
 use crate::processor::Processor;
 use crate::units::*;
 
@@ -192,37 +191,10 @@ impl<S: Source> Iterator for Samples<S> {
     }
 }
 
-// The oscillators are sources; their inherent block methods are used directly.
-
-macro_rules! real_source {
-    ($($Gen:ident),+) => {$(
-        impl<T: Float> Source for $Gen<T> {
-            type Sample = T;
-            fn next_sample(&mut self) -> T {
-                $Gen::next_sample(self)
-            }
-            fn fill(&mut self, out: &mut [T]) {
-                $Gen::fill(self, out)
-            }
-        }
-    )+};
-}
-
-real_source!(Sine, Noise, Impulse);
-
-impl<T: Float> Source for Phasor<T> {
-    type Sample = Complex<T>;
-    fn next_sample(&mut self) -> Complex<T> {
-        Phasor::next_sample(self)
-    }
-    fn fill(&mut self, out: &mut [Complex<T>]) {
-        Phasor::fill(self, out)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::osc::{Impulse, Noise, Phasor, Sine};
     use crate::filter::{Biquad, BUTTERWORTH_Q};
     use crate::signal::Signal;
 

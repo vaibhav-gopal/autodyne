@@ -1,4 +1,4 @@
-﻿use std::ops::Neg;
+use std::ops::Neg;
 use super::*;
 
 /// Describes a unit that can be ordered w.r.t itself
@@ -27,7 +27,7 @@ pub trait Signed: Unit + Neg<Output = Self> {
     fn _is_negative(self) -> bool;
 }
 
-/// Describes a signal that is both bounded and signed
+/// Describes a unit that is both bounded and signed
 pub trait BoundedSigned: Bounded + Signed {
     const _MIN_POSITIVE: Self;
 }
