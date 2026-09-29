@@ -54,8 +54,12 @@ impl<T: Float> Resampler<T> {
         // and its length scales with max(up, down) so the transition band stays a fixed fraction of it.
         let fs_up = input_rate as f64 * up as f64;
         let cutoff = 0.45 * input_rate.min(output_rate) as f64;
-        let len = taps_per_phase * up.max(down);
-        let mut proto: Vec<T> = design_lowpass(T::_lit(cutoff), T::_lit(fs_up), len.max(2));
+        // Length 2*M*k + 1 (at least the requested quality) puts the linear-phase filter's delay,
+        // (len - 1) / 2 = M*k upsampled samples, on exactly k output samples, so output can be aligned
+        // with the input by dropping whole samples (see `delay`).
+        let k = (taps_per_phase * up.max(down)).div_ceil(2 * down);
+        let len = 2 * down * k + 1;
+        let mut proto: Vec<T> = design_lowpass(T::_lit(cutoff), T::_lit(fs_up), len);
         // zero stuffing divides the signal level by L; the filter makes it back up
         proto.iter_mut().for_each(|h| *h = *h * T::_lit(up as f64));
 
@@ -80,7 +84,8 @@ impl<T: Float> Resampler<T> {
         (self.up, self.down)
     }
 
-    /// Filter delay, in output samples.
+    /// Filter delay, in output samples. Always a whole number: output `n + delay()` lines up with
+    /// input time `n / output_rate`.
     pub fn delay(&self) -> f64 {
         self.prototype_delay / self.down as f64
     }
@@ -170,6 +175,14 @@ mod tests {
         assert_eq!(Resampler::<f64>::new(44_100, 48_000).ratio(), (160, 147));
         assert_eq!(Resampler::<f64>::new(48_000, 96_000).ratio(), (2, 1));
         assert_eq!(Resampler::<f64>::new(48_000, 48_000).ratio(), (1, 1));
+    }
+
+    #[test]
+    fn delay_is_a_whole_number_of_output_samples() {
+        for (from, to) in [(48_000, 44_100), (44_100, 48_000), (48_000, 96_000), (48_000, 16_000), (22_050, 48_000)] {
+            let d = Resampler::<f64>::new(from, to).delay();
+            assert_eq!(d, d.round(), "{from} -> {to}: delay {d}");
+        }
     }
 
     #[test]

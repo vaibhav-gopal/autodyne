@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 thiserror = "2.0.12"
-delegate = "0.13.3"
 
 [dev-dependencies]
 cpal = "0.18.2"

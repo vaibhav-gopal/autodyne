@@ -9,6 +9,7 @@
 use std::path::Path;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::osc::{Noise, Sine};
+use autodyne::signal::{ComplexSignal, Signal};
 use autodyne::spectral::{bin_frequency, Fft};
 use autodyne::units::Complex;
 
@@ -38,9 +39,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // The filter is linear, so the noise left in `filtered` is exactly the filtered noise on its own.
     let mut noise_only = vec![0.0f32; len];
     Noise::new(NOISE_SEED).with_amplitude(0.05).fill(&mut noise_only);
-    let noise_before = rms(&noise_only);
+    let noise_before = noise_only.rms().unwrap();
     Biquad::lowpass(1_000.0, fs, BUTTERWORTH_Q as f32).process(&mut noise_only);
-    let noise_after = rms(&noise_only);
+    let noise_after = noise_only.rms().unwrap();
     println!(
         "noise rms {noise_before:.4} -> {noise_after:.4} ({:.1} dB less noise; the 440 Hz tone keeps {:.1}% of its level)",
         20.0 * (noise_before / noise_after).log10(),
@@ -51,7 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fft = Fft::new(4096);
     let mut spectrum = vec![Complex::zero(); fft.len()];
     fft.forward_real(&filtered[SAMPLE_RATE as usize..][..fft.len()], &mut spectrum);
-    let peak = (0..fft.len() / 2).max_by(|&a, &b| spectrum[a].norm().total_cmp(&spectrum[b].norm())).unwrap();
+    let peak = spectrum[..fft.len() / 2].argmax_magnitude().unwrap(); // positive frequencies only
     println!(
         "FFT peak: {:.1} Hz (bins are {:.1} Hz wide)",
         bin_frequency(peak, fft.len(), fs),
@@ -63,10 +64,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("wrote tone_clean.wav, tone_noisy.wav and tone_filtered.wav to {out_dir}");
     Ok(())
-}
-
-fn rms(x: &[f32]) -> f32 {
-    (x.iter().map(|s| s * s).sum::<f32>() / x.len() as f32).sqrt()
 }
 
 fn write_wav(path: impl AsRef<Path>, samples: &[f32]) -> Result<(), hound::Error> {

@@ -88,6 +88,46 @@ pub fn dot_kernel<T: Float>(a: &[T], b: &[T]) -> T {
     acc[0] + tail
 }
 
+/// Sum of all elements, with the same independent-accumulator shape as `dot` (so it vectorizes).
+#[inline]
+pub fn sum<T: Float>(a: &[T]) -> T {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if avx2_available() {
+            // SAFETY: the CPU was just checked for AVX2, the only feature `sum_avx2` is compiled with.
+            return unsafe { sum_avx2(a) };
+        }
+    }
+    sum_kernel(a)
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn sum_avx2<T: Float>(a: &[T]) -> T {
+    sum_kernel(a)
+}
+
+/// The sum body, for loops with their own per-block dispatch (see the module docs).
+#[inline(always)]
+pub fn sum_kernel<T: Float>(a: &[T]) -> T {
+    let mut acc = [T::_ZERO; LANES];
+    let (chunks, rest) = a.as_chunks::<LANES>();
+    for c in chunks {
+        for i in 0..LANES {
+            acc[i] = acc[i] + c[i];
+        }
+    }
+    let tail = rest.iter().fold(T::_ZERO, |s, &x| s + x);
+    let mut width = LANES;
+    while width > 1 {
+        width /= 2;
+        for i in 0..width {
+            acc[i] = acc[i] + acc[i + width];
+        }
+    }
+    acc[0] + tail
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +145,15 @@ mod tests {
             let (x, y) = (&a[..len], &b[..len]);
             assert!((dot(x, y) - naive(x, y)).abs() < 1e-12, "len {len}");
             assert!((dot_kernel(x, y) - naive(x, y)).abs() < 1e-12, "baseline kernel, len {len}");
+        }
+    }
+
+    #[test]
+    fn sum_matches_naive_for_every_length() {
+        let a: Vec<f64> = Noise::new(7).take(300).collect();
+        for len in 0..300 {
+            let expected: f64 = a[..len].iter().sum();
+            assert!((sum(&a[..len]) - expected).abs() < 1e-12, "len {len}");
         }
     }
 

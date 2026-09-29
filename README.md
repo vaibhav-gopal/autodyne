@@ -35,7 +35,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `channels` | planar `AudioBuffer` (+ interleave conversion), `MultiProcessor`, `PerChannel`, linked `Compressor`, `StereoWidth`, `Panner` |
 | `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) |
 | `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir` and `Resampler`) |
-| `signal` | the planned `Signal` trait hierarchy (design only, not implemented yet) |
+| `signal` | the core abstraction: any sample slice is a signal. `Signal` (levels, norms, statistics, argmax, inner/angle/distance, convolve/correlate/resampled), `SignalMut` (gain, normalize, fades, cumsum/diff, projection, pointwise math with `Broadcast` policies), `ComplexSignal`, and lazily composed `Source`s (`scaled`, `mix`, `through(processor)`) |
 
 ```rust
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};

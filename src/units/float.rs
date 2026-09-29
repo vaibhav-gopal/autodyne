@@ -26,6 +26,8 @@ pub trait Float: Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpF
     fn _round(self) -> Self;
     fn _trunc(self) -> Self;
     fn _fract(self) -> Self;
+    fn _is_nan(self) -> bool;
+    fn _is_finite(self) -> bool;
     /// Converts an f64 constant (sample rates, frequencies, coefficients) into this float type.
     /// Panics only if the value is out of range for Self, which f64 -> f32 constants never are in practice.
     fn _lit(v: f64) -> Self {
@@ -67,6 +69,12 @@ macro_rules! impl_float {
             }
             fn _fract(self) -> Self {
                 $SrcT::fract(self)
+            }
+            fn _is_nan(self) -> bool {
+                $SrcT::is_nan(self)
+            }
+            fn _is_finite(self) -> bool {
+                $SrcT::is_finite(self)
             }
         }
         impl ExpBasic for $SrcT {

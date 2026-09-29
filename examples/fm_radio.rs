@@ -11,6 +11,7 @@ use std::path::Path;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::osc::{Noise, Sine};
+use autodyne::signal::Signal;
 use autodyne::units::Complex;
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -60,18 +61,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (msg, rx) = (&message[skip..len - delay], &received[skip + delay..]);
     let error: Vec<f64> = msg.iter().zip(rx).map(|(m, r)| r - m).collect();
     println!("receiver delay: {delay} samples ({:.2} ms)", 1_000.0 * delay as f64 / fs);
-    println!("audio SNR after the link: {:.1} dB", 20.0 * (rms(msg) / rms(&error)).log10());
+    println!("audio SNR after the link: {:.1} dB", msg.rms_db().unwrap() - error.rms_db().unwrap());
 
     for (name, data) in [("fm_message", &message), ("fm_carrier", &rf), ("fm_received", &received)] {
-        let peak = data.iter().fold(0.0f64, |m, s| m.max(s.abs()));
-        write_wav(Path::new(&out_dir).join(format!("{name}.wav")), data, 0.9 / peak)?;
+        write_wav(Path::new(&out_dir).join(format!("{name}.wav")), data, 0.9 / data.peak())?;
     }
     println!("wrote fm_message.wav, fm_carrier.wav and fm_received.wav to {out_dir}");
     Ok(())
-}
-
-fn rms(x: &[f64]) -> f64 {
-    (x.iter().map(|s| s * s).sum::<f64>() / x.len() as f64).sqrt()
 }
 
 /// Lag (0..max_lag) at which `delayed` best lines up with `reference`, by cross-correlation.
