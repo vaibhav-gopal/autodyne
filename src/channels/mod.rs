@@ -13,6 +13,7 @@
 use crate::dynamics::Compressor;
 use crate::gain::SmoothedValue;
 use crate::processor::Processor;
+use crate::signal::{Axis, NdView, NdViewMut};
 use crate::units::*;
 
 // BUFFER ==========================================================================================
@@ -68,6 +69,19 @@ impl<T: Float> AudioBuffer<T> {
     }
     pub fn fill(&mut self, value: T) {
         self.channels_mut().for_each(|c| c.iter_mut().for_each(|s| *s = value));
+    }
+    /// The current frames as a `[channel, time]` n-d view (no copy), e.g. to hand to an ML runtime.
+    pub fn as_nd_view(&self) -> NdView<'_, T> {
+        NdView::from_parts(&self.data, &[self.channels, self.frames], &[self.max_frames, 1], 0)
+            .and_then(|v| v.with_labels(&[Axis::Channel, Axis::Time]))
+            .expect("an AudioBuffer's layout always fits its storage")
+    }
+    /// Mutable `[channel, time]` n-d view of the current frames.
+    pub fn as_nd_view_mut(&mut self) -> NdViewMut<'_, T> {
+        let (channels, frames, max) = (self.channels, self.frames, self.max_frames);
+        NdViewMut::from_parts(&mut self.data, &[channels, frames], &[max, 1], 0)
+            .and_then(|v| v.with_labels(&[Axis::Channel, Axis::Time]))
+            .expect("an AudioBuffer's layout always fits its storage")
     }
     /// Loads interleaved frames (L R L R ...) and sets `frames` to match.
     /// Panics if the length isn't a whole number of frames or exceeds capacity.
@@ -285,6 +299,18 @@ mod tests {
         let mut back = [0.0; 6];
         buf.copy_to_interleaved(&mut back);
         assert_eq!(back, interleaved);
+    }
+
+    #[test]
+    fn nd_view_sees_channels_and_frames() {
+        let mut buf = AudioBuffer::new(2, 8);
+        buf.copy_from_interleaved(&[1.0f64, -1.0, 2.0, -2.0, 3.0, -3.0]);
+        let v = buf.as_nd_view();
+        assert_eq!(v.shape(), [2, 3]);
+        assert_eq!(v.axis_of(Axis::Time), Some(1));
+        assert_eq!(v.get(&[1, 2]), Some(&-3.0));
+        buf.as_nd_view_mut().for_each_lane(1, |ch| ch.reverse()).unwrap();
+        assert_eq!(buf.channel(0), [3.0, 2.0, 1.0]);
     }
 
     #[test]

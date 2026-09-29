@@ -18,6 +18,8 @@
 //!   converting to and from bytes (files, sockets, FFI) at the boundary.
 //! - Capability tiers ([`SignalOwned`], [`SignalResizable`]) and the operations they unlock
 //!   ([`SigOwnedOps`], [`SigResizeOps`]).
+//! - [`NdArray`] and zero-copy [`NdView`] / [`NdViewMut`]: n-dimensional data (batched, multichannel,
+//!   ML tensors) whose 1-D lanes along any axis are signals.
 //!
 //! Stateful block processing (filters, effects) lives in `processor`; a `Source` feeds it with `through`.
 //!
@@ -36,6 +38,7 @@
 mod analysis;
 mod complex;
 mod container;
+mod ndarray;
 mod source;
 mod stream;
 mod transform;
@@ -43,6 +46,7 @@ mod transform;
 pub use analysis::*;
 pub use complex::*;
 pub use container::*;
+pub use ndarray::*;
 pub use source::*;
 pub use stream::*;
 pub use transform::*;
