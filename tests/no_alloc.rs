@@ -9,7 +9,7 @@ use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
 use autodyne::delay::Echo;
 use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
 use autodyne::dynamics::{Compressor, EnvelopeFollower};
-use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
+use autodyne::filter::{Biquad, Fir, MultiBiquad, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
@@ -195,6 +195,8 @@ fn multichannel_does_not_allocate() {
         chain.process(&mut buf);
         buf.copy_to_interleaved(&mut back);
     });
+    let mut eq = MultiBiquad::new(2, |ch| Biquad::peaking(1_000.0 + 500.0 * ch as f64, FS, 1.0, 3.0));
+    assert_no_alloc("MultiBiquad", || eq.process(&mut buf));
     let mono = vec![0.5; 512];
     let mut pan = Panner::new(-0.3, FS);
     assert_no_alloc("Panner", || pan.process(&mono, &mut buf));

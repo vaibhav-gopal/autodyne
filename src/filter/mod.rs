@@ -2,7 +2,10 @@
 //!
 //! Filters are stateful block processors: construct (allocates once), then `process(&mut [T])`
 //! in place as often as needed without allocating, e.g. from an audio callback.
+//!
+//! [`MultiBiquad`] runs one biquad per channel, several channels at a time.
 
+use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
 
 /// Full linear convolution of `a` and `b`; the result has `a.len() + b.len() - 1` samples
@@ -380,6 +383,115 @@ impl<T: Float> Biquad<T> {
     }
 }
 
+// MULTICHANNEL BIQUAD =============================================================================
+
+/// One biquad per channel, processed several channels at a time.
+///
+/// A biquad is recursive (each output needs the previous one), so a single channel can't be
+/// vectorized along time and runs at the speed of its dependency chain. Channels are independent, so
+/// running 4 in lockstep lets their chains overlap and fills SIMD lanes. Each channel does exactly
+/// the arithmetic a lone `Biquad` would, so results are bit-identical to per-channel processing.
+/// Allocates only in `new`.
+#[derive(Debug, Clone)]
+pub struct MultiBiquad<T: Float> {
+    filters: Vec<Biquad<T>>,
+}
+
+impl<T: Float> MultiBiquad<T> {
+    /// `make(channel)` builds each channel's filter (they may differ).
+    pub fn new(channels: usize, make: impl FnMut(usize) -> Biquad<T>) -> Self {
+        Self { filters: (0..channels).map(make).collect() }
+    }
+    pub fn channels(&self) -> &[Biquad<T>] {
+        &self.filters
+    }
+    pub fn channel_mut(&mut self, ch: usize) -> &mut Biquad<T> {
+        &mut self.filters[ch]
+    }
+    /// Re-designs every channel's filter, keeping their state (no click).
+    pub fn set_design_all(&mut self, design: BiquadDesign<T>) {
+        self.filters.iter_mut().for_each(|f| f.set_design(design));
+    }
+    pub fn reset(&mut self) {
+        self.filters.iter_mut().for_each(Biquad::reset);
+    }
+
+    /// Filters every channel of `buffer` in place. Panics if the channel count differs.
+    pub fn process_buffer(&mut self, buffer: &mut AudioBuffer<T>) {
+        assert_eq!(buffer.channels(), self.filters.len(), "channel count mismatch");
+        #[cfg(target_arch = "x86_64")]
+        {
+            if crate::simd::avx2_available() {
+                // SAFETY: AVX2 support was just checked.
+                return unsafe { self.process_avx2(buffer) };
+            }
+        }
+        self.process_groups(buffer)
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn process_avx2(&mut self, buffer: &mut AudioBuffer<T>) {
+        self.process_groups(buffer)
+    }
+
+    /// Channels in groups of 4, then 2, then 1.
+    #[inline(always)]
+    fn process_groups(&mut self, buffer: &mut AudioBuffer<T>) {
+        let frames = buffer.frames();
+        let mut channels = buffer.channels_mut();
+        let mut filters = self.filters.as_mut_slice();
+        while !filters.is_empty() {
+            let lanes = match filters.len() {
+                n if n >= 4 => 4,
+                n if n >= 2 => 2,
+                _ => 1,
+            };
+            let (group, rest) = filters.split_at_mut(lanes);
+            match lanes {
+                4 => run_lanes::<T, 4>(group, std::array::from_fn(|_| channels.next().unwrap()), frames),
+                2 => run_lanes::<T, 2>(group, std::array::from_fn(|_| channels.next().unwrap()), frames),
+                _ => run_lanes::<T, 1>(group, std::array::from_fn(|_| channels.next().unwrap()), frames),
+            }
+            filters = rest;
+        }
+    }
+}
+
+/// `L` biquads over `L` channels in lockstep, with coefficients and state in per-lane arrays.
+#[inline(always)]
+// indexing by frame is the point: every lane handles frame f before any moves on to f + 1
+#[allow(clippy::needless_range_loop)]
+fn run_lanes<T: Float, const L: usize>(filters: &mut [Biquad<T>], channels: [&mut [T]; L], frames: usize) {
+    let lane = |f: fn(&Biquad<T>) -> T| -> [T; L] { std::array::from_fn(|l| f(&filters[l])) };
+    let (b0, b1, b2) = (lane(|q| q.coeffs.b0), lane(|q| q.coeffs.b1), lane(|q| q.coeffs.b2));
+    let (a1, a2) = (lane(|q| q.coeffs.a1), lane(|q| q.coeffs.a2));
+    let (mut s1, mut s2) = (lane(|q| q.s1), lane(|q| q.s2));
+    let channels = channels.map(|c| &mut c[..frames]);
+    for f in 0..frames {
+        for l in 0..L {
+            let x = channels[l][f];
+            let y = b0[l] * x + s1[l];
+            s1[l] = b1[l] * x - a1[l] * y + s2[l];
+            s2[l] = b2[l] * x - a2[l] * y;
+            channels[l][f] = y;
+        }
+    }
+    for (l, q) in filters.iter_mut().enumerate() {
+        q.s1 = s1[l];
+        q.s2 = s2[l];
+    }
+}
+
+impl<T: Float> MultiProcessor<T> for MultiBiquad<T> {
+    fn process(&mut self, buffer: &mut AudioBuffer<T>) {
+        self.process_buffer(buffer)
+    }
+    fn reset(&mut self) {
+        MultiBiquad::reset(self)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,6 +536,38 @@ mod tests {
         Fir::new(taps.clone()).process(&mut ir);
         assert_eq!(&ir[..4], &taps[..]);
         assert_eq!(&ir[4..], &[0.0, 0.0]);
+    }
+
+    #[test]
+    fn multi_biquad_is_bit_identical_to_per_channel_processing() {
+        for channels in 1..=9 {
+            // different filters per channel
+            let make = |ch: usize| Biquad::peaking(300.0 * (ch + 1) as f64, FS, 0.7 + ch as f64 * 0.1, ch as f64 - 3.0);
+            let mut buf = AudioBuffer::new(channels, 700);
+            for ch in 0..channels {
+                Noise::new(ch as u64).fill(buf.channel_mut(ch));
+            }
+            let mut reference = buf.clone();
+            let mut singles: Vec<Biquad<f64>> = (0..channels).map(make).collect();
+            for (ch, f) in singles.iter_mut().enumerate() {
+                f.process(reference.channel_mut(ch));
+            }
+            let mut multi = MultiBiquad::new(channels, make);
+            // two calls, so state carries across blocks too
+            buf.set_frames(300);
+            multi.process_buffer(&mut buf);
+            let first: Vec<Vec<f64>> = (0..channels).map(|ch| buf.channel(ch).to_vec()).collect();
+            buf.set_frames(700);
+            let mut tail = AudioBuffer::new(channels, 400);
+            for ch in 0..channels {
+                tail.channel_mut(ch).copy_from_slice(&buf.channel(ch)[300..]);
+            }
+            multi.process_buffer(&mut tail);
+            for (ch, first) in first.iter().enumerate() {
+                assert_eq!(&first[..], &reference.channel(ch)[..300], "{channels} channels, ch {ch}, first block");
+                assert_eq!(tail.channel(ch), &reference.channel(ch)[300..], "{channels} channels, ch {ch}, second block");
+            }
+        }
     }
 
     #[test]

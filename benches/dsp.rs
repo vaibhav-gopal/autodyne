@@ -7,7 +7,8 @@ use autodyne::delay::Echo;
 use autodyne::distortion::{Shape, Waveshaper};
 use autodyne::envelope::Adsr;
 use autodyne::dynamics::Compressor;
-use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
+use autodyne::channels::PerChannel;
+use autodyne::filter::{Biquad, Fir, MultiBiquad, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::resample::{Oversampled, Resampler};
 use autodyne::iq::{IqDemodulator, IqModulator};
@@ -49,6 +50,18 @@ fn filters(c: &mut Criterion) {
         buf.copy_from_slice(&input);
         bq.process(black_box(&mut buf));
     }));
+
+    // 8 channels: one biquad per channel, one channel at a time vs 4 channels in lockstep
+    let mut eight = AudioBuffer::new(8, BLOCK);
+    for ch in 0..8 {
+        eight.channel_mut(ch).copy_from_slice(&input);
+    }
+    let mut per_channel = PerChannel::new(8, |ch| Biquad::peaking(500.0 * (ch + 1) as f32, FS, 1.0, 3.0));
+    g.throughput(Throughput::Elements(8 * BLOCK as u64));
+    g.bench_function("biquad x8 channels, per channel", |b| b.iter(|| per_channel.process(black_box(&mut eight))));
+    let mut multi = MultiBiquad::new(8, |ch| Biquad::peaking(500.0 * (ch + 1) as f32, FS, 1.0, 3.0));
+    g.bench_function("biquad x8 channels, MultiBiquad", |b| b.iter(|| multi.process(black_box(&mut eight))));
+    g.throughput(Throughput::Elements(BLOCK as u64));
 
     for taps in [16, 64, 256] {
         let mut fir = Fir::lowpass(1_000.0, FS, taps);

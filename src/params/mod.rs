@@ -20,7 +20,7 @@ use crate::envelope::Adsr;
 use crate::resample::Oversampled;
 use crate::reverb::{Convolver, Reverb};
 use crate::synth::{Poly, SynthVoice, Voice};
-use crate::filter::{Biquad, Fir};
+use crate::filter::{Biquad, Fir, MultiBiquad};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
 use crate::units::*;
@@ -659,6 +659,29 @@ impl<T: Float> Parameterized for Biquad<T> {
         }
         self.set_design(d);
         Ok(applied)
+    }
+}
+
+/// One set of parameters (frequency, Q, gain) applied to every channel's filter.
+impl<T: Float> Parameterized for MultiBiquad<T> {
+    fn param_count(&self) -> usize {
+        self.channels().first().map_or(0, Parameterized::param_count)
+    }
+    fn param_info(&self, index: usize) -> Option<ParamInfo> {
+        self.channels().first()?.param_info(index)
+    }
+    fn param_group(&self, index: usize) -> Option<&'static str> {
+        (index < self.param_count()).then_some("Multichannel biquad")
+    }
+    fn get_param(&self, index: usize) -> Option<f64> {
+        self.channels().first()?.get_param(index)
+    }
+    fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
+        let mut applied = Err(ParamError::UnknownIndex(index));
+        for ch in 0..self.channels().len() {
+            applied = Ok(self.channel_mut(ch).set_param(index, value)?);
+        }
+        applied
     }
 }
 

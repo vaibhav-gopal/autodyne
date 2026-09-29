@@ -21,7 +21,7 @@ use autodyne::channels::{AudioBuffer, Linked, MultiProcessor, Panner, PerChannel
 use autodyne::delay::Echo;
 use autodyne::distortion::{Shape, Waveshaper};
 use autodyne::dynamics::Compressor;
-use autodyne::filter::{Biquad, BUTTERWORTH_Q};
+use autodyne::filter::{Biquad, MultiBiquad, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::modulation::ModulatedDelay;
 use autodyne::params::Parameterized;
@@ -37,7 +37,8 @@ const MAX_FRAMES: usize = 1024;
 const VOICES: usize = 8;
 
 type StereoChain = (
-    PerChannel<(Biquad<f32>, ModulatedDelay<f32>)>,
+    MultiBiquad<f32>,
+    PerChannel<ModulatedDelay<f32>>,
     Linked<Compressor<f32>>,
     PerChannel<Echo<f32>>,
     Reverb<f32>,
@@ -130,12 +131,8 @@ impl Engine {
         compressor.set_threshold_db(-18.0);
         compressor.set_makeup_db(3.0);
         let chain = (
-            PerChannel::new(2, |ch| {
-                (
-                    Biquad::high_shelf(6_000.0, sample_rate, BUTTERWORTH_Q as f32, -4.0),
-                    ModulatedDelay::chorus(sample_rate).with_lfo_phase(ch as f32 * 0.5),
-                )
-            }),
+            MultiBiquad::new(2, |_| Biquad::high_shelf(6_000.0, sample_rate, BUTTERWORTH_Q as f32, -4.0)),
+            PerChannel::new(2, |ch| ModulatedDelay::chorus(sample_rate).with_lfo_phase(ch as f32 * 0.5)),
             Linked(compressor),
             PerChannel::new(2, |ch| {
                 let mut echo = Echo::new(1.0, sample_rate);
