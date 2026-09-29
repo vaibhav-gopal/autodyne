@@ -561,7 +561,8 @@ impl<'a, T: Copy> NdViewMut<'a, T> {
         for_each_index(layout.shape.as_slice(), |idx| f(&mut self.data[layout.offset_of(idx).unwrap()]));
     }
     /// Applies `f` to every 1-D lane along `axis`, in row-major order of the other axes. Contiguous
-    /// lanes are passed in place; strided ones are copied to a scratch buffer and written back.
+    /// lanes are passed in place without allocating; strided ones are copied to a scratch buffer (one
+    /// allocation per call) and written back, so prefer a layout where `axis` is last in real-time code.
     pub fn for_each_lane(&mut self, axis: usize, mut f: impl FnMut(&mut [T])) -> Result<(), NdError> {
         check_axis(axis, self.ndim())?;
         let layout = self.layout;

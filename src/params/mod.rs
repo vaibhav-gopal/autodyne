@@ -234,28 +234,36 @@ chain_params!(A.0, B.1, C.2, D.3, E.4, F.5);
 chain_params!(A.0, B.1, C.2, D.3, E.4, F.5, G.6);
 chain_params!(A.0, B.1, C.2, D.3, E.4, F.5, G.6, H.7);
 
+/// Like `locate`, over a slice of stages, without building a list (so automation never allocates).
+fn locate_in<P: Parameterized>(stages: &[P], mut index: usize) -> Option<(usize, usize)> {
+    for (s, stage) in stages.iter().enumerate() {
+        let n = stage.param_count();
+        if index < n {
+            return Some((s, index));
+        }
+        index -= n;
+    }
+    None
+}
+
 impl<P: Parameterized> Parameterized for Vec<P> {
     fn param_count(&self) -> usize {
         self.iter().map(Parameterized::param_count).sum()
     }
     fn param_info(&self, index: usize) -> Option<ParamInfo> {
-        let stages: Vec<&dyn Parameterized> = self.iter().map(|p| p as &dyn Parameterized).collect();
-        let (s, i) = locate(&stages, index)?;
+        let (s, i) = locate_in(self, index)?;
         self[s].param_info(i)
     }
     fn param_group(&self, index: usize) -> Option<&'static str> {
-        let stages: Vec<&dyn Parameterized> = self.iter().map(|p| p as &dyn Parameterized).collect();
-        let (s, i) = locate(&stages, index)?;
+        let (s, i) = locate_in(self, index)?;
         self[s].param_group(i)
     }
     fn get_param(&self, index: usize) -> Option<f64> {
-        let stages: Vec<&dyn Parameterized> = self.iter().map(|p| p as &dyn Parameterized).collect();
-        let (s, i) = locate(&stages, index)?;
+        let (s, i) = locate_in(self, index)?;
         self[s].get_param(i)
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let stages: Vec<&dyn Parameterized> = self.iter().map(|p| p as &dyn Parameterized).collect();
-        let (s, i) = locate(&stages, index).ok_or(ParamError::UnknownIndex(index))?;
+        let (s, i) = locate_in(self, index).ok_or(ParamError::UnknownIndex(index))?;
         self[s].set_param(i, value)
     }
 }

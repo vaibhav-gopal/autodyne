@@ -1,0 +1,218 @@
+//! Proves the real-time promise: after construction (and one warm-up call), processing never
+//! allocates. A counting global allocator records allocations made on the current thread while
+//! inside `assert_no_alloc`.
+
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+
+use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
+use autodyne::delay::Echo;
+use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
+use autodyne::dynamics::{Compressor, EnvelopeFollower};
+use autodyne::filter::{Biquad, Fir, BUTTERWORTH_Q};
+use autodyne::gain::Gain;
+use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
+use autodyne::modulation::{ModulatedDelay, Phaser};
+use autodyne::osc::{Impulse, Noise, Phasor, Sine};
+use autodyne::params::Parameterized;
+use autodyne::prelude::*;
+use autodyne::resample::Resampler;
+use autodyne::spectral::Fft;
+use autodyne::units::{Complex, DType};
+
+struct Counting;
+
+thread_local! {
+    static ACTIVE: Cell<bool> = const { Cell::new(false) };
+    static COUNT: Cell<usize> = const { Cell::new(0) };
+}
+
+fn note() {
+    // try_with: the thread-locals may already be gone while a thread shuts down
+    let _ = ACTIVE.try_with(|a| {
+        if a.get() {
+            let _ = COUNT.try_with(|c| c.set(c.get() + 1));
+        }
+    });
+}
+
+unsafe impl GlobalAlloc for Counting {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        note();
+        unsafe { System.alloc(layout) }
+    }
+    unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+        note();
+        unsafe { System.alloc_zeroed(layout) }
+    }
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+        note();
+        unsafe { System.realloc(ptr, layout, new_size) }
+    }
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        unsafe { System.dealloc(ptr, layout) }
+    }
+}
+
+#[global_allocator]
+static ALLOC: Counting = Counting;
+
+/// Runs `f` twice: once to warm up (lazy buffers may size themselves), then counting.
+fn assert_no_alloc(what: &str, mut f: impl FnMut()) {
+    f();
+    ACTIVE.with(|a| a.set(true));
+    COUNT.with(|c| c.set(0));
+    f();
+    ACTIVE.with(|a| a.set(false));
+    let n = COUNT.with(|c| c.get());
+    assert_eq!(n, 0, "{what} allocated {n} time(s) while processing");
+}
+
+const FS: f64 = 48_000.0;
+
+#[test]
+fn processors_do_not_allocate() {
+    let mut block: Vec<f64> = Noise::new(1).take(512).collect();
+
+    let mut biquad = Biquad::peaking(1_000.0, FS, 1.0, 6.0);
+    assert_no_alloc("Biquad", || biquad.process(&mut block));
+    let mut fir = Fir::lowpass(2_000.0, FS, 63);
+    assert_no_alloc("Fir", || fir.process(&mut block));
+    let mut gain = Gain::new(1.0, 0.01, FS);
+    assert_no_alloc("Gain (ramping)", || {
+        gain.set_gain(0.5);
+        gain.process(&mut block)
+    });
+    let mut echo = Echo::new(0.5, FS);
+    assert_no_alloc("Echo", || echo.process(&mut block));
+    let mut comp = Compressor::new(FS);
+    assert_no_alloc("Compressor", || comp.process(&mut block));
+    let mut env = EnvelopeFollower::new(0.01, 0.1, FS);
+    let mut copy = block.clone();
+    assert_no_alloc("EnvelopeFollower", || env.process(&mut copy));
+    let mut chorus = ModulatedDelay::chorus(FS);
+    assert_no_alloc("ModulatedDelay", || chorus.process(&mut block));
+    let mut phaser = Phaser::new(6, FS);
+    assert_no_alloc("Phaser", || phaser.process(&mut block));
+    let mut chain = (Biquad::lowpass(5_000.0, FS, BUTTERWORTH_Q), Compressor::new(FS), Echo::new(0.2, FS));
+    assert_no_alloc("tuple chain", || chain.process(&mut block));
+}
+
+#[test]
+fn generators_sources_and_streams_do_not_allocate() {
+    let mut block = vec![0.0f64; 512];
+    let mut sine = Sine::new(440.0, FS);
+    assert_no_alloc("Sine::fill", || sine.fill(&mut block));
+    let mut noise = Noise::new(3);
+    assert_no_alloc("Noise::add_to", || noise.add_to(&mut block));
+    let mut imp = Impulse::new();
+    assert_no_alloc("Impulse::fill", || imp.fill(&mut block));
+    let mut phasor = Phasor::new(1_000.0, FS);
+    let mut zs = vec![Complex::zero(); 512];
+    assert_no_alloc("Phasor::fill", || phasor.fill(&mut zs));
+    let mut lazy = Sine::new(220.0, FS).mix(Noise::new(2).scaled(0.1)).through(Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q));
+    assert_no_alloc("Source::through", || lazy.fill(&mut block));
+    let mut stream = Sine::new(220.0, FS).stream().through(Compressor::new(FS));
+    assert_no_alloc("SignalRead::through", || {
+        stream.read_samples(&mut block).unwrap();
+    });
+}
+
+#[test]
+fn analysis_and_in_place_transforms_do_not_allocate() {
+    let mut x: Vec<f64> = Noise::new(4).take(4_096).collect();
+    let y: Vec<f64> = Noise::new(5).take(4_096).collect();
+    assert_no_alloc("Signal analysis", || {
+        std::hint::black_box((x.rms(), x.peak(), x.argmax(), x.variance(), x.zero_crossings(), x.inner(&y).ok(), x.angle(&y).ok()));
+    });
+    assert_no_alloc("SignalMut transforms", || {
+        x.normalize_peak(0.9);
+        x.remove_dc();
+        x.fade_in(64);
+        x.cumsum();
+        x.diff();
+        x.zip_apply(&y[..100], Broadcast::Tile, |a, b| a + b).unwrap();
+    });
+}
+
+#[test]
+fn spectral_iq_and_resampling_do_not_allocate() {
+    let fft = Fft::<f64>::new(1_024);
+    let mut buf = vec![Complex::new(1.0, 0.0); 1_024];
+    assert_no_alloc("Fft forward + inverse", || {
+        fft.forward(&mut buf);
+        fft.inverse(&mut buf);
+    });
+
+    let baseband = vec![Complex::new(0.5, -0.2); 512];
+    let (mut rf, mut out) = (vec![0.0; 512], vec![Complex::zero(); 512]);
+    let (mut tx, mut rx) = (IqModulator::new(12_000.0, FS), IqDemodulator::new(12_000.0, 3_000.0, FS));
+    assert_no_alloc("IQ modulate + demodulate", || {
+        tx.process(&baseband, &mut rf);
+        rx.process(&rf, &mut out);
+    });
+    let msg = vec![0.3; 512];
+    let (mut fm, mut disc, mut audio) = (FmModulator::new(1_000.0, FS), FmDiscriminator::new(1_000.0, FS), vec![0.0; 512]);
+    assert_no_alloc("FM modulate + discriminate", || {
+        fm.process(&msg, &mut out);
+        disc.process(&out, &mut audio);
+    });
+
+    let mut rs = Resampler::<f64>::new(48_000, 44_100);
+    let input = vec![0.1; 480];
+    let mut res_out = vec![0.0; rs.max_output_len(480)];
+    assert_no_alloc("Resampler", || {
+        rs.process(&input, &mut res_out);
+    });
+}
+
+#[test]
+fn multichannel_does_not_allocate() {
+    let mut buf = AudioBuffer::new(2, 512);
+    let interleaved: Vec<f64> = Noise::new(6).take(1_024).collect();
+    let mut back = vec![0.0; 1_024];
+    let mut chain = (
+        PerChannel::new(2, |ch| ModulatedDelay::chorus(FS).with_lfo_phase(ch as f64 * 0.5)),
+        Linked(Compressor::new(FS)),
+        StereoWidth::new(1.2, FS),
+    );
+    assert_no_alloc("interleave + multichannel chain", || {
+        buf.copy_from_interleaved(&interleaved);
+        chain.process(&mut buf);
+        buf.copy_to_interleaved(&mut back);
+    });
+    let mono = vec![0.5; 512];
+    let mut pan = Panner::new(-0.3, FS);
+    assert_no_alloc("Panner", || pan.process(&mono, &mut buf));
+    assert_no_alloc("contiguous lanes of an AudioBuffer view", || {
+        buf.as_nd_view_mut().for_each_lane(1, |ch| ch.iter_mut().for_each(|s| *s *= 0.5)).unwrap();
+    });
+}
+
+struct Comp;
+
+impl ProcessorFactory for Comp {
+    type Output<T: FloatElement> = (Biquad<T>, Compressor<T>);
+    fn build<T: FloatElement>(&self, fs: T) -> Self::Output<T> {
+        (Biquad::lowpass(T::_lit(3_000.0), fs, T::_lit(BUTTERWORTH_Q)), Compressor::new(fs))
+    }
+}
+
+#[test]
+fn parameters_and_dynamic_processing_do_not_allocate() {
+    let mut chain = (Gain::new(1.0, 0.0, FS), Compressor::new(FS), Biquad::peaking(1_000.0, FS, 1.0, 0.0));
+    assert_no_alloc("setting parameters (automation)", || {
+        chain.set_param(2, -24.0).unwrap();
+        chain.set_normalized(7, 0.5).unwrap();
+        std::hint::black_box(chain.get_param(4));
+    });
+    let mut stages = vec![Gain::new(1.0, 0.0, FS), Gain::new(1.0, 0.0, FS)];
+    assert_no_alloc("setting parameters on a Vec chain", || {
+        stages.set_param(1, -6.0).unwrap();
+        std::hint::black_box(stages.get_param(1));
+    });
+
+    let mut dynamic = build_dyn(&Comp, DType::F32, FS).unwrap();
+    let mut block = vec![0.25f32; 512];
+    assert_no_alloc("DynProcessor::process_dyn", || dynamic.process_dyn(DynBlock::F32(&mut block)).unwrap());
+}
