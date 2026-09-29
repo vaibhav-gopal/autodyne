@@ -200,7 +200,7 @@ impl DynProcessor for Vec<Box<dyn DynProcessor>> {
 /// }
 ///
 /// let mut p = build_dyn(&Comp, DType::F64, 48_000.0).unwrap();
-/// p.set_param_by_id("ratio", 8.0).unwrap();
+/// p.set_param_by_id("slope", 0.125).unwrap(); // 8:1
 /// assert_eq!(p.dtype(), DType::F64);
 /// ```
 pub trait ProcessorFactory {
