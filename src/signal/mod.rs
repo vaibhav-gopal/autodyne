@@ -11,8 +11,13 @@
 //!   differences, projection, and pointwise math between signals with a [`Broadcast`] policy for
 //!   mismatched lengths.
 //! - [`ComplexSignal`]: the same ideas for complex data (IQ baseband, spectra).
-//! - [`Source`]: procedural or streamed signals (oscillators, noise, closures), composed lazily with
-//!   `scaled`, `mix` and `through(processor)`.
+//! - [`Source`]: procedural signals (oscillators, noise, closures), composed lazily with `scaled`,
+//!   `mix` and `through(processor)`.
+//! - Streams ([`SignalRead`], [`SignalWrite`], [`SignalSeek`], [`SignalStream`]): signals moved a block
+//!   at a time as they are generated or arrive at runtime, with [`SampleReader`] / [`SampleWriter`]
+//!   converting to and from bytes (files, sockets, FFI) at the boundary.
+//! - Capability tiers ([`SignalOwned`], [`SignalResizable`]) and the operations they unlock
+//!   ([`SigOwnedOps`], [`SigResizeOps`]).
 //!
 //! Stateful block processing (filters, effects) lives in `processor`; a `Source` feeds it with `through`.
 //!
@@ -32,12 +37,14 @@ mod analysis;
 mod complex;
 mod container;
 mod source;
+mod stream;
 mod transform;
 
 pub use analysis::*;
 pub use complex::*;
 pub use container::*;
 pub use source::*;
+pub use stream::*;
 pub use transform::*;
 
 use thiserror::Error;

@@ -1,5 +1,6 @@
 use std::ops::{Add, Mul};
 
+use super::SourceStream;
 use crate::osc::{Impulse, Noise, Phasor, Sine};
 use crate::processor::Processor;
 use crate::units::*;
@@ -67,6 +68,22 @@ pub trait Source {
         Self: Sized,
     {
         Samples(self)
+    }
+
+    /// This source as an endless `SignalRead` stream.
+    fn stream(self) -> SourceStream<Self>
+    where
+        Self: Sized,
+    {
+        SourceStream::new(self, None)
+    }
+
+    /// This source as a `SignalRead` stream that ends after `samples` samples.
+    fn stream_for(self, samples: u64) -> SourceStream<Self>
+    where
+        Self: Sized,
+    {
+        SourceStream::new(self, Some(samples))
     }
 }
 
