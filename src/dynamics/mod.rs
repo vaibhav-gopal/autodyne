@@ -24,8 +24,10 @@ fn time_coeff<T: Float>(seconds: T, sample_rate: T) -> T {
 #[derive(Debug, Clone, Copy)]
 pub struct EnvelopeFollower<T: Float> {
     sample_rate: T,
-    attack: T,
-    release: T,
+    attack_seconds: T,
+    release_seconds: T,
+    attack_coeff: T,
+    release_coeff: T,
     envelope: T,
 }
 
@@ -33,16 +35,26 @@ impl<T: Float> EnvelopeFollower<T> {
     pub fn new(attack_seconds: T, release_seconds: T, sample_rate: T) -> Self {
         Self {
             sample_rate,
-            attack: time_coeff(attack_seconds, sample_rate),
-            release: time_coeff(release_seconds, sample_rate),
+            attack_seconds,
+            release_seconds,
+            attack_coeff: time_coeff(attack_seconds, sample_rate),
+            release_coeff: time_coeff(release_seconds, sample_rate),
             envelope: T::_ZERO,
         }
     }
     pub fn set_attack(&mut self, seconds: T) {
-        self.attack = time_coeff(seconds, self.sample_rate);
+        self.attack_seconds = seconds;
+        self.attack_coeff = time_coeff(seconds, self.sample_rate);
     }
     pub fn set_release(&mut self, seconds: T) {
-        self.release = time_coeff(seconds, self.sample_rate);
+        self.release_seconds = seconds;
+        self.release_coeff = time_coeff(seconds, self.sample_rate);
+    }
+    pub fn attack(&self) -> T {
+        self.attack_seconds
+    }
+    pub fn release(&self) -> T {
+        self.release_seconds
     }
     pub fn envelope(&self) -> T {
         self.envelope
@@ -54,7 +66,7 @@ impl<T: Float> EnvelopeFollower<T> {
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let level = x._abs();
-        let coeff = if level > self.envelope { self.attack } else { self.release };
+        let coeff = if level > self.envelope { self.attack_coeff } else { self.release_coeff };
         self.envelope = coeff * self.envelope + (T::_ONE - coeff) * level;
         self.envelope
     }
@@ -77,8 +89,10 @@ pub struct Compressor<T: Float> {
     slope: T,
     knee_db: T,
     makeup_db: T,
-    attack: T,
-    release: T,
+    attack_seconds: T,
+    release_seconds: T,
+    attack_coeff: T,
+    release_coeff: T,
     /// smoothed gain reduction in dB (>= 0)
     reduction_db: T,
 }
@@ -93,8 +107,10 @@ impl<T: Float> Compressor<T> {
             slope: T::_lit(0.25),
             knee_db: T::_lit(6.0),
             makeup_db: T::_ZERO,
-            attack: time_coeff(T::_lit(0.010), sample_rate),
-            release: time_coeff(T::_lit(0.100), sample_rate),
+            attack_seconds: T::_lit(0.010),
+            release_seconds: T::_lit(0.100),
+            attack_coeff: time_coeff(T::_lit(0.010), sample_rate),
+            release_coeff: time_coeff(T::_lit(0.100), sample_rate),
             reduction_db: T::_ZERO,
         }
     }
@@ -125,10 +141,31 @@ impl<T: Float> Compressor<T> {
         self.makeup_db = db;
     }
     pub fn set_attack(&mut self, seconds: T) {
-        self.attack = time_coeff(seconds, self.sample_rate);
+        self.attack_seconds = seconds;
+        self.attack_coeff = time_coeff(seconds, self.sample_rate);
     }
     pub fn set_release(&mut self, seconds: T) {
-        self.release = time_coeff(seconds, self.sample_rate);
+        self.release_seconds = seconds;
+        self.release_coeff = time_coeff(seconds, self.sample_rate);
+    }
+    pub fn threshold_db(&self) -> T {
+        self.threshold_db
+    }
+    /// The ratio; infinite for a limiter.
+    pub fn ratio(&self) -> T {
+        if self.slope == T::_ZERO { T::_INFINITY } else { T::_ONE / self.slope }
+    }
+    pub fn knee_db(&self) -> T {
+        self.knee_db
+    }
+    pub fn makeup_db(&self) -> T {
+        self.makeup_db
+    }
+    pub fn attack(&self) -> T {
+        self.attack_seconds
+    }
+    pub fn release(&self) -> T {
+        self.release_seconds
     }
     /// Current gain reduction in dB (positive = turning down), e.g. for a meter.
     pub fn gain_reduction_db(&self) -> T {
@@ -159,7 +196,7 @@ impl<T: Float> Compressor<T> {
         // floor at -200 dB so silence gives a finite level (log of 0 is -infinity)
         let level_db = gain_to_db(level._max(T::_lit(1e-10)));
         let target = level_db - self.output_level_db(level_db);
-        let coeff = if target > self.reduction_db { self.attack } else { self.release };
+        let coeff = if target > self.reduction_db { self.attack_coeff } else { self.release_coeff };
         self.reduction_db = coeff * self.reduction_db + (T::_ONE - coeff) * target;
         db_to_gain(self.makeup_db - self.reduction_db)
     }

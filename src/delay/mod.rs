@@ -100,6 +100,23 @@ impl<T: Float> Echo<T> {
             v.set_immediate(target);
         }
     }
+    /// Target delay time in seconds.
+    pub fn delay_seconds(&self) -> T {
+        self.delay_samples.target() / self.sample_rate
+    }
+    /// Longest delay this echo can reach (set by `new`).
+    pub fn max_delay_seconds(&self) -> T {
+        T::_lit(self.line.max_delay() as f64) / self.sample_rate
+    }
+    pub fn feedback(&self) -> T {
+        self.feedback.target()
+    }
+    pub fn mix(&self) -> T {
+        self.mix.target()
+    }
+    pub fn sample_rate(&self) -> T {
+        self.sample_rate
+    }
     pub fn reset(&mut self) {
         self.line.reset();
     }

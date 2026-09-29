@@ -12,4 +12,5 @@ pub mod delay;
 pub mod dynamics;
 pub mod modulation;
 pub mod resample;
+pub mod params;
 pub mod dynamic;

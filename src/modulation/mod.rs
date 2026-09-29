@@ -20,6 +20,7 @@ pub struct ModulatedDelay<T: Float> {
     line: DelayLine<T>,
     lfo: Sine<T>,
     lfo_phase: T,
+    rate: T,
     sample_rate: T,
     base_samples: T,
     depth_samples: T,
@@ -38,6 +39,7 @@ impl<T: Float> ModulatedDelay<T> {
             line: DelayLine::new(max),
             lfo: Sine::new(rate_hz, sample_rate),
             lfo_phase: T::_ZERO,
+            rate: rate_hz,
             sample_rate,
             base_samples: base_seconds * sample_rate,
             depth_samples: depth_seconds * sample_rate,
@@ -63,7 +65,26 @@ impl<T: Float> ModulatedDelay<T> {
         self
     }
     pub fn set_rate(&mut self, hz: T) {
+        self.rate = hz;
         self.lfo.set_frequency(hz, self.sample_rate);
+    }
+    pub fn rate(&self) -> T {
+        self.rate
+    }
+    /// Sweep depth in seconds.
+    pub fn depth(&self) -> T {
+        self.depth_samples / self.sample_rate
+    }
+    /// Largest depth `set_depth` accepts (limited by the base delay and the allocated line).
+    pub fn max_depth(&self) -> T {
+        let room = T::_lit(self.line.max_delay() as f64 - 1.0) - self.base_samples;
+        room._min(self.base_samples)._max(T::_ZERO) / self.sample_rate
+    }
+    pub fn feedback(&self) -> T {
+        self.feedback
+    }
+    pub fn mix(&self) -> T {
+        self.mix
     }
     /// Sweep depth in seconds, limited so the delay stays within the line allocated in `new`.
     pub fn set_depth(&mut self, seconds: T) {
@@ -135,6 +156,7 @@ pub struct Phaser<T: Float> {
     stages: Vec<Allpass1<T>>,
     lfo: Sine<T>,
     lfo_phase: T,
+    rate: T,
     sample_rate: T,
     min_hz: T,
     max_hz: T,
@@ -152,6 +174,7 @@ impl<T: Float> Phaser<T> {
             stages: vec![Allpass1 { x1: T::_ZERO, y1: T::_ZERO }; stages],
             lfo: Sine::new(T::_lit(0.5), sample_rate),
             lfo_phase: T::_ZERO,
+            rate: T::_lit(0.5),
             sample_rate,
             min_hz: T::_lit(200.0),
             max_hz: T::_lit(2000.0),
@@ -166,7 +189,24 @@ impl<T: Float> Phaser<T> {
         self
     }
     pub fn set_rate(&mut self, hz: T) {
+        self.rate = hz;
         self.lfo.set_frequency(hz, self.sample_rate);
+    }
+    pub fn rate(&self) -> T {
+        self.rate
+    }
+    /// (min, max) sweep range in Hz.
+    pub fn range(&self) -> (T, T) {
+        (self.min_hz, self.max_hz)
+    }
+    pub fn feedback(&self) -> T {
+        self.feedback
+    }
+    pub fn mix(&self) -> T {
+        self.mix
+    }
+    pub fn sample_rate(&self) -> T {
+        self.sample_rate
     }
     /// Sweep range; equal values hold the all-passes still. Panics unless 0 < min <= max < Nyquist.
     pub fn set_range(&mut self, min_hz: T, max_hz: T) {

@@ -130,6 +130,10 @@ impl<P> PerChannel<P> {
     pub fn channel(&mut self, ch: usize) -> &mut P {
         &mut self.processors[ch]
     }
+    /// The per-channel processors, in channel order.
+    pub fn channels(&self) -> &[P] {
+        &self.processors
+    }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut P> {
         self.processors.iter_mut()
     }
@@ -222,6 +226,9 @@ impl<T: Float> StereoWidth<T> {
     pub fn set_width(&mut self, width: T) {
         self.width.set_target(width._max(T::_ZERO));
     }
+    pub fn width(&self) -> T {
+        self.width.target()
+    }
 }
 
 impl<T: Float> MultiProcessor<T> for StereoWidth<T> {
@@ -253,6 +260,9 @@ impl<T: Float> Panner<T> {
     }
     pub fn set_position(&mut self, position: T) {
         self.position.set_target(position._clamp(-T::_ONE, T::_ONE));
+    }
+    pub fn position(&self) -> T {
+        self.position.target()
     }
     /// (left gain, right gain) for a pan position.
     pub fn gains(position: T) -> (T, T) {

@@ -245,48 +245,117 @@ impl<T: Float> BiquadCoeffs<T> {
     }
 }
 
+/// Which cookbook response a biquad was designed as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BiquadKind {
+    Lowpass,
+    Highpass,
+    Bandpass,
+    Notch,
+    Allpass,
+    Peaking,
+    LowShelf,
+    HighShelf,
+}
+
+impl BiquadKind {
+    /// Whether `gain_db` affects this response (peaking and shelves).
+    pub fn uses_gain(self) -> bool {
+        matches!(self, BiquadKind::Peaking | BiquadKind::LowShelf | BiquadKind::HighShelf)
+    }
+}
+
+/// The settings a biquad was designed from, so it can be inspected and re-designed (e.g. by a host
+/// changing its frequency) rather than only holding opaque coefficients.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BiquadDesign<T: Float> {
+    pub kind: BiquadKind,
+    /// cutoff, center or corner frequency in Hz
+    pub frequency: T,
+    pub q: T,
+    /// used by peaking and shelves only
+    pub gain_db: T,
+    pub sample_rate: T,
+}
+
+impl<T: Float> BiquadDesign<T> {
+    /// Panics if the frequency isn't between 0 and Nyquist or q isn't positive (see `BiquadCoeffs`).
+    pub fn coeffs(&self) -> BiquadCoeffs<T> {
+        let (f, fs, q, g) = (self.frequency, self.sample_rate, self.q, self.gain_db);
+        match self.kind {
+            BiquadKind::Lowpass => BiquadCoeffs::lowpass(f, fs, q),
+            BiquadKind::Highpass => BiquadCoeffs::highpass(f, fs, q),
+            BiquadKind::Bandpass => BiquadCoeffs::bandpass(f, fs, q),
+            BiquadKind::Notch => BiquadCoeffs::notch(f, fs, q),
+            BiquadKind::Allpass => BiquadCoeffs::allpass(f, fs, q),
+            BiquadKind::Peaking => BiquadCoeffs::peaking(f, fs, q, g),
+            BiquadKind::LowShelf => BiquadCoeffs::low_shelf(f, fs, q, g),
+            BiquadKind::HighShelf => BiquadCoeffs::high_shelf(f, fs, q, g),
+        }
+    }
+}
+
 /// Second-order IIR filter in transposed direct form II (two state variables, good float behavior).
 #[derive(Debug, Clone, Copy)]
 pub struct Biquad<T: Float> {
     coeffs: BiquadCoeffs<T>,
+    /// how the coefficients were designed; `None` when built from raw coefficients
+    design: Option<BiquadDesign<T>>,
     s1: T,
     s2: T,
 }
 
 impl<T: Float> Biquad<T> {
+    /// From raw coefficients (no design settings to inspect or change).
     pub fn new(coeffs: BiquadCoeffs<T>) -> Self {
-        Self { coeffs, s1: T::_ZERO, s2: T::_ZERO }
+        Self { coeffs, design: None, s1: T::_ZERO, s2: T::_ZERO }
+    }
+    pub fn from_design(design: BiquadDesign<T>) -> Self {
+        Self { coeffs: design.coeffs(), design: Some(design), s1: T::_ZERO, s2: T::_ZERO }
+    }
+    fn designed(kind: BiquadKind, frequency: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        Self::from_design(BiquadDesign { kind, frequency, q, gain_db, sample_rate })
     }
     pub fn lowpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        Self::new(BiquadCoeffs::lowpass(cutoff, sample_rate, q))
+        Self::designed(BiquadKind::Lowpass, cutoff, sample_rate, q, T::_ZERO)
     }
     pub fn highpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        Self::new(BiquadCoeffs::highpass(cutoff, sample_rate, q))
+        Self::designed(BiquadKind::Highpass, cutoff, sample_rate, q, T::_ZERO)
     }
     pub fn bandpass(center: T, sample_rate: T, q: T) -> Self {
-        Self::new(BiquadCoeffs::bandpass(center, sample_rate, q))
+        Self::designed(BiquadKind::Bandpass, center, sample_rate, q, T::_ZERO)
     }
     pub fn notch(center: T, sample_rate: T, q: T) -> Self {
-        Self::new(BiquadCoeffs::notch(center, sample_rate, q))
+        Self::designed(BiquadKind::Notch, center, sample_rate, q, T::_ZERO)
     }
     pub fn allpass(center: T, sample_rate: T, q: T) -> Self {
-        Self::new(BiquadCoeffs::allpass(center, sample_rate, q))
+        Self::designed(BiquadKind::Allpass, center, sample_rate, q, T::_ZERO)
     }
     pub fn peaking(center: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::new(BiquadCoeffs::peaking(center, sample_rate, q, gain_db))
+        Self::designed(BiquadKind::Peaking, center, sample_rate, q, gain_db)
     }
     pub fn low_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::new(BiquadCoeffs::low_shelf(corner, sample_rate, q, gain_db))
+        Self::designed(BiquadKind::LowShelf, corner, sample_rate, q, gain_db)
     }
     pub fn high_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::new(BiquadCoeffs::high_shelf(corner, sample_rate, q, gain_db))
+        Self::designed(BiquadKind::HighShelf, corner, sample_rate, q, gain_db)
     }
     pub fn coeffs(&self) -> &BiquadCoeffs<T> {
         &self.coeffs
     }
-    /// Swaps coefficients but keeps state, so parameter changes mid-stream don't click.
+    pub fn design(&self) -> Option<&BiquadDesign<T>> {
+        self.design.as_ref()
+    }
+    /// Re-designs the filter, keeping its state (no click).
+    pub fn set_design(&mut self, design: BiquadDesign<T>) {
+        self.coeffs = design.coeffs();
+        self.design = Some(design);
+    }
+    /// Swaps in raw coefficients, keeping state, so changes mid-stream don't click.
+    /// The filter no longer has design settings afterwards.
     pub fn set_coeffs(&mut self, coeffs: BiquadCoeffs<T>) {
         self.coeffs = coeffs;
+        self.design = None;
     }
     pub fn reset(&mut self) {
         self.s1 = T::_ZERO;
