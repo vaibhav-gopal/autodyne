@@ -3,7 +3,10 @@ use super::*;
 
 /// Complex number over any Float ; the basis for FFTs and IQ (de)modulation.
 /// Deliberately not a `Unit`: it has no bit-level `PhysicalRepr` and no total order.
+/// `repr(C)`: laid out as `re` then `im`, the same as C99 / NumPy complex numbers, so buffers of it
+/// can be shared with other runtimes without copying.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[repr(C)]
 pub struct Complex<T: Float> {
     pub re: T,
     pub im: T,

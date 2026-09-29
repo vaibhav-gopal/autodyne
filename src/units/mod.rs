@@ -1,8 +1,7 @@
-﻿/// Module for extending the primitive types and introducing a system for working with primitive data (numbers)
-/// todo:
-/// - abstract SIMD operations (way later ; or just use nightly)
-/// - implement the bigint, fixed-point and bigfloat types (way later)
-/// - add tests and benchmarks (next)
+//! Module for extending the primitive types and introducing a system for working with primitive data (numbers)
+//! todo:
+//! - implement the bigint, fixed-point and bigfloat types (way later)
+//! - portable SIMD types once `std::simd` is stable (the `simd` module covers the hot loops until then)
 
 mod cast;
 pub use cast::*;
@@ -13,16 +12,17 @@ pub use properties::*;
 mod ops;
 pub use ops::*;
 
-mod units;
-pub use units::*;
+mod unit;
+pub use unit::*;
 
 mod integer;
 pub use integer::*;
 
 mod float;
-mod reflection;
-
 pub use float::*;
+
+mod reflection;
+pub use reflection::*;
 
 mod complex;
 pub use complex::*;
