@@ -1,0 +1,64 @@
+# cargo-deny policy: `cargo deny check` (runs in CI).
+#
+# autodyne's own crates are GPL-3.0-only, and its author also licenses them commercially (see
+# README). That only works while every third-party dependency that ends up in a product is
+# permissively licensed: a single GPL/LGPL/AGPL dependency would bind closed products too. So
+# third-party crates must use one of the licenses below; anything else fails the check and needs a
+# deliberate decision.
+
+[graph]
+# dev-dependencies (examples, tests, benchmarks) never ship in a product
+exclude-dev = true
+all-features = true
+
+[licenses]
+confidence-threshold = 0.9
+# the list is a policy, not an inventory: entries no current dependency uses are fine
+unused-allowed-license = "allow"
+# permissive: each only requires keeping the copyright / license notice with copies
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "0BSD",
+    "CC0-1.0",
+]
+# our own crates
+exceptions = [
+    { allow = ["GPL-3.0-only"], crate = "autodyne" },
+    { allow = ["GPL-3.0-only"], crate = "autodyne-nih" },
+    { allow = ["GPL-3.0-only"], crate = "autodyne-reverb" },
+    { allow = ["GPL-3.0-only"], crate = "autodyne-synth" },
+    { allow = ["GPL-3.0-only"], crate = "xtask" },
+]
+
+[advisories]
+# RustSec: known vulnerabilities fail the check; unmaintained crates only when we depend on them
+# directly (nih-plug's dependency tree is not ours to fix)
+unmaintained = "workspace"
+
+[bans]
+# duplicate versions cost build time, not correctness
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+# crates.io, plus git sources pinned in Cargo.lock: nih-plug from our fork, and the git
+# dependencies nih-plug itself uses
+allow-git = [
+    "https://github.com/vaibhav-gopal/nih-plug",
+    "https://github.com/robbert-vdh/rust-assert-no-alloc",
+    "https://github.com/micahrj/clap-sys",
+    # used by the bundler (xtask) only
+    "https://github.com/nicokoch/reflink",
+]

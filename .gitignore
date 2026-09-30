@@ -2,3 +2,5 @@
 /.idea
 
 *.lock
+# the workspace ships plugins: pin exact dependency versions for reproducible builds and audits
+!Cargo.lock

@@ -1,8 +1,7 @@
 //! autodyne's 8-line feedback-delay-network reverb as a plugin.
 //!
 //! ```text
-//! cargo xtask bundle autodyne-reverb --release                  # CLAP
-//! cargo xtask bundle autodyne-reverb --release --features vst3  # CLAP + VST3 (GPLv3, see Cargo.toml)
+//! cargo xtask bundle autodyne-reverb --release   # target/bundled: .clap and .vst3
 //! ```
 //!
 //! Parameters come straight from `Reverb`'s `Parameterized` implementation through `ParamBridge`.

@@ -73,8 +73,9 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
 ### Plugins
-`plugins/` turns autodyne processors into CLAP (and optionally VST3) plugins with [NIH-plug](https://github.com/robbert-vdh/nih-plug), via [our fork](https://github.com/vaibhav-gopal/nih-plug/tree/autodyne)
-(branch `autodyne`: hardened state loading, host notified of loaded parameter values):
+`plugins/` turns autodyne processors into CLAP and VST3 plugins with [NIH-plug](https://github.com/robbert-vdh/nih-plug), via
+[our fork](https://github.com/vaibhav-gopal/nih-plug/tree/autodyne) (branch `autodyne`: MIT-licensed VST3 bindings,
+hardened state loading, host notified of loaded parameter values):
 
 - `autodyne-nih`: `ParamBridge` exposes any `Parameterized` processor's parameters to the host (ranges, log scaling,
   defaults, display text and typed input in units), with no hand-written parameter struct
@@ -83,14 +84,15 @@ The others write WAV files to `target/examples-out/`:
   the FDN reverb; its parameters are the whole chain's, grouped by stage
 
 ```sh
-cargo xtask bundle autodyne-reverb --release                  # target/bundled/autodyne-reverb.clap
-cargo xtask bundle autodyne-reverb --release --features vst3  # also .vst3
+cargo xtask bundle autodyne-reverb --release                       # target/bundled/autodyne-reverb.{clap,vst3}
 cargo xtask bundle -p autodyne-synth -p autodyne-reverb --release  # several at once
 ```
 
 Copy the `.clap` into your CLAP folder (`%COMMONPROGRAMFILES%\CLAP` on Windows, `~/.clap` on Linux,
-`~/Library/Audio/Plug-Ins/CLAP` on macOS). The VST3 bindings are GPLv3, so VST3 builds must be distributed under
-GPLv3-compatible terms; CLAP builds have no such requirement.
+`~/Library/Audio/Plug-Ins/CLAP` on macOS) or the `.vst3` into your VST3 folder (`%COMMONPROGRAMFILES%\VST3`,
+`~/.vst3`, `~/Library/Audio/Plug-Ins/VST3`). Both pass their format's validator (clap-validator, Steinberg's
+VST3 validator).
+
 ### Tests and benchmarks
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips), and `tests/no_alloc.rs` proves processing never allocates
 - `cargo bench`: throughput per 512-sample block. The SIMD pass made FIR filtering 4.5-13x faster
@@ -98,3 +100,19 @@ GPLv3-compatible terms; CLAP builds have no such requirement.
 
 ## Not here
 The `flux` IR/compiler experiment (a JAX/XLA-style tracer and compiler) lives on the `flux` branch.
+
+## License
+autodyne is licensed under the [GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`): you may use, study,
+change and share it, and software you distribute that is built on it must also be released under the GPLv3, with
+source.
+
+Commercial licenses for closed-source use are available from the author: open an issue or contact
+[@vaibhav-gopal](https://github.com/vaibhav-gopal).
+
+Every third-party dependency is permissively licensed (MIT, Apache-2.0, ISC, BSD, Zlib, ...), enforced in CI by
+[cargo-deny](deny.toml) (`cargo deny --workspace check`), so products built on autodyne carry no other copyleft
+obligations.
+
+## Contributing
+Contributions are welcome. Pull requests need a one-time signature of the [Contributor License Agreement](CLA.md);
+see [CONTRIBUTING.md](CONTRIBUTING.md).

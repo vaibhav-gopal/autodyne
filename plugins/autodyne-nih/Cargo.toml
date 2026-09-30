@@ -3,9 +3,10 @@ name = "autodyne-nih"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "GPL-3.0-only"
 description = "Bridges autodyne processors to NIH-plug (CLAP / VST3 plugins)"
 
 [dependencies]
 autodyne = { path = "../.." }
-# pinned for reproducible builds; no default features, so VST3 (GPLv3 bindings) is opt-in per plugin
-nih_plug = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "748c5f650ae19ab9de078a6c63e766eb56dbec66", default-features = false }
+# our fork (see README), pinned for reproducible builds; no default features: each plugin opts into VST3
+nih_plug = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "5620f63797da85e788eb6a5a2f0a37be64887132", default-features = false }

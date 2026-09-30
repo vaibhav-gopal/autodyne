@@ -50,3 +50,13 @@ jobs:
       # The crate is warning-free; keep it that way.
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          arguments: --workspace
+          command: check

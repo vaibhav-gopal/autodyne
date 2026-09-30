@@ -3,6 +3,7 @@ name = "xtask"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "GPL-3.0-only"
 
 [dependencies]
-nih_plug_xtask = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "748c5f650ae19ab9de078a6c63e766eb56dbec66" }
+nih_plug_xtask = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "5620f63797da85e788eb6a5a2f0a37be64887132" }

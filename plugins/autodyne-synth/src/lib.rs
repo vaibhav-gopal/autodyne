@@ -1,8 +1,7 @@
 //! autodyne's polyphonic subtractive synth as an instrument plugin.
 //!
 //! ```text
-//! cargo xtask bundle autodyne-synth --release                  # CLAP
-//! cargo xtask bundle autodyne-synth --release --features vst3  # CLAP + VST3 (GPLv3, see Cargo.toml)
+//! cargo xtask bundle autodyne-synth --release   # target/bundled: .clap and .vst3
 //! ```
 //!
 //! Signal path: MIDI -> 16-voice `Poly<SynthVoice>` (band-limited saw -> enveloped resonant
