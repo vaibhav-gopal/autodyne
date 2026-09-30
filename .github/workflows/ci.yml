@@ -44,7 +44,7 @@ jobs:
           cargo run --release --example interop
           cargo run --release --example reverb
       - name: Plugin bundles
-        run: cargo xtask bundle autodyne-reverb --release
+        run: cargo xtask bundle -p autodyne-reverb -p autodyne-synth --release
       - name: Benchmarks compile
         run: cargo bench --no-run
       # The crate is warning-free; keep it that way.

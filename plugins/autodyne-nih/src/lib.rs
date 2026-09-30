@@ -15,16 +15,21 @@ use nih_plug::prelude::*;
 pub struct ParamBridge {
     params: Vec<FloatParam>,
     ids: Vec<String>,
+    /// host-facing group per parameter: the owning stage's name, or "" when every parameter has the
+    /// same owner (a single processor needs no grouping)
+    groups: Vec<String>,
     /// last value pushed to the processor, per parameter (NaN = never pushed)
     applied: Vec<std::sync::atomic::AtomicU32>,
 }
 
 impl ParamBridge {
     /// One host parameter per parameter of `processor`, starting at the processor's current values.
-    /// Ids repeated across the stages of a chain get a numeric suffix to stay unique.
+    /// Ids repeated across the stages of a chain get a numeric suffix to stay unique, and a chain's
+    /// parameters are grouped by stage.
     pub fn new(processor: &dyn Parameterized) -> Self {
         let mut params = Vec::new();
         let mut ids: Vec<String> = Vec::new();
+        let mut groups: Vec<String> = Vec::new();
         for index in 0..processor.param_count() {
             let info = processor.param_info(index).expect("index below param_count");
             let current = processor.get_param(index).unwrap_or(info.default);
@@ -36,9 +41,13 @@ impl ParamBridge {
                 n += 1;
             }
             ids.push(id);
+            groups.push(processor.param_group(index).unwrap_or_default().to_string());
+        }
+        if groups.iter().all(|g| *g == groups[0]) {
+            groups.iter_mut().for_each(String::clear);
         }
         let applied = (0..params.len()).map(|_| std::sync::atomic::AtomicU32::new(f32::NAN.to_bits())).collect();
-        Self { params, ids, applied }
+        Self { params, ids, groups, applied }
     }
 
     /// Pushes every host value that changed since the last call into `processor`.
@@ -96,7 +105,7 @@ fn float_param(info: &ParamInfo, value: f64) -> FloatParam {
 // plugin) lives, which is what NIH-plug requires.
 unsafe impl Params for ParamBridge {
     fn param_map(&self) -> Vec<(String, ParamPtr, String)> {
-        self.params.iter().zip(&self.ids).map(|(p, id)| (id.clone(), p.as_ptr(), String::new())).collect()
+        self.params.iter().zip(&self.ids).zip(&self.groups).map(|((p, id), group)| (id.clone(), p.as_ptr(), group.clone())).collect()
     }
 }
 
@@ -154,5 +163,16 @@ mod tests {
         let bridge = ParamBridge::new(&chain);
         let ids: Vec<String> = bridge.param_map().into_iter().map(|(id, _, _)| id).collect();
         assert_eq!(ids, ["gain_db", "gain_db_2"]);
+    }
+
+    #[test]
+    fn chains_are_grouped_by_stage() {
+        use autodyne::gain::Gain;
+        let groups = |bridge: ParamBridge| bridge.param_map().into_iter().map(|(_, _, g)| g).collect::<Vec<_>>();
+        let single = Reverb::<f32>::new(48_000.0);
+        assert!(groups(ParamBridge::new(&single)).iter().all(String::is_empty), "one stage: no groups");
+        let chain = (Gain::<f32>::new(1.0, 0.0, 48_000.0), Reverb::<f32>::new(48_000.0));
+        let g = groups(ParamBridge::new(&chain));
+        assert_eq!((g[0].as_str(), g[1].as_str()), ("Gain", "Reverb"));
     }
 }

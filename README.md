@@ -79,10 +79,13 @@ The others write WAV files to `target/examples-out/`:
 - `autodyne-nih`: `ParamBridge` exposes any `Parameterized` processor's parameters to the host (ranges, log scaling,
   defaults, display text and typed input in units), with no hand-written parameter struct
 - `autodyne-reverb`: the FDN reverb as a stereo/mono effect
+- `autodyne-synth`: a 16-voice subtractive synth (MIDI notes on their exact sample, sustain pedal, pitch bend) into
+  the FDN reverb; its parameters are the whole chain's, grouped by stage
 
 ```sh
 cargo xtask bundle autodyne-reverb --release                  # target/bundled/autodyne-reverb.clap
 cargo xtask bundle autodyne-reverb --release --features vst3  # also .vst3
+cargo xtask bundle -p autodyne-synth -p autodyne-reverb --release  # several at once
 ```
 
 Copy the `.clap` into your CLAP folder (`%COMMONPROGRAMFILES%\CLAP` on Windows, `~/.clap` on Linux,

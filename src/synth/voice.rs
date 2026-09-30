@@ -32,7 +32,14 @@ impl<T: Float> SynthVoice<T> {
         Self {
             sample_rate,
             osc: Oscillator::new(Waveform::Saw, lit(440.0), sample_rate),
-            filter: Biquad::from_design(BiquadDesign { kind: BiquadKind::Lowpass, frequency: cutoff, q: lit(1.2), gain_db: T::_ZERO, sample_rate }),
+            // (render keeps the cutoff below Nyquist; the initial design must be valid at low rates too)
+            filter: Biquad::from_design(BiquadDesign {
+                kind: BiquadKind::Lowpass,
+                frequency: cutoff._min(lit(0.45) * sample_rate),
+                q: lit(1.2),
+                gain_db: T::_ZERO,
+                sample_rate,
+            }),
             amp_env: Adsr::new(lit(0.005), lit(0.3), lit(0.6), lit(0.3), sample_rate),
             filter_env: Adsr::new(lit(0.002), lit(0.25), lit(0.2), lit(0.3), sample_rate),
             note: 69,
@@ -88,10 +95,11 @@ impl<T: Float> SynthVoice<T> {
         self.osc.set_frequency(T::_lit(midi_to_hz(note)), self.sample_rate);
     }
 
-    /// Cutoff for the filter envelope's current level, kept below Nyquist.
+    /// Cutoff for the filter envelope's current level: at least 20 Hz, but always below Nyquist
+    /// (which wins at very low sample rates).
     fn current_cutoff(&self) -> T {
         let hz = self.cutoff * T::_lit(2.0)._pow(self.env_amount * self.filter_env.level());
-        hz._clamp(T::_lit(20.0), T::_lit(0.45) * self.sample_rate)
+        hz._max(T::_lit(20.0))._min(T::_lit(0.45) * self.sample_rate)
     }
 }
 
@@ -194,5 +202,17 @@ mod tests {
         render(&mut loud, (0.31 * FS) as usize); // release is 0.3 s
         assert!(!loud.is_active());
         assert!(render(&mut loud, 64).iter().all(|&s| s == 0.0));
+    }
+
+    #[test]
+    fn works_at_any_sample_rate() {
+        // the default 800 Hz cutoff is above Nyquist at 1 kHz; 20 Hz is above it at 40 Hz
+        for fs in [40.0f64, 1_000.0, 8_000.0, 768_000.0] {
+            let mut v = SynthVoice::new(fs);
+            v.note_on(96, 1.0);
+            let mut out = vec![0.0; 512];
+            v.render(&mut out);
+            assert!(out.iter().all(|s| s.is_finite()), "{fs} Hz");
+        }
     }
 }

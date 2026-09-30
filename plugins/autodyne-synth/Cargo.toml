@@ -1,0 +1,22 @@
+[package]
+name = "autodyne-synth"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "autodyne's polyphonic subtractive synth as a CLAP (and optionally VST3) instrument"
+
+[lib]
+# cdylib is the plugin; lib lets the tests link against it
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+# VST3 export. The VST3 bindings are GPLv3: builds with this feature must be distributed under
+# GPLv3-compatible terms. CLAP (always built) has no such requirement.
+vst3 = ["nih_plug/vst3"]
+
+[dependencies]
+autodyne = { path = "../.." }
+autodyne-nih = { path = "../autodyne-nih" }
+# assert_process_allocs: debug builds abort if the audio callback allocates
+nih_plug = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "748c5f650ae19ab9de078a6c63e766eb56dbec66", default-features = false, features = ["assert_process_allocs"] }
