@@ -8,4 +8,4 @@ description = "Bridges autodyne processors to NIH-plug (CLAP / VST3 plugins)"
 [dependencies]
 autodyne = { path = "../.." }
 # pinned for reproducible builds; no default features, so VST3 (GPLv3 bindings) is opt-in per plugin
-nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "de421011f41a6d10fc8c7a6084e4f4dee0143683", default-features = false }
+nih_plug = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "748c5f650ae19ab9de078a6c63e766eb56dbec66", default-features = false }

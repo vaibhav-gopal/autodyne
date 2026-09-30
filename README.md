@@ -73,7 +73,8 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
 ### Plugins
-`plugins/` turns autodyne processors into CLAP (and optionally VST3) plugins with [NIH-plug](https://github.com/robbert-vdh/nih-plug):
+`plugins/` turns autodyne processors into CLAP (and optionally VST3) plugins with [NIH-plug](https://github.com/robbert-vdh/nih-plug), via [our fork](https://github.com/vaibhav-gopal/nih-plug/tree/autodyne)
+(branch `autodyne`: hardened state loading, host notified of loaded parameter values):
 
 - `autodyne-nih`: `ParamBridge` exposes any `Parameterized` processor's parameters to the host (ranges, log scaling,
   defaults, display text and typed input in units), with no hand-written parameter struct
