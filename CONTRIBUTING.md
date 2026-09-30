@@ -43,7 +43,8 @@ cargo deny --workspace check          # licenses, advisories, sources (install: 
   presets and the plugin bridge see them.
 - **Match the surrounding code.** Naming, comment density and doc style as in the module you are changing. Put
   math in doc comments inside backticks.
-- **New dependencies** need a reason; they must pass `cargo deny`.
+- **New dependencies** need a reason; they must pass `cargo deny`. Their license notices are regenerated
+  automatically on main (`cargo xtask notices` does it locally, with `cargo install cargo-about`).
 
 ## Commits and pull requests
 

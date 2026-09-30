@@ -1,0 +1,34 @@
+# cargo-about: generates THIRD-PARTY-LICENSES.html, the notices that must ship with every product
+# built on autodyne (permissive licenses only require keeping each copyright and license text with
+# copies, binaries included). Regenerated automatically: see README "License".
+
+# same policy as deny.toml: third-party code must be permissively licensed
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "ISC",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "Zlib",
+    "BSL-1.0",
+    "Unicode-3.0",
+    "0BSD",
+    "CC0-1.0",
+]
+
+# only code that ends up in a product: not tests, examples, benchmarks or build scripts' tools
+ignore-dev-dependencies = true
+ignore-build-dependencies = true
+# our own crates (publish = false) are not third-party
+private = { ignore = true }
+
+# the platforms we ship on
+targets = [
+    "x86_64-pc-windows-msvc",
+    "aarch64-pc-windows-msvc",
+    "x86_64-unknown-linux-gnu",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]

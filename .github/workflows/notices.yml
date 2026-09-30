@@ -1,0 +1,41 @@
+name: Notices
+
+# Keeps each plugin's THIRD-PARTY-LICENSES.html in step with its dependencies: whenever main's
+# dependencies (or the notices policy/template) change, regenerate and commit if anything differs.
+# The license policy itself is enforced before merge by the cargo-deny job in ci.yml.
+
+on:
+  push:
+    branches: [main]
+    paths: [Cargo.lock, "**/Cargo.toml", about.toml, about.hbs, xtask/**]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: notices
+  cancel-in-progress: false
+
+jobs:
+  notices:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about
+      - run: cargo xtask notices
+      - name: Commit changes
+        run: |
+          if git diff --quiet -- 'plugins/*/THIRD-PARTY-LICENSES.html'; then
+            echo "Notices are up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add plugins/*/THIRD-PARTY-LICENSES.html
+          git commit -m "Update third-party notices"
+          git push

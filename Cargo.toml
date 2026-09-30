@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 description = "DSP and numerical library: signals, filters, spectral, dynamics, reverb, synthesis, runtime-typed buffers and parameters"
 license = "GPL-3.0-only"
+# not on crates.io (yet); also keeps it out of the third-party notices (about.toml)
+publish = false
 repository = "https://github.com/vaibhav-gopal/autodyne"
 
 [dependencies]

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Third-party licenses</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d1d1f; --bg: #ffffff; --muted: #6e6e73; --panel: #f5f5f7; --line: #d2d2d7; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #f5f5f7; --bg: #161617; --muted: #a1a1a6; --panel: #1f1f21; --line: #38383a; } }
+  body { font: 15px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); max-width: 60rem; margin: 0 auto; padding: 2rem 1rem; }
+  h1 { font-size: 1.6rem; margin: 0 0 .25rem; }
+  h2 { font-size: 1.15rem; margin: 2.5rem 0 .5rem; border-top: 1px solid var(--line); padding-top: 1.5rem; }
+  p.intro, .used-by { color: var(--muted); }
+  ul.overview { columns: 2; padding-left: 1.2rem; }
+  .used-by { margin: .25rem 0 .75rem; font-size: .9rem; }
+  pre { background: var(--panel); padding: 1rem; overflow-x: auto; white-space: pre-wrap; font-size: .8rem; border-radius: 6px; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<h1>Third-party licenses</h1>
+<p class="intro">This software includes the following third-party components. Each is used under the license shown,
+whose full text follows.</p>
+
+<ul class="overview">
+{{#each overview}}
+  <li><a href="#{{id}}">{{name}}</a> ({{count}})</li>
+{{/each}}
+</ul>
+
+{{#each licenses}}
+<h2 id="{{id}}">{{name}}</h2>
+<p class="used-by">Used by:
+{{#each used_by}}
+  <a href="{{#if crate.repository}}{{crate.repository}}{{else}}https://crates.io/crates/{{crate.name}}{{/if}}">{{crate.name}} {{crate.version}}</a>{{#unless @last}},{{/unless}}
+{{/each}}
+</p>
+<pre>{{text}}</pre>
+{{/each}}
+</body>
+</html>

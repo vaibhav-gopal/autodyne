@@ -109,9 +109,16 @@ source.
 Commercial licenses for closed-source use are available from the author: open an issue or contact
 [@vaibhav-gopal](https://github.com/vaibhav-gopal).
 
-Every third-party dependency is permissively licensed (MIT, Apache-2.0, ISC, BSD, Zlib, ...), enforced in CI by
-[cargo-deny](deny.toml) (`cargo deny --workspace check`), so products built on autodyne carry no other copyleft
-obligations.
+Every third-party dependency is permissively licensed (MIT, Apache-2.0, ISC, BSD, Zlib, ...), so products built on
+autodyne carry no other copyleft obligations. Those licenses do require shipping each dependency's copyright and
+license text, which is automated:
+
+- **Policy:** [cargo-deny](deny.toml) runs on every push and pull request: a dependency under any other license, a
+  known vulnerability (RustSec) or an unexpected source fails CI.
+- **Notices:** each plugin has a `THIRD-PARTY-LICENSES.html` generated from its own dependency graph by
+  [cargo-about](about.toml) (`cargo xtask notices`). The Notices workflow regenerates and commits them whenever
+  dependencies change on main, and `cargo xtask bundle` ships them next to and inside every bundle.
+- **Updates:** Dependabot opens weekly dependency update pull requests, which go through the same checks.
 
 ## Contributing
 Contributions are welcome. Pull requests need a one-time signature of the [Contributor License Agreement](CLA.md);

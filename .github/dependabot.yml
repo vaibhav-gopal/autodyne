@@ -1,0 +1,20 @@
+# Weekly dependency updates. Each update is a pull request that CI checks in full, including
+# cargo-deny's license and advisory policy; once merged, the Notices workflow refreshes the
+# third-party notices.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # one pull request for all compatible updates; breaking (major) updates come separately
+      compatible:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
