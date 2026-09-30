@@ -19,3 +19,8 @@ default = []
 [[bench]]
 name = "dsp"
 harness = false
+
+# The library is the root package; plugins and the bundler live alongside it so `autodyne` itself
+# never depends on a plugin framework.
+[workspace]
+members = [".", "plugins/autodyne-nih", "plugins/autodyne-reverb", "xtask"]

@@ -72,6 +72,21 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example host -- [f32|f64] [id=value ...]`: a host picking the sample type at runtime, listing and setting parameters by id, processing, and printing a preset
 - `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
+### Plugins
+`plugins/` turns autodyne processors into CLAP (and optionally VST3) plugins with [NIH-plug](https://github.com/robbert-vdh/nih-plug):
+
+- `autodyne-nih`: `ParamBridge` exposes any `Parameterized` processor's parameters to the host (ranges, log scaling,
+  defaults, display text and typed input in units), with no hand-written parameter struct
+- `autodyne-reverb`: the FDN reverb as a stereo/mono effect
+
+```sh
+cargo xtask bundle autodyne-reverb --release                  # target/bundled/autodyne-reverb.clap
+cargo xtask bundle autodyne-reverb --release --features vst3  # also .vst3
+```
+
+Copy the `.clap` into your CLAP folder (`%COMMONPROGRAMFILES%\CLAP` on Windows, `~/.clap` on Linux,
+`~/Library/Audio/Plug-Ins/CLAP` on macOS). The VST3 bindings are GPLv3, so VST3 builds must be distributed under
+GPLv3-compatible terms; CLAP builds have no such requirement.
 ### Tests and benchmarks
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips), and `tests/no_alloc.rs` proves processing never allocates
 - `cargo bench`: throughput per 512-sample block. The SIMD pass made FIR filtering 4.5-13x faster

@@ -102,10 +102,12 @@ impl ParamInfo {
     /// The value formatted for display, e.g. "1.20 kHz", "-18.0 dB", "10.0 ms", "4.0:1", "50%".
     pub fn format(&self, value: f64) -> String {
         match self.unit {
-            ParamUnit::Hertz if value.abs() >= 1000.0 => format!("{:.2} kHz", value / 1000.0),
+            // unit switches compare against the rounded display value, so that parsing the text and
+            // formatting again gives the same text (999.96 Hz shows as "1.00 kHz", not "1000.0 Hz")
+            ParamUnit::Hertz if value.abs() >= 999.95 => format!("{:.2} kHz", value / 1000.0),
             ParamUnit::Hertz => format!("{value:.1} Hz"),
             ParamUnit::Decibels => format!("{value:.1} dB"),
-            ParamUnit::Seconds if value.abs() < 1.0 => format!("{:.1} ms", value * 1000.0),
+            ParamUnit::Seconds if value.abs() < 0.999_95 => format!("{:.1} ms", value * 1000.0),
             ParamUnit::Seconds => format!("{value:.2} s"),
             ParamUnit::Ratio => format!("{value:.1}:1"),
             ParamUnit::Slope if value <= 0.0 => "∞:1".to_string(),
@@ -113,6 +115,31 @@ impl ParamInfo {
             ParamUnit::Fraction => format!("{:.0}%", value * 100.0),
             ParamUnit::None => format!("{value:.3}"),
         }
+    }
+    /// Reads a value typed by a user or produced by [`format`](Self::format): the inverse of
+    /// `format`, e.g. "1.2 kHz" → 1200, "10 ms" → 0.01, "50%" → 0.5, "8:1" on a slope → 0.125.
+    /// Units may be omitted; a bare number is in the display unit (seconds, Hz, percent, ratio).
+    /// Not clamped: pass the result to [`validate`](Self::validate) or `set_param`.
+    pub fn parse(&self, text: &str) -> Option<f64> {
+        let text = text.trim();
+        if self.unit == ParamUnit::Slope && (text.starts_with('∞') || text.to_ascii_lowercase().starts_with("inf")) {
+            return Some(0.0);
+        }
+        let end = text
+            .char_indices()
+            .find(|&(i, c)| !(c.is_ascii_digit() || c == '.' || ((c == '-' || c == '+') && i == 0)))
+            .map_or(text.len(), |(i, _)| i);
+        let number: f64 = text[..end].parse().ok()?;
+        let suffix = text[end..].trim().to_ascii_lowercase();
+        let value = match self.unit {
+            ParamUnit::Hertz if suffix.starts_with('k') => number * 1000.0,
+            ParamUnit::Seconds if suffix.starts_with("ms") => number / 1000.0,
+            ParamUnit::Fraction => number / 100.0,
+            ParamUnit::Slope if number > 0.0 => 1.0 / number,
+            ParamUnit::Slope => return None,
+            _ => number,
+        };
+        value.is_finite().then_some(value)
     }
 }
 
@@ -724,6 +751,36 @@ mod tests {
         assert_eq!(ParamInfo::new("a", "A", Seconds, 0.0, 1.0, 0.0).format(0.01), "10.0 ms");
         assert_eq!(mix.validate(f64::NAN), Err(ParamError::NotFinite("m")));
         assert_eq!(mix.validate(3.0), Ok(1.0));
+    }
+
+    #[test]
+    fn parse_inverts_format() {
+        let freq = ParamInfo::new("f", "Freq", Hertz, 20.0, 20_000.0, 1_000.0);
+        let time = ParamInfo::new("t", "Time", Seconds, 0.0, 10.0, 0.1);
+        let mix = ParamInfo::new("m", "Mix", Fraction, 0.0, 1.0, 0.5);
+        let slope = ParamInfo::new("s", "Slope", Slope, 0.0, 1.0, 0.25);
+        let gain = ParamInfo::new("g", "Gain", Decibels, -60.0, 12.0, 0.0);
+        assert_eq!(freq.parse("1.2 kHz"), Some(1200.0));
+        assert_eq!(freq.parse("440"), Some(440.0));
+        assert_eq!(time.parse("250 ms"), Some(0.25));
+        assert_eq!(time.parse("2 s"), Some(2.0));
+        assert_eq!(mix.parse("30%"), Some(0.3));
+        assert_eq!(slope.parse("4:1"), Some(0.25));
+        assert_eq!(slope.parse("∞:1"), Some(0.0));
+        assert_eq!(slope.parse("0:1"), None);
+        assert_eq!(gain.parse("-18dB"), Some(-18.0));
+        assert_eq!(gain.parse("loud"), None);
+        // text -> value -> text is stable, including around the unit switches
+        for info in [freq, time, mix, slope, gain] {
+            for i in 0..=2000 {
+                let v = info.from_normalized(i as f64 / 2000.0);
+                let v = if info.unit == Hertz { 999.9 + i as f64 * 1e-4 } else { v };
+                let text = info.format(v);
+                let back = info.parse(&text).unwrap_or_else(|| panic!("{} can't parse {text:?}", info.id));
+                assert_eq!(info.format(back), text, "{} {v}", info.id);
+            }
+        }
+        assert_eq!(time.format(0.99996), "1.00 s");
     }
 
     #[test]

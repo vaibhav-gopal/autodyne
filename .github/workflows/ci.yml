@@ -27,11 +27,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Test
-        run: cargo test --all-targets
+        run: cargo test --workspace --all-targets
       - name: Doc tests
-        run: cargo test --doc
+        run: cargo test --workspace --doc
       - name: Docs build without warnings
-        run: cargo doc --no-deps
+        run: cargo doc --workspace --exclude xtask --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
       # `live` needs a sound device, so CI only builds it (via --all-targets above)
@@ -43,8 +43,10 @@ jobs:
           cargo run --release --example host -- f64 threshold_db=-30
           cargo run --release --example interop
           cargo run --release --example reverb
+      - name: Plugin bundles
+        run: cargo xtask bundle autodyne-reverb --release
       - name: Benchmarks compile
         run: cargo bench --no-run
       # The crate is warning-free; keep it that way.
       - name: Clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings

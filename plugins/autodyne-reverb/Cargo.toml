@@ -1,0 +1,22 @@
+[package]
+name = "autodyne-reverb"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "autodyne's feedback-delay-network reverb as a CLAP (and optionally VST3) plugin"
+
+[lib]
+# cdylib is the plugin; lib lets the tests link against it
+crate-type = ["cdylib", "lib"]
+
+[features]
+default = []
+# VST3 export. The VST3 bindings are GPLv3: builds with this feature must be distributed under
+# GPLv3-compatible terms. CLAP (always built) has no such requirement.
+vst3 = ["nih_plug/vst3"]
+
+[dependencies]
+autodyne = { path = "../.." }
+autodyne-nih = { path = "../autodyne-nih" }
+# assert_process_allocs: debug builds abort if the audio callback allocates
+nih_plug = { git = "https://github.com/robbert-vdh/nih-plug.git", rev = "de421011f41a6d10fc8c7a6084e4f4dee0143683", default-features = false, features = ["assert_process_allocs"] }
