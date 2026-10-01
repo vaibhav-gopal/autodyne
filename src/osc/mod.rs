@@ -111,6 +111,31 @@ pub enum Waveform<T> {
     Triangle,
 }
 
+impl<T> Waveform<T> {
+    /// The waveforms' names, indexed as in [`index`](Self::index) (for a choice parameter or a menu).
+    pub const NAMES: [&'static str; 4] = ["Sine", "Saw", "Pulse", "Triangle"];
+
+    /// Position in [`NAMES`](Self::NAMES).
+    pub fn index(&self) -> usize {
+        match self {
+            Waveform::Sine => 0,
+            Waveform::Saw => 1,
+            Waveform::Pulse { .. } => 2,
+            Waveform::Triangle => 3,
+        }
+    }
+    /// The waveform at `index` in [`NAMES`](Self::NAMES) (clamped), with `pulse_width` used if it's
+    /// the pulse.
+    pub fn from_index(index: usize, pulse_width: T) -> Self {
+        match index {
+            0 => Waveform::Sine,
+            1 => Waveform::Saw,
+            2 => Waveform::Pulse { pulse_width },
+            _ => Waveform::Triangle,
+        }
+    }
+}
+
 /// Correction for a unit step at phase 0, spread over the neighbouring samples (PolyBLEP).
 #[inline]
 fn poly_blep<T: Float>(t: T, dt: T) -> T {

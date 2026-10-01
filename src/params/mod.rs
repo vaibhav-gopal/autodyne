@@ -23,6 +23,7 @@ use crate::synth::{Poly, SynthVoice, Voice};
 use crate::filter::{Biquad, Fir, MultiBiquad};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
+use crate::osc::Waveform;
 use crate::units::*;
 
 /// What a parameter's value measures (for display and host units).
@@ -49,6 +50,22 @@ pub enum ParamScale {
     Log,
 }
 
+/// What kind of value a parameter holds.
+///
+/// Values always cross the API as `f64`, the way plugin hosts model parameters: the discrete kinds hold
+/// whole numbers (an index for a choice, 0 or 1 for a toggle), and setting one rounds to the nearest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ParamKind {
+    /// any value in range
+    Continuous,
+    /// whole numbers in range, e.g. a voice count or an octave
+    Integer,
+    /// off (0) or on (1)
+    Toggle,
+    /// one of several named options: the value is the index into this list
+    Choice(&'static [&'static str]),
+}
+
 /// Description of one parameter.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParamInfo {
@@ -61,20 +78,44 @@ pub struct ParamInfo {
     pub max: f64,
     pub default: f64,
     pub scale: ParamScale,
+    pub kind: ParamKind,
 }
 
 impl ParamInfo {
-    /// A linear parameter.
+    /// A linear, continuous parameter.
     pub const fn new(id: &'static str, name: &'static str, unit: ParamUnit, min: f64, max: f64, default: f64) -> Self {
-        Self { id, name, unit, min, max, default, scale: ParamScale::Linear }
+        Self { id, name, unit, min, max, default, scale: ParamScale::Linear, kind: ParamKind::Continuous }
+    }
+    /// An on/off switch (0 or 1).
+    pub const fn toggle(id: &'static str, name: &'static str, default: bool) -> Self {
+        let default = if default { 1.0 } else { 0.0 };
+        Self { kind: ParamKind::Toggle, ..Self::new(id, name, ParamUnit::None, 0.0, 1.0, default) }
+    }
+    /// A choice between named options; the value is an index into `options`.
+    /// Panics if `options` is empty or `default` is out of range (at compile time in a `const`).
+    pub const fn choice(id: &'static str, name: &'static str, options: &'static [&'static str], default: usize) -> Self {
+        assert!(!options.is_empty() && default < options.len(), "a choice needs options and a default among them");
+        let max = (options.len() - 1) as f64;
+        Self { kind: ParamKind::Choice(options), ..Self::new(id, name, ParamUnit::None, 0.0, max, default as f64) }
     }
     /// The same parameter on a log scale.
     pub const fn log(mut self) -> Self {
         self.scale = ParamScale::Log;
         self
     }
+    /// The same parameter restricted to whole numbers.
+    pub const fn integer(mut self) -> Self {
+        self.kind = ParamKind::Integer;
+        self
+    }
+    /// Whether the parameter only takes whole-number values (integer, toggle or choice).
+    pub const fn is_discrete(&self) -> bool {
+        !matches!(self.kind, ParamKind::Continuous)
+    }
+    /// Clamps into range, rounding discrete parameters to the nearest whole number.
     pub fn clamp(&self, value: f64) -> f64 {
-        value.clamp(self.min, self.max)
+        let value = value.clamp(self.min, self.max);
+        if self.is_discrete() { value.round().clamp(self.min, self.max) } else { value }
     }
     /// Checks the value is finite and clamps it into range.
     pub fn validate(&self, value: f64) -> Result<f64, ParamError> {
@@ -91,16 +132,24 @@ impl ParamInfo {
             ParamScale::Log => (v / self.min).ln() / (self.max / self.min).ln(),
         }
     }
-    /// The value at a 0..1 control position.
+    /// The value at a 0..1 control position (rounded for discrete parameters).
     pub fn from_normalized(&self, normalized: f64) -> f64 {
         let n = normalized.clamp(0.0, 1.0);
-        match self.scale {
+        let value = match self.scale {
             ParamScale::Linear => self.min + n * (self.max - self.min),
             ParamScale::Log => self.min * (self.max / self.min).powf(n),
-        }
+        };
+        if self.is_discrete() { self.clamp(value) } else { value }
     }
-    /// The value formatted for display, e.g. "1.20 kHz", "-18.0 dB", "10.0 ms", "4.0:1", "50%".
+    /// The value formatted for display, e.g. "1.20 kHz", "-18.0 dB", "10.0 ms", "4.0:1", "50%", or the
+    /// option's name for a choice and "On" / "Off" for a toggle.
     pub fn format(&self, value: f64) -> String {
+        match self.kind {
+            ParamKind::Toggle => return if value >= 0.5 { "On" } else { "Off" }.to_string(),
+            ParamKind::Choice(options) => return options[self.clamp(value) as usize].to_string(),
+            ParamKind::Integer if self.unit == ParamUnit::None => return format!("{:.0}", value.round()),
+            _ => {}
+        }
         match self.unit {
             // unit switches compare against the rounded display value, so that parsing the text and
             // formatting again gives the same text (999.96 Hz shows as "1.00 kHz", not "1000.0 Hz")
@@ -119,9 +168,26 @@ impl ParamInfo {
     /// Reads a value typed by a user or produced by [`format`](Self::format): the inverse of
     /// `format`, e.g. "1.2 kHz" → 1200, "10 ms" → 0.01, "50%" → 0.5, "8:1" on a slope → 0.125.
     /// Units may be omitted; a bare number is in the display unit (seconds, Hz, percent, ratio).
-    /// Not clamped: pass the result to [`validate`](Self::validate) or `set_param`.
+    /// Choices accept an option's name (any case) or its index, toggles "on" / "off" (or yes / no,
+    /// true / false, 1 / 0). Not clamped: pass the result to [`validate`](Self::validate) or
+    /// `set_param`.
     pub fn parse(&self, text: &str) -> Option<f64> {
         let text = text.trim();
+        match self.kind {
+            ParamKind::Toggle => {
+                return match text.to_ascii_lowercase().as_str() {
+                    "on" | "yes" | "true" | "1" => Some(1.0),
+                    "off" | "no" | "false" | "0" => Some(0.0),
+                    _ => None,
+                };
+            }
+            ParamKind::Choice(options) => {
+                if let Some(index) = options.iter().position(|o| o.eq_ignore_ascii_case(text)) {
+                    return Some(index as f64);
+                }
+            }
+            _ => {}
+        }
         if self.unit == ParamUnit::Slope && (text.starts_with('∞') || text.to_ascii_lowercase().starts_with("inf")) {
             return Some(0.0);
         }
@@ -542,6 +608,8 @@ impl<P: Parameterized, T: Float> Parameterized for Oversampled<P, T> {
 
 parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
+        ParamInfo::choice("waveform", "Waveform", &Waveform::<f64>::NAMES, 1),
+        ParamInfo::new("pulse_width", "Pulse width", Fraction, 0.05, 0.95, 0.5),
         ParamInfo::new("cutoff_hz", "Cutoff", Hertz, 20.0, 20_000.0, 800.0).log(),
         ParamInfo::new("resonance", "Resonance", ParamUnit::None, 0.5, 12.0, 1.2).log(),
         ParamInfo::new("env_amount", "Filter env (octaves)", ParamUnit::None, 0.0, 6.0, 3.0),
@@ -555,33 +623,36 @@ parameterized!(SynthVoice, "Synth voice",
         ParamInfo::new("filter_release_s", "Filter release", Seconds, 0.0, 20.0, 0.3),
     ],
     read: |p, i| match i {
-        0 => f(p.cutoff()),
-        1 => f(p.resonance()),
-        2 => f(p.env_amount()),
-        3 => f(p.amp_env().attack()),
-        4 => f(p.amp_env().decay()),
-        5 => f(p.amp_env().sustain()),
-        6 => f(p.amp_env().release()),
-        7 => f(p.filter_env().attack()),
-        8 => f(p.filter_env().decay()),
-        9 => f(p.filter_env().sustain()),
+        0 => p.waveform().index() as f64,
+        1 => f(p.pulse_width()),
+        2 => f(p.cutoff()),
+        3 => f(p.resonance()),
+        4 => f(p.env_amount()),
+        5 => f(p.amp_env().attack()),
+        6 => f(p.amp_env().decay()),
+        7 => f(p.amp_env().sustain()),
+        8 => f(p.amp_env().release()),
+        9 => f(p.filter_env().attack()),
+        10 => f(p.filter_env().decay()),
+        11 => f(p.filter_env().sustain()),
         _ => f(p.filter_env().release()),
     },
     write: |p, i, v| match i {
-        0 => p.set_cutoff(t(v)),
-        1 => p.set_resonance(t(v)),
-        2 => p.set_env_amount(t(v)),
-        3 => p.amp_env_mut().set_attack(t(v)),
-        4 => p.amp_env_mut().set_decay(t(v)),
-        5 => p.amp_env_mut().set_sustain(t(v)),
-        6 => p.amp_env_mut().set_release(t(v)),
-        7 => p.filter_env_mut().set_attack(t(v)),
-        8 => p.filter_env_mut().set_decay(t(v)),
-        9 => p.filter_env_mut().set_sustain(t(v)),
+        0 => p.set_waveform(Waveform::from_index(v as usize, p.pulse_width())),
+        1 => p.set_pulse_width(t(v)),
+        2 => p.set_cutoff(t(v)),
+        3 => p.set_resonance(t(v)),
+        4 => p.set_env_amount(t(v)),
+        5 => p.amp_env_mut().set_attack(t(v)),
+        6 => p.amp_env_mut().set_decay(t(v)),
+        7 => p.amp_env_mut().set_sustain(t(v)),
+        8 => p.amp_env_mut().set_release(t(v)),
+        9 => p.filter_env_mut().set_attack(t(v)),
+        10 => p.filter_env_mut().set_decay(t(v)),
+        11 => p.filter_env_mut().set_sustain(t(v)),
         _ => p.filter_env_mut().set_release(t(v)),
     },
 );
-
 /// One set of parameters controlling every voice.
 impl<V: Voice + Parameterized> Parameterized for Poly<V> {
     fn param_count(&self) -> usize {
@@ -751,6 +822,51 @@ mod tests {
         assert_eq!(ParamInfo::new("a", "A", Seconds, 0.0, 1.0, 0.0).format(0.01), "10.0 ms");
         assert_eq!(mix.validate(f64::NAN), Err(ParamError::NotFinite("m")));
         assert_eq!(mix.validate(3.0), Ok(1.0));
+    }
+
+    #[test]
+    fn discrete_kinds_round_format_and_parse() {
+        const SHAPES: [&str; 3] = ["Sine", "Saw", "Square"];
+        let shape = ParamInfo::choice("shape", "Shape", &SHAPES, 1);
+        assert_eq!((shape.min, shape.max, shape.default), (0.0, 2.0, 1.0));
+        assert_eq!(shape.validate(1.6), Ok(2.0), "rounds to the nearest option");
+        assert_eq!(shape.validate(7.0), Ok(2.0));
+        assert_eq!(shape.from_normalized(0.4), 1.0);
+        assert_eq!(shape.format(2.0), "Square");
+        assert_eq!(shape.parse("saw"), Some(1.0), "by name, any case");
+        assert_eq!(shape.parse("2"), Some(2.0), "or by index");
+        assert_eq!(shape.parse("Triangle"), None);
+
+        let bypass = ParamInfo::toggle("bypass", "Bypass", false);
+        assert_eq!((bypass.validate(0.7), bypass.format(1.0), bypass.format(0.0)), (Ok(1.0), "On".into(), "Off".into()));
+        assert_eq!((bypass.parse("ON"), bypass.parse("no"), bypass.parse("maybe")), (Some(1.0), Some(0.0), None));
+
+        let voices = ParamInfo::new("voices", "Voices", ParamUnit::None, 1.0, 16.0, 8.0).integer();
+        assert!(voices.is_discrete() && !ParamInfo::new("x", "X", ParamUnit::None, 0.0, 1.0, 0.0).is_discrete());
+        assert_eq!((voices.validate(3.4), voices.format(12.0)), (Ok(3.0), "12".into()));
+        for info in [shape, bypass, voices] {
+            for i in 0..=100 {
+                let v = info.from_normalized(i as f64 / 100.0);
+                assert_eq!(v, v.round(), "{} stays whole", info.id);
+                assert_eq!(info.parse(&info.format(v)), Some(v), "{} text round trip", info.id);
+            }
+        }
+    }
+
+    #[test]
+    fn synth_voice_waveform_is_a_choice_that_keeps_pulse_width() {
+        let mut voice = SynthVoice::<f32>::new(48_000.0);
+        let info = voice.param_info(voice.param_index("waveform").unwrap()).unwrap();
+        assert_eq!(info.kind, ParamKind::Choice(&["Sine", "Saw", "Pulse", "Triangle"]));
+        assert_eq!(info.format(voice.get_param_by_id("waveform").unwrap()), "Saw");
+        voice.set_param_by_id("pulse_width", 0.25).unwrap(); // remembered while the saw plays
+        assert_eq!(voice.set_param_by_id("waveform", 1.8), Ok(2.0));
+        assert_eq!(voice.waveform(), Waveform::Pulse { pulse_width: 0.25 });
+        voice.set_param_by_id("waveform", 0.0).unwrap();
+        voice.set_param_by_id("pulse_width", 0.75).unwrap();
+        assert_eq!(voice.waveform(), Waveform::Sine);
+        voice.set_param_by_id("waveform", 2.0).unwrap();
+        assert_eq!(voice.waveform(), Waveform::Pulse { pulse_width: 0.75 });
     }
 
     #[test]

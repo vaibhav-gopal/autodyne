@@ -19,6 +19,8 @@ pub struct SynthVoice<T: Float> {
     note: u8,
     velocity: T,
     bend: T,
+    /// kept while another waveform plays, so switching back to the pulse restores it
+    pulse_width: T,
     cutoff: T,
     resonance: T,
     env_amount: T,
@@ -45,16 +47,30 @@ impl<T: Float> SynthVoice<T> {
             note: 69,
             velocity: T::_ZERO,
             bend: T::_ZERO,
+            pulse_width: lit(0.5),
             cutoff,
             resonance: lit(1.2),
             env_amount: lit(3.0),
         }
     }
     pub fn set_waveform(&mut self, waveform: Waveform<T>) {
+        if let Waveform::Pulse { pulse_width } = waveform {
+            self.pulse_width = pulse_width;
+        }
         self.osc.set_waveform(waveform);
     }
     pub fn waveform(&self) -> Waveform<T> {
         self.osc.waveform()
+    }
+    /// Duty cycle of the pulse wave, 0.5 = square (remembered while another waveform is selected).
+    pub fn set_pulse_width(&mut self, pulse_width: T) {
+        self.pulse_width = pulse_width;
+        if let Waveform::Pulse { .. } = self.osc.waveform() {
+            self.osc.set_waveform(Waveform::Pulse { pulse_width });
+        }
+    }
+    pub fn pulse_width(&self) -> T {
+        self.pulse_width
     }
     /// Base filter cutoff in Hz (before the envelope).
     pub fn set_cutoff(&mut self, hz: T) {
