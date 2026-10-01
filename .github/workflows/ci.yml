@@ -71,6 +71,27 @@ jobs:
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-deterministic-floats
 
+  # The Python bindings (their own workspace): build with maturin, test against NumPy and SciPy.
+  python:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bindings/python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/python
+      - uses: astral-sh/setup-uv@v7
+      - name: Build and install
+        run: |
+          uv venv .venv --python 3.12
+          uv pip install --python .venv maturin numpy scipy pytest
+          VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release --uv
+      - name: Test
+        run: .venv/bin/python -m pytest tests -q
+
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
   deny:
     runs-on: ubuntu-latest

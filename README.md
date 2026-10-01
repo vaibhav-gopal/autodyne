@@ -79,6 +79,17 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example host -- [f32|f64] [id=value ...]`: a host picking the sample type at runtime, listing and setting parameters by id, processing, and printing a preset
 - `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
+### Python
+`bindings/python` builds the `autodyne` Python package (PyO3 + maturin). Arrays cross between NumPy (or PyTorch,
+JAX...) and autodyne through DLPack in both directions, so nothing is copied: inputs are read in place with any strides,
+results come back as NumPy arrays that own autodyne's memory.
+
+```sh
+cd bindings/python
+uv venv .venv && uv pip install --python .venv maturin numpy scipy pytest
+VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release --uv   # (Scripts\ on Windows)
+.venv/bin/python -m pytest tests
+```
 ### Plugins
 `plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
 the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):

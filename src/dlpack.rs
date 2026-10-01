@@ -262,6 +262,10 @@ impl DynArray {
     pub fn into_dlpack(self) -> *mut DLManagedTensorVersioned {
         crate::dyn_match!(self, a => a.into_dlpack())
     }
+    /// [`NdArray::into_dlpack_legacy`] for whatever element type the array holds.
+    pub fn into_dlpack_legacy(self) -> *mut DLManagedTensor {
+        crate::dyn_match!(self, a => a.into_dlpack_legacy())
+    }
 }
 
 // IMPORT ==========================================================================================

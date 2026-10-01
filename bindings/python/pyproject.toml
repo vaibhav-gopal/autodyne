@@ -1,0 +1,18 @@
+[build-system]
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
+
+[project]
+name = "autodyne"
+version = "0.1.0"
+description = "Signals, processes and systems: autodyne's Rust core from Python, sharing arrays with NumPy without copying"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+dependencies = ["numpy>=2.1"]
+
+[project.optional-dependencies]
+test = ["pytest", "scipy"]
+
+[tool.maturin]
+python-source = "python"
+module-name = "autodyne._autodyne"

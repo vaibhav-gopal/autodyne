@@ -4,3 +4,9 @@
 *.lock
 # the workspace ships plugins: pin exact dependency versions for reproducible builds and audits
 !Cargo.lock
+# Python bindings: their own build directory, virtualenv and caches
+bindings/python/target/
+bindings/python/.venv/
+__pycache__/
+.pytest_cache/
+*.pyd
