@@ -9,9 +9,13 @@
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
 
+mod crossover;
+mod eq;
 mod ladder;
 mod svf;
 
+pub use crossover::*;
+pub use eq::*;
 pub use ladder::*;
 pub use svf::*;
 

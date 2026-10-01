@@ -8,14 +8,17 @@
 //! - [`Compressor`] (also a no-lookahead limiter), [`Gate`] (gate and downward expander) and
 //!   [`TransientShaper`] are mono and [`GainComputer`]s: wrap them in
 //!   [`Linked`](crate::channels::Linked) to drive every channel with one gain.
-//! - [`LookaheadLimiter`] is multichannel (linked) by nature, with true-peak detection.
+//! - [`LookaheadLimiter`] (with true-peak detection) and [`MultibandCompressor`] (Linkwitz-Riley
+//!   bands) are multichannel (linked) by nature.
 
 mod gate;
 mod limiter;
+mod multiband;
 mod transient;
 
 pub use gate::*;
 pub use limiter::*;
+pub use multiband::*;
 pub use transient::*;
 
 use crate::gain::{db_to_gain, gain_to_db, SmoothedValue};

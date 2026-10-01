@@ -20,7 +20,10 @@ pub use smoothed::*;
 
 use crate::channels::{Linked, Panner, PerChannel, StereoWidth};
 use crate::delay::Echo;
-use crate::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, TransientShaper};
+use crate::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, MultibandCompressor, TransientShaper};
+use crate::dynamics::{CROSSOVER_PARAM_IDS, CROSSOVER_PARAM_NAMES, MULTIBAND_BAND_PARAMS, MULTIBAND_PARAM_IDS, MULTIBAND_PARAM_NAMES};
+use crate::distortion::Bitcrusher;
+use crate::filter::{default_band, EqBandKind, ParametricEq, EQ_BAND_PARAMS, EQ_PARAM_IDS, EQ_PARAM_NAMES, EQ_SLOPE_NAMES};
 use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
@@ -695,6 +698,144 @@ parameterized!(TransientShaper, "Transient shaper",
     read: |p, i| match i { 0 => f(p.attack()), 1 => f(p.sustain()), _ => f(p.output_db()) },
     write: |p, i, v| match i { 0 => p.set_attack(t(v)), 1 => p.set_sustain(t(v)), _ => p.set_output_db(t(v)) },
 );
+parameterized!(Bitcrusher, "Bitcrusher",
+    infos: |s| [
+        ParamInfo::new("bits", "Bits", ParamUnit::None, 1.0, 24.0, 8.0),
+        ParamInfo::new("rate_hz", "Rate", Hertz, 100.0, f(s.sample_rate()), f(s.sample_rate()) / 4.0).log(),
+        ParamInfo::toggle("dither", "Dither", false),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0).smoothed_internally(),
+    ],
+    read: |p, i| match i { 0 => f(p.bits()), 1 => f(p.rate()), 2 => p.dither() as u8 as f64, _ => f(p.mix()) },
+    write: |p, i, v| match i { 0 => p.set_bits(t(v)), 1 => p.set_rate(t(v)), 2 => p.set_dither(v >= 0.5), _ => p.set_mix(t(v)) },
+);
+
+const EQ_GROUPS: [&str; 8] = ["EQ band 1", "EQ band 2", "EQ band 3", "EQ band 4", "EQ band 5", "EQ band 6", "EQ band 7", "EQ band 8"];
+
+/// Six parameters per band: on, type, frequency, gain, Q, slope (cut bands), grouped by band.
+impl<T: Float> Parameterized for ParametricEq<T> {
+    fn param_count(&self) -> usize {
+        self.band_count() * EQ_BAND_PARAMS
+    }
+    fn param_info(&self, index: usize) -> Option<ParamInfo> {
+        let (b, field) = (index / EQ_BAND_PARAMS, index % EQ_BAND_PARAMS);
+        if b >= self.band_count() {
+            return None;
+        }
+        let (id, name) = (EQ_PARAM_IDS[b][field], EQ_PARAM_NAMES[b][field]);
+        let d = default_band(self.band_count(), b);
+        Some(match field {
+            0 => ParamInfo::toggle(id, name, d.enabled),
+            1 => ParamInfo::choice(id, name, &EqBandKind::NAMES, EqBandKind::ALL.iter().position(|&k| k == d.kind).unwrap_or(0)),
+            2 => ParamInfo::new(id, name, Hertz, 20.0, 20_000.0, d.frequency).log(),
+            3 => ParamInfo::new(id, name, Decibels, -24.0, 24.0, d.gain_db),
+            4 => ParamInfo::new(id, name, ParamUnit::None, 0.1, 18.0, d.q).log(),
+            _ => ParamInfo::choice(id, name, &EQ_SLOPE_NAMES, d.slope - 1),
+        })
+    }
+    fn param_group(&self, index: usize) -> Option<&'static str> {
+        (index < self.param_count()).then(|| EQ_GROUPS[index / EQ_BAND_PARAMS])
+    }
+    fn get_param(&self, index: usize) -> Option<f64> {
+        let (b, field) = (index / EQ_BAND_PARAMS, index % EQ_BAND_PARAMS);
+        let band = (b < self.band_count()).then(|| self.band(b))?;
+        Some(match field {
+            0 => band.enabled as u8 as f64,
+            1 => EqBandKind::ALL.iter().position(|&k| k == band.kind).unwrap_or(0) as f64,
+            2 => band.frequency,
+            3 => band.gain_db,
+            4 => band.q,
+            _ => (band.slope - 1) as f64,
+        })
+    }
+    fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
+        let v = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let b = index / EQ_BAND_PARAMS;
+        match index % EQ_BAND_PARAMS {
+            0 => self.set_enabled(b, v >= 0.5),
+            1 => self.set_kind(b, EqBandKind::ALL[v as usize]),
+            2 => self.set_frequency(b, v),
+            3 => self.set_gain_db(b, v),
+            4 => self.set_q(b, v),
+            _ => self.set_slope(b, v as usize + 1),
+        }
+        Ok(v)
+    }
+}
+
+const MULTIBAND_GROUPS: [&str; 5] = ["Crossovers", "Band 1", "Band 2", "Band 3", "Band 4"];
+
+/// The crossover frequencies, then six parameters per band (threshold, slope, attack, release,
+/// makeup, bypass), grouped by band.
+impl<T: Float> Parameterized for MultibandCompressor<T> {
+    fn param_count(&self) -> usize {
+        self.bands() - 1 + self.bands() * MULTIBAND_BAND_PARAMS
+    }
+    fn param_info(&self, index: usize) -> Option<ParamInfo> {
+        let splits = self.bands() - 1;
+        if index < splits {
+            let defaults: &[f64] = match self.bands() {
+                2 => &[1_000.0],
+                3 => &[200.0, 2_000.0],
+                _ => &[120.0, 1_000.0, 6_000.0],
+            };
+            return Some(ParamInfo::new(CROSSOVER_PARAM_IDS[index], CROSSOVER_PARAM_NAMES[index], Hertz, 20.0, 20_000.0, defaults[index]).log());
+        }
+        let (b, field) = ((index - splits) / MULTIBAND_BAND_PARAMS, (index - splits) % MULTIBAND_BAND_PARAMS);
+        if b >= self.bands() {
+            return None;
+        }
+        let (id, name) = (MULTIBAND_PARAM_IDS[b][field], MULTIBAND_PARAM_NAMES[b][field]);
+        Some(match field {
+            0 => ParamInfo::new(id, name, Decibels, -60.0, 0.0, -18.0),
+            1 => ParamInfo::new(id, name, Slope, 0.0, 1.0, 0.25),
+            2 => ParamInfo::new(id, name, Seconds, 0.0, 0.5, 0.010),
+            3 => ParamInfo::new(id, name, Seconds, 0.001, 5.0, 0.100).log(),
+            4 => ParamInfo::new(id, name, Decibels, -24.0, 24.0, 0.0).smoothed_internally(),
+            _ => ParamInfo::toggle(id, name, false),
+        })
+    }
+    fn param_group(&self, index: usize) -> Option<&'static str> {
+        let splits = self.bands() - 1;
+        (index < self.param_count()).then(|| if index < splits { MULTIBAND_GROUPS[0] } else { MULTIBAND_GROUPS[1 + (index - splits) / MULTIBAND_BAND_PARAMS] })
+    }
+    fn get_param(&self, index: usize) -> Option<f64> {
+        let splits = self.bands() - 1;
+        if index < splits {
+            return Some(f(self.crossover_frequency(index)));
+        }
+        let (b, field) = ((index - splits) / MULTIBAND_BAND_PARAMS, (index - splits) % MULTIBAND_BAND_PARAMS);
+        if b >= self.bands() {
+            return None;
+        }
+        let c = self.band(b);
+        Some(match field {
+            0 => f(c.threshold_db()),
+            1 => f(c.slope()),
+            2 => f(c.attack()),
+            3 => f(c.release()),
+            4 => f(c.makeup_db()),
+            _ => self.bypass(b) as u8 as f64,
+        })
+    }
+    fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
+        let v = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let splits = self.bands() - 1;
+        if index < splits {
+            self.set_crossover_frequency(index, t(v));
+            return Ok(f(self.crossover_frequency(index)));
+        }
+        let (b, field) = ((index - splits) / MULTIBAND_BAND_PARAMS, (index - splits) % MULTIBAND_BAND_PARAMS);
+        match field {
+            0 => self.band_mut(b).set_threshold_db(t(v)),
+            1 => self.band_mut(b).set_slope(t(v)),
+            2 => self.band_mut(b).set_attack(t(v)),
+            3 => self.band_mut(b).set_release(t(v)),
+            4 => self.band_mut(b).set_makeup_db(t(v)),
+            _ => self.set_bypass(b, v >= 0.5),
+        }
+        Ok(v)
+    }
+}
 parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
         ParamInfo::choice("waveform", "Waveform", &SynthVoice::<f64>::SOURCE_NAMES, 1),
@@ -1275,6 +1416,13 @@ mod tests {
         assert_defaults("limiter", &mut LookaheadLimiter::<f64>::new(2, FS));
         assert_defaults("gate", &mut Gate::<f64>::new(FS));
         assert_defaults("transient shaper", &mut TransientShaper::<f64>::new(FS));
+        assert_defaults("bitcrusher", &mut Bitcrusher::<f64>::new(FS));
+        for bands in [1, 4, 6, 8] {
+            assert_defaults("parametric EQ", &mut ParametricEq::<f64>::new(bands, FS));
+        }
+        for bands in 2..=4 {
+            assert_defaults("multiband", &mut MultibandCompressor::<f64>::new(2, bands, FS));
+        }
         // the gate's top ratio is an infinite one
         let mut gate = Gate::<f64>::new(FS);
         gate.set_param_by_id("ratio", 4.0).unwrap();

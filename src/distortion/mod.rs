@@ -3,6 +3,12 @@
 //! A [`Waveshaper`] bends the signal through a fixed curve. That adds harmonics, and any that land
 //! above Nyquist fold back as inharmonic aliasing. Wrap it in `resample::Oversampled` to run it at a
 //! multiple of the sample rate and filter those harmonics out before coming back down.
+//!
+//! A [`Bitcrusher`] reduces bit depth and sample rate for lo-fi textures (aliasing included).
+
+mod bitcrusher;
+
+pub use bitcrusher::*;
 
 use crate::gain::{db_to_gain, SmoothedValue};
 use crate::units::*;

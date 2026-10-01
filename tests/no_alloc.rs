@@ -11,12 +11,12 @@ use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
 use autodyne::control::{Lfo, LfoShape, Modulated, Route, Transport};
 use autodyne::delay::Echo;
 use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
-use autodyne::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, TransientShaper};
-use autodyne::filter::{Biquad, Fir, MultiBiquad, BUTTERWORTH_Q};
+use autodyne::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, MultibandCompressor, TransientShaper};
+use autodyne::filter::{Biquad, Crossover, Fir, MultiBiquad, ParametricEq, BUTTERWORTH_Q, MAX_BANDS};
 use autodyne::gain::Gain;
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
-use autodyne::distortion::{Shape, Waveshaper};
+use autodyne::distortion::{Bitcrusher, Shape, Waveshaper};
 use autodyne::envelope::Adsr;
 use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform, Wavetable};
 use autodyne::params::{process_buffer_events, process_events, ParamEvent, Parameterized, Smoothed};
@@ -428,4 +428,40 @@ fn dynamics_effects_do_not_allocate() {
     let mut mono = tone.clone();
     let mut g = Gate::expander(-30.0, 2.0, FS);
     assert_no_alloc("mono expander", || g.process(&mut mono));
+}
+
+#[test]
+fn eq_multiband_and_crusher_do_not_allocate() {
+    let tone: Vec<f64> = Oscillator::new(Waveform::Saw, 110.0, FS).take(2_000).collect();
+    let mut eq = ParametricEq::new(6, FS);
+    let mut block = tone.clone();
+    assert_no_alloc("ParametricEq: switch bands on, retune, process", || {
+        eq.set_param_by_id("band1_on", 1.0).unwrap();
+        eq.set_param_by_id("band1_slope", 3.0).unwrap();
+        eq.set_param_by_id("band3_on", 1.0).unwrap();
+        eq.set_param_by_id("band3_gain_db", 6.0).unwrap();
+        eq.process(&mut block);
+        let _ = eq.magnitude_db_at(1_000.0);
+    });
+    let mut crossover = Crossover::new(&[200.0, 2_000.0, 8_000.0], FS);
+    let mut bands = [0.0; MAX_BANDS];
+    assert_no_alloc("Crossover::split", || {
+        for &x in &tone {
+            crossover.split(x, &mut bands);
+        }
+        crossover.set_frequency(1, 3_000.0);
+    });
+    let mut multiband = MultibandCompressor::new(2, 4, FS);
+    let mut stereo = AudioBuffer::new(2, 2_000);
+    stereo.channel_mut(0).copy_from_slice(&tone);
+    assert_no_alloc("MultibandCompressor", || {
+        multiband.process(&mut stereo);
+        multiband.set_param_by_id("band2_threshold_db", -30.0).unwrap();
+        multiband.set_param_by_id("crossover2_hz", 1_500.0).unwrap();
+    });
+    let mut crusher = Bitcrusher::new(FS);
+    assert_no_alloc("Bitcrusher", || {
+        crusher.set_param_by_id("dither", 1.0).unwrap();
+        crusher.process(&mut block);
+    });
 }
