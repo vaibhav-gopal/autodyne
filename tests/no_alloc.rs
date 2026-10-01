@@ -475,3 +475,29 @@ fn pitch_shifter_does_not_allocate() {
         shifter.process(&mut block);
     });
 }
+
+#[test]
+fn nd_views_and_zip_do_not_allocate() {
+    use autodyne::signal::{NdArray, Zip};
+    let mut a = NdArray::<f64>::from_fn(&[8, 16, 32], |i| (i[0] * 512 + i[1] * 32 + i[2]) as f64).unwrap();
+    let b = NdArray::<f64>::full(&[16, 32], 0.5).unwrap();
+    let bias = NdArray::<f64>::full(&[32], 1.0).unwrap();
+    let mut sums = NdArray::<f64>::zeros(&[8, 1, 32]).unwrap();
+    let mut filters: Vec<Biquad<f64>> = (0..8 * 16).map(|_| Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q)).collect();
+    let mut time_major = NdArray::<f64>::zeros(&[32, 8, 16]).unwrap();
+    assert_no_alloc("view transforms, lanes, Zip, reductions, chunked lane processing", || {
+        let v = a.view().flip(2).unwrap().step_axis(1, 2).unwrap().transpose();
+        let _ = v.reshape(&[32 * 8, 8]).is_err();
+        let mut total = 0.0;
+        for lane in a.lanes(1).unwrap() {
+            total += lane.sum();
+        }
+        Zip::from(a.view_mut()).and_broadcast(b.view()).unwrap().and_broadcast(bias.view()).unwrap().for_each(|x, &y, &z| *x = *x * y + z);
+        a += &b.view();
+        a *= 0.5;
+        a.view().sum_into(&mut sums.view_mut()).unwrap();
+        let _ = (a.view().sum(), a.view().max(), a.view().index_axis(2, 3).unwrap().mean(), total);
+        // strided lanes (time is the first axis) streamed through one filter each
+        time_major.view_mut().process_lanes(0, &mut filters).unwrap();
+    });
+}

@@ -39,6 +39,7 @@
 mod analysis;
 mod complex;
 mod container;
+mod nd_ops;
 mod ndarray;
 mod source;
 mod stream;
@@ -47,6 +48,7 @@ mod transform;
 pub use analysis::*;
 pub use complex::*;
 pub use container::*;
+pub use nd_ops::*;
 pub use ndarray::*;
 pub use source::*;
 pub use stream::*;

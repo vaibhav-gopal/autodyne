@@ -65,7 +65,7 @@ jobs:
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Miri (n-d views and runtime-typed views)
-        run: "cargo miri test --lib -- signal::ndarray dynamic::"
+        run: "cargo miri test --lib -- signal::nd dynamic::"
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-deterministic-floats
 

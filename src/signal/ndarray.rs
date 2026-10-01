@@ -117,15 +117,15 @@ fn for_each_index(shape: &[usize], mut f: impl FnMut(&[usize])) {
 /// Shape, signed element strides and labels: where each index of a view lives relative to its
 /// origin (the element at index `[0, 0, ...]`).
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct Layout {
-    ndim: usize,
-    shape: [usize; MAX_DIMS],
-    strides: [isize; MAX_DIMS],
-    labels: [Axis; MAX_DIMS],
+pub(super) struct Layout {
+    pub(super) ndim: usize,
+    pub(super) shape: [usize; MAX_DIMS],
+    pub(super) strides: [isize; MAX_DIMS],
+    pub(super) labels: [Axis; MAX_DIMS],
 }
 
 impl Layout {
-    fn new(shape: &[usize], strides: &[isize]) -> Result<Self, NdError> {
+    pub(super) fn new(shape: &[usize], strides: &[isize]) -> Result<Self, NdError> {
         if shape.len() > MAX_DIMS {
             return Err(NdError::TooManyDims(shape.len()));
         }
@@ -137,7 +137,7 @@ impl Layout {
         l.strides[..strides.len()].copy_from_slice(strides);
         Ok(l)
     }
-    fn row_major(shape: &[usize]) -> Result<Self, NdError> {
+    pub(super) fn row_major(shape: &[usize]) -> Result<Self, NdError> {
         let mut strides = [0isize; MAX_DIMS];
         let n = shape.len().min(MAX_DIMS);
         let mut acc = 1isize;
@@ -147,16 +147,16 @@ impl Layout {
         }
         Self::new(shape, &strides[..n])
     }
-    fn shape(&self) -> &[usize] {
+    pub(super) fn shape(&self) -> &[usize] {
         &self.shape[..self.ndim]
     }
-    fn strides(&self) -> &[isize] {
+    pub(super) fn strides(&self) -> &[isize] {
         &self.strides[..self.ndim]
     }
     fn labels(&self) -> &[Axis] {
         &self.labels[..self.ndim]
     }
-    fn len(&self) -> usize {
+    pub(super) fn len(&self) -> usize {
         self.shape().iter().product()
     }
     fn offset_of(&self, index: &[usize]) -> Option<isize> {
@@ -270,7 +270,7 @@ impl Layout {
         }
         Ok((self.without_axis(axis), index as isize * self.strides[axis]))
     }
-    fn without_axis(&self, axis: usize) -> Layout {
+    pub(super) fn without_axis(&self, axis: usize) -> Layout {
         let mut out = *self;
         for i in axis..self.ndim - 1 {
             out.shape[i] = self.shape[i + 1];
@@ -283,7 +283,7 @@ impl Layout {
         out.labels[out.ndim] = Axis::Unlabeled;
         out
     }
-    fn insert_axis(&self, at: usize) -> Result<Layout, NdError> {
+    pub(super) fn insert_axis(&self, at: usize) -> Result<Layout, NdError> {
         if self.ndim == MAX_DIMS {
             return Err(NdError::TooManyDims(MAX_DIMS + 1));
         }
@@ -309,7 +309,7 @@ impl Layout {
     }
     /// NumPy rules: shapes align at the last axis; a length-1 axis repeats (stride 0) and missing
     /// leading axes are added (stride 0).
-    fn broadcast_to(&self, shape: &[usize]) -> Result<Layout, NdError> {
+    pub(super) fn broadcast_to(&self, shape: &[usize]) -> Result<Layout, NdError> {
         if shape.len() < self.ndim {
             return Err(NdError::Broadcast { axis: 0, from: self.ndim, to: shape.len() });
         }
@@ -424,8 +424,8 @@ impl Odometer {
 /// Owned, contiguous, row-major n-dimensional array.
 #[derive(Clone, PartialEq)]
 pub struct NdArray<T> {
-    data: Vec<T>,
-    layout: Layout,
+    pub(super) data: Vec<T>,
+    pub(super) layout: Layout,
 }
 
 impl<T: fmt::Debug> fmt::Debug for NdArray<T> {
@@ -584,16 +584,16 @@ impl<T: Float> SignalOwned for NdArray<T> {
 /// Borrowed, possibly strided view of n-dimensional data. `Copy`: views are cheap descriptions.
 pub struct NdView<'a, T> {
     /// the element at index [0, 0, ...] (any address for an empty view; never read then)
-    ptr: *const T,
-    layout: Layout,
-    _borrow: PhantomData<&'a [T]>,
+    pub(super) ptr: *const T,
+    pub(super) layout: Layout,
+    pub(super) _borrow: PhantomData<&'a [T]>,
 }
 
 /// Mutable, possibly strided view of n-dimensional data. Its layout is always injective.
 pub struct NdViewMut<'a, T> {
-    ptr: *mut T,
-    layout: Layout,
-    _borrow: PhantomData<&'a mut [T]>,
+    pub(super) ptr: *mut T,
+    pub(super) layout: Layout,
+    pub(super) _borrow: PhantomData<&'a mut [T]>,
 }
 
 impl<T> Clone for NdView<'_, T> {

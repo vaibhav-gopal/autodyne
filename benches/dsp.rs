@@ -206,5 +206,48 @@ fn reverb(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation, synth, reverb);
+/// The n-d engine against the plain-slice loop it should match, and strided / broadcast /
+/// reduction paths (1M f32 elements, so memory bandwidth matters as it does on real data).
+fn nd(c: &mut Criterion) {
+    use autodyne::signal::{NdArray, Zip};
+    let (rows, cols) = (1_000, 1_000);
+    let x = NdArray::<f32>::from_fn(&[rows, cols], |i| (i[0] * 7 + i[1]) as f32 * 1e-3).unwrap();
+    let y = NdArray::<f32>::full(&[rows, cols], 0.25).unwrap();
+    let row = NdArray::<f32>::full(&[cols], 2.0).unwrap();
+    let mut out = NdArray::<f32>::zeros(&[rows, cols]).unwrap();
+    let mut g = c.benchmark_group("nd (1M f32)");
+    g.throughput(criterion::Throughput::Elements((rows * cols) as u64));
+    g.bench_function("slice loop: out = x * y + 1", |b| b.iter(|| {
+        for ((o, &a), &b) in out.as_mut_slice().iter_mut().zip(x.as_slice()).zip(y.as_slice()) {
+            *o = a * b + 1.0;
+        }
+    }));
+    g.bench_function("Zip: out = x * y + 1", |b| b.iter(|| {
+        Zip::from(out.view_mut()).and(x.view()).unwrap().and(y.view()).unwrap().for_each(|o, &a, &b| *o = a * b + 1.0);
+    }));
+    g.bench_function("Zip, x transposed", |b| b.iter(|| {
+        Zip::from(out.view_mut()).and(x.view().transpose()).unwrap().and(y.view()).unwrap().for_each(|o, &a, &b| *o = a * b + 1.0);
+    }));
+    g.bench_function("Zip, row broadcast: out = x * row", |b| b.iter(|| {
+        Zip::from(out.view_mut()).and(x.view()).unwrap().and_broadcast(row.view()).unwrap().for_each(|o, &a, &r| *o = a * r);
+    }));
+    g.bench_function("sum (pairwise)", |b| b.iter(|| black_box(x.view().sum())));
+    g.bench_function("sum, transposed view", |b| b.iter(|| black_box(x.view().transpose().sum())));
+    g.bench_function("sum_axis(0) (column sums)", |b| b.iter(|| black_box(x.sum_axis(0).unwrap())));
+    g.bench_function("sum_axis(1) (row sums)", |b| b.iter(|| black_box(x.sum_axis(1).unwrap())));
+    g.finish();
+
+    // processing along a strided axis: [time, channel] with 16 channels
+    let (frames, channels) = (16_384, 16);
+    let mut interleaved = NdArray::<f32>::from_fn(&[frames, channels], |i| ((i[0] * 31 + i[1]) % 97) as f32 * 0.01).unwrap();
+    let mut planar = NdArray::<f32>::from_fn(&[channels, frames], |i| ((i[1] * 31 + i[0]) % 97) as f32 * 0.01).unwrap();
+    let mut filters: Vec<Biquad<f32>> = (0..channels).map(|_| Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q as f32)).collect();
+    let mut g = c.benchmark_group("lanes (16 ch x 16384)");
+    g.throughput(criterion::Throughput::Elements((frames * channels) as u64));
+    g.bench_function("biquad per lane, contiguous lanes", |b| b.iter(|| planar.process_lanes(1, &mut filters).unwrap()));
+    g.bench_function("biquad per lane, strided lanes (chunked)", |b| b.iter(|| interleaved.process_lanes(0, &mut filters).unwrap()));
+    g.finish();
+}
+
+criterion_group!(benches, oscillators, filters, fft, iq, effects, modulation, synth, reverb, nd);
 criterion_main!(benches);
