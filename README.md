@@ -35,6 +35,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `distortion` | `Waveshaper` (tanh, soft clip, hard clip, fold) with smoothed drive / output / mix |
 | `dynamics` | `EnvelopeFollower`, `Compressor` (soft knee, attack/release, makeup), `Compressor::limiter` |
 | `modulation` | `ModulatedDelay` (`chorus` / `flanger` presets), `Phaser` (swept all-pass stages) |
+| `control` | `Lfo` (sine, triangle, saws, square, sample & hold, smooth random; free-running or locked to the host's beat grid; fade-in, retrigger), `Modulated` (a modulation matrix around any processor: routes from sources to any parameter, depths in normalized units with "via" scaling, automatable depths), `Transport` and `Division` (tempo, beat position, dotted and triplet note lengths) |
 | `processor` | the `Processor` trait all effects share; tuples are zero-cost chains, `Vec<Box<dyn Processor>>` is a runtime chain |
 | `channels` | planar `AudioBuffer` (+ interleave conversion, `[channel, time]` n-d view), `MultiProcessor`, `PerChannel`, `Linked(compressor)`, `StereoWidth`, `Panner` |
 | `resample` | streaming rational `Resampler` (polyphase, e.g. 48 kHz <-> 44.1 kHz) and `Oversampled<P>` (runs any processor at 2x / 4x / 8x; 4x cuts tanh saturation aliasing by ~39 dB) |

@@ -4,13 +4,16 @@
 //! cargo xtask bundle autodyne-synth --release   # target/bundled: .clap and .vst3
 //! ```
 //!
-//! Signal path: MIDI -> 16-voice `Poly<SynthVoice>` (band-limited saw -> enveloped resonant
+//! Signal path: MIDI -> 16-voice `Poly<SynthVoice>` (band-limited oscillator -> enveloped resonant
 //! low-pass -> ADSR) -> level -> FDN reverb. Notes land on their exact sample; the sustain pedal,
-//! all-notes-off and pitch bend (±2 semitones) are handled. Every parameter comes from the chain's
-//! `Parameterized` implementation through `ParamBridge`, grouped by stage.
+//! all-notes-off and pitch bend (±2 semitones) are handled. An LFO (free or locked to the host's
+//! tempo) modulates cutoff and pulse width through a modulation matrix. Every parameter comes from
+//! the chain's `Parameterized` implementation through `ParamBridge`, grouped by stage, and host
+//! automation ramps through `Smoothed`.
 
 use std::sync::Arc;
 
+use autodyne::control::{Lfo, Modulated, Route, Transport};
 use autodyne::gain::Gain;
 use autodyne::params::{Parameterized, Smoothed};
 use autodyne::reverb::Reverb;
@@ -25,31 +28,61 @@ const RAMP_SECONDS: f64 = 0.02;
 /// Voices render in pieces of at most this many samples, whatever the host's buffer size.
 const VOICE_BLOCK: usize = 256;
 
-/// The whole instrument, as one parameterized chain: voices, output level, reverb.
-pub type Patch = (Poly<SynthVoice<f32>>, Gain<f32>, Reverb<f32>);
+/// Modulation source index of the LFO.
+const LFO: usize = 0;
 
-/// The patch at `sample_rate`, with its default sound.
+/// The voices, with modulation routes into their parameters.
+pub type Voices = Modulated<Poly<SynthVoice<f32>>>;
+
+/// The whole instrument, as one parameterized chain: LFO, voices, output level, reverb.
+pub type Patch = (Lfo, Voices, Gain<f32>, Reverb<f32>);
+
+/// The patch at `sample_rate`, with its default sound (modulation depths at zero).
 pub fn patch(sample_rate: f32) -> Patch {
-    let mut voices = Poly::new(VOICES, VOICE_BLOCK, |_| SynthVoice::new(sample_rate));
+    let mut poly = Poly::new(VOICES, VOICE_BLOCK, |_| SynthVoice::new(sample_rate));
     for (id, value) in [("cutoff_hz", 700.0), ("resonance", 2.0), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
-        voices.set_param_by_id(id, value).expect("known parameter");
+        poly.set_param_by_id(id, value).expect("known parameter");
+    }
+    let mut voices = Modulated::new(poly, 1, 2);
+    for (slot, (id, name)) in [("cutoff_hz", "LFO > cutoff"), ("pulse_width", "LFO > pulse width")].into_iter().enumerate() {
+        let destination = voices.param_index(id).expect("known parameter");
+        voices.set_route(slot, Some(Route { source: LFO, destination, via: None })).expect("valid route");
+        voices.set_depth_name(slot, name).expect("valid slot");
     }
     let mut reverb = Reverb::new(sample_rate);
     reverb.set_decay(2.2);
     reverb.set_mix(0.2);
     // several voices sum: start at -14 dB for headroom, ramping level changes over 20 ms
-    (voices, Gain::new(0.2, 0.02, sample_rate), reverb)
+    (Lfo::new(sample_rate as f64), voices, Gain::new(0.2, 0.02, sample_rate), reverb)
+}
+
+/// Renders the voices into `out`: parameter ramps (`Smoothed::run`) and LFO modulation
+/// (`Modulated::run`) advance as they go, and `transport` moves with the rendered samples.
+pub fn render_voices(patch: &mut Smoothed<Patch>, out: &mut [f32], transport: &mut Transport, sample_rate: f64) {
+    patch.run(out.len(), |p, range| {
+        let (lfo, voices, _, _) = p;
+        let part = &mut out[range];
+        voices.run(
+            part.len(),
+            |sources, n| {
+                sources[LFO] = lfo.advance(n, Some(transport));
+                transport.advance(n, sample_rate);
+            },
+            |poly, r| poly.render(&mut part[r]),
+        );
+    });
 }
 
 pub struct AutodyneSynth {
     params: Arc<ParamBridge>,
     patch: Smoothed<Patch>,
+    sample_rate: f64,
 }
 
 impl Default for AutodyneSynth {
     fn default() -> Self {
         let patch = Smoothed::new(patch(48_000.0), RAMP_SECONDS, 48_000.0);
-        Self { params: Arc::new(ParamBridge::new(&patch)), patch }
+        Self { params: Arc::new(ParamBridge::new(&patch)), patch, sample_rate: 48_000.0 }
     }
 }
 
@@ -80,36 +113,42 @@ impl Plugin for AutodyneSynth {
 
     fn activate(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl ActivateContext<Self>) -> bool {
         // allocation is fine here: this runs outside the audio callback
-        self.patch = Smoothed::new(patch(config.sample_rate), RAMP_SECONDS, config.sample_rate as f64);
+        self.sample_rate = config.sample_rate as f64;
+        self.patch = Smoothed::new(patch(config.sample_rate), RAMP_SECONDS, self.sample_rate);
         self.params.invalidate(); // the new patch must receive every current setting
         true
     }
 
     fn reset(&mut self) {
         self.patch.settle();
-        let (voices, _, reverb) = self.patch.inner_mut();
-        voices.reset();
+        let (lfo, voices, _, reverb) = self.patch.inner_mut();
+        lfo.reset();
+        voices.inner_mut().reset();
         reverb.reset();
     }
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
         self.params.apply(&mut self.patch);
+        let host = context.transport();
+        let mut transport = Transport {
+            tempo: host.tempo.unwrap_or(120.0),
+            beats_per_bar: host.time_sig_numerator.map_or(4.0, f64::from),
+            position: host.pos_beats().unwrap_or(0.0),
+            playing: host.playing,
+        };
         let [left, right] = buffer.as_slice() else { return ProcessStatus::Normal };
 
-        // render up to each event, apply it, carry on: every event lands on its sample, and
-        // parameter ramps advance as the voices render (`Smoothed::run`)
+        // render up to each event, apply it, carry on: every event lands on its sample
         let mut pos = 0;
         while let Some(event) = context.next_event() {
             let at = (event.timing() as usize).clamp(pos, left.len());
-            let segment = &mut left[pos..at];
-            self.patch.run(segment.len(), |p, range| p.0.render(&mut segment[range]));
+            render_voices(&mut self.patch, &mut left[pos..at], &mut transport, self.sample_rate);
             pos = at;
-            handle(&mut self.patch.inner_mut().0, event);
+            handle(self.patch.inner_mut().1.inner_mut(), event);
         }
-        let segment = &mut left[pos..];
-        self.patch.run(segment.len(), |p, range| p.0.render(&mut segment[range]));
+        render_voices(&mut self.patch, &mut left[pos..], &mut transport, self.sample_rate);
 
-        let (_, level, reverb) = self.patch.inner_mut();
+        let (_, _, level, reverb) = self.patch.inner_mut();
         level.process(left);
         right.copy_from_slice(left);
         reverb.process_stereo(left, right);
@@ -186,7 +225,7 @@ mod tests {
 
     #[test]
     fn notes_pedal_and_bend() {
-        let mut voices = patch(48_000.0).0;
+        let mut voices = patch(48_000.0).1.into_inner();
         handle(&mut voices, note_on(60));
         handle(&mut voices, note_on(64));
         assert_eq!(voices.active_voices(), 2);
@@ -205,7 +244,7 @@ mod tests {
 
     #[test]
     fn wildcard_keys_mean_every_note() {
-        let mut voices = patch(48_000.0).0;
+        let mut voices = patch(48_000.0).1.into_inner();
         let mut out = vec![0.0; 48_000]; // longer than the 0.4 s release
         [60, 64, 67].into_iter().for_each(|n| handle(&mut voices, note_on(n)));
         handle(&mut voices, note_off(Key::Wildcard));
@@ -216,5 +255,28 @@ mod tests {
         let choke = NoteEvent::Choke { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Wildcard, key: Key::Wildcard };
         handle(&mut voices, choke);
         assert_eq!(voices.active_voices(), 0, "a wildcard choke silences immediately");
+    }
+
+    #[test]
+    fn a_synced_lfo_sweeps_the_cutoff_while_rendering() {
+        let fs = 48_000.0;
+        let mut patch = Smoothed::new(patch(fs as f32), RAMP_SECONDS, fs);
+        for (id, value) in [("sync", 1.0), ("mod_1_depth", 0.2)] {
+            patch.set_param_by_id(id, value).unwrap();
+        }
+        patch.inner_mut().1.inner_mut().note_on(60, 0.8);
+        let mut transport = Transport { playing: true, ..Transport::new(120.0) };
+        let cutoff = patch.inner().1.param_index("cutoff_hz").unwrap();
+        let mut seen = Vec::new();
+        let mut out = vec![0.0f32; 512];
+        for _ in 0..47 {
+            // ~0.5 s: one quarter-note LFO cycle at 120 BPM
+            render_voices(&mut patch, &mut out, &mut transport, fs);
+            seen.push(patch.inner().1.modulated_value(cutoff).unwrap());
+        }
+        let (lo, hi) = seen.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        assert!(lo < 600.0 && hi > 800.0, "the cutoff swings around its 700 Hz base: {lo:.0}..{hi:.0}");
+        assert!((transport.position - 47.0 * 512.0 / fs * 2.0).abs() < 1e-9, "the transport moved with the audio");
+        assert!(out.iter().all(|s| s.is_finite()));
     }
 }

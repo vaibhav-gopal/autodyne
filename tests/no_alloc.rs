@@ -6,6 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
+use autodyne::control::{Lfo, LfoShape, Modulated, Route, Transport};
 use autodyne::delay::Echo;
 use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
 use autodyne::dynamics::{Compressor, EnvelopeFollower};
@@ -247,6 +248,27 @@ fn parameters_and_dynamic_processing_do_not_allocate() {
         flip = !flip;
         let events = [ParamEvent { offset: 64, index: 0, value: if flip { -30.0 } else { -10.0 } }];
         process_buffer_events(&mut stereo, &mut buffer, &events).unwrap();
+    });
+
+    // an LFO driving a modulation matrix, tempo-synced, with routes changed while running
+    let mut voices = Modulated::new(Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q), 2, 4);
+    let cutoff = voices.param_index("frequency_hz").unwrap();
+    voices.set_route(0, Some(Route { source: 0, destination: cutoff, via: Some(1) })).unwrap();
+    voices.set_depth(0, 0.3).unwrap();
+    let mut lfo = Lfo::new(FS).with_shape(LfoShape::SmoothRandom);
+    lfo.set_sync(true);
+    let mut transport = Transport { playing: true, ..Transport::new(128.0) };
+    assert_no_alloc("Lfo + Modulated::run", || {
+        voices.set_route(1, Some(Route { source: 0, destination: cutoff, via: None })).unwrap();
+        voices.run(
+            audio.len(),
+            |sources, n| {
+                sources[0] = lfo.advance(n, Some(&transport));
+                sources[1] = 0.5;
+                transport.advance(n, FS);
+            },
+            |p, range| p.process(&mut audio[range]),
+        );
     });
 }
 
