@@ -23,6 +23,7 @@ use crate::delay::Echo;
 use crate::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, MultibandCompressor, TransientShaper};
 use crate::dynamics::{CROSSOVER_PARAM_IDS, CROSSOVER_PARAM_NAMES, MULTIBAND_BAND_PARAMS, MULTIBAND_PARAM_IDS, MULTIBAND_PARAM_NAMES};
 use crate::distortion::Bitcrusher;
+use crate::spectral::PitchShifter;
 use crate::filter::{default_band, EqBandKind, ParametricEq, EQ_BAND_PARAMS, EQ_PARAM_IDS, EQ_PARAM_NAMES, EQ_SLOPE_NAMES};
 use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
@@ -836,6 +837,11 @@ impl<T: Float> Parameterized for MultibandCompressor<T> {
         Ok(v)
     }
 }
+parameterized!(PitchShifter, "Pitch shifter",
+    infos: |_s| [ParamInfo::new("semitones", "Shift", Semitones, -24.0, 24.0, 0.0)],
+    read: |p, _i| f(p.semitones()),
+    write: |p, _i, v| p.set_semitones(t(v)),
+);
 parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
         ParamInfo::choice("waveform", "Waveform", &SynthVoice::<f64>::SOURCE_NAMES, 1),
@@ -1417,6 +1423,7 @@ mod tests {
         assert_defaults("gate", &mut Gate::<f64>::new(FS));
         assert_defaults("transient shaper", &mut TransientShaper::<f64>::new(FS));
         assert_defaults("bitcrusher", &mut Bitcrusher::<f64>::new(FS));
+        assert_defaults("pitch shifter", &mut PitchShifter::<f64>::new());
         for bands in [1, 4, 6, 8] {
             assert_defaults("parametric EQ", &mut ParametricEq::<f64>::new(bands, FS));
         }

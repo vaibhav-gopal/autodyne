@@ -24,7 +24,7 @@ use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
 use autodyne::sampler::{Interpolation, LoopMode, Sample, SampleMap, SamplerVoice, Zone};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
-use autodyne::spectral::{Fft, RealFft};
+use autodyne::spectral::{Fft, PitchShifter, RealFft};
 use autodyne::synth::{FmVoice, MidiMessage, Poly, SynthVoice, TimedEvent};
 use autodyne::units::{Complex, DType};
 
@@ -463,5 +463,15 @@ fn eq_multiband_and_crusher_do_not_allocate() {
     assert_no_alloc("Bitcrusher", || {
         crusher.set_param_by_id("dither", 1.0).unwrap();
         crusher.process(&mut block);
+    });
+}
+
+#[test]
+fn pitch_shifter_does_not_allocate() {
+    let mut block: Vec<f64> = Oscillator::new(Waveform::Saw, 220.0, FS).take(5_000).collect();
+    let mut shifter = PitchShifter::new();
+    assert_no_alloc("PitchShifter", || {
+        shifter.set_param_by_id("semitones", 5.0).unwrap();
+        shifter.process(&mut block);
     });
 }

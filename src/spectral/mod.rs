@@ -1,4 +1,5 @@
-//! Spectral analysis: a reference DFT, a radix-2 FFT, and [`RealFft`] for real signals (about twice as fast).
+//! Spectral processing: a reference DFT, a radix-2 FFT, [`RealFft`] for real signals (about twice
+//! as fast), and the phase vocoder: [`PitchShifter`] (real time) and [`time_stretch`].
 //!
 //! Sign convention: forward `X[k] = sum_n x[n] e^(-i 2 pi k n / N)`; inverse divides by N,
 //! so `inverse(forward(x)) == x`.
@@ -6,7 +7,9 @@
 use crate::units::*;
 
 mod real;
+mod vocoder;
 pub use real::*;
+pub use vocoder::*;
 
 /// Naive O(n^2) discrete Fourier transform. Exact by definition, so it is the reference the FFT is tested
 /// against; also usable for any length (the FFT needs a power of two). Allocates the output.
