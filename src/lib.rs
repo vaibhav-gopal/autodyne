@@ -16,8 +16,8 @@
 //! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`spectral`],
 //!   [`iq`], [`gain`], [`delay`], [`dynamics`], [`envelope`], [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
-//! - Instruments: [`synth`] (MIDI, voices, polyphony), [`control`] (LFOs, modulation matrix, transport).
-//! - Integration: [`params`] (parameters and metadata for hosts), [`dynamic`] (runtime-typed data
+//! - Instruments: [`synth`] (MIDI, voices, polyphony), [`sampler`] (multisampled playback), [`control`] (LFOs, modulation matrix, transport).
+//! - Integration: [`wav`] (WAV files with loop metadata), [`params`] (parameters and metadata for hosts), [`dynamic`] (runtime-typed data
 //!   and processors), [`prelude`] (one import for all the traits).
 //!
 //! Processors allocate only when constructed; processing runs in place without allocating, so it is
@@ -38,6 +38,7 @@ pub mod dynamics;
 pub mod envelope;
 pub mod distortion;
 pub mod synth;
+pub mod sampler;
 pub mod reverb;
 pub mod modulation;
 pub mod analysis;
@@ -45,4 +46,5 @@ pub mod control;
 pub mod resample;
 pub mod params;
 pub mod dynamic;
+pub mod wav;
 pub mod prelude;

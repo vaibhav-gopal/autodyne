@@ -4,6 +4,7 @@
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
+use std::sync::Arc;
 
 use autodyne::analysis::{LoudnessMeter, OnsetDetector, PitchDetector, SpectrumAnalyzer, TruePeak};
 use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
@@ -21,6 +22,7 @@ use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform, Wavetabl
 use autodyne::params::{process_buffer_events, process_events, ParamEvent, Parameterized, Smoothed};
 use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
+use autodyne::sampler::{Interpolation, LoopMode, Sample, SampleMap, SamplerVoice, Zone};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
 use autodyne::spectral::{Fft, RealFft};
 use autodyne::synth::{FmVoice, MidiMessage, Poly, SynthVoice, TimedEvent};
@@ -379,4 +381,28 @@ fn analyzers_do_not_allocate() {
     let mut onsets = OnsetDetector::new(FS);
     let mut count = 0;
     assert_no_alloc("OnsetDetector", || onsets.process(&tone, |_| count += 1));
+}
+
+#[test]
+fn sampler_does_not_allocate() {
+    let tone: Vec<f64> = Oscillator::new(Waveform::Saw, 220.0, FS).take(48_000).collect();
+    let looped = Arc::new(Sample::new(vec![tone.clone(), tone.clone()], FS).with_loop(10_000, 20_000, LoopMode::Forward, 500).with_mipmaps(3));
+    let ping = Arc::new(Sample::from_mono(tone, FS).with_root_key(57.0).with_loop(1_000, 1_500, LoopMode::PingPong, 0));
+    let map = Arc::new(SampleMap::new(vec![Zone::new(looped.clone()).keys(0..=63), Zone::new(ping.clone()).keys(64..=127).pan(0.5), Zone::new(looped).keys(64..=127)]));
+    let mut poly = Poly::new(8, 256, |_| SamplerVoice::new(map.clone(), FS));
+    let (mut left, mut right) = (vec![0.0; 1_000], vec![0.0; 1_000]);
+    let events = [
+        TimedEvent { offset: 10, message: MidiMessage::NoteOn { channel: 0, note: 40, velocity: 100 } },
+        TimedEvent { offset: 300, message: MidiMessage::NoteOn { channel: 0, note: 100, velocity: 60 } },
+        TimedEvent { offset: 600, message: MidiMessage::NoteOff { channel: 0, note: 40, velocity: 0 } },
+    ];
+    assert_no_alloc("Poly<SamplerVoice>: zones, round robin, loops, mipmaps, stereo", || {
+        poly.render_stereo_events(&mut left, &mut right, &events);
+        poly.set_param_by_id("tune", 3.5).unwrap();
+        poly.set_param_by_id("interpolation", 1.0).unwrap();
+        poly.handle(MidiMessage::NoteOn { channel: 0, note: 90, velocity: 127 });
+        poly.handle(MidiMessage::PitchBend { channel: 0, value: 4_000 });
+        poly.render(&mut left);
+    });
+    assert_eq!(poly.voices()[0].interpolation(), Interpolation::Cubic);
 }

@@ -25,6 +25,7 @@ use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
 use crate::reverb::{Convolver, Reverb};
+use crate::sampler::{Interpolation, SamplerVoice};
 use crate::synth::{Algorithm, FmVoice, Poly, SynthVoice, Voice, VoiceFilter, VoiceMode, MAX_UNISON};
 use crate::filter::{Biquad, Fir, Ladder, MultiBiquad, Svf, SvfMode};
 use crate::gain::{gain_to_db, Gain};
@@ -48,6 +49,8 @@ pub enum ParamUnit {
     Fraction,
     /// hundredths of a semitone
     Cents,
+    /// pitch intervals (transposition, bend ranges)
+    Semitones,
 }
 
 /// How a parameter maps onto a 0..1 control (knob, slider, host automation lane).
@@ -195,6 +198,7 @@ impl ParamInfo {
             ParamUnit::Slope => format!("{:.1}:1", 1.0 / value),
             ParamUnit::Fraction => format!("{:.0}%", value * 100.0),
             ParamUnit::Cents => format!("{value:.1} ct"),
+            ParamUnit::Semitones => format!("{value:.2} st"),
             ParamUnit::None => format!("{value:.3}"),
         }
     }
@@ -505,7 +509,7 @@ macro_rules! parameterized {
     };
 }
 
-use ParamUnit::{Cents, Decibels, Fraction, Hertz, Seconds, Slope};
+use ParamUnit::{Cents, Decibels, Fraction, Hertz, Seconds, Semitones, Slope};
 
 parameterized!(Gain, "Gain",
     infos: |_s| [ParamInfo::new("gain_db", "Gain", Decibels, -60.0, 24.0, 0.0).smoothed_internally()],
@@ -782,7 +786,38 @@ parameterized!(FmVoice, "FM voice",
         }
     },
 );
-/// The voices' parameters (one set controlling every voice), followed by the pool's own: voice mode,
+parameterized!(SamplerVoice, "Sampler voice",
+    infos: |_s| [
+        ParamInfo::choice("interpolation", "Interpolation", &Interpolation::NAMES, 2),
+        ParamInfo::new("tune", "Tune", Semitones, -24.0, 24.0, 0.0),
+        ParamInfo::new("start", "Sample start", Fraction, 0.0, 1.0, 0.0),
+        ParamInfo::new("velocity_sens", "Velocity sensitivity", Fraction, 0.0, 1.0, 1.0),
+        ParamInfo::new("amp_attack_s", "Amp attack", Seconds, 0.0, 10.0, 0.001),
+        ParamInfo::new("amp_decay_s", "Amp decay", Seconds, 0.0, 10.0, 0.0),
+        ParamInfo::new("amp_sustain", "Amp sustain", Fraction, 0.0, 1.0, 1.0),
+        ParamInfo::new("amp_release_s", "Amp release", Seconds, 0.0, 20.0, 0.25),
+    ],
+    read: |p, i| match i {
+        0 => Interpolation::ALL.iter().position(|&m| m == p.interpolation()).unwrap_or(0) as f64,
+        1 => f(p.tune()),
+        2 => f(p.start()),
+        3 => f(p.velocity_sensitivity()),
+        4 => f(p.amp_env().attack()),
+        5 => f(p.amp_env().decay()),
+        6 => f(p.amp_env().sustain()),
+        _ => f(p.amp_env().release()),
+    },
+    write: |p, i, v| match i {
+        0 => p.set_interpolation(Interpolation::ALL[v as usize]),
+        1 => p.set_tune(t(v)),
+        2 => p.set_start(t(v)),
+        3 => p.set_velocity_sensitivity(t(v)),
+        4 => p.amp_env_mut().set_attack(t(v)),
+        5 => p.amp_env_mut().set_decay(t(v)),
+        6 => p.amp_env_mut().set_sustain(t(v)),
+        _ => p.amp_env_mut().set_release(t(v)),
+    },
+);/// The voices' parameters (one set controlling every voice), followed by the pool's own: voice mode,
 /// pitch bend range and MPE.
 impl<V: Voice + Parameterized> Parameterized for Poly<V> {
     fn param_count(&self) -> usize {
@@ -1091,6 +1126,25 @@ mod tests {
             let (info, value) = (fresh.param_info(i).unwrap(), fresh.get_param(i).unwrap());
             assert!((value - info.default).abs() < 1e-6, "{}: {} vs default {}", info.id, value, info.default);
         }
+    }
+    #[test]
+    fn sampler_voice_parameters() {
+        use crate::sampler::{Sample, SampleMap};
+        let map = std::sync::Arc::new(SampleMap::single(Sample::from_mono(vec![0.5f64; 100], 48_000.0)));
+        let mut v = SamplerVoice::new(map.clone(), 48_000.0);
+        for i in 0..v.param_count() {
+            let info = v.param_info(i).unwrap();
+            assert!((v.get_param(i).unwrap() - info.default).abs() < 1e-9, "{} default", info.id);
+        }
+        v.set_param_by_id("interpolation", 0.0).unwrap();
+        v.set_param_by_id("tune", -7.5).unwrap();
+        v.set_param_by_id("amp_release_s", 2.0).unwrap();
+        assert_eq!((v.interpolation(), v.tune(), v.amp_env().release()), (Interpolation::Linear, -7.5, 2.0));
+        let tune = v.param_info(v.param_index("tune").unwrap()).unwrap();
+        assert_eq!(tune.format(-7.5), "-7.50 st");
+        assert_eq!(tune.parse("12 st"), Some(12.0));
+        let poly = Poly::new(4, 64, |_| SamplerVoice::new(map.clone(), 48_000.0));
+        assert_eq!(poly.param_count(), v.param_count() + POLY_PARAMS);
     }
     #[test]
     fn parse_inverts_format() {

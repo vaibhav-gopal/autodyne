@@ -39,6 +39,12 @@ pub trait Voice {
     fn is_active(&self) -> bool;
     /// Overwrites `out` with the voice's next samples (silence when inactive).
     fn render(&mut self, out: &mut [Self::Sample]);
+    /// Overwrites `left` and `right` (the same length) with the voice's next samples in stereo.
+    /// By default the mono render goes to both sides.
+    fn render_stereo(&mut self, left: &mut [Self::Sample], right: &mut [Self::Sample]) {
+        self.render(left);
+        right.copy_from_slice(left);
+    }
     /// Detunes the voice by this many semitones (pitch bend). No-op by default.
     fn set_pitch_bend(&mut self, _semitones: Self::Sample) {}
     /// Moves to `note` without retriggering, gliding if the voice glides (legato playing).
@@ -137,6 +143,7 @@ pub struct Poly<V: Voice> {
     timbre: V::Sample,
     max_block: usize,
     scratch: Vec<V::Sample>,
+    scratch_right: Vec<V::Sample>,
 }
 
 impl<V: Voice> Poly<V> {
@@ -165,6 +172,7 @@ impl<V: Voice> Poly<V> {
             timbre: neutral,
             max_block,
             scratch: vec![zero; max_block],
+            scratch_right: vec![zero; max_block],
         }
     }
     /// Pitch bend range in semitones for a full bend (default 2).
@@ -496,6 +504,36 @@ impl<V: Voice> Poly<V> {
         }
         self.render(&mut out[pos..]);
     }
+
+    /// Overwrites `left` and `right` with the stereo sum of all active voices
+    /// ([`Voice::render_stereo`]). Panics if their lengths differ.
+    pub fn render_stereo(&mut self, left: &mut [V::Sample], right: &mut [V::Sample]) {
+        assert_eq!(left.len(), right.len(), "left and right must be the same length");
+        for (l_chunk, r_chunk) in left.chunks_mut(self.max_block).zip(right.chunks_mut(self.max_block)) {
+            l_chunk.iter_mut().chain(r_chunk.iter_mut()).for_each(|s| *s = V::Sample::_ZERO);
+            let (sl, sr) = (&mut self.scratch[..l_chunk.len()], &mut self.scratch_right[..l_chunk.len()]);
+            for voice in self.voices.iter_mut().filter(|v| v.is_active()) {
+                voice.render_stereo(sl, sr);
+                for ((l, r), (&a, &b)) in l_chunk.iter_mut().zip(r_chunk.iter_mut()).zip(sl.iter().zip(sr.iter())) {
+                    *l = *l + a;
+                    *r = *r + b;
+                }
+            }
+        }
+    }
+
+    /// [`render_stereo`](Self::render_stereo) with events at their sample offsets, as in
+    /// [`render_events`](Self::render_events).
+    pub fn render_stereo_events(&mut self, left: &mut [V::Sample], right: &mut [V::Sample], events: &[TimedEvent]) {
+        let mut pos = 0;
+        for event in events {
+            let at = event.offset.clamp(pos, left.len());
+            self.render_stereo(&mut left[pos..at], &mut right[pos..at]);
+            self.handle(event.message);
+            pos = at;
+        }
+        self.render_stereo(&mut left[pos..], &mut right[pos..]);
+    }
 }
 
 /// A polyphonic synth is a signal source (it generates rather than processes).
@@ -609,6 +647,20 @@ mod tests {
         assert_eq!(p.active_voices(), 0);
     }
 
+    #[test]
+    fn stereo_rendering_sums_voices_per_side() {
+        // mono voices land on both sides; the stereo sum equals the mono one
+        let mut poly = Poly::new(4, 3, |_| Dc::default());
+        poly.note_on(60, 0.25);
+        poly.note_on(64, 0.5);
+        let (mut l, mut r, mut m) = (vec![0.0; 7], vec![0.0; 7], vec![0.0; 7]);
+        poly.render_stereo(&mut l, &mut r);
+        poly.render(&mut m);
+        assert_eq!((l.clone(), r.clone()), (m.clone(), m));
+        let events = [TimedEvent { offset: 2, message: MidiMessage::NoteOff { channel: 0, note: 64, velocity: 0 } }];
+        poly.render_stereo_events(&mut l, &mut r, &events);
+        assert_eq!((l[1], l[2], r[6]), (0.75, 0.25, 0.25));
+    }
     #[test]
     fn events_land_on_their_sample() {
         let mut p = Poly::new(2, 16, |_| Dc::default());
