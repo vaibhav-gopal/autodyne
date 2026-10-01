@@ -6,6 +6,8 @@
 //! - [`DynView`] / [`DynViewMut`]: raw bytes from elsewhere, described by dtype + shape (+ strides),
 //!   viewed as typed [`NdView`]s without copying when aligned.
 //! - [`dyn_match!`](crate::dyn_match): runs generic code on whatever element type a `DynArray` holds.
+//! - Runtime-typed math on views and arrays ([`DynView::binary`], [`DynView::unary`], reductions, casts) with
+//!   explicit, loss-free [`Promotion`] rules.
 //! - [`DynProcessor`]: processors with a runtime sample type and runtime-accessible parameters, built
 //!   with [`build_dyn`] from a [`ProcessorFactory`].
 
@@ -27,6 +29,8 @@ pub enum DynError {
     Unsupported(DType),
     #[error("cannot cast complex values to the real type {0}")]
     ComplexToReal(DType),
+    #[error("values of type {from} don't convert exactly to {to}; cast explicitly to accept the loss")]
+    Inexact { from: DType, to: DType },
     #[error("{bytes} bytes is not a whole number of {size}-byte elements for the shape (needs {needed})")]
     ByteLength { bytes: usize, size: usize, needed: usize },
     #[error("the memory is not aligned for {0} elements; use to_array() to copy instead")]
@@ -263,19 +267,12 @@ impl DynArray {
     pub fn into_array<T: DynElement>(self) -> Result<NdArray<T>, DynArray> {
         T::take(self)
     }
-    /// A copy converted to another element type (numeric casts: integers saturate, real <-> complex
-    /// sets / requires a zero imaginary part). Casting complex to real is an error.
+    /// A copy converted to another element type, saturating values that don't fit (floats to
+    /// integers truncate; real to complex sets a zero imaginary part). Exact for every value that
+    /// fits, 64-bit integers included. Casting complex to real is an error. See
+    /// [`cast_with`](Self::cast_with) for checked or wrapping casts.
     pub fn cast(&self, dtype: DType) -> Result<DynArray, DynError> {
-        if self.dtype().is_complex() && !dtype.is_complex() {
-            return Err(DynError::ComplexToReal(dtype));
-        }
-        dyn_match!(self, a => {
-            let values: Vec<(f64, f64)> = a.as_slice().iter().map(|&x| x.to_c64()).collect();
-            with_dtype!(dtype, T => {
-                let data: Vec<T> = values.iter().map(|&v| T::from_c64(v)).collect();
-                Ok(T::wrap(NdArray::from_vec(data, a.shape())?))
-            }, Err(DynError::Unsupported(dtype)))
-        })
+        self.cast_with(dtype, CastMode::Saturating)
     }
     /// The elements' memory, without copying (native byte order), e.g. to hand to another runtime.
     pub fn as_bytes(&self) -> &[u8] {
@@ -310,6 +307,9 @@ impl DynArray {
         }, Err(DynError::Unsupported(dtype)))
     }
 }
+
+mod ops;
+pub use ops::*;
 
 fn dtype_of<T: DynElement>(_: &NdArray<T>) -> DType {
     T::DTYPE

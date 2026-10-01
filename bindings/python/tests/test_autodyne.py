@@ -55,3 +55,30 @@ def test_arrays_export_once():
     np.from_dlpack(a)
     with pytest.raises(BufferError):
         np.from_dlpack(a)
+
+
+NUMERIC = [np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16, np.uint32, np.uint64,
+           np.float32, np.float64, np.complex64, np.complex128]
+
+
+@pytest.mark.parametrize("a", NUMERIC)
+@pytest.mark.parametrize("b", NUMERIC)
+def test_promotion_matches_numpy_except_for_signed_with_uint64(a, b):
+    x = np.array([[1, 2, 3]], dtype=a)
+    y = np.array([[4], [5]], dtype=b)
+    got = autodyne.add(x, y)
+    expected = np.add(x, y)
+    signed_with_u64 = (np.dtype(a).kind == "i" and b == np.uint64) or (np.dtype(b).kind == "i" and a == np.uint64)
+    assert got.dtype == (np.int64 if signed_with_u64 else expected.dtype)
+    np.testing.assert_array_equal(got, expected.astype(got.dtype))
+
+
+def test_promotion_refuses_silent_loss_and_casts_are_explicit():
+    big = np.array([2**53 + 1], dtype=np.int64)
+    with pytest.raises(ValueError, match="convert exactly"):
+        autodyne.add(big, np.array([0.5]))
+    assert autodyne.mul(np.array([3], dtype=np.int32), np.array([1.0], dtype=np.float32), keep_float=True).dtype == np.float32
+    np.testing.assert_array_equal(autodyne.cast(np.array([300, -1]), np.uint8, "saturating"), [255, 0])
+    np.testing.assert_array_equal(autodyne.cast(np.array([300, -1]), np.uint8, "wrapping"), [44, 255])
+    with pytest.raises(ValueError):
+        autodyne.cast(np.array([300]), np.uint8)

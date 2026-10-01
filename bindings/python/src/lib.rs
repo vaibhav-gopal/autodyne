@@ -8,7 +8,7 @@
 use std::ffi::{c_void, CStr};
 
 use autodyne::dlpack::{DLManagedTensor, DLManagedTensorVersioned, DlpackTensor, DL_CPU};
-use autodyne::dynamic::{DynArray, DynElement};
+use autodyne::dynamic::{BinaryOp, CastMode, DynArray, DynElement, Promotion};
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::signal::{NdArray, NdView, Zip};
 use autodyne::spectral::RealFft;
@@ -255,8 +255,52 @@ fn rfft(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     })
 }
 
+/// Wraps a runtime-typed result.
+fn wrap_dyn(py: Python<'_>, array: DynArray) -> PyResult<Py<PyAny>> {
+    let (shape, dtype) = (array.shape().to_vec(), array.dtype());
+    Ok(Py::new(py, Array { inner: Some(array), shape, dtype })?.into_any())
+}
+
+/// `x op y` for any two numeric dtypes, broadcast, with autodyne's promotion: NumPy's table with
+/// every conversion checked (`keep_float=False`), or floats keeping their width against integers.
+#[pyfunction]
+#[pyo3(signature = (op, x, y, keep_float=false))]
+fn binary(py: Python<'_>, op: &str, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, keep_float: bool) -> PyResult<Py<PyAny>> {
+    let op = match op {
+        "add" => BinaryOp::Add,
+        "sub" => BinaryOp::Sub,
+        "mul" => BinaryOp::Mul,
+        "div" => BinaryOp::Div,
+        "min" => BinaryOp::Min,
+        "max" => BinaryOp::Max,
+        other => return Err(PyValueError::new_err(format!("unknown operation {other:?}"))),
+    };
+    let (a, b) = (import(x)?, import(y)?);
+    let policy = if keep_float { Promotion::KeepFloat } else { Promotion::Standard };
+    let result = a.view().map_err(value_error)?.binary(&b.view().map_err(value_error)?, op, policy).map_err(value_error)?;
+    wrap_dyn(py, result)
+}
+
+/// `x` converted to `dtype` ("f32", "i16", "complex_f64"...): `mode` is "checked", "saturating"
+/// or "wrapping".
+#[pyfunction]
+#[pyo3(signature = (x, dtype, mode="checked"))]
+fn cast(py: Python<'_>, x: &Bound<'_, PyAny>, dtype: &str, mode: &str) -> PyResult<Py<PyAny>> {
+    let dtype = DType::from_name(dtype).ok_or_else(|| PyValueError::new_err(format!("unknown dtype {dtype:?}")))?;
+    let mode = match mode {
+        "checked" => CastMode::Checked,
+        "saturating" => CastMode::Saturating,
+        "wrapping" => CastMode::Wrapping,
+        other => return Err(PyValueError::new_err(format!("unknown cast mode {other:?}"))),
+    };
+    let tensor = import(x)?;
+    wrap_dyn(py, tensor.view().map_err(value_error)?.cast(dtype, mode).map_err(value_error)?)
+}
+
 #[pymodule]
 fn _autodyne(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add_function(wrap_pyfunction!(binary, m)?)?;
+    m.add_function(wrap_pyfunction!(cast, m)?)?;
     m.add_class::<Array>()?;
     m.add_function(wrap_pyfunction!(sum, m)?)?;
     m.add_function(wrap_pyfunction!(axpb, m)?)?;

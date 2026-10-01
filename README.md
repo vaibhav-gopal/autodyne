@@ -48,7 +48,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `dlpack` | DLPack 1.x (and legacy) export and import: arrays go to NumPy / PyTorch / JAX / CuPy without copying (shared arrays read-only), foreign tensors of any strides come in as views or, when contiguous, as `NdArray`s over the foreign memory, released exactly once |
 | `interop` | zero-copy conversions with the `ndarray` crate (feature `ndarray`): views both ways for any strides, owned arrays move their `Vec`; Arrow buffers are slices already |
 | `prelude` | `use autodyne::prelude::*` brings every trait and the common types into scope |
-| `dynamic` | runtime-typed data and processing: `DynArray` (any dtype, casts, bytes), zero-copy `DynView` over external memory, `DynProcessor` built at runtime with `build_dyn` |
+| `dynamic` | runtime-typed data and processing: `DynArray` (any dtype, bytes), zero-copy `DynView` over external memory, runtime-typed math (`binary` with broadcasting, scalars with NumPy's weak typing, `unary` functions, `sum` / `mean` / `min` / `max`, `cast` checked / saturating / wrapping) under explicit `Promotion` rules: NumPy's table with every conversion checked, so nothing is lost silently (or `KeepFloat`, floats keeping their width); `DynProcessor` built at runtime with `build_dyn` |
 
 ```rust
 use autodyne::prelude::*;
