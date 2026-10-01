@@ -1,7 +1,7 @@
-//! Turns any `autodyne` [`Parameterized`] processor's parameters into NIH-plug parameters.
+//! Turns any `autodyne` [`Parameterized`] processor's parameters into nice-plug parameters.
 //!
 //! [`ParamBridge`] builds one `FloatParam` per `ParamInfo` (range, log scaling, default, autodyne's
-//! own value formatting) and implements NIH-plug's `Params`, so a plugin exposes exactly the
+//! own value formatting) and implements nice-plug's `Params`, so a plugin exposes exactly the
 //! processor's parameters with no hand-written parameter struct. Call [`ParamBridge::apply`] at the
 //! start of each process block to push host changes into the processor; it only touches parameters
 //! that changed and never allocates.
@@ -9,9 +9,9 @@
 use std::sync::Arc;
 
 use autodyne::params::{ParamInfo, ParamScale, Parameterized};
-use nih_plug::prelude::*;
+use nice_plug::prelude::*;
 
-/// NIH-plug parameters mirroring a processor's `Parameterized` interface.
+/// nice-plug parameters mirroring a processor's `Parameterized` interface.
 pub struct ParamBridge {
     params: Vec<FloatParam>,
     ids: Vec<String>,
@@ -83,7 +83,7 @@ impl ParamBridge {
     }
 }
 
-/// The NIH-plug parameter for one autodyne parameter.
+/// The nice-plug parameter for one autodyne parameter.
 fn float_param(info: &ParamInfo, value: f64) -> FloatParam {
     let (min, max) = (info.min as f32, info.max as f32);
     let range = match info.scale {
@@ -102,7 +102,7 @@ fn float_param(info: &ParamInfo, value: f64) -> FloatParam {
 
 // SAFETY: every `ParamPtr` points into `self.params`, a Vec that is never resized or reallocated
 // after construction, so the pointers stay valid for as long as the bridge (held in an Arc by the
-// plugin) lives, which is what NIH-plug requires.
+// plugin) lives, which is what nice-plug requires.
 unsafe impl Params for ParamBridge {
     fn param_map(&self) -> Vec<(String, ParamPtr, String)> {
         self.params.iter().zip(&self.ids).zip(&self.groups).map(|((p, id), group)| (id.clone(), p.as_ptr(), group.clone())).collect()

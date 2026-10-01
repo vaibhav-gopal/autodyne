@@ -9,8 +9,8 @@
 use std::sync::Arc;
 
 use autodyne::reverb::Reverb;
-use autodyne_nih::ParamBridge;
-use nih_plug::prelude::*;
+use autodyne_plug::ParamBridge;
+use nice_plug::prelude::*;
 
 pub struct AutodyneReverb {
     params: Arc<ParamBridge>,
@@ -49,6 +49,7 @@ impl Plugin for AutodyneReverb {
 
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
+    type Editor = ();
     type SysExMessage = ();
     type BackgroundTask = ();
 
@@ -56,7 +57,7 @@ impl Plugin for AutodyneReverb {
         self.params.clone()
     }
 
-    fn initialize(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl InitContext<Self>) -> bool {
+    fn activate(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl ActivateContext<Self>) -> bool {
         // allocation is fine here: this runs outside the audio callback
         self.sample_rate = config.sample_rate;
         self.reverb = Reverb::new(config.sample_rate);
@@ -97,7 +98,7 @@ impl ClapPlugin for AutodyneReverb {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Reverb, ClapFeature::Stereo, ClapFeature::Mono];
 }
 
-nih_export_clap!(AutodyneReverb);
+nice_export_clap!(AutodyneReverb);
 
 #[cfg(feature = "vst3")]
 impl Vst3Plugin for AutodyneReverb {
@@ -106,4 +107,4 @@ impl Vst3Plugin for AutodyneReverb {
 }
 
 #[cfg(feature = "vst3")]
-nih_export_vst3!(AutodyneReverb);
+nice_export_vst3!(AutodyneReverb);

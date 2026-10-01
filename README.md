@@ -73,12 +73,11 @@ The others write WAV files to `target/examples-out/`:
 - `cargo run --release --example interop`: a `[batch, channel, time]` tensor filtered along time, shared as raw memory without copying, and streamed through 16-bit PCM
 
 ### Plugins
-`plugins/` turns autodyne processors into CLAP and VST3 plugins with [NIH-plug](https://github.com/robbert-vdh/nih-plug), via
-[our fork](https://github.com/vaibhav-gopal/nih-plug/tree/autodyne) (branch `autodyne`: MIT-licensed VST3 bindings,
-hardened state loading, host notified of loaded parameter values):
+`plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
+the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):
 
-- `autodyne-nih`: `ParamBridge` exposes any `Parameterized` processor's parameters to the host (ranges, log scaling,
-  defaults, display text and typed input in units), with no hand-written parameter struct
+- `autodyne-plug`: `ParamBridge` exposes any `Parameterized` processor's parameters to the host (ranges, log scaling,
+  defaults, display text and typed input in units, grouped by stage for chains), with no hand-written parameter struct
 - `autodyne-reverb`: the FDN reverb as a stereo/mono effect
 - `autodyne-synth`: a 16-voice subtractive synth (MIDI notes on their exact sample, sustain pedal, pitch bend) into
   the FDN reverb; its parameters are the whole chain's, grouped by stage

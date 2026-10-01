@@ -13,10 +13,10 @@ crate-type = ["cdylib", "lib"]
 [features]
 default = ["vst3"]
 # VST3 export (the bindings are MIT OR Apache-2.0); CLAP is always built
-vst3 = ["nih_plug/vst3"]
+vst3 = ["nice-plug/vst3"]
 
 [dependencies]
 autodyne = { path = "../.." }
-autodyne-nih = { path = "../autodyne-nih" }
+autodyne-plug = { path = "../autodyne-plug" }
 # assert_process_allocs: debug builds abort if the audio callback allocates
-nih_plug = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "5620f63797da85e788eb6a5a2f0a37be64887132", default-features = false, features = ["assert_process_allocs"] }
+nice-plug = { version = "0.4.2", default-features = false, features = ["assert_process_allocs"] }

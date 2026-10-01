@@ -28,4 +28,4 @@ harness = false
 # The library is the root package; plugins and the bundler live alongside it so `autodyne` itself
 # never depends on a plugin framework.
 [workspace]
-members = [".", "plugins/autodyne-nih", "plugins/autodyne-reverb", "plugins/autodyne-synth", "xtask"]
+members = [".", "plugins/autodyne-plug", "plugins/autodyne-reverb", "plugins/autodyne-synth", "xtask"]

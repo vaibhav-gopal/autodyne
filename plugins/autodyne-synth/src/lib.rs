@@ -15,8 +15,9 @@ use autodyne::gain::Gain;
 use autodyne::params::Parameterized;
 use autodyne::reverb::Reverb;
 use autodyne::synth::{MidiMessage, Poly, SynthVoice};
-use autodyne_nih::ParamBridge;
-use nih_plug::prelude::*;
+use autodyne_plug::ParamBridge;
+use nice_plug::midi::Key;
+use nice_plug::prelude::*;
 
 const VOICES: usize = 16;
 /// Voices render in pieces of at most this many samples, whatever the host's buffer size.
@@ -67,6 +68,7 @@ impl Plugin for AutodyneSynth {
     const MIDI_INPUT: MidiConfig = MidiConfig::MidiCCs;
     const SAMPLE_ACCURATE_AUTOMATION: bool = true;
 
+    type Editor = ();
     type SysExMessage = ();
     type BackgroundTask = ();
 
@@ -74,7 +76,7 @@ impl Plugin for AutodyneSynth {
         self.params.clone()
     }
 
-    fn initialize(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl InitContext<Self>) -> bool {
+    fn activate(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl ActivateContext<Self>) -> bool {
         // allocation is fine here: this runs outside the audio callback
         self.patch = patch(config.sample_rate);
         self.params.invalidate(); // the new patch must receive every current setting
@@ -111,8 +113,13 @@ impl Plugin for AutodyneSynth {
 /// Applies one host note event to the voices.
 fn handle(voices: &mut Poly<SynthVoice<f32>>, event: NoteEvent<()>) {
     match event {
-        NoteEvent::NoteOn { note, velocity, .. } => voices.note_on(note, velocity),
-        NoteEvent::NoteOff { note, .. } | NoteEvent::Choke { note, .. } => voices.note_off(note),
+        NoteEvent::NoteOn { key: Key::Number(note), velocity, .. } => voices.note_on(note, velocity),
+        NoteEvent::NoteOff { key: Key::Number(note), .. } | NoteEvent::Choke { key: Key::Number(note), .. } => {
+            voices.note_off(note)
+        }
+        // a wildcard key means every note: release them all, or silence everything for a choke
+        NoteEvent::NoteOff { key: Key::Wildcard, .. } => voices.all_notes_off(),
+        NoteEvent::Choke { key: Key::Wildcard, .. } => voices.reset(),
         // sustain, all notes off and all sound off are handled as MIDI controllers
         NoteEvent::MidiCC { channel, cc, value, .. } => voices.handle(MidiMessage::ControlChange {
             channel,
@@ -133,7 +140,7 @@ impl ClapPlugin for AutodyneSynth {
     const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::Instrument, ClapFeature::Synthesizer, ClapFeature::Stereo];
 }
 
-nih_export_clap!(AutodyneSynth);
+nice_export_clap!(AutodyneSynth);
 
 #[cfg(feature = "vst3")]
 impl Vst3Plugin for AutodyneSynth {
@@ -142,14 +149,19 @@ impl Vst3Plugin for AutodyneSynth {
 }
 
 #[cfg(feature = "vst3")]
-nih_export_vst3!(AutodyneSynth);
+nice_export_vst3!(AutodyneSynth);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nice_plug::midi::{Channel, VoiceID};
 
     fn note_on(note: u8) -> NoteEvent<()> {
-        NoteEvent::NoteOn { timing: 0, voice_id: None, channel: 0, note, velocity: 0.8 }
+        NoteEvent::NoteOn { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Number(0), key: Key::Number(note), velocity: 0.8 }
+    }
+
+    fn note_off(key: Key) -> NoteEvent<()> {
+        NoteEvent::NoteOff { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Number(0), key, velocity: 0.0 }
     }
 
     #[test]
@@ -173,7 +185,7 @@ mod tests {
         assert_eq!(voices.active_voices(), 2);
         let pedal = |value| NoteEvent::MidiCC { timing: 0, channel: 0, cc: 64, value };
         handle(&mut voices, pedal(1.0));
-        handle(&mut voices, NoteEvent::NoteOff { timing: 0, voice_id: None, channel: 0, note: 60, velocity: 0.0 });
+        handle(&mut voices, note_off(Key::Number(60)));
         let mut out = vec![0.0; 48_000]; // longer than the 0.4 s release
         voices.render(&mut out);
         assert_eq!(voices.active_voices(), 2, "held by the sustain pedal");
@@ -182,5 +194,20 @@ mod tests {
         assert_eq!(voices.active_voices(), 1, "released with the pedal");
         handle(&mut voices, NoteEvent::MidiPitchBend { timing: 0, channel: 0, value: 0.5 }); // centered: no-op
         assert!(out.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn wildcard_keys_mean_every_note() {
+        let mut voices = patch(48_000.0).0;
+        let mut out = vec![0.0; 48_000]; // longer than the 0.4 s release
+        [60, 64, 67].into_iter().for_each(|n| handle(&mut voices, note_on(n)));
+        handle(&mut voices, note_off(Key::Wildcard));
+        voices.render(&mut out);
+        assert_eq!(voices.active_voices(), 0, "a wildcard note-off releases every note");
+
+        [60, 64].into_iter().for_each(|n| handle(&mut voices, note_on(n)));
+        let choke = NoteEvent::Choke { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Wildcard, key: Key::Wildcard };
+        handle(&mut voices, choke);
+        assert_eq!(voices.active_voices(), 0, "a wildcard choke silences immediately");
     }
 }

@@ -1,12 +1,12 @@
 [package]
-name = "autodyne-nih"
+name = "autodyne-plug"
 version = "0.1.0"
 edition = "2021"
 publish = false
 license = "GPL-3.0-only"
-description = "Bridges autodyne processors to NIH-plug (CLAP / VST3 plugins)"
+description = "autodyne processors as CLAP / VST3 plugins, through nice-plug"
 
 [dependencies]
 autodyne = { path = "../.." }
-# our fork (see README), pinned for reproducible builds; no default features: each plugin opts into VST3
-nih_plug = { git = "https://github.com/vaibhav-gopal/nih-plug.git", rev = "5620f63797da85e788eb6a5a2f0a37be64887132", default-features = false }
+# no default features: no GUI toolkit or logger, and each plugin opts into VST3
+nice-plug = { version = "0.4.2", default-features = false }

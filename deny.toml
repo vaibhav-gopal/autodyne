@@ -33,7 +33,7 @@ allow = [
 # our own crates
 exceptions = [
     { allow = ["GPL-3.0-only"], crate = "autodyne" },
-    { allow = ["GPL-3.0-only"], crate = "autodyne-nih" },
+    { allow = ["GPL-3.0-only"], crate = "autodyne-plug" },
     { allow = ["GPL-3.0-only"], crate = "autodyne-reverb" },
     { allow = ["GPL-3.0-only"], crate = "autodyne-synth" },
     { allow = ["GPL-3.0-only"], crate = "xtask" },
@@ -41,7 +41,7 @@ exceptions = [
 
 [advisories]
 # RustSec: known vulnerabilities fail the check; unmaintained crates only when we depend on them
-# directly (nih-plug's dependency tree is not ours to fix)
+# directly (the plugin framework's dependency tree is not ours to fix)
 unmaintained = "workspace"
 
 [bans]
@@ -51,14 +51,6 @@ wildcards = "deny"
 allow-wildcard-paths = true
 
 [sources]
+# crates.io only: a git or other registry dependency needs a deliberate exception here
 unknown-registry = "deny"
 unknown-git = "deny"
-# crates.io, plus git sources pinned in Cargo.lock: nih-plug from our fork, and the git
-# dependencies nih-plug itself uses
-allow-git = [
-    "https://github.com/vaibhav-gopal/nih-plug",
-    "https://github.com/robbert-vdh/rust-assert-no-alloc",
-    "https://github.com/micahrj/clap-sys",
-    # used by the bundler (xtask) only
-    "https://github.com/nicokoch/reflink",
-]

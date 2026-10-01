@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use nih_plug_xtask::Result;
+use nice_plug_xtask::Result;
 
 const PLUGINS_DIR: &str = "plugins";
 const NOTICES: &str = "THIRD-PARTY-LICENSES.html";
@@ -19,15 +19,15 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("notices") => {
-            nih_plug_xtask::chdir_workspace_root()?;
+            nice_plug_xtask::chdir_workspace_root()?;
             notices()
         }
         Some("bundle" | "bundle-universal") => {
-            nih_plug_xtask::main_with_args("cargo xtask", args.clone())?;
-            // nih_plug_xtask has moved to the workspace root
+            nice_plug_xtask::main_with_args("cargo xtask", args.clone())?;
+            // nice_plug_xtask has moved to the workspace root
             bundle_notices(&bundled_packages(&args[1..]))
         }
-        _ => nih_plug_xtask::main_with_args("cargo xtask", args),
+        _ => nice_plug_xtask::main_with_args("cargo xtask", args),
     }
 }
 
