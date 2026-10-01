@@ -9,6 +9,7 @@ publish = false
 repository = "https://github.com/vaibhav-gopal/autodyne"
 
 [dependencies]
+ndarray = { version = "0.17.2", default-features = false, features = ["std"], optional = true }
 thiserror = "2.0.12"
 
 [dev-dependencies]
@@ -20,6 +21,7 @@ rtrb = "0.4.0"
 
 [features]
 default = []
+ndarray = ["dep:ndarray"]
 
 [[bench]]
 name = "dsp"

@@ -28,6 +28,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Test
         run: cargo test --workspace --all-targets
+      - name: Test with the ndarray interop
+        run: cargo test -p autodyne --features ndarray --lib
       - name: Doc tests
         run: cargo test --workspace --doc
       - name: Docs build without warnings
@@ -50,7 +52,7 @@ jobs:
         run: cargo bench --no-run
       # The crate is warning-free; keep it that way.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets --features autodyne/ndarray -- -D warnings
 
   # The n-d views are raw pointers over validated layouts: check their unsafe code for undefined
   # behaviour (Miri's float noise is turned off so exact-equality assertions stay meaningful).
@@ -64,8 +66,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - name: Miri (n-d views and runtime-typed views)
-        run: "cargo miri test --lib -- signal::nd dynamic::"
+      - name: Miri (n-d views, runtime-typed views, DLPack, interop)
+        run: "cargo miri test --lib --features ndarray -- signal::nd dynamic:: dlpack interop"
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-deterministic-floats
 

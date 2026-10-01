@@ -733,6 +733,11 @@ macro_rules! view_common {
             pub fn is_contiguous(&self) -> bool {
                 self.layout.is_standard()
             }
+            /// Address of the element at index `[0, 0, ...]` (for FFI; other elements are at
+            /// `strides`-weighted element offsets from it). Dangling for empty views.
+            pub fn as_ptr(&self) -> *const T {
+                self.ptr as *const T
+            }
             pub fn get(&self, index: &[usize]) -> Option<&T> {
                 // SAFETY: the offset of a valid index is inside the validated layout
                 self.layout.offset_of(index).map(|o| unsafe { &*self.ptr.wrapping_offset(o) })
@@ -883,6 +888,18 @@ impl<'a, T> NdView<'a, T> {
         let ptr = if layout.len() == 0 { data.as_ptr() } else { data.as_ptr().wrapping_add(offset) };
         Ok(Self { ptr, layout, _borrow: PhantomData })
     }
+    /// A view of memory described only by a pointer (FFI, other array libraries).
+    ///
+    /// # Safety
+    /// Every element the layout reaches from `ptr` (the element at index `[0, 0, ...]`) must be
+    /// valid for reads, and not written through anything else, for the lifetime `'a`.
+    pub unsafe fn from_raw_parts(ptr: *const T, shape: &[usize], strides: &[isize]) -> Result<Self, NdError> {
+        let layout = Layout::new(shape, strides)?;
+        if layout.len() > 0 && layout.span().is_none() {
+            return Err(NdError::OutOfBounds);
+        }
+        Ok(Self { ptr, layout, _borrow: PhantomData })
+    }
     /// A 1-D view of a slice.
     pub fn from_slice(data: &'a [T]) -> Self {
         Self::from_parts(data, &[data.len()], &[1], 0).expect("a slice is a valid 1-D layout")
@@ -941,6 +958,22 @@ impl<'a, T> NdViewMut<'a, T> {
         let ptr = if layout.len() == 0 { data.as_mut_ptr() } else { data.as_mut_ptr().wrapping_add(offset) };
         Ok(Self { ptr, layout, _borrow: PhantomData })
     }
+    /// A mutable view of memory described only by a pointer; errors if the layout may reach one
+    /// element through several indices ([`NdError::Overlapping`]).
+    ///
+    /// # Safety
+    /// Every element the layout reaches from `ptr` must be valid for reads and writes, and not
+    /// accessed through anything else, for the lifetime `'a`.
+    pub unsafe fn from_raw_parts(ptr: *mut T, shape: &[usize], strides: &[isize]) -> Result<Self, NdError> {
+        let layout = Layout::new(shape, strides)?;
+        if layout.len() > 0 && layout.span().is_none() {
+            return Err(NdError::OutOfBounds);
+        }
+        if !layout.is_injective() {
+            return Err(NdError::Overlapping);
+        }
+        Ok(Self { ptr, layout, _borrow: PhantomData })
+    }
     /// A 1-D view of a slice.
     pub fn from_slice(data: &'a mut [T]) -> Self {
         let n = data.len();
@@ -949,6 +982,10 @@ impl<'a, T> NdViewMut<'a, T> {
     /// A read-only view of the same elements.
     pub fn view(&self) -> NdView<'_, T> {
         NdView { ptr: self.ptr, layout: self.layout, _borrow: PhantomData }
+    }
+    /// Writable address of the element at index `[0, 0, ...]` (see `as_ptr`).
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.ptr
     }
     /// A shorter-lived mutable view of the same elements, leaving this one usable afterwards.
     pub fn reborrow(&mut self) -> NdViewMut<'_, T> {

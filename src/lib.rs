@@ -17,7 +17,7 @@
 //!   [`iq`], [`gain`], [`delay`], [`dynamics`], [`envelope`], [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
 //! - Instruments: [`synth`] (MIDI, voices, polyphony), [`sampler`] (multisampled playback), [`control`] (LFOs, modulation matrix, transport).
-//! - Integration: [`wav`] (WAV files with loop metadata), [`params`] (parameters and metadata for hosts), [`dynamic`] (runtime-typed data
+//! - Integration: [`dlpack`] (zero-copy tensor exchange with NumPy, PyTorch, JAX...), [`wav`] (WAV files with loop metadata), [`params`] (parameters and metadata for hosts), [`dynamic`] (runtime-typed data
 //!   and processors), [`prelude`] (one import for all the traits).
 //!
 //! Processors allocate only when constructed; processing runs in place without allocating, so it is
@@ -46,5 +46,7 @@ pub mod control;
 pub mod resample;
 pub mod params;
 pub mod dynamic;
+pub mod dlpack;
+pub mod interop;
 pub mod wav;
 pub mod prelude;
