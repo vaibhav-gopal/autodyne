@@ -10,7 +10,7 @@
 //! Audio APIs usually deliver interleaved frames (L R L R ...); `AudioBuffer::copy_from_interleaved`
 //! and `copy_to_interleaved` convert without allocating.
 
-use crate::dynamics::Compressor;
+use crate::dynamics::GainComputer;
 use crate::gain::SmoothedValue;
 use crate::processor::Processor;
 use crate::signal::{Axis, NdView, NdViewMut};
@@ -174,8 +174,9 @@ impl<T: Float, P: Processor<T>> MultiProcessor<T> for PerChannel<P> {
 #[derive(Debug, Clone, Copy)]
 pub struct Linked<P>(pub P);
 
-/// Linked compression: the loudest channel drives one gain applied to all channels.
-impl<T: Float> MultiProcessor<T> for Linked<Compressor<T>> {
+/// Linked dynamics (compressor, gate, transient shaper, ...): the loudest channel drives one gain
+/// applied to all channels.
+impl<T: Float, G: GainComputer<T>> MultiProcessor<T> for Linked<G> {
     fn process(&mut self, buffer: &mut AudioBuffer<T>) {
         let (n, max, offset) = (buffer.channels, buffer.max_frames, buffer.offset);
         for f in offset..offset + buffer.frames {
@@ -388,7 +389,7 @@ mod tests {
         let mut buf = AudioBuffer::new(2, 4_800);
         buf.channel_mut(0).iter_mut().for_each(|s| *s = 0.9); // loud left
         buf.channel_mut(1).iter_mut().for_each(|s| *s = 0.05); // quiet right
-        let mut c = Linked(Compressor::new(FS));
+        let mut c = Linked(crate::dynamics::Compressor::new(FS));
         c.process(&mut buf);
         for f in 0..buf.frames() {
             assert!((buf.channel(0)[f] / 0.9 - buf.channel(1)[f] / 0.05).abs() < 1e-12, "frame {f}");

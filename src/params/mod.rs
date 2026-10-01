@@ -20,7 +20,7 @@ pub use smoothed::*;
 
 use crate::channels::{Linked, Panner, PerChannel, StereoWidth};
 use crate::delay::Echo;
-use crate::dynamics::{Compressor, EnvelopeFollower};
+use crate::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, TransientShaper};
 use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
@@ -643,6 +643,58 @@ impl<P: Parameterized, T: Float> Parameterized for Oversampled<P, T> {
     }
 }
 
+parameterized!(LookaheadLimiter, "Limiter",
+    infos: |_s| [
+        ParamInfo::new("ceiling_db", "Ceiling", Decibels, -24.0, 0.0, -0.3),
+        ParamInfo::new("release_s", "Release", Seconds, 0.001, 2.0, 0.1).log(),
+        ParamInfo::toggle("true_peak", "True peak", true),
+    ],
+    read: |p, i| match i { 0 => f(p.ceiling_db()), 1 => f(p.release()), _ => p.true_peak() as u8 as f64 },
+    write: |p, i, v| match i { 0 => p.set_ceiling_db(t(v)), 1 => p.set_release(t(v)), _ => p.set_true_peak(v >= 0.5) },
+);
+
+/// Expander ratio at which the gate parameter means "gate" (an infinite ratio).
+const GATE_RATIO: f64 = 100.0;
+
+parameterized!(Gate, "Gate",
+    infos: |_s| [
+        ParamInfo::new("threshold_db", "Threshold", Decibels, -90.0, 0.0, -40.0),
+        ParamInfo::new("ratio", "Ratio (100 = gate)", ParamUnit::Ratio, 1.0, GATE_RATIO, GATE_RATIO).log(),
+        ParamInfo::new("range_db", "Range", Decibels, -100.0, 0.0, -80.0),
+        ParamInfo::new("hysteresis_db", "Hysteresis", Decibels, 0.0, 12.0, 3.0),
+        ParamInfo::new("attack_s", "Attack", Seconds, 0.0, 0.1, 0.0005),
+        ParamInfo::new("hold_s", "Hold", Seconds, 0.0, 2.0, 0.02),
+        ParamInfo::new("release_s", "Release", Seconds, 0.001, 5.0, 0.1).log(),
+    ],
+    read: |p, i| match i {
+        0 => f(p.threshold_db()),
+        1 => f(p.ratio()).min(GATE_RATIO),
+        2 => f(p.range_db()),
+        3 => f(p.hysteresis_db()),
+        4 => f(p.attack()),
+        5 => f(p.hold()),
+        _ => f(p.release()),
+    },
+    write: |p, i, v| match i {
+        0 => p.set_threshold_db(t(v)),
+        1 => p.set_ratio(if v >= GATE_RATIO { T::_INFINITY } else { t(v) }),
+        2 => p.set_range_db(t(v)),
+        3 => p.set_hysteresis_db(t(v)),
+        4 => p.set_attack(t(v)),
+        5 => p.set_hold(t(v)),
+        _ => p.set_release(t(v)),
+    },
+);
+
+parameterized!(TransientShaper, "Transient shaper",
+    infos: |_s| [
+        ParamInfo::new("attack", "Attack", ParamUnit::None, -1.0, 1.0, 0.0),
+        ParamInfo::new("sustain", "Sustain", ParamUnit::None, -1.0, 1.0, 0.0),
+        ParamInfo::new("output_db", "Output", Decibels, -24.0, 24.0, 0.0).smoothed_internally(),
+    ],
+    read: |p, i| match i { 0 => f(p.attack()), 1 => f(p.sustain()), _ => f(p.output_db()) },
+    write: |p, i, v| match i { 0 => p.set_attack(t(v)), 1 => p.set_sustain(t(v)), _ => p.set_output_db(t(v)) },
+);
 parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
         ParamInfo::choice("waveform", "Waveform", &SynthVoice::<f64>::SOURCE_NAMES, 1),
@@ -1205,6 +1257,31 @@ mod tests {
         assert_eq!(echo.param_info(0).unwrap().max, 1.0);
     }
 
+    /// Every parameter of a freshly built processor reads its declared default, and survives a
+    /// snapshot / restore.
+    fn assert_defaults(name: &str, p: &mut impl Parameterized) {
+        for i in 0..p.param_count() {
+            let info = p.param_info(i).unwrap();
+            let value = p.get_param(i).unwrap();
+            assert!((value - info.default).abs() < 1e-9 * info.default.abs().max(1.0), "{name} {}: {value} vs default {}", info.id, info.default);
+        }
+        let snapshot = p.snapshot();
+        p.restore(&snapshot).unwrap();
+        assert_eq!(p.snapshot(), snapshot, "{name} round trip");
+    }
+
+    #[test]
+    fn effects_start_at_their_defaults() {
+        assert_defaults("limiter", &mut LookaheadLimiter::<f64>::new(2, FS));
+        assert_defaults("gate", &mut Gate::<f64>::new(FS));
+        assert_defaults("transient shaper", &mut TransientShaper::<f64>::new(FS));
+        // the gate's top ratio is an infinite one
+        let mut gate = Gate::<f64>::new(FS);
+        gate.set_param_by_id("ratio", 4.0).unwrap();
+        assert_eq!(gate.ratio(), 4.0);
+        gate.set_param_by_id("ratio", 100.0).unwrap();
+        assert!(gate.ratio().is_infinite());
+    }
     #[test]
     fn limiter_survives_a_preset_round_trip() {
         // snapshot -> restore into a default compressor must give back the same limiter

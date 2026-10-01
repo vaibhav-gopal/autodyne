@@ -75,17 +75,29 @@ impl<T: Float> TruePeak<T> {
     pub fn factor(&self) -> usize {
         self.factor
     }
+    /// Input samples by which the interpolated points trail the input: they lie between the
+    /// samples `latency()` and `latency() - 1` back (0 without oversampling).
+    pub fn latency(&self) -> usize {
+        if self.factor == 1 { 0 } else { TRUE_PEAK_TAPS / 2 }
+    }
     /// The largest absolute value among this sample and the interpolated points just before it.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
+        x._abs()._max(self.interpolated_peak(x))
+    }
+    /// Feeds `x` and returns the largest interpolated point between the samples
+    /// [`latency`](Self::latency) and `latency() - 1` back (not including the samples themselves;
+    /// 0 without oversampling).
+    #[inline]
+    pub fn interpolated_peak(&mut self, x: T) -> T {
         if self.factor == 1 {
-            return x._abs();
+            return T::_ZERO;
         }
         self.history[self.write] = x;
         self.history[self.write + TRUE_PEAK_TAPS] = x;
         self.write = (self.write + 1) % TRUE_PEAK_TAPS;
         let recent = &self.history[self.write..self.write + TRUE_PEAK_TAPS];
-        self.taps.as_chunks::<TRUE_PEAK_TAPS>().0.iter().fold(x._abs(), |m, branch| m._max(crate::simd::dot(recent, branch)._abs()))
+        self.taps.as_chunks::<TRUE_PEAK_TAPS>().0.iter().fold(T::_ZERO, |m, branch| m._max(crate::simd::dot(recent, branch)._abs()))
     }
     /// Measures `block`, raising the held [`peak`](Self::peak).
     pub fn push(&mut self, block: &[T]) {

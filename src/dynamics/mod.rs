@@ -1,12 +1,34 @@
-//! Dynamics: envelope follower, compressor and limiter.
+//! Dynamics: envelope follower, compressor, lookahead limiter, gate / expander, transient shaper.
 //!
 //! The compressor is feed-forward: it measures the input level, decides how many dB to turn it down
 //! (the static curve: threshold, ratio, soft knee), smooths that gain reduction with separate attack
 //! and release times, and applies it. Smoothing happens on the gain in dB, not on the signal, which
 //! keeps attack and release independent of level.
+//!
+//! - [`Compressor`] (also a no-lookahead limiter), [`Gate`] (gate and downward expander) and
+//!   [`TransientShaper`] are mono and [`GainComputer`]s: wrap them in
+//!   [`Linked`](crate::channels::Linked) to drive every channel with one gain.
+//! - [`LookaheadLimiter`] is multichannel (linked) by nature, with true-peak detection.
+
+mod gate;
+mod limiter;
+mod transient;
+
+pub use gate::*;
+pub use limiter::*;
+pub use transient::*;
 
 use crate::gain::{db_to_gain, gain_to_db, SmoothedValue};
 use crate::units::*;
+
+/// A level-driven gain stage: given a detector level (the loudest channel's, for linked
+/// multichannel use), the gain to apply. [`Linked`](crate::channels::Linked) runs any of them
+/// across the channels of a buffer.
+pub trait GainComputer<T: Float> {
+    /// Advances one sample at detector `level` (a linear peak, >= 0) and returns the linear gain.
+    fn gain_for_level(&mut self, level: T) -> T;
+    fn reset(&mut self);
+}
 
 /// One-pole coefficient for a time constant: after `seconds`, a step response has covered
 /// 1 - 1/e (~63%) of the way. Zero or negative times mean "instant" (coefficient 0).
@@ -223,6 +245,15 @@ impl<T: Float> Compressor<T> {
         for s in block {
             *s = self.process_sample(*s);
         }
+    }
+}
+
+impl<T: Float> GainComputer<T> for Compressor<T> {
+    fn gain_for_level(&mut self, level: T) -> T {
+        Compressor::gain_for_level(self, level)
+    }
+    fn reset(&mut self) {
+        Compressor::reset(self)
     }
 }
 

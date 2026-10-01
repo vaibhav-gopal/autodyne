@@ -11,7 +11,7 @@ use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
 use autodyne::control::{Lfo, LfoShape, Modulated, Route, Transport};
 use autodyne::delay::Echo;
 use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
-use autodyne::dynamics::{Compressor, EnvelopeFollower};
+use autodyne::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, TransientShaper};
 use autodyne::filter::{Biquad, Fir, MultiBiquad, BUTTERWORTH_Q};
 use autodyne::gain::Gain;
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
@@ -405,4 +405,27 @@ fn sampler_does_not_allocate() {
         poly.render(&mut left);
     });
     assert_eq!(poly.voices()[0].interpolation(), Interpolation::Cubic);
+}
+
+#[test]
+fn dynamics_effects_do_not_allocate() {
+    let tone: Vec<f64> = Oscillator::new(Waveform::Saw, 110.0, FS).take(2_000).map(|s| 1.5 * s).collect();
+    let mut stereo = AudioBuffer::new(2, 2_000);
+    stereo.channel_mut(0).copy_from_slice(&tone);
+    stereo.channel_mut(1).copy_from_slice(&tone);
+    let mut limiter = LookaheadLimiter::new(2, FS);
+    assert_no_alloc("LookaheadLimiter (true peak)", || {
+        limiter.process(&mut stereo);
+        limiter.set_param_by_id("ceiling_db", -3.0).unwrap();
+    });
+    let mut gate = Linked(Gate::new(FS));
+    let mut shaper = Linked(TransientShaper::new(FS));
+    assert_no_alloc("Linked gate + transient shaper", || {
+        gate.process(&mut stereo);
+        shaper.0.set_attack(0.5);
+        shaper.process(&mut stereo);
+    });
+    let mut mono = tone.clone();
+    let mut g = Gate::expander(-30.0, 2.0, FS);
+    assert_no_alloc("mono expander", || g.process(&mut mono));
 }
