@@ -35,6 +35,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `distortion` | `Waveshaper` (tanh, soft clip, hard clip, fold) with smoothed drive / output / mix |
 | `dynamics` | `EnvelopeFollower`, `Compressor` (soft knee, attack/release, makeup), `Compressor::limiter` |
 | `modulation` | `ModulatedDelay` (`chorus` / `flanger` presets), `Phaser` (swept all-pass stages) |
+| `analysis` | `SpectrumAnalyzer` (sliding FFT with analyzer ballistics, peak trace, log-spaced bands for drawing; Hann / Blackman-Harris windows), `LoudnessMeter` (ITU-R BS.1770 / EBU R128: momentary, short-term and gated integrated LUFS, loudness range, true peak; fixed memory for any duration), `TruePeak` (oversampled inter-sample peaks), `PitchDetector` (YIN via FFT correlation), `OnsetDetector` (SuperFlux-style spectral flux with adaptive peak picking) |
 | `control` | `Lfo` (sine, triangle, saws, square, sample & hold, smooth random; free-running or locked to the host's beat grid; fade-in, retrigger), `Modulated` (a modulation matrix around any processor: routes from sources to any parameter, depths in normalized units with "via" scaling, automatable depths), `Transport` and `Division` (tempo, beat position, dotted and triplet note lengths) |
 | `processor` | the `Processor` trait all effects share; tuples are zero-cost chains, `Vec<Box<dyn Processor>>` is a runtime chain |
 | `channels` | planar `AudioBuffer` (+ interleave conversion, `[channel, time]` n-d view), `MultiProcessor`, `PerChannel`, `Linked(compressor)`, `StereoWidth`, `Panner` |

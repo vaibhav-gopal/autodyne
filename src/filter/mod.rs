@@ -386,6 +386,11 @@ impl<T: Float> Biquad<T> {
         }
         // once per block (not per sample, which would cost the hot loop): a decaying state reaches
         // zero instead of sinking into slow subnormal numbers
+        self.flush_denormals();
+    }
+    /// Sets a decayed state to exactly zero instead of slow subnormal numbers. [`process`](Self::process)
+    /// does this once per block; call it about as often when filtering with `process_sample`.
+    pub fn flush_denormals(&mut self) {
         self.s1 = self.s1._flush_denormal();
         self.s2 = self.s2._flush_denormal();
     }

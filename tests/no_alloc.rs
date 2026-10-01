@@ -5,6 +5,7 @@
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
+use autodyne::analysis::{LoudnessMeter, OnsetDetector, PitchDetector, SpectrumAnalyzer, TruePeak};
 use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
 use autodyne::control::{Lfo, LfoShape, Modulated, Route, Transport};
 use autodyne::delay::Echo;
@@ -348,4 +349,34 @@ fn reverbs_and_real_fft_do_not_allocate() {
         reverb.process(&mut stereo);
         reverb.set_param_by_id("decay_s", 3.0).unwrap();
     });
+}
+
+#[test]
+fn analyzers_do_not_allocate() {
+    let tone: Vec<f64> = Oscillator::new(Waveform::Saw, 220.0, FS).take(4_096).collect();
+    let mut spectrum = SpectrumAnalyzer::new(2_048, FS);
+    let mut bands = [0.0; 64];
+    assert_no_alloc("SpectrumAnalyzer push + bands", || {
+        spectrum.push(&tone);
+        spectrum.bands_db(20.0, 20_000.0, &mut bands);
+        spectrum.peak_bands_db(20.0, 20_000.0, &mut bands);
+    });
+    let mut meter = LoudnessMeter::new(2, FS);
+    let mut stereo = AudioBuffer::new(2, 4_096);
+    stereo.channel_mut(0).copy_from_slice(&tone);
+    assert_no_alloc("LoudnessMeter (one 4096-frame buffer, many steps)", || {
+        meter.process_buffer(&stereo);
+        meter.process(&[&tone, &tone]);
+        let _ = (meter.momentary(), meter.integrated(), meter.loudness_range(), meter.true_peak_db());
+    });
+    let mut peak = TruePeak::new(FS);
+    assert_no_alloc("TruePeak", || peak.push(&tone));
+    let mut pitch = PitchDetector::new(FS, 50.0, 1_000.0);
+    assert_no_alloc("PitchDetector", || {
+        pitch.process(&tone);
+    });
+    assert!(pitch.pitch().is_some());
+    let mut onsets = OnsetDetector::new(FS);
+    let mut count = 0;
+    assert_no_alloc("OnsetDetector", || onsets.process(&tone, |_| count += 1));
 }

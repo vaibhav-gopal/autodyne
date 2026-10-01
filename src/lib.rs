@@ -15,6 +15,7 @@
 //!   capability tiers, sources, streams, n-d arrays), [`channels`] (multichannel buffers).
 //! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`spectral`],
 //!   [`iq`], [`gain`], [`delay`], [`dynamics`], [`envelope`], [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
+//! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
 //! - Instruments: [`synth`] (MIDI, voices, polyphony), [`control`] (LFOs, modulation matrix, transport).
 //! - Integration: [`params`] (parameters and metadata for hosts), [`dynamic`] (runtime-typed data
 //!   and processors), [`prelude`] (one import for all the traits).
@@ -39,6 +40,7 @@ pub mod distortion;
 pub mod synth;
 pub mod reverb;
 pub mod modulation;
+pub mod analysis;
 pub mod control;
 pub mod resample;
 pub mod params;
