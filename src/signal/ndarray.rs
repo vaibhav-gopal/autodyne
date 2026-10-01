@@ -30,10 +30,11 @@
 use std::fmt;
 use std::marker::PhantomData;
 use std::ops::{Index, IndexMut, Range};
+use std::sync::Arc;
 
 use thiserror::Error;
 
-use super::{Signal, SignalError, SignalMut, SignalOwned};
+use super::{Signal, SignalError, SignalMut, SignalOwned, Storage, StorageMut};
 use crate::units::*;
 
 /// Maximum number of axes.
@@ -421,34 +422,82 @@ impl Odometer {
 
 // OWNED ARRAY =====================================================================================
 
-/// Owned, contiguous, row-major n-dimensional array.
-#[derive(Clone, PartialEq)]
-pub struct NdArray<T> {
-    pub(super) data: Vec<T>,
+/// A contiguous, row-major n-dimensional array over some [`Storage`]: `Vec<T>` by default (owned),
+/// `Box<[T]>`, `Arc<[T]>` (shared, copy-on-write) or foreign memory (DLPack). All of them give the
+/// same views, so every operation works on every kind of array.
+pub struct NdArray<T, S = Vec<T>> {
+    pub(super) data: S,
     pub(super) layout: Layout,
+    pub(super) _elem: PhantomData<T>,
 }
 
-impl<T: fmt::Debug> fmt::Debug for NdArray<T> {
+/// An array whose elements are shared between owners: clones are cheap, and writing copies the
+/// elements first if another owner still holds them.
+pub type SharedArray<T> = NdArray<T, Arc<[T]>>;
+
+impl<T, S: Clone> Clone for NdArray<T, S> {
+    fn clone(&self) -> Self {
+        Self { data: self.data.clone(), layout: self.layout, _elem: PhantomData }
+    }
+}
+
+/// Equal shapes, labels and elements, whatever the storage.
+impl<T: PartialEq, S: Storage<Elem = T>, S2: Storage<Elem = T>> PartialEq<NdArray<T, S2>> for NdArray<T, S> {
+    fn eq(&self, other: &NdArray<T, S2>) -> bool {
+        self.layout.shape() == other.layout.shape() && self.layout.labels() == other.layout.labels() && self.as_slice() == other.as_slice()
+    }
+}
+
+impl<T: fmt::Debug, S: Storage<Elem = T>> fmt::Debug for NdArray<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NdArray").field("shape", &self.layout.shape()).field("labels", &self.layout.labels()).field("data", &self.data).finish()
+        f.debug_struct("NdArray").field("shape", &self.layout.shape()).field("labels", &self.layout.labels()).field("data", &self.as_slice()).finish()
     }
 }
 
 impl<T> NdArray<T> {
     /// Wraps `data` (row-major) as an array of `shape`.
     pub fn from_vec(data: Vec<T>, shape: &[usize]) -> Result<Self, NdError> {
-        let layout = Layout::row_major(shape)?;
-        if layout.len() != data.len() {
-            return Err(NdError::ShapeMismatch { expected: layout.len(), got: data.len() });
-        }
-        Ok(Self { data, layout })
+        Self::from_storage(data, shape)
     }
     /// Builds each element from its index.
     pub fn from_fn(shape: &[usize], mut f: impl FnMut(&[usize]) -> T) -> Result<Self, NdError> {
         let layout = Layout::row_major(shape)?;
         let mut data = Vec::with_capacity(layout.len());
         for_each_index(layout.shape(), |idx| data.push(f(idx)));
-        Ok(Self { data, layout })
+        Ok(Self { data, layout, _elem: PhantomData })
+    }
+    pub fn into_vec(self) -> Vec<T> {
+        self.data
+    }
+    /// Moves the elements into shared storage (one copy into the shared allocation), after which
+    /// clones are cheap.
+    pub fn into_shared(self) -> SharedArray<T> {
+        NdArray { data: Arc::from(self.data), layout: self.layout, _elem: PhantomData }
+    }
+}
+
+impl<T: Copy> NdArray<T> {
+    /// An array of `shape` filled with `value`.
+    pub fn full(shape: &[usize], value: T) -> Result<Self, NdError> {
+        let layout = Layout::row_major(shape)?;
+        Ok(Self { data: vec![value; layout.len()], layout, _elem: PhantomData })
+    }
+    pub fn zeros(shape: &[usize]) -> Result<Self, NdError>
+    where
+        T: Default,
+    {
+        Self::full(shape, T::default())
+    }
+}
+
+impl<T, S: Storage<Elem = T>> NdArray<T, S> {
+    /// Wraps `storage` (row-major elements) as an array of `shape`.
+    pub fn from_storage(storage: S, shape: &[usize]) -> Result<Self, NdError> {
+        let layout = Layout::row_major(shape)?;
+        if layout.len() != storage.as_slice().len() {
+            return Err(NdError::ShapeMismatch { expected: layout.len(), got: storage.as_slice().len() });
+        }
+        Ok(Self { data: storage, layout, _elem: PhantomData })
     }
     /// Labels every axis; errors unless exactly one label per axis is given.
     pub fn with_labels(mut self, labels: &[Axis]) -> Result<Self, NdError> {
@@ -465,10 +514,10 @@ impl<T> NdArray<T> {
         self.layout.ndim
     }
     pub fn len(&self) -> usize {
-        self.data.len()
+        self.layout.len()
     }
     pub fn is_empty(&self) -> bool {
-        self.data.is_empty()
+        self.len() == 0
     }
     pub fn labels(&self) -> &[Axis] {
         self.layout.labels()
@@ -478,59 +527,77 @@ impl<T> NdArray<T> {
         self.labels().iter().position(|&l| l == label)
     }
     pub fn as_slice(&self) -> &[T] {
+        self.data.as_slice()
+    }
+    pub fn storage(&self) -> &S {
         &self.data
     }
-    pub fn as_mut_slice(&mut self) -> &mut [T] {
-        &mut self.data
-    }
-    pub fn into_vec(self) -> Vec<T> {
+    pub fn into_storage(self) -> S {
         self.data
     }
     pub fn get(&self, index: &[usize]) -> Option<&T> {
-        self.layout.offset_of(index).map(|o| &self.data[o as usize])
+        self.layout.offset_of(index).map(|o| &self.as_slice()[o as usize])
     }
-    pub fn get_mut(&mut self, index: &[usize]) -> Option<&mut T> {
-        self.layout.offset_of(index).map(move |o| &mut self.data[o as usize])
-    }
-    /// Same elements, new shape (the element count must match). Labels are cleared.
+    /// Same elements, new shape (the element count must match). Labels are cleared. No copy.
     pub fn reshape(self, shape: &[usize]) -> Result<Self, NdError> {
-        Self::from_vec(self.data, shape)
+        Self::from_storage(self.data, shape)
     }
     pub fn view(&self) -> NdView<'_, T> {
-        NdView { ptr: self.data.as_ptr(), layout: self.layout, _borrow: PhantomData }
-    }
-    pub fn view_mut(&mut self) -> NdViewMut<'_, T> {
-        NdViewMut { ptr: self.data.as_mut_ptr(), layout: self.layout, _borrow: PhantomData }
+        NdView { ptr: self.as_slice().as_ptr(), layout: self.layout, _borrow: PhantomData }
     }
     /// The 1-D lanes along `axis` (see [`NdView::lanes`]).
     pub fn lanes(&self, axis: usize) -> Result<Lanes<'_, T>, NdError> {
         self.view().lanes(axis)
     }
+}
+
+impl<T, S: StorageMut<Elem = T>> NdArray<T, S> {
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        self.data.as_mut_slice()
+    }
+    pub fn get_mut(&mut self, index: &[usize]) -> Option<&mut T> {
+        self.layout.offset_of(index).map(move |o| &mut self.data.as_mut_slice()[o as usize])
+    }
+    pub fn view_mut(&mut self) -> NdViewMut<'_, T> {
+        NdViewMut { ptr: self.data.as_mut_slice().as_mut_ptr(), layout: self.layout, _borrow: PhantomData }
+    }
     /// The 1-D lanes along `axis`, mutable (see [`NdViewMut::lanes_mut`]).
     pub fn lanes_mut(&mut self, axis: usize) -> Result<LanesMut<'_, T>, NdError> {
         self.view_mut().into_lanes_mut(axis)
     }
-}
-
-impl<T: Copy> NdArray<T> {
-    /// An array of `shape` filled with `value`.
-    pub fn full(shape: &[usize], value: T) -> Result<Self, NdError> {
-        let layout = Layout::row_major(shape)?;
-        Ok(Self { data: vec![value; layout.len()], layout })
-    }
-    pub fn zeros(shape: &[usize]) -> Result<Self, NdError>
-    where
-        T: Default,
-    {
-        Self::full(shape, T::default())
-    }
     /// Applies `f` to every 1-D lane along `axis` (e.g. filter every channel along time).
-    pub fn for_each_lane(&mut self, axis: usize, f: impl FnMut(&mut [T])) -> Result<(), NdError> {
+    pub fn for_each_lane(&mut self, axis: usize, f: impl FnMut(&mut [T])) -> Result<(), NdError>
+    where
+        T: Copy,
+    {
         self.view_mut().for_each_lane(axis, f)
     }
 }
 
-impl<T> Index<&[usize]> for NdArray<T> {
+impl<T: Clone> SharedArray<T> {
+    /// Whether no other array shares these elements (writing then needs no copy).
+    pub fn is_unique(&mut self) -> bool {
+        Arc::get_mut(&mut self.data).is_some()
+    }
+    /// The elements for writing, copied first if another array still shares them.
+    pub fn make_mut(&mut self) -> &mut [T] {
+        if Arc::get_mut(&mut self.data).is_none() {
+            self.data = Arc::from(self.data.to_vec());
+        }
+        Arc::get_mut(&mut self.data).expect("unique after copying")
+    }
+    /// A mutable view, copying the elements first if they are shared.
+    pub fn make_view_mut(&mut self) -> NdViewMut<'_, T> {
+        let layout = self.layout;
+        NdViewMut { ptr: self.make_mut().as_mut_ptr(), layout, _borrow: PhantomData }
+    }
+    /// A copy in a plain `Vec`-backed array.
+    pub fn to_unshared(&self) -> NdArray<T> {
+        NdArray { data: self.data.to_vec(), layout: self.layout, _elem: PhantomData }
+    }
+}
+
+impl<T, S: Storage<Elem = T>> Index<&[usize]> for NdArray<T, S> {
     type Output = T;
     /// Panics if the index is out of bounds or has the wrong number of axes.
     fn index(&self, index: &[usize]) -> &T {
@@ -538,23 +605,23 @@ impl<T> Index<&[usize]> for NdArray<T> {
     }
 }
 
-impl<T> IndexMut<&[usize]> for NdArray<T> {
+impl<T, S: StorageMut<Elem = T>> IndexMut<&[usize]> for NdArray<T, S> {
     fn index_mut(&mut self, index: &[usize]) -> &mut T {
         self.get_mut(index).expect("NdArray index out of bounds")
     }
 }
 
 /// An array is a signal over all its elements (row-major).
-impl<T: Float> Signal for NdArray<T> {
+impl<T: Float, S: Storage<Elem = T>> Signal for NdArray<T, S> {
     type Sample = T;
     fn samples(&self) -> &[T] {
-        &self.data
+        self.as_slice()
     }
 }
 
-impl<T: Float> SignalMut for NdArray<T> {
+impl<T: Float, S: StorageMut<Elem = T>> SignalMut for NdArray<T, S> {
     fn samples_mut(&mut self) -> &mut [T] {
-        &mut self.data
+        self.as_mut_slice()
     }
 }
 
@@ -578,7 +645,6 @@ impl<T: Float> SignalOwned for NdArray<T> {
         Ok(Self::from_container(samples.to_vec()))
     }
 }
-
 // VIEWS ===========================================================================================
 
 /// Borrowed, possibly strided view of n-dimensional data. `Copy`: views are cheap descriptions.
@@ -768,7 +834,7 @@ macro_rules! view_common {
                 let data: Vec<T> = self.iter().copied().collect();
                 let mut layout = Layout::row_major(self.shape()).expect("valid shape");
                 layout.labels = self.layout.labels;
-                NdArray { data, layout }
+                NdArray { data, layout, _elem: PhantomData }
             }
             /// The elements in logical order, copied into a `Vec`.
             pub fn to_vec(&self) -> Vec<T> {
@@ -1430,6 +1496,28 @@ mod tests {
         assert!(NdView::from_parts(&data, &[0, 5], &[100, 1], 99).is_ok());
     }
 
+    #[test]
+    fn storage_kinds_share_one_api() {
+        // boxed storage: owned and writable
+        let mut boxed = NdArray::from_storage(vec![1.0f64, 2.0, 3.0, 4.0].into_boxed_slice(), &[2, 2]).unwrap();
+        boxed[&[1, 1][..]] = 40.0;
+        assert_eq!(boxed.view().transpose().to_vec(), [1.0, 3.0, 2.0, 40.0]);
+        // shared storage: cheap clones, copy on write
+        let shared = counting(&[2, 3]).into_shared();
+        let mut writer = shared.clone();
+        assert!(std::ptr::eq(shared.as_slice(), writer.as_slice()), "a clone shares the elements");
+        writer.make_view_mut().fill(9.0);
+        assert_eq!(shared.as_slice(), [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "the original is untouched");
+        assert_eq!(writer.as_slice(), [9.0; 6]);
+        assert!(writer.is_unique());
+        writer.make_mut()[0] = 1.0; // unique now: no copy
+        assert_eq!(writer.to_unshared().as_slice()[..2], [1.0, 9.0]);
+        // equality and signals ignore the storage kind
+        assert_eq!(shared, counting(&[2, 3]));
+        assert_eq!(shared.sum(), 15.0);
+        assert_eq!(shared.reshape(&[3, 2]).unwrap().view().index_axis(0, 2).unwrap().to_vec(), [4.0, 5.0]);
+        assert!(NdArray::from_storage(vec![1.0f32; 5], &[2, 3]).is_err());
+    }
     #[test]
     fn arrays_are_owned_signals() {
         let mut a = counting(&[2, 2]);

@@ -14,6 +14,7 @@
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 use super::ndarray::{Layout, NdArray, NdError, NdView, NdViewMut, MAX_DIMS};
+use super::{Storage, StorageMut};
 use crate::processor::Processor;
 use crate::units::*;
 
@@ -348,10 +349,13 @@ impl<'a, T> NdView<'a, T> {
     }
 }
 
-impl<T> NdArray<T> {
+impl<T, S: StorageMut<Elem = T>> NdArray<T, S> {
     pub fn map_inplace(&mut self, f: impl FnMut(&mut T)) {
         self.view_mut().map_inplace(f);
     }
+}
+
+impl<T, S: Storage<Elem = T>> NdArray<T, S> {
     pub fn map<R: Copy + Default>(&self, f: impl FnMut(&T) -> R) -> NdArray<R> {
         self.view().map(f)
     }
@@ -380,18 +384,18 @@ macro_rules! arithmetic {
                 self.zip_mut_with(rhs, |x, &y| *x = $Op::$op(*x, y)).expect("operands broadcast");
             }
         }
-        impl<T: Scalar + $Op<Output = T>> $OpAssign<T> for NdArray<T> {
+        impl<T: Scalar + $Op<Output = T>, S: StorageMut<Elem = T>> $OpAssign<T> for NdArray<T, S> {
             fn $op_assign(&mut self, rhs: T) {
                 self.view_mut().$op_assign(rhs);
             }
         }
-        impl<'b, T: Copy + $Op<Output = T>> $OpAssign<&NdView<'b, T>> for NdArray<T> {
+        impl<'b, T: Copy + $Op<Output = T>, S: StorageMut<Elem = T>> $OpAssign<&NdView<'b, T>> for NdArray<T, S> {
             fn $op_assign(&mut self, rhs: &NdView<'b, T>) {
                 self.view_mut().$op_assign(rhs);
             }
         }
-        impl<T: Copy + $Op<Output = T>> $OpAssign<&NdArray<T>> for NdArray<T> {
-            fn $op_assign(&mut self, rhs: &NdArray<T>) {
+        impl<T: Copy + $Op<Output = T>, S: StorageMut<Elem = T>, S2: Storage<Elem = T>> $OpAssign<&NdArray<T, S2>> for NdArray<T, S> {
+            fn $op_assign(&mut self, rhs: &NdArray<T, S2>) {
                 self.view_mut().$op_assign(&rhs.view());
             }
         }
@@ -410,13 +414,13 @@ macro_rules! arithmetic {
                 self.map(|&x| $Op::$op(x, rhs))
             }
         }
-        impl<T: Copy + Default + $Op<Output = T>> $Op<&NdArray<T>> for &NdArray<T> {
+        impl<T: Copy + Default + $Op<Output = T>, S: Storage<Elem = T>, S2: Storage<Elem = T>> $Op<&NdArray<T, S2>> for &NdArray<T, S> {
             type Output = NdArray<T>;
-            fn $op(self, rhs: &NdArray<T>) -> NdArray<T> {
+            fn $op(self, rhs: &NdArray<T, S2>) -> NdArray<T> {
                 $Op::$op(self.view(), rhs.view())
             }
         }
-        impl<T: Scalar + Default + $Op<Output = T>> $Op<T> for &NdArray<T> {
+        impl<T: Scalar + Default + $Op<Output = T>, S: Storage<Elem = T>> $Op<T> for &NdArray<T, S> {
             type Output = NdArray<T>;
             fn $op(self, rhs: T) -> NdArray<T> {
                 $Op::$op(self.view(), rhs)
@@ -614,7 +618,7 @@ impl<'a, T: Float> NdView<'a, T> {
     }
 }
 
-impl<T: Float> NdArray<T> {
+impl<T: Float, S: Storage<Elem = T>> NdArray<T, S> {
     /// Sum along `axis`, which is removed.
     pub fn sum_axis(&self, axis: usize) -> Result<NdArray<T>, NdError> {
         self.view().sum_axis(axis)
@@ -687,14 +691,14 @@ impl<'a, T: Copy + Default> NdViewMut<'a, T> {
     }
 }
 
-impl<T: Copy + Default> NdArray<T> {
+impl<T: Copy + Default, S: StorageMut<Elem = T>> NdArray<T, S> {
     /// See [`NdViewMut::for_each_lane_chunked`].
     pub fn for_each_lane_chunked(&mut self, axis: usize, f: impl FnMut(usize, &mut [T])) -> Result<(), NdError> {
         self.view_mut().for_each_lane_chunked(axis, f)
     }
 }
 
-impl<T: Float + Default> NdArray<T> {
+impl<T: Float + Default, S: StorageMut<Elem = T>> NdArray<T, S> {
     /// See [`NdViewMut::process_lanes`].
     pub fn process_lanes<P: Processor<T>>(&mut self, axis: usize, processors: &mut [P]) -> Result<(), NdError> {
         self.view_mut().process_lanes(axis, processors)

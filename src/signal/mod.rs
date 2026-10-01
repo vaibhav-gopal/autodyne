@@ -42,6 +42,7 @@ mod container;
 mod nd_ops;
 mod ndarray;
 mod source;
+mod storage;
 mod stream;
 mod transform;
 
@@ -51,6 +52,7 @@ pub use container::*;
 pub use nd_ops::*;
 pub use ndarray::*;
 pub use source::*;
+pub use storage::*;
 pub use stream::*;
 pub use transform::*;
 
