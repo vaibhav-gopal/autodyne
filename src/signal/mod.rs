@@ -18,7 +18,8 @@
 //!   converting to and from bytes (files, sockets, FFI) at the boundary.
 //! - Capability tiers ([`SignalOwned`], [`SignalResizable`]) and the operations they unlock
 //!   ([`SigOwnedOps`], [`SigResizeOps`]).
-//! - [`NdArray`] and zero-copy [`NdView`] / [`NdViewMut`]: n-dimensional data (batched, multichannel,
+//! - [`NdArray`] and zero-copy [`NdView`] / [`NdViewMut`] (slicing, steps, transposes, broadcasting and
+//!   reshapes as O(1) layout changes): n-dimensional data (batched, multichannel,
 //!   ML tensors) whose 1-D lanes along any axis are signals.
 //!
 //! Stateful block processing (filters, effects) lives in `processor`; a `Source` feeds it with `through`.

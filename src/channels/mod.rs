@@ -87,14 +87,14 @@ impl<T: Float> AudioBuffer<T> {
     }
     /// The current frames as a `[channel, time]` n-d view (no copy), e.g. to hand to an ML runtime.
     pub fn as_nd_view(&self) -> NdView<'_, T> {
-        NdView::from_parts(&self.data, &[self.channels, self.frames], &[self.max_frames, 1], self.offset)
+        NdView::from_parts(&self.data, &[self.channels, self.frames], &[self.max_frames as isize, 1], self.offset)
             .and_then(|v| v.with_labels(&[Axis::Channel, Axis::Time]))
             .expect("an AudioBuffer's layout always fits its storage")
     }
     /// Mutable `[channel, time]` n-d view of the current frames.
     pub fn as_nd_view_mut(&mut self) -> NdViewMut<'_, T> {
         let (channels, frames, max, offset) = (self.channels, self.frames, self.max_frames, self.offset);
-        NdViewMut::from_parts(&mut self.data, &[channels, frames], &[max, 1], offset)
+        NdViewMut::from_parts(&mut self.data, &[channels, frames], &[max as isize, 1], offset)
             .and_then(|v| v.with_labels(&[Axis::Channel, Axis::Time]))
             .expect("an AudioBuffer's layout always fits its storage")
     }

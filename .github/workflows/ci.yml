@@ -43,6 +43,7 @@ jobs:
           cargo run --release --example host -- f64 threshold_db=-30
           cargo run --release --example interop
           cargo run --release --example reverb
+          cargo run --release --example sampler
       - name: Plugin bundles
         run: cargo xtask bundle -p autodyne-reverb -p autodyne-synth --release
       - name: Benchmarks compile
@@ -50,6 +51,23 @@ jobs:
       # The crate is warning-free; keep it that way.
       - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # The n-d views are raw pointers over validated layouts: check their unsafe code for undefined
+  # behaviour (Miri's float noise is turned off so exact-equality assertions stay meaningful).
+  miri:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Miri (n-d views and runtime-typed views)
+        run: cargo miri test --lib -- signal::ndarray dynamic::
+        env:
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-deterministic-floats
 
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
   deny:

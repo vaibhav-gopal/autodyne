@@ -41,12 +41,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Sine::new(500.0 * (b + 1) as f32, FS).with_amplitude(0.35 * (c + 1) as f32).mix(Noise::new(lane_index as u64).scaled(0.2)).fill(lane);
         lane_index += 1;
     })?;
-    let noisy_rms: Vec<f32> = tensor.view().lanes(time)?.iter().map(|l| l.as_slice().unwrap().rms().unwrap()).collect();
+    let noisy_rms: Vec<f32> = tensor.lanes(time)?.map(|l| l.as_slice().unwrap().rms().unwrap()).collect();
 
     // every lane is an independent clip: filter each with a fresh 2 kHz low-pass
     tensor.for_each_lane(time, |lane| Biquad::lowpass(2_000.0, FS, BUTTERWORTH_Q as f32).process(lane))?;
     println!("filtered {} lanes of a {:?} tensor along its {:?} axis", noisy_rms.len(), tensor.shape(), Axis::Time);
-    for (i, lane) in tensor.view().lanes(time)?.iter().enumerate() {
+    for (i, lane) in tensor.lanes(time)?.enumerate() {
         let x = lane.as_slice().unwrap();
         println!("  batch {} channel {}: rms {:.3} -> {:.3}, peak {:.3}", i / CHANNELS, i % CHANNELS, noisy_rms[i], x.rms().unwrap(), x.peak());
     }

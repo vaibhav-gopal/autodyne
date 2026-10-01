@@ -322,13 +322,13 @@ fn dtype_of<T: DynElement>(_: &NdArray<T>) -> DType {
 struct RawLayout {
     dtype: DType,
     shape: [usize; MAX_DIMS],
-    strides: [usize; MAX_DIMS],
+    strides: [isize; MAX_DIMS],
     ndim: usize,
     offset: usize,
 }
 
 impl RawLayout {
-    fn new(dtype: DType, shape: &[usize], strides: Option<&[usize]>, offset: usize) -> Result<Self, DynError> {
+    fn new(dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
         if dtype == DType::I24 {
             return Err(DynError::Unsupported(dtype));
         }
@@ -344,10 +344,10 @@ impl RawLayout {
             }
             Some(strides) => st[..strides.len()].copy_from_slice(strides),
             None => {
-                let mut acc = 1;
+                let mut acc = 1isize;
                 for i in (0..shape.len()).rev() {
                     st[i] = acc;
-                    acc *= shape[i];
+                    acc *= shape[i] as isize;
                 }
             }
         }
@@ -381,9 +381,10 @@ impl<'a> DynView<'a> {
     pub fn new(bytes: &'a [u8], dtype: DType, shape: &[usize]) -> Result<Self, DynError> {
         Self::with_strides(bytes, dtype, shape, None, 0)
     }
-    /// A view with explicit element strides and starting element offset (e.g. a column-major or
-    /// sliced tensor). Bounds are checked when a typed view is taken.
-    pub fn with_strides(bytes: &'a [u8], dtype: DType, shape: &[usize], strides: Option<&[usize]>, offset: usize) -> Result<Self, DynError> {
+    /// A view with explicit element strides (negative ones walk backwards) and the element offset of
+    /// index [0, 0, ...] (e.g. a column-major, sliced or reversed tensor). Bounds are checked when a
+    /// typed view is taken.
+    pub fn with_strides(bytes: &'a [u8], dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
         let layout = RawLayout::new(dtype, shape, strides, offset)?;
         layout.check_bytes(bytes.len())?;
         Ok(Self { bytes, layout })
@@ -425,7 +426,7 @@ impl<'a> DynViewMut<'a> {
     pub fn new(bytes: &'a mut [u8], dtype: DType, shape: &[usize]) -> Result<Self, DynError> {
         Self::with_strides(bytes, dtype, shape, None, 0)
     }
-    pub fn with_strides(bytes: &'a mut [u8], dtype: DType, shape: &[usize], strides: Option<&[usize]>, offset: usize) -> Result<Self, DynError> {
+    pub fn with_strides(bytes: &'a mut [u8], dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
         let layout = RawLayout::new(dtype, shape, strides, offset)?;
         layout.check_bytes(bytes.len())?;
         Ok(Self { bytes, layout })
