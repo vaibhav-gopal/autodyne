@@ -67,7 +67,11 @@ impl Plugin for AutodyneReverb {
         self.sample_rate = config.sample_rate;
         self.reverb = Smoothed::new(Reverb::new(config.sample_rate), RAMP_SECONDS, config.sample_rate as f64);
         self.mono_scratch = vec![0.0; config.max_buffer_size as usize];
-        self.params.invalidate(); // the new reverb must receive every current setting
+        // the new reverb takes every current host setting at once: no glide from the defaults when a
+        // preset loads or the sample rate changes (this runs off the audio thread)
+        self.params.invalidate();
+        self.params.apply(&mut self.reverb);
+        self.reverb.settle();
         true
     }
 

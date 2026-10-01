@@ -77,7 +77,10 @@ fn notices() -> Result<()> {
 /// Copies each bundled plugin's notices next to its bundles, and into those that are directories
 /// (`.vst3` everywhere, `.clap` on macOS) under `Contents/Resources`.
 fn bundle_notices(packages: &[String]) -> Result<()> {
-    let bundled = std::env::var_os("CARGO_TARGET_DIR").map_or_else(|| PathBuf::from("target"), PathBuf::from).join("bundled");
+    // the same target directory nice-plug-xtask bundled into (respects CARGO_TARGET_DIR and
+    // build.target-dir in Cargo config)
+    let target_dir = cargo_metadata::MetadataCommand::new().no_deps().exec()?.target_directory;
+    let bundled = target_dir.into_std_path_buf().join("bundled");
     for package in packages {
         let source = Path::new(PLUGINS_DIR).join(package).join(NOTICES);
         if !source.exists() {

@@ -8,7 +8,8 @@
 pub struct Transport {
     /// beats (quarter notes) per minute
     pub tempo: f64,
-    /// beats per bar (4 in 4/4, 3 in 3/4, 6 in 6/8 counted in eighths becomes 3 dotted quarters: 3)
+    /// bar length in beats (quarter notes): 4 in 4/4, 3 in 3/4, and also 3 in 6/8 (six eighth
+    /// notes); [`bar_length`](Self::bar_length) converts a time signature
     pub beats_per_bar: f64,
     /// position at the start of the current block, in beats since the start of the timeline
     pub position: f64,
@@ -25,6 +26,11 @@ impl Default for Transport {
 impl Transport {
     pub fn new(tempo: f64) -> Self {
         Self { tempo, ..Self::default() }
+    }
+    /// Bar length in beats (quarter notes) of a time signature: numerator x 4 / denominator.
+    /// Falls back to 4/4 for a signature with a zero part.
+    pub fn bar_length(numerator: u32, denominator: u32) -> f64 {
+        if numerator == 0 || denominator == 0 { 4.0 } else { numerator as f64 * 4.0 / denominator as f64 }
     }
     pub fn seconds_per_beat(&self) -> f64 {
         60.0 / self.tempo
@@ -133,5 +139,9 @@ mod tests {
         assert!((t.position - 2.0).abs() < 1e-12);
         t.position = 9.5;
         assert_eq!(t.bar_and_beat(), (2.0, 1.5));
+        t.beats_per_bar = Transport::bar_length(6, 8); // six eighths: three quarter-note beats
+        assert_eq!(t.beats_per_bar, 3.0);
+        assert_eq!(t.bar_and_beat(), (3.0, 0.5));
+        assert_eq!((Transport::bar_length(7, 8), Transport::bar_length(3, 4), Transport::bar_length(0, 4)), (3.5, 3.0, 4.0));
     }
 }

@@ -49,7 +49,8 @@ pub struct Lfo {
     phase_offset: f64,
     fade_seconds: f64,
     sample_rate: f64,
-    /// free-running phase in cycles, [0, 1), without the offset
+    /// phase in cycles, [0, 1), offset included: the waveform is drawn from it and cycles are
+    /// counted on it, so the random shapes step exactly where the (offset) cycle starts
     phase: f64,
     /// count of completed cycles (random shapes draw a new value on each)
     cycle: i64,
@@ -121,9 +122,11 @@ impl Lfo {
     pub fn division_index(&self) -> usize {
         self.division
     }
-    /// Phase offset in cycles, [0, 1).
+    /// Phase offset in cycles, [0, 1): shifts the waveform (changing it moves the phase now).
     pub fn set_phase_offset(&mut self, cycles: f64) {
-        self.phase_offset = cycles.rem_euclid(1.0);
+        let offset = cycles.rem_euclid(1.0);
+        self.phase = (self.phase + offset - self.phase_offset).rem_euclid(1.0);
+        self.phase_offset = offset;
     }
     pub fn phase_offset(&self) -> f64 {
         self.phase_offset
@@ -141,12 +144,12 @@ impl Lfo {
     }
     /// Restarts the cycle (free-running mode) and the fade-in: call on note-on for a per-note LFO.
     pub fn trigger(&mut self) {
-        self.phase = 0.0;
+        self.phase = self.phase_offset;
         self.samples_since_trigger = 0;
     }
     /// Back to the start: phase, fade (finished) and random sequence position kept.
     pub fn reset(&mut self) {
-        self.phase = 0.0;
+        self.phase = self.phase_offset;
         self.cycle = 0;
         self.samples_since_trigger = usize::MAX;
         self.value = 0.0;
@@ -162,16 +165,16 @@ impl Lfo {
     pub fn advance(&mut self, samples: usize, transport: Option<&Transport>) -> f64 {
         let (phase, cycle) = match transport {
             Some(t) if self.sync && t.playing => {
-                let cycles = t.position_after(samples, self.sample_rate) / self.division().beats;
-                // keep the free-running phase in step, so stopping the transport doesn't jump
+                let cycles = t.position_after(samples, self.sample_rate) / self.division().beats + self.phase_offset;
+                // the free-running phase follows too, so stopping the transport doesn't jump
                 self.phase = cycles.rem_euclid(1.0);
-                ((cycles + self.phase_offset).rem_euclid(1.0), cycles.floor() as i64)
+                (self.phase, cycles.floor() as i64)
             }
             _ => {
                 let total = self.phase + self.frequency(transport) * samples as f64 / self.sample_rate;
                 let wraps = total.floor();
                 self.phase = total - wraps;
-                ((self.phase + self.phase_offset).rem_euclid(1.0), self.cycle + wraps as i64)
+                (self.phase, self.cycle + wraps as i64)
             }
         };
         if cycle != self.cycle {
@@ -337,6 +340,31 @@ mod tests {
         let changes = values.windows(2).filter(|w| w[0] != w[1]).count();
         assert_eq!(changes, 3, "4 cycles in 40 x 480 samples: a new value at each of 3 wraps");
         assert!(values.iter().all(|v| (-1.0..1.0).contains(v)));
+    }
+
+    #[test]
+    fn random_shapes_follow_the_phase_offset() {
+        // smooth random eases continuously, and sample & hold steps exactly where the (offset)
+        // cycle starts, i.e. where a saw with the same rate and offset wraps
+        let lfo = |shape| {
+            let mut l = Lfo::new(FS).with_shape(shape).with_seed(3);
+            l.set_rate(10.0);
+            l.set_phase_offset(0.3);
+            l
+        };
+        let (mut smooth, mut hold, mut saw) = (lfo(LfoShape::SmoothRandom), lfo(LfoShape::SampleHold), lfo(LfoShape::SawUp));
+        let (mut last_smooth, mut last_hold, mut last_saw) = (smooth.advance(0, None), hold.advance(0, None), saw.advance(0, None));
+        let mut steps = 0;
+        for _ in 0..24_000 {
+            let (s, h, w) = (smooth.advance(1, None), hold.advance(1, None), saw.advance(1, None));
+            assert!((s - last_smooth).abs() < 0.01, "smooth random eases: {last_smooth} -> {s}");
+            if h != last_hold {
+                assert!(w < last_saw, "sample & hold steps where the cycle wraps");
+                steps += 1;
+            }
+            (last_smooth, last_hold, last_saw) = (s, h, w);
+        }
+        assert_eq!(steps, 5, "half a second at 10 Hz");
     }
 
     #[test]

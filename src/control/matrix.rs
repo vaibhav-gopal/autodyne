@@ -53,7 +53,10 @@ pub enum RouteError {
 /// automate modulation amounts too.
 ///
 /// Modulation is applied at control rate: [`run`](Self::run) updates the sources and parameters
-/// every [`RAMP_STEP`] samples. Allocates only in `new`.
+/// every [`RAMP_STEP`] samples. Coefficient parameters (frequencies, Q, rates, times) follow within
+/// one step; a parameter the processor smooths itself ([`Smoothing::Internal`](crate::params::Smoothing),
+/// e.g. gains and mixes) also passes each modulated value through that 20 ms ramp, which softens
+/// fast modulation of it. Allocates only in `new`.
 #[derive(Debug, Clone)]
 pub struct Modulated<P> {
     inner: P,

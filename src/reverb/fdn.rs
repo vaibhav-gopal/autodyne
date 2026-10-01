@@ -309,7 +309,6 @@ impl<T: Float> Reverb<T> {
             *r = *r + mix * (mid - side - *r);
         }
     }
-
 }
 
 /// Stereo in, stereo out. Panics unless the buffer has exactly 2 channels.

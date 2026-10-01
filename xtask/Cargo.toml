@@ -7,3 +7,5 @@ license = "GPL-3.0-only"
 
 [dependencies]
 nice-plug-xtask = "0.1.1"
+# the target directory the bundler used (already a dependency of nice-plug-xtask)
+cargo_metadata = "0.23"

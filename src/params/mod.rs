@@ -683,6 +683,7 @@ parameterized!(SynthVoice, "Synth voice",
         _ => p.filter_env_mut().set_release(t(v)),
     },
 );
+
 /// One set of parameters controlling every voice.
 impl<V: Voice + Parameterized> Parameterized for Poly<V> {
     fn param_count(&self) -> usize {

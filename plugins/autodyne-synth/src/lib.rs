@@ -115,7 +115,11 @@ impl Plugin for AutodyneSynth {
         // allocation is fine here: this runs outside the audio callback
         self.sample_rate = config.sample_rate as f64;
         self.patch = Smoothed::new(patch(config.sample_rate), RAMP_SECONDS, self.sample_rate);
-        self.params.invalidate(); // the new patch must receive every current setting
+        // the new patch takes every current host setting at once: no glide from the defaults when a
+        // preset loads or the sample rate changes (this runs off the audio thread)
+        self.params.invalidate();
+        self.params.apply(&mut self.patch);
+        self.patch.settle();
         true
     }
 
@@ -132,7 +136,10 @@ impl Plugin for AutodyneSynth {
         let host = context.transport();
         let mut transport = Transport {
             tempo: host.tempo.unwrap_or(120.0),
-            beats_per_bar: host.time_sig_numerator.map_or(4.0, f64::from),
+            beats_per_bar: match (host.time_sig_numerator, host.time_sig_denominator) {
+                (Some(n), Some(d)) => Transport::bar_length(n.max(0) as u32, d.max(0) as u32),
+                _ => 4.0,
+            },
             position: host.pos_beats().unwrap_or(0.0),
             playing: host.playing,
         };

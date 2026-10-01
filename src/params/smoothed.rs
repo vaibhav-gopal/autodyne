@@ -154,14 +154,17 @@ impl<P: Parameterized> Parameterized for Smoothed<P> {
     }
     /// The value last set (a ramp's target), not the value mid-glide.
     fn get_param(&self, index: usize) -> Option<f64> {
-        let r = self.ramps.get(index)?;
-        match r.info.smoothing {
-            Smoothing::Ramp => Some(r.target_value),
+        match self.ramps.get(index) {
+            Some(r) if r.info.smoothing == Smoothing::Ramp => Some(r.target_value),
             _ => self.inner.get_param(index),
         }
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let r = self.ramps.get_mut(index).ok_or(ParamError::UnknownIndex(index))?;
+        let Some(r) = self.ramps.get_mut(index) else {
+            // a parameter the wrapped processor gained after wrapping (a growing `Vec` chain):
+            // no ramp state for it, so it applies directly
+            return self.inner.set_param(index, value);
+        };
         let applied = r.info.validate(value)?;
         let n = r.info.to_normalized(applied);
         if r.info.smoothing != Smoothing::Ramp || self.ramp_samples == 0 {
@@ -172,10 +175,12 @@ impl<P: Parameterized> Parameterized for Smoothed<P> {
             (r.current, r.target, r.target_value) = (n, n, applied);
             return self.inner.set_param(index, applied);
         }
+        if applied == r.target_value {
+            // already there or on the way: re-sending a value (as some hosts do every block) must
+            // not restart the glide, or it would never settle
+            return Ok(applied);
+        }
         if r.remaining == 0 {
-            if applied == r.target_value {
-                return Ok(applied);
-            }
             self.active += 1;
         }
         // (re)start from wherever the glide is now: interrupting a ramp never jumps
@@ -307,6 +312,30 @@ mod tests {
         lp.process(&mut [0.0; 32]);
         let f = lp.inner().design().unwrap().frequency;
         assert!(f < 1_000.0 && f > 800.0, "continues smoothly back down from ~1 kHz: {f}");
+    }
+
+    #[test]
+    fn resending_the_target_does_not_restart_the_glide() {
+        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, FS, BUTTERWORTH_Q), 0.01, FS); // 480 samples
+        let cutoff = lp.param_index("frequency_hz").unwrap();
+        lp.set_param(cutoff, 10_000.0).unwrap();
+        for _ in 0..15 {
+            // 15 x 32 = 480 samples, with the host re-sending the same value every block
+            lp.set_param(cutoff, 10_000.0).unwrap();
+            lp.process(&mut [0.0; 32]);
+        }
+        assert!(!lp.is_ramping(), "settles on schedule");
+        assert_eq!(lp.inner().design().unwrap().frequency, 10_000.0);
+    }
+
+    #[test]
+    fn parameters_added_after_wrapping_pass_through() {
+        let mut chain = Smoothed::new(vec![Gain::<f64>::new(1.0, 0.0, FS)], 0.02, FS);
+        chain.inner_mut().push(Gain::new(1.0, 0.0, FS));
+        assert_eq!(chain.param_count(), 2);
+        assert_eq!(chain.set_param(1, -6.0), Ok(-6.0), "no ramp state for it, so it applies directly");
+        assert_eq!(chain.get_param(1).map(f64::round), Some(-6.0));
+        assert_eq!(chain.set_param(2, 0.0), Err(ParamError::UnknownIndex(2)));
     }
 
     #[test]
