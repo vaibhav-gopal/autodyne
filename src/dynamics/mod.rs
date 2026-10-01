@@ -67,7 +67,7 @@ impl<T: Float> EnvelopeFollower<T> {
     pub fn process_sample(&mut self, x: T) -> T {
         let level = x._abs();
         let coeff = if level > self.envelope { self.attack_coeff } else { self.release_coeff };
-        self.envelope = coeff * self.envelope + (T::_ONE - coeff) * level;
+        self.envelope = (coeff * self.envelope + (T::_ONE - coeff) * level)._flush_denormal();
         self.envelope
     }
     /// Replaces each sample of `block` with the envelope at that point.

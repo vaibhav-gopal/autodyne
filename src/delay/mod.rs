@@ -141,7 +141,8 @@ impl<T: Float> Echo<T> {
         let (delay, feedback, mix) = (self.delay_samples.next_value(), self.feedback.next_value(), self.mix.next_value());
         // Read before pushing x: the newest stored sample is from the previous step, so one less.
         let delayed = self.line.read_frac(delay - T::_ONE);
-        self.line.push(x + feedback * delayed);
+        // flushed: repeats die out to exact zero instead of slow subnormal numbers
+        self.line.push((x + feedback * delayed)._flush_denormal());
         x * (T::_ONE - mix) + delayed * mix
     }
     /// Processes `block` in place.

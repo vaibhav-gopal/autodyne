@@ -56,7 +56,7 @@ impl<T: Float> Diffuser<T> {
     fn process(&mut self, x: T) -> T {
         let g = T::_lit(0.5);
         let delayed = self.line.read(self.delay - 1);
-        let v = x + g * delayed;
+        let v = (x + g * delayed)._flush_denormal();
         self.line.push(v);
         delayed - g * v
     }
@@ -257,7 +257,12 @@ impl<T: Float> Reverb<T> {
             self.mod_countdown = MOD_INTERVAL;
         }
         self.mod_countdown -= 1;
-        self.predelay_line.push(input);
+        // subnormal numbers are slow on many CPUs, so everything entering a delay line (where a tail
+        // recirculates for seconds) is flushed: the tail ends in exact zeros. The input too, in case the
+        // host sends subnormals. The short recursions below (damping, interpolation) aren't flushed: that
+        // would lengthen their per-sample dependency chains, and once the lines are silent they underflow
+        // to zero within a few hundred samples on their own.
+        self.predelay_line.push(input._flush_denormal());
         let mut x = self.predelay_line.read(self.predelay);
         for d in &mut self.diffusers {
             x = d.process(x);
@@ -283,8 +288,10 @@ impl<T: Float> Reverb<T> {
         }
         hadamard(&mut state);
         let input_gain = T::_lit(1.0 / (LINES as f64).sqrt());
-        for i in 0..LINES {
-            self.lines[i].push(state[i] + x * T::_lit(INPUT_SIGNS[i]) * input_gain);
+        // computed as a whole array first (vectorizes) rather than interleaved with the line writes
+        let writes: [T; LINES] = std::array::from_fn(|i| (state[i] + x * T::_lit(INPUT_SIGNS[i]) * input_gain)._flush_denormal());
+        for (line, w) in self.lines.iter_mut().zip(writes) {
+            line.push(w);
         }
         let out_gain = T::_lit(1.0 / (LINES as f64).sqrt());
         (left * out_gain, right * out_gain)
@@ -302,6 +309,7 @@ impl<T: Float> Reverb<T> {
             *r = *r + mix * (mid - side - *r);
         }
     }
+
 }
 
 /// Stereo in, stereo out. Panics unless the buffer has exactly 2 channels.
@@ -421,6 +429,27 @@ mod tests {
         };
         let (bright, dark) = (centroid(20_000.0), centroid(2_000.0));
         assert!(dark < 0.6 * bright, "spectral centroid {dark:.0} Hz with damping vs {bright:.0} Hz without");
+    }
+
+    #[test]
+    fn tail_ends_in_exact_silence_without_subnormals() {
+        // subnormal numbers are 10-100x slower on many CPUs: the tail must skip them, even when the
+        // host sends subnormal input, without relying on the CPU's flush-to-zero mode
+        let fs = 48_000.0f32;
+        let mut reverb = Reverb::<f32>::new(fs);
+        reverb.set_decay(0.2); // the 1e-30 flush level (-600 dB) is reached after about 2 s
+        reverb.set_mix(1.0);
+        let n = 4 * fs as usize;
+        let (mut l, mut r) = (vec![0.0f32; n], vec![0.0f32; n]);
+        (l[0], r[0]) = (1.0, 1.0);
+        l[1..1_000].fill(f32::MIN_POSITIVE / 2.0);
+        reverb.process_stereo(&mut l, &mut r);
+        // a brief subnormal stretch is fine (the damping and interpolation states underflow on their own,
+        // about 200 samples here); the dry part of the mix, ramping from its default, passes the input through
+        let subnormal = l[1_000..].iter().chain(&r).filter(|s| s.is_subnormal()).count();
+        assert!(subnormal < 2_000, "{subnormal} subnormal outputs: the tail lingers in subnormal range");
+        let last = n - fs as usize / 10;
+        assert!(l[last..].iter().chain(&r[last..]).all(|&s| s == 0.0), "the tail ends in exact silence");
     }
 
     #[test]

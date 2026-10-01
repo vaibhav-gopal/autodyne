@@ -114,7 +114,7 @@ impl<T: Float> ModulatedDelay<T> {
         self.current_delay = self.base_samples + self.depth_samples * self.lfo.next_sample();
         // read before pushing x, so the newest stored sample is one step old (as in `Echo`)
         let delayed = self.line.read_frac(self.current_delay - T::_ONE);
-        self.line.push(x + self.feedback * delayed);
+        self.line.push((x + self.feedback * delayed)._flush_denormal());
         x * (T::_ONE - self.mix) + delayed * self.mix
     }
     pub fn process(&mut self, block: &mut [T]) {
@@ -136,7 +136,7 @@ struct Allpass1<T: Float> {
 impl<T: Float> Allpass1<T> {
     #[inline]
     fn process(&mut self, x: T, a: T) -> T {
-        let y = a * x + self.x1 - a * self.y1;
+        let y = (a * x + self.x1 - a * self.y1)._flush_denormal();
         self.x1 = x;
         self.y1 = y;
         y
@@ -233,7 +233,7 @@ impl<T: Float> Phaser<T> {
         let sweep = (self.lfo.next_sample() + T::_ONE) / T::_lit(2.0);
         let freq = self.min_hz * (self.max_hz / self.min_hz)._pow(sweep);
         let a = allpass_coeff(freq, self.sample_rate);
-        let mut s = x + self.feedback * self.last_out;
+        let mut s = (x + self.feedback * self.last_out)._flush_denormal();
         for stage in &mut self.stages {
             s = stage.process(s, a);
         }

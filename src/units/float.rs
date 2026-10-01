@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 
 pub trait Float: Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive {
     /// Special states
@@ -21,6 +21,8 @@ pub trait Float: Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpF
     const _PI: Self;
     const _E: Self;
     const _TAU: Self;
+    /// Magnitude below which `_flush_denormal` returns zero: 1e-30, about -600 dB.
+    const _FLUSH_THRESHOLD: Self;
     fn _floor(self) -> Self;
     fn _ceil(self) -> Self;
     fn _round(self) -> Self;
@@ -32,6 +34,17 @@ pub trait Float: Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpF
     /// Panics only if the value is out of range for Self, which f64 -> f32 constants never are in practice.
     fn _lit(v: f64) -> Self {
         Self::from_f64(v).expect("f64 constant out of range for target float")
+    }
+    /// `self`, or exactly zero when its magnitude is below 1e-30 (about -600 dB, far below anything
+    /// audible).
+    ///
+    /// Feedback loops (reverbs, recursive filters, feedback delays, envelope followers) apply this to
+    /// their state so a decaying tail reaches zero instead of sinking into subnormal numbers, which many
+    /// CPUs process 10-100x slower. This works without changing the CPU's floating-point mode
+    /// (flush-to-zero), which is unsafe in Rust and up to the host.
+    #[inline(always)]
+    fn _flush_denormal(self) -> Self {
+        if self._abs() < Self::_FLUSH_THRESHOLD { Self::_ZERO } else { self }
     }
 }
 
@@ -55,6 +68,7 @@ macro_rules! impl_float {
             const _PI: Self = std::$SrcT::consts::PI;
             const _E: Self = std::$SrcT::consts::E;
             const _TAU: Self = std::$SrcT::consts::TAU;
+            const _FLUSH_THRESHOLD: Self = 1e-30;
             fn _floor(self) -> Self {
                 $SrcT::floor(self)
             }

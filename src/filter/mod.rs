@@ -377,6 +377,10 @@ impl<T: Float> Biquad<T> {
         for s in block {
             *s = self.process_sample(*s);
         }
+        // once per block (not per sample, which would cost the hot loop): a decaying state reaches
+        // zero instead of sinking into slow subnormal numbers
+        self.s1 = self.s1._flush_denormal();
+        self.s2 = self.s2._flush_denormal();
     }
     pub fn magnitude_at(&self, frequency: T, sample_rate: T) -> T {
         self.coeffs.magnitude_at(frequency, sample_rate)
@@ -477,9 +481,10 @@ fn run_lanes<T: Float, const L: usize>(filters: &mut [Biquad<T>], channels: [&mu
             channels[l][f] = y;
         }
     }
+    // flushed once per block, as in `Biquad::process`
     for (l, q) in filters.iter_mut().enumerate() {
-        q.s1 = s1[l];
-        q.s2 = s2[l];
+        q.s1 = s1[l]._flush_denormal();
+        q.s2 = s2[l]._flush_denormal();
     }
 }
 
@@ -711,6 +716,27 @@ mod tests {
                 assert_close(measured_gain(|b| bq.process(b), f), coeffs.magnitude_at(f, FS), 2e-3, &format!("{coeffs:?} at {f} Hz"));
             }
         }
+    }
+
+    #[test]
+    fn decaying_biquad_state_reaches_exact_zero() {
+        // without the per-block flush the state would decay through subnormal numbers (slow on
+        // many CPUs) for a long time before underflowing
+        let mut single = Biquad::<f32>::lowpass(100.0, 48_000.0, BUTTERWORTH_Q as f32);
+        let mut multi = MultiBiquad::new(4, |_| Biquad::<f32>::lowpass(100.0, 48_000.0, BUTTERWORTH_Q as f32));
+        let mut block = [0.0f32; 512];
+        let mut buffer = AudioBuffer::new(4, 512);
+        block[0] = 1.0;
+        (0..4).for_each(|ch| buffer.channel_mut(ch)[0] = 1.0);
+        for _ in 0..200 {
+            single.process(&mut block);
+            multi.process_buffer(&mut buffer);
+            assert!(block.iter().chain((0..4).flat_map(|ch| buffer.channel(ch))).all(|s| !s.is_subnormal()));
+            block.fill(0.0);
+            (0..4).for_each(|ch| buffer.channel_mut(ch).fill(0.0));
+        }
+        assert_eq!((single.s1, single.s2), (0.0, 0.0));
+        assert!(multi.channels().iter().all(|q| q.s1 == 0.0 && q.s2 == 0.0));
     }
 
     #[test]
