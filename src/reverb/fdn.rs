@@ -257,11 +257,10 @@ impl<T: Float> Reverb<T> {
             self.mod_countdown = MOD_INTERVAL;
         }
         self.mod_countdown -= 1;
-        // subnormal numbers are slow on many CPUs, so everything entering a delay line (where a tail
-        // recirculates for seconds) is flushed: the tail ends in exact zeros. The input too, in case the
-        // host sends subnormals. The short recursions below (damping, interpolation) aren't flushed: that
-        // would lengthen their per-sample dependency chains, and once the lines are silent they underflow
-        // to zero within a few hundred samples on their own.
+        // subnormal numbers are slow on many CPUs (and hosts reject them in the output), so every
+        // recursion is flushed each sample: what enters a delay line (where a tail recirculates for
+        // seconds), the damping and interpolation states, the input in case the host sends
+        // subnormals, and the outputs (`process_stereo`). A tail ends in exact zeros.
         self.predelay_line.push(input._flush_denormal());
         let mut x = self.predelay_line.read(self.predelay);
         for d in &mut self.diffusers {
@@ -277,13 +276,13 @@ impl<T: Float> Reverb<T> {
                 // response is exactly flat, so the loop loses no energy to interpolation and the decay
                 // time stays exact (linear or cubic interpolation dull the highs a little every pass)
                 let (x0, x1) = (self.lines[i].read(self.mod_whole[i]), self.lines[i].read(self.mod_whole[i] + 1));
-                let y = self.mod_eta[i] * (x0 - self.allpass_state[i]) + x1;
+                let y = (self.mod_eta[i] * (x0 - self.allpass_state[i]) + x1)._flush_denormal();
                 self.allpass_state[i] = y;
                 y
             };
             left = left + T::_lit(LEFT_SIGNS[i]) * out;
             right = right + T::_lit(RIGHT_SIGNS[i]) * out;
-            self.lowpass[i] = self.lowpass[i] + self.damping_coeff * (out - self.lowpass[i]);
+            self.lowpass[i] = (self.lowpass[i] + self.damping_coeff * (out - self.lowpass[i]))._flush_denormal();
             state[i] = self.lowpass[i] * self.gains[i];
         }
         hadamard(&mut state);
@@ -305,8 +304,8 @@ impl<T: Float> Reverb<T> {
             // width: scale the side (difference) of the wet signal
             let (mid, side) = ((wl + wr) * half, (wl - wr) * half * self.width.next_value());
             let mix = self.mix.next_value();
-            *l = *l + mix * (mid + side - *l);
-            *r = *r + mix * (mid - side - *r);
+            *l = (*l + mix * (mid + side - *l))._flush_denormal();
+            *r = (*r + mix * (mid - side - *r))._flush_denormal();
         }
     }
 }
@@ -443,10 +442,8 @@ mod tests {
         (l[0], r[0]) = (1.0, 1.0);
         l[1..1_000].fill(f32::MIN_POSITIVE / 2.0);
         reverb.process_stereo(&mut l, &mut r);
-        // a brief subnormal stretch is fine (the damping and interpolation states underflow on their own,
-        // about 200 samples here); the dry part of the mix, ramping from its default, passes the input through
-        let subnormal = l[1_000..].iter().chain(&r).filter(|s| s.is_subnormal()).count();
-        assert!(subnormal < 2_000, "{subnormal} subnormal outputs: the tail lingers in subnormal range");
+        // not a single subnormal sample, anywhere: not from the tail, nor passed through from the input
+        assert!(l.iter().chain(&r).all(|s| !s.is_subnormal()), "no subnormal output");
         let last = n - fs as usize / 10;
         assert!(l[last..].iter().chain(&r[last..]).all(|&s| s == 0.0), "the tail ends in exact silence");
     }

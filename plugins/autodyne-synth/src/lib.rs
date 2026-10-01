@@ -331,10 +331,16 @@ mod tests {
                 let normalized = random();
                 patch.set_normalized(index, normalized).unwrap_or_else(|e| panic!("param {index}: {e}"));
             }
+            let voices = patch.inner_mut().1.inner_mut();
             if round % 3 == 0 {
-                let note = 36 + (random() * 48.0) as u8;
-                patch.inner_mut().1.inner_mut().note_on_channel((random() * 16.0) as u8, note, 0.8);
+                // the whole key range, on any channel (MPE members included)
+                voices.note_on_channel((random() * 16.0) as u8, (random() * 128.0) as u8, 0.8);
             }
+            // bends, aftertouch, timbre and per-note tuning to their extremes
+            voices.set_channel_bend((random() * 16.0) as u8, random() as f32 * 2.0 - 1.0);
+            voices.set_channel_pressure((random() * 16.0) as u8, random() as f32);
+            voices.set_channel_timbre((random() * 16.0) as u8, random() as f32);
+            voices.set_note_tuning((random() * 128.0) as u8, (random() as f32 * 2.0 - 1.0) * 120.0);
             render_voices(&mut patch, &mut out, &mut transport, fs);
             assert!(out.iter().all(|s| s.is_finite()), "round {round}");
         }

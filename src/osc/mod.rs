@@ -165,9 +165,19 @@ pub struct Oscillator<T: Float> {
     amplitude: T,
 }
 
+/// A band-limited oscillator's frequency as cycles per sample, limited to 0 ..= Nyquist (0.5):
+/// nothing above Nyquist can be represented, and the PolyBLEP corrections and phase wrap assume
+/// less than one edge per sample. Negative and NaN frequencies give 0 (a held phase).
+#[inline]
+fn band_limited_increment<T: Float>(frequency: T, sample_rate: T) -> T {
+    let increment = frequency / sample_rate;
+    if increment > T::_ZERO { increment._min(T::_lit(0.5)) } else { T::_ZERO }
+}
+
 impl<T: Float> Oscillator<T> {
+    /// Frequencies are limited to 0 ..= Nyquist.
     pub fn new(waveform: Waveform<T>, frequency: T, sample_rate: T) -> Self {
-        Self { waveform, phase: T::_ZERO, increment: frequency / sample_rate, amplitude: T::_ONE }
+        Self { waveform, phase: T::_ZERO, increment: band_limited_increment(frequency, sample_rate), amplitude: T::_ONE }
     }
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
         self.amplitude = amplitude;
@@ -178,9 +188,9 @@ impl<T: Float> Oscillator<T> {
         self.phase = cycles - cycles._floor();
         self
     }
-    /// Changes frequency without resetting phase (no click).
+    /// Changes frequency without resetting phase (no click). Limited to 0 ..= Nyquist.
     pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
-        self.increment = frequency / sample_rate;
+        self.increment = band_limited_increment(frequency, sample_rate);
     }
     pub fn set_waveform(&mut self, waveform: Waveform<T>) {
         self.waveform = waveform;
@@ -371,6 +381,22 @@ impl_generator_blocks!(Impulse);
 mod tests {
     use super::*;
 
+    #[test]
+    fn oscillator_survives_any_frequency() {
+        // above Nyquist (even several cycles per sample), negative, NaN: limited to 0 ..= Nyquist,
+        // never panicking, never unbounded (a host or a modulation matrix can ask for anything)
+        for waveform in [Waveform::Sine, Waveform::Saw, Waveform::Pulse { pulse_width: 0.3 }, Waveform::Triangle] {
+            for freq in [440_000.0f32, 24_000.0, 1e9, -500.0, f32::NAN, 0.0] {
+                let mut osc = Oscillator::new(waveform, freq, 48_000.0);
+                for _ in 0..1_000 {
+                    let x = osc.next_sample();
+                    assert!(x.is_finite() && x.abs() <= 2.0, "{waveform:?} at {freq} Hz: {x}");
+                }
+                osc.set_frequency(freq, 48_000.0);
+                assert!(osc.next_sample().is_finite());
+            }
+        }
+    }
     #[test]
     fn sine_matches_closed_form() {
         let (f, fs) = (1000.0, 48_000.0);
