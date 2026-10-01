@@ -25,7 +25,7 @@ use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
 use crate::reverb::{Convolver, Reverb};
-use crate::synth::{Poly, SynthVoice, Voice, VoiceFilter, VoiceMode, MAX_UNISON};
+use crate::synth::{Algorithm, FmVoice, Poly, SynthVoice, Voice, VoiceFilter, VoiceMode, MAX_UNISON};
 use crate::filter::{Biquad, Fir, Ladder, MultiBiquad, Svf, SvfMode};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
@@ -641,8 +641,9 @@ impl<P: Parameterized, T: Float> Parameterized for Oversampled<P, T> {
 
 parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
-        ParamInfo::choice("waveform", "Waveform", &Waveform::<f64>::NAMES, 1),
+        ParamInfo::choice("waveform", "Waveform", &SynthVoice::<f64>::SOURCE_NAMES, 1),
         ParamInfo::new("pulse_width", "Pulse width", Fraction, 0.05, 0.95, 0.5),
+        ParamInfo::new("wt_position", "Wavetable position", Fraction, 0.0, 1.0, 0.0),
         ParamInfo::new("unison", "Unison", ParamUnit::None, 1.0, MAX_UNISON as f64, 1.0).integer(),
         ParamInfo::new("detune_cents", "Detune", Cents, 0.0, 100.0, 15.0),
         ParamInfo::choice("filter", "Filter", &VoiceFilter::NAMES, 0),
@@ -663,51 +664,124 @@ parameterized!(SynthVoice, "Synth voice",
         ParamInfo::new("timbre_octaves", "Timbre > cutoff (octaves)", ParamUnit::None, 0.0, 4.0, 1.0),
     ],
     read: |p, i| match i {
-        0 => p.waveform().index() as f64,
+        0 => if p.wavetable_source() { 4.0 } else { p.waveform().index() as f64 },
         1 => f(p.pulse_width()),
-        2 => p.unison() as f64,
-        3 => f(p.detune()),
-        4 => VoiceFilter::ALL.iter().position(|&v| v == p.filter()).unwrap_or(0) as f64,
-        5 => f(p.cutoff()),
-        6 => f(p.resonance()),
-        7 => f(p.drive_db()),
-        8 => f(p.env_amount()),
-        9 => f(p.amp_env().attack()),
-        10 => f(p.amp_env().decay()),
-        11 => f(p.amp_env().sustain()),
-        12 => f(p.amp_env().release()),
-        13 => f(p.filter_env().attack()),
-        14 => f(p.filter_env().decay()),
-        15 => f(p.filter_env().sustain()),
-        16 => f(p.filter_env().release()),
-        17 => f(p.glide()),
-        18 => f(p.pressure_amount()),
+        2 => f(p.wavetable_position()),
+        3 => p.unison() as f64,
+        4 => f(p.detune()),
+        5 => VoiceFilter::ALL.iter().position(|&v| v == p.filter()).unwrap_or(0) as f64,
+        6 => f(p.cutoff()),
+        7 => f(p.resonance()),
+        8 => f(p.drive_db()),
+        9 => f(p.env_amount()),
+        10 => f(p.amp_env().attack()),
+        11 => f(p.amp_env().decay()),
+        12 => f(p.amp_env().sustain()),
+        13 => f(p.amp_env().release()),
+        14 => f(p.filter_env().attack()),
+        15 => f(p.filter_env().decay()),
+        16 => f(p.filter_env().sustain()),
+        17 => f(p.filter_env().release()),
+        18 => f(p.glide()),
+        19 => f(p.pressure_amount()),
         _ => f(p.timbre_amount()),
     },
     write: |p, i, v| match i {
-        0 => p.set_waveform(Waveform::from_index(v as usize, p.pulse_width())),
+        0 => {
+            // the classic waveforms, or (the last option) the wavetable
+            p.set_wavetable_source(v as usize == SynthVoice::<f64>::SOURCE_NAMES.len() - 1);
+            if !p.wavetable_source() {
+                p.set_waveform(Waveform::from_index(v as usize, p.pulse_width()));
+            }
+        }
         1 => p.set_pulse_width(t(v)),
-        2 => p.set_unison(v as usize),
-        3 => p.set_detune(t(v)),
-        4 => p.set_filter(VoiceFilter::ALL[v as usize]),
-        5 => p.set_cutoff(t(v)),
-        6 => p.set_resonance(t(v)),
-        7 => p.set_drive_db(t(v)),
-        8 => p.set_env_amount(t(v)),
-        9 => p.amp_env_mut().set_attack(t(v)),
-        10 => p.amp_env_mut().set_decay(t(v)),
-        11 => p.amp_env_mut().set_sustain(t(v)),
-        12 => p.amp_env_mut().set_release(t(v)),
-        13 => p.filter_env_mut().set_attack(t(v)),
-        14 => p.filter_env_mut().set_decay(t(v)),
-        15 => p.filter_env_mut().set_sustain(t(v)),
-        16 => p.filter_env_mut().set_release(t(v)),
-        17 => p.set_glide(t(v)),
-        18 => p.set_pressure_amount(t(v)),
+        2 => p.set_wavetable_position(t(v)),
+        3 => p.set_unison(v as usize),
+        4 => p.set_detune(t(v)),
+        5 => p.set_filter(VoiceFilter::ALL[v as usize]),
+        6 => p.set_cutoff(t(v)),
+        7 => p.set_resonance(t(v)),
+        8 => p.set_drive_db(t(v)),
+        9 => p.set_env_amount(t(v)),
+        10 => p.amp_env_mut().set_attack(t(v)),
+        11 => p.amp_env_mut().set_decay(t(v)),
+        12 => p.amp_env_mut().set_sustain(t(v)),
+        13 => p.amp_env_mut().set_release(t(v)),
+        14 => p.filter_env_mut().set_attack(t(v)),
+        15 => p.filter_env_mut().set_decay(t(v)),
+        16 => p.filter_env_mut().set_sustain(t(v)),
+        17 => p.filter_env_mut().set_release(t(v)),
+        18 => p.set_glide(t(v)),
+        19 => p.set_pressure_amount(t(v)),
         _ => p.set_timbre_amount(t(v)),
     },
 );
-
+parameterized!(FmVoice, "FM voice",
+    infos: |_s| [
+        ParamInfo::choice("algorithm", "Algorithm", &Algorithm::NAMES, 4),
+        ParamInfo::new("feedback", "Feedback (op 4)", Fraction, 0.0, 1.0, 0.0),
+        ParamInfo::new("op1_ratio", "Op 1 ratio", ParamUnit::None, 0.25, 16.0, 1.0).log(),
+        ParamInfo::new("op1_detune", "Op 1 detune", Cents, -50.0, 50.0, 0.0),
+        ParamInfo::new("op1_level", "Op 1 level", Fraction, 0.0, 1.0, 1.0),
+        ParamInfo::new("op1_attack_s", "Op 1 attack", Seconds, 0.0, 10.0, 0.002),
+        ParamInfo::new("op1_decay_s", "Op 1 decay", Seconds, 0.0, 10.0, 1.6),
+        ParamInfo::new("op1_sustain", "Op 1 sustain", Fraction, 0.0, 1.0, 0.0),
+        ParamInfo::new("op1_release_s", "Op 1 release", Seconds, 0.0, 20.0, 0.5),
+        ParamInfo::new("op2_ratio", "Op 2 ratio", ParamUnit::None, 0.25, 16.0, 1.0).log(),
+        ParamInfo::new("op2_detune", "Op 2 detune", Cents, -50.0, 50.0, 0.0),
+        ParamInfo::new("op2_level", "Op 2 level", Fraction, 0.0, 1.0, 0.3),
+        ParamInfo::new("op2_attack_s", "Op 2 attack", Seconds, 0.0, 10.0, 0.001),
+        ParamInfo::new("op2_decay_s", "Op 2 decay", Seconds, 0.0, 10.0, 0.9),
+        ParamInfo::new("op2_sustain", "Op 2 sustain", Fraction, 0.0, 1.0, 0.0),
+        ParamInfo::new("op2_release_s", "Op 2 release", Seconds, 0.0, 20.0, 0.3),
+        ParamInfo::new("op3_ratio", "Op 3 ratio", ParamUnit::None, 0.25, 16.0, 1.0).log(),
+        ParamInfo::new("op3_detune", "Op 3 detune", Cents, -50.0, 50.0, 0.0),
+        ParamInfo::new("op3_level", "Op 3 level", Fraction, 0.0, 1.0, 0.6),
+        ParamInfo::new("op3_attack_s", "Op 3 attack", Seconds, 0.0, 10.0, 0.002),
+        ParamInfo::new("op3_decay_s", "Op 3 decay", Seconds, 0.0, 10.0, 2.2),
+        ParamInfo::new("op3_sustain", "Op 3 sustain", Fraction, 0.0, 1.0, 0.0),
+        ParamInfo::new("op3_release_s", "Op 3 release", Seconds, 0.0, 20.0, 0.6),
+        ParamInfo::new("op4_ratio", "Op 4 ratio", ParamUnit::None, 0.25, 16.0, 14.0).log(),
+        ParamInfo::new("op4_detune", "Op 4 detune", Cents, -50.0, 50.0, 0.0),
+        ParamInfo::new("op4_level", "Op 4 level", Fraction, 0.0, 1.0, 0.07),
+        ParamInfo::new("op4_attack_s", "Op 4 attack", Seconds, 0.0, 10.0, 0.001),
+        ParamInfo::new("op4_decay_s", "Op 4 decay", Seconds, 0.0, 10.0, 0.15),
+        ParamInfo::new("op4_sustain", "Op 4 sustain", Fraction, 0.0, 1.0, 0.0),
+        ParamInfo::new("op4_release_s", "Op 4 release", Seconds, 0.0, 20.0, 0.1),
+    ],
+    read: |p, i| match i {
+        0 => p.algorithm() as f64,
+        1 => f(p.feedback()),
+        _ => {
+            let (op, field) = ((i - 2) / 7, (i - 2) % 7);
+            match field {
+                0 => f(p.ratio(op)),
+                1 => f(p.detune(op)),
+                2 => f(p.level(op)),
+                3 => f(p.env(op).attack()),
+                4 => f(p.env(op).decay()),
+                5 => f(p.env(op).sustain()),
+                _ => f(p.env(op).release()),
+            }
+        }
+    },
+    write: |p, i, v| match i {
+        0 => p.set_algorithm(v as usize),
+        1 => p.set_feedback(t(v)),
+        _ => {
+            let (op, field) = ((i - 2) / 7, (i - 2) % 7);
+            match field {
+                0 => p.set_ratio(op, t(v)),
+                1 => p.set_detune(op, t(v)),
+                2 => p.set_level(op, t(v)),
+                3 => p.env_mut(op).set_attack(t(v)),
+                4 => p.env_mut(op).set_decay(t(v)),
+                5 => p.env_mut(op).set_sustain(t(v)),
+                _ => p.env_mut(op).set_release(t(v)),
+            }
+        }
+    },
+);
 /// The voices' parameters (one set controlling every voice), followed by the pool's own: voice mode,
 /// pitch bend range and MPE.
 impl<V: Voice + Parameterized> Parameterized for Poly<V> {
@@ -978,7 +1052,7 @@ mod tests {
     fn synth_voice_waveform_is_a_choice_that_keeps_pulse_width() {
         let mut voice = SynthVoice::<f32>::new(48_000.0);
         let info = voice.param_info(voice.param_index("waveform").unwrap()).unwrap();
-        assert_eq!(info.kind, ParamKind::Choice(&["Sine", "Saw", "Pulse", "Triangle"]));
+        assert_eq!(info.kind, ParamKind::Choice(&["Sine", "Saw", "Pulse", "Triangle", "Wavetable"]));
         assert_eq!(info.format(voice.get_param_by_id("waveform").unwrap()), "Saw");
         voice.set_param_by_id("pulse_width", 0.25).unwrap(); // remembered while the saw plays
         assert_eq!(voice.set_param_by_id("waveform", 1.8), Ok(2.0));
@@ -988,8 +1062,36 @@ mod tests {
         assert_eq!(voice.waveform(), Waveform::Sine);
         voice.set_param_by_id("waveform", 2.0).unwrap();
         assert_eq!(voice.waveform(), Waveform::Pulse { pulse_width: 0.75 });
+        // the last option plays the wavetable; going back restores the classic waveform
+        voice.set_param_by_id("waveform", 4.0).unwrap();
+        assert!(voice.wavetable_source());
+        assert_eq!(voice.get_param_by_id("waveform"), Some(4.0));
+        voice.set_param_by_id("waveform", 1.0).unwrap();
+        assert!(!voice.wavetable_source() && voice.waveform() == Waveform::Saw);
     }
 
+    #[test]
+    fn fm_voice_parameters_cover_every_operator() {
+        let mut fm = FmVoice::<f32>::new(48_000.0);
+        assert_eq!(fm.param_count(), 2 + 4 * 7);
+        let mut ids: Vec<&str> = (0..fm.param_count()).map(|i| fm.param_info(i).unwrap().id).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        assert_eq!(ids.len(), fm.param_count(), "unique ids");
+        fm.set_param_by_id("op3_ratio", 2.5).unwrap();
+        fm.set_param_by_id("op4_level", 0.5).unwrap();
+        fm.set_param_by_id("op2_release_s", 1.25).unwrap();
+        fm.set_param_by_id("algorithm", 7.0).unwrap();
+        assert_eq!((fm.ratio(2), fm.level(3), fm.env(1).release(), fm.algorithm()), (2.5, 0.5, 1.25, 7));
+        let info = fm.param_info(fm.param_index("algorithm").unwrap()).unwrap();
+        assert_eq!(info.format(7.0), "1, 2, 3, 4");
+        // what the defaults say is what a new voice has
+        for i in 0..fm.param_count() {
+            let fresh = FmVoice::<f64>::new(48_000.0);
+            let (info, value) = (fresh.param_info(i).unwrap(), fresh.get_param(i).unwrap());
+            assert!((value - info.default).abs() < 1e-6, "{}: {} vs default {}", info.id, value, info.default);
+        }
+    }
     #[test]
     fn parse_inverts_format() {
         let freq = ParamInfo::new("f", "Freq", Hertz, 20.0, 20_000.0, 1_000.0);

@@ -1,4 +1,4 @@
-//! Signal generators: oscillators, noise and impulses.
+//! Signal generators: oscillators (including band-limited wavetables), noise and impulses.
 //!
 //! Every generator can be used two ways:
 //! - as an infinite `Iterator` (lazy, composes with the std adapters: `sine.take(n).zip(noise)...`)
@@ -169,7 +169,7 @@ pub struct Oscillator<T: Float> {
 /// nothing above Nyquist can be represented, and the PolyBLEP corrections and phase wrap assume
 /// less than one edge per sample. Negative and NaN frequencies give 0 (a held phase).
 #[inline]
-fn band_limited_increment<T: Float>(frequency: T, sample_rate: T) -> T {
+pub(crate) fn band_limited_increment<T: Float>(frequency: T, sample_rate: T) -> T {
     let increment = frequency / sample_rate;
     if increment > T::_ZERO { increment._min(T::_lit(0.5)) } else { T::_ZERO }
 }
@@ -230,6 +230,9 @@ impl<T: Float> Oscillator<T> {
 }
 
 impl_generator_blocks!(Oscillator);
+
+mod wavetable;
+pub use wavetable::*;
 
 // PHASOR ==========================================================================================
 

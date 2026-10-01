@@ -16,13 +16,13 @@ use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::distortion::{Shape, Waveshaper};
 use autodyne::envelope::Adsr;
-use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform};
+use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform, Wavetable};
 use autodyne::params::{process_buffer_events, process_events, ParamEvent, Parameterized, Smoothed};
 use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
 use autodyne::spectral::{Fft, RealFft};
-use autodyne::synth::{MidiMessage, Poly, SynthVoice, TimedEvent};
+use autodyne::synth::{FmVoice, MidiMessage, Poly, SynthVoice, TimedEvent};
 use autodyne::units::{Complex, DType};
 
 struct Counting;
@@ -302,7 +302,22 @@ fn polyphonic_synth_does_not_allocate() {
         poly.set_note_tuning(62, 0.3);
         poly.render(&mut out);
     });
-    poly.set_param_by_id("voice_mode", 2.0).unwrap(); // legato
+    poly.set_param_by_id("waveform", 4.0).unwrap(); // the wavetable source
+    assert_no_alloc("Poly on the wavetable source, morphing", || {
+        poly.set_param_by_id("wt_position", 0.4).unwrap();
+        poly.handle(MidiMessage::NoteOn { channel: 0, note: 70, velocity: 90 });
+        poly.render(&mut out);
+        let table = Wavetable::shared_classic();
+        poly.voices_mut()[0].set_wavetable(table);
+    });
+    let mut fm = Poly::new(4, 256, |_| FmVoice::new(FS));
+    assert_no_alloc("Poly<FmVoice>: notes, parameters, render", || {
+        fm.note_on(60, 0.8);
+        fm.set_param_by_id("algorithm", 2.0).unwrap();
+        fm.set_param_by_id("feedback", 0.7).unwrap();
+        fm.set_param_by_id("op4_ratio", 3.5).unwrap();
+        fm.render(&mut out);
+    });    poly.set_param_by_id("voice_mode", 2.0).unwrap(); // legato
     assert_no_alloc("Poly in legato mode", || {
         for n in [60, 64, 67] {
             poly.note_on(n, 0.7);

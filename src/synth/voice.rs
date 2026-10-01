@@ -1,7 +1,9 @@
 use super::{midi_to_hz, Voice};
 use crate::envelope::Adsr;
 use crate::filter::{Ladder, Svf, SvfMode};
-use crate::osc::{Oscillator, Waveform};
+use std::sync::Arc;
+
+use crate::osc::{Oscillator, Waveform, Wavetable, WavetableOsc};
 use crate::units::*;
 
 /// Samples between pitch and filter-coefficient updates (glide, envelopes, expression).
@@ -25,13 +27,18 @@ impl VoiceFilter {
     pub const NAMES: [&'static str; 4] = ["Low-pass 12", "Band-pass 12", "High-pass 12", "Ladder 24"];
 }
 
-/// A subtractive synth voice: up to [`MAX_UNISON`] detuned band-limited oscillators -> a resonant
-/// filter whose cutoff is swept by its own envelope, by pressure and by timbre -> amplitude ADSR,
-/// scaled by velocity. Glides between notes when a glide time is set.
+/// A subtractive synth voice: up to [`MAX_UNISON`] detuned band-limited oscillators (classic
+/// waveforms or a morphing [`Wavetable`]) -> a resonant filter whose cutoff is swept by its own
+/// envelope, by pressure and by timbre -> amplitude ADSR, scaled by velocity. Glides between notes
+/// when a glide time is set.
 #[derive(Debug, Clone)]
 pub struct SynthVoice<T: Float> {
     sample_rate: T,
     oscs: [Oscillator<T>; MAX_UNISON],
+    /// the wavetable source (used instead of `oscs` when `wavetable` is set)
+    wt_oscs: [WavetableOsc<T>; MAX_UNISON],
+    wavetable: bool,
+    wt_position: T,
     /// each oscillator's starting phase (spread, so unison doesn't start phase-aligned)
     phases: [T; MAX_UNISON],
     unison: usize,
@@ -76,6 +83,12 @@ impl<T: Float> SynthVoice<T> {
         let mut voice = Self {
             sample_rate,
             oscs: std::array::from_fn(|i| Oscillator::new(Waveform::Saw, lit(440.0), sample_rate).with_phase(phases[i])),
+            wt_oscs: {
+                let table = Wavetable::shared_classic();
+                std::array::from_fn(|i| WavetableOsc::new(table.clone(), lit(440.0), sample_rate).with_phase(phases[i]))
+            },
+            wavetable: false,
+            wt_position: T::_ZERO,
             phases,
             unison: 1,
             detune_cents: lit(15.0),
@@ -113,6 +126,30 @@ impl<T: Float> SynthVoice<T> {
     }
     pub fn waveform(&self) -> Waveform<T> {
         self.oscs[0].waveform()
+    }
+    /// The source names of the `waveform` parameter: the classic waveforms, then the wavetable.
+    pub const SOURCE_NAMES: [&'static str; 5] = ["Sine", "Saw", "Pulse", "Triangle", "Wavetable"];
+    /// Plays the wavetable instead of the classic waveform (the table and position are kept).
+    pub fn set_wavetable_source(&mut self, on: bool) {
+        if on != self.wavetable {
+            self.wavetable = on;
+            self.pitch_dirty = true;
+        }
+    }
+    pub fn wavetable_source(&self) -> bool {
+        self.wavetable
+    }
+    /// The table the wavetable source plays (default: [`Wavetable::classic`], shared). Allocation-free.
+    pub fn set_wavetable(&mut self, table: Arc<Wavetable<T>>) {
+        self.wt_oscs.iter_mut().for_each(|o| o.set_table(table.clone()));
+    }
+    /// Morph position across the table's frames, 0..1.
+    pub fn set_wavetable_position(&mut self, position: T) {
+        self.wt_position = position._clamp(T::_ZERO, T::_ONE);
+        self.wt_oscs.iter_mut().for_each(|o| o.set_position(self.wt_position));
+    }
+    pub fn wavetable_position(&self) -> T {
+        self.wt_position
     }
     /// Duty cycle of the pulse wave, 0.5 = square (remembered while another waveform is selected).
     pub fn set_pulse_width(&mut self, pulse_width: T) {
@@ -249,9 +286,14 @@ impl<T: Float> SynthVoice<T> {
             let center = (self.pitch + self.bend).to_f64().unwrap_or(69.0);
             let spread = self.detune_cents.to_f64().unwrap_or(0.0) / 100.0;
             let n = self.unison;
-            for (i, osc) in self.oscs[..n].iter_mut().enumerate() {
+            for i in 0..n {
                 let offset = if n > 1 { spread * (2.0 * i as f64 / (n - 1) as f64 - 1.0) } else { 0.0 };
-                osc.set_frequency(T::_lit(midi_to_hz(center + offset)), self.sample_rate);
+                let hz = T::_lit(midi_to_hz(center + offset));
+                if self.wavetable {
+                    self.wt_oscs[i].set_frequency(hz, self.sample_rate);
+                } else {
+                    self.oscs[i].set_frequency(hz, self.sample_rate);
+                }
             }
         }
         let octaves = self.env_amount * self.filter_env.level()
@@ -301,8 +343,14 @@ impl<T: Float> Voice for SynthVoice<T> {
             self.update_controls(chunk.len());
             for s in chunk.iter_mut() {
                 let mut x = T::_ZERO;
-                for osc in &mut self.oscs[..n] {
-                    x = x + osc.next_sample();
+                if self.wavetable {
+                    for osc in &mut self.wt_oscs[..n] {
+                        x = x + osc.next_sample();
+                    }
+                } else {
+                    for osc in &mut self.oscs[..n] {
+                        x = x + osc.next_sample();
+                    }
                 }
                 *s = x * gain;
             }
@@ -334,8 +382,9 @@ impl<T: Float> Voice for SynthVoice<T> {
         self.filter_env.reset();
         self.svf.reset();
         self.ladder.reset();
-        for (osc, &phase) in self.oscs.iter_mut().zip(&self.phases) {
+        for ((osc, wt), &phase) in self.oscs.iter_mut().zip(&mut self.wt_oscs).zip(&self.phases) {
             *osc = osc.with_phase(phase);
+            wt.set_phase(phase);
         }
         self.pitch = self.target_pitch;
     }
@@ -503,5 +552,27 @@ mod tests {
         assert!(brightness(&tone(VoiceFilter::Lowpass12, 0.0, 1.0)) > 1.5 * brightness(&low), "timbre opens it");
         assert!(brightness(&tone(VoiceFilter::Lowpass12, 0.0, 0.0)) < brightness(&low), "and closes it");
         assert!(low.iter().chain(&high).chain(&ladder).all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn the_wavetable_source_plays_and_morphs() {
+        let mut v = sine_voice();
+        v.set_wavetable_source(true);
+        v.set_wavetable_position(0.0); // the classic table's first frame: a sine
+        v.note_on(69, 1.0);
+        assert!((peak_hz(&mut v) - 440.0).abs() < FS / 8_192.0, "the right pitch");
+        let pure = spectrum(&mut v);
+        let fundamental = pure[(440.0 * 32_768.0 / FS) as usize - 2..(440.0 * 32_768.0 / FS) as usize + 3].iter().cloned().fold(0.0, f64::max);
+        let second = pure[(880.0 * 32_768.0 / FS) as usize - 2..(880.0 * 32_768.0 / FS) as usize + 3].iter().cloned().fold(0.0, f64::max);
+        // (unwindowed FFT: leakage alone reaches about -60 dB here, a saw is at -6 dB)
+        assert!(second < 1e-2 * fundamental, "position 0 is a sine");
+        v.set_wavetable_position(2.0 / 3.0); // the saw frame
+        let saw = spectrum(&mut v);
+        let second = saw[(880.0 * 32_768.0 / FS) as usize - 2..(880.0 * 32_768.0 / FS) as usize + 3].iter().cloned().fold(0.0, f64::max);
+        assert!(second > 0.3 * fundamental, "position 2/3 has a saw's harmonics");
+        // unison works on the wavetable too
+        v.set_unison(3);
+        v.set_detune(50.0);
+        assert!(render(&mut v, 4_800).iter().all(|s| s.is_finite()));
     }
 }

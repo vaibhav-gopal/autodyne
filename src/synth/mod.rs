@@ -10,13 +10,17 @@
 //! - [`SynthVoice`]: a subtractive voice (up to 7 detuned unison oscillators -> state-variable or
 //!   ladder filter swept by its own envelope, pressure and timbre -> amplitude ADSR with velocity),
 //!   with glide.
+//! - [`FmVoice`]: a 4-operator phase-modulation voice (8 algorithms, ratios, detune, per-operator
+//!   envelopes, feedback).
 //!
 //! Everything is allocated when built; handling events and rendering never allocate, so both can run
 //! inside an audio callback.
 
+mod fm;
 mod midi;
 mod voice;
 
+pub use fm::*;
 pub use midi::*;
 pub use voice::*;
 

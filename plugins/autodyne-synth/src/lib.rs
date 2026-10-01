@@ -8,8 +8,8 @@
 //! or ladder filter swept by its envelope, pressure and timbre -> ADSR; poly, mono or legato with
 //! glide) -> level -> FDN reverb. Notes land on their exact sample; the sustain pedal,
 //! all-notes-off, pitch bend, aftertouch, MPE and CLAP per-note expressions (pressure, tuning,
-//! brightness) are handled. An LFO (free or locked to the host's tempo) modulates cutoff and pulse
-//! width through a modulation matrix. Every parameter comes from the chain's `Parameterized`
+//! brightness) are handled. An LFO (free or locked to the host's tempo) modulates cutoff, pulse width
+//! and wavetable position through a modulation matrix. Every parameter comes from the chain's `Parameterized`
 //! implementation through `ParamBridge`, grouped by stage, and host automation ramps through
 //! `Smoothed`.
 
@@ -45,8 +45,9 @@ pub fn patch(sample_rate: f32) -> Patch {
     for (id, value) in [("cutoff_hz", 700.0), ("resonance", 0.35), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
         poly.set_param_by_id(id, value).expect("known parameter");
     }
-    let mut voices = Modulated::new(poly, 1, 2);
-    for (slot, (id, name)) in [("cutoff_hz", "LFO > cutoff"), ("pulse_width", "LFO > pulse width")].into_iter().enumerate() {
+    let mut voices = Modulated::new(poly, 1, 3);
+    let routes = [("cutoff_hz", "LFO > cutoff"), ("pulse_width", "LFO > pulse width"), ("wt_position", "LFO > wavetable position")];
+    for (slot, (id, name)) in routes.into_iter().enumerate() {
         let destination = voices.param_index(id).expect("known parameter");
         voices.set_route(slot, Some(Route { source: LFO, destination, via: None })).expect("valid route");
         voices.set_depth_name(slot, name).expect("valid slot");
