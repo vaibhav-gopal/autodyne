@@ -4,17 +4,22 @@
 //! cargo xtask bundle autodyne-reverb --release   # target/bundled: .clap and .vst3
 //! ```
 //!
-//! Parameters come straight from `Reverb`'s `Parameterized` implementation through `ParamBridge`.
+//! Parameters come straight from `Reverb`'s `Parameterized` implementation through `ParamBridge`,
+//! and ramp through `Smoothed` so automation never clicks.
 
 use std::sync::Arc;
 
+use autodyne::params::Smoothed;
 use autodyne::reverb::Reverb;
 use autodyne_plug::ParamBridge;
 use nice_plug::prelude::*;
 
+/// How long parameter changes take to glide to their new value.
+const RAMP_SECONDS: f64 = 0.02;
+
 pub struct AutodyneReverb {
     params: Arc<ParamBridge>,
-    reverb: Reverb<f32>,
+    reverb: Smoothed<Reverb<f32>>,
     /// the second channel when the host runs the plugin in mono
     mono_scratch: Vec<f32>,
     sample_rate: f32,
@@ -22,7 +27,7 @@ pub struct AutodyneReverb {
 
 impl Default for AutodyneReverb {
     fn default() -> Self {
-        let reverb = Reverb::new(48_000.0);
+        let reverb = Smoothed::new(Reverb::new(48_000.0), RAMP_SECONDS, 48_000.0);
         Self { params: Arc::new(ParamBridge::new(&reverb)), reverb, mono_scratch: Vec::new(), sample_rate: 48_000.0 }
     }
 }
@@ -60,25 +65,25 @@ impl Plugin for AutodyneReverb {
     fn activate(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl ActivateContext<Self>) -> bool {
         // allocation is fine here: this runs outside the audio callback
         self.sample_rate = config.sample_rate;
-        self.reverb = Reverb::new(config.sample_rate);
+        self.reverb = Smoothed::new(Reverb::new(config.sample_rate), RAMP_SECONDS, config.sample_rate as f64);
         self.mono_scratch = vec![0.0; config.max_buffer_size as usize];
         self.params.invalidate(); // the new reverb must receive every current setting
         true
     }
 
     fn reset(&mut self) {
-        self.reverb.reset();
+        self.reverb.settle();
     }
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, _context: &mut impl ProcessContext<Self>) -> ProcessStatus {
         self.params.apply(&mut self.reverb);
         match buffer.as_slice() {
-            [left, right] => self.reverb.process_stereo(left, right),
+            [left, right] => self.reverb.run(left.len(), |r, range| r.process_stereo(&mut left[range.clone()], &mut right[range])),
             [mono] => {
                 let n = mono.len();
                 let other = &mut self.mono_scratch[..n];
                 other.copy_from_slice(mono);
-                self.reverb.process_stereo(mono, other);
+                self.reverb.run(n, |r, range| r.process_stereo(&mut mono[range.clone()], &mut other[range]));
                 for (m, o) in mono.iter_mut().zip(other.iter()) {
                     *m = 0.5 * (*m + *o);
                 }
@@ -86,7 +91,7 @@ impl Plugin for AutodyneReverb {
             _ => {}
         }
         // keep processing after the input stops, until the tail has decayed
-        ProcessStatus::Tail((self.reverb.decay() * self.sample_rate) as u32)
+        ProcessStatus::Tail((self.reverb.inner().decay() * self.sample_rate) as u32)
     }
 }
 

@@ -9,6 +9,7 @@
 //! For stereo width, run one instance per channel with LFO phases half a cycle apart (`with_lfo_phase`).
 
 use crate::delay::DelayLine;
+use crate::gain::SmoothedValue;
 use crate::osc::Sine;
 use crate::units::*;
 
@@ -25,7 +26,8 @@ pub struct ModulatedDelay<T: Float> {
     base_samples: T,
     depth_samples: T,
     feedback: T,
-    mix: T,
+    /// ramped per sample so changes never click
+    mix: SmoothedValue<T>,
     current_delay: T,
 }
 
@@ -44,7 +46,7 @@ impl<T: Float> ModulatedDelay<T> {
             base_samples: base_seconds * sample_rate,
             depth_samples: depth_seconds * sample_rate,
             feedback: T::_ZERO,
-            mix: T::_lit(0.5),
+            mix: SmoothedValue::new(T::_lit(0.5)).with_ramp_seconds(T::_lit(0.02), sample_rate),
             current_delay: base_seconds * sample_rate,
         }
     }
@@ -84,7 +86,7 @@ impl<T: Float> ModulatedDelay<T> {
         self.feedback
     }
     pub fn mix(&self) -> T {
-        self.mix
+        self.mix.target()
     }
     /// Sweep depth in seconds, limited so the delay stays within the line allocated in `new`.
     pub fn set_depth(&mut self, seconds: T) {
@@ -97,9 +99,9 @@ impl<T: Float> ModulatedDelay<T> {
         let limit = T::_lit(0.95);
         self.feedback = feedback._clamp(-limit, limit);
     }
-    /// 0 = dry only, 1 = delayed only.
+    /// 0 = dry only, 1 = delayed only; changes ramp over 20 ms.
     pub fn set_mix(&mut self, mix: T) {
-        self.mix = mix._clamp(T::_ZERO, T::_ONE);
+        self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
     }
     /// The delay used for the most recent sample, in samples.
     pub fn current_delay_samples(&self) -> T {
@@ -108,6 +110,7 @@ impl<T: Float> ModulatedDelay<T> {
     pub fn reset(&mut self) {
         self.line.reset();
         self.lfo = self.lfo.with_phase(self.lfo_phase);
+        self.mix.set_immediate(self.mix.target());
     }
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
@@ -115,7 +118,8 @@ impl<T: Float> ModulatedDelay<T> {
         // read before pushing x, so the newest stored sample is one step old (as in `Echo`)
         let delayed = self.line.read_frac(self.current_delay - T::_ONE);
         self.line.push((x + self.feedback * delayed)._flush_denormal());
-        x * (T::_ONE - self.mix) + delayed * self.mix
+        let mix = self.mix.next_value();
+        x * (T::_ONE - mix) + delayed * mix
     }
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
@@ -161,7 +165,8 @@ pub struct Phaser<T: Float> {
     min_hz: T,
     max_hz: T,
     feedback: T,
-    mix: T,
+    /// ramped per sample so changes never click
+    mix: SmoothedValue<T>,
     last_out: T,
 }
 
@@ -179,7 +184,7 @@ impl<T: Float> Phaser<T> {
             min_hz: T::_lit(200.0),
             max_hz: T::_lit(2000.0),
             feedback: T::_ZERO,
-            mix: T::_lit(0.5),
+            mix: SmoothedValue::new(T::_lit(0.5)).with_ramp_seconds(T::_lit(0.02), sample_rate),
             last_out: T::_ZERO,
         }
     }
@@ -203,7 +208,7 @@ impl<T: Float> Phaser<T> {
         self.feedback
     }
     pub fn mix(&self) -> T {
-        self.mix
+        self.mix.target()
     }
     pub fn sample_rate(&self) -> T {
         self.sample_rate
@@ -219,10 +224,12 @@ impl<T: Float> Phaser<T> {
         let limit = T::_lit(0.95);
         self.feedback = feedback._clamp(-limit, limit);
     }
+    /// Changes ramp over 20 ms.
     pub fn set_mix(&mut self, mix: T) {
-        self.mix = mix._clamp(T::_ZERO, T::_ONE);
+        self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
     }
     pub fn reset(&mut self) {
+        self.mix.set_immediate(self.mix.target());
         self.stages.iter_mut().for_each(|s| *s = Allpass1 { x1: T::_ZERO, y1: T::_ZERO });
         self.lfo = self.lfo.with_phase(self.lfo_phase);
         self.last_out = T::_ZERO;
@@ -238,7 +245,8 @@ impl<T: Float> Phaser<T> {
             s = stage.process(s, a);
         }
         self.last_out = s;
-        x * (T::_ONE - self.mix) + s * self.mix
+        let mix = self.mix.next_value();
+        x * (T::_ONE - mix) + s * mix
     }
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {

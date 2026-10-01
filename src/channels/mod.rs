@@ -19,12 +19,15 @@ use crate::units::*;
 // BUFFER ==========================================================================================
 
 /// Planar multichannel audio: each channel is a contiguous slice. Storage is allocated once for
-/// `max_frames`; `set_frames` chooses how many are in use for the current block.
+/// `max_frames`; `set_frames` chooses how many are in use for the current block, and
+/// `with_window` narrows the buffer to a sub-range of them temporarily (for splitting a block).
 #[derive(Debug, Clone)]
 pub struct AudioBuffer<T: Float> {
     data: Vec<T>,
     channels: usize,
     max_frames: usize,
+    /// first frame in use (non-zero only inside `with_window`)
+    offset: usize,
     frames: usize,
 }
 
@@ -32,7 +35,7 @@ impl<T: Float> AudioBuffer<T> {
     /// Panics if `channels` is 0.
     pub fn new(channels: usize, max_frames: usize) -> Self {
         assert!(channels > 0, "need at least one channel");
-        Self { data: vec![T::_ZERO; channels * max_frames], channels, max_frames, frames: max_frames }
+        Self { data: vec![T::_ZERO; channels * max_frames], channels, max_frames, offset: 0, frames: max_frames }
     }
     pub fn channels(&self) -> usize {
         self.channels
@@ -43,43 +46,55 @@ impl<T: Float> AudioBuffer<T> {
     pub fn max_frames(&self) -> usize {
         self.max_frames
     }
-    /// Panics if `frames > max_frames()`.
+    /// Panics if `frames` doesn't fit the capacity (from the window's start).
     pub fn set_frames(&mut self, frames: usize) {
-        assert!(frames <= self.max_frames, "{frames} frames exceeds capacity {}", self.max_frames);
+        assert!(self.offset + frames <= self.max_frames, "{frames} frames exceeds capacity {}", self.max_frames - self.offset);
         self.frames = frames;
     }
+    /// Runs `f` on frames `start..start + len` of the current frames only (no copy): every accessor
+    /// sees just that range. Used to split a block, e.g. at parameter events. Panics if the range
+    /// exceeds the current frames.
+    pub fn with_window<R>(&mut self, start: usize, len: usize, f: impl FnOnce(&mut Self) -> R) -> R {
+        assert!(start + len <= self.frames, "window {start}..{} exceeds {} frames", start + len, self.frames);
+        let saved = (self.offset, self.frames);
+        self.offset += start;
+        self.frames = len;
+        let result = f(self);
+        (self.offset, self.frames) = saved;
+        result
+    }
     pub fn channel(&self, ch: usize) -> &[T] {
-        &self.data[ch * self.max_frames..][..self.frames]
+        &self.data[ch * self.max_frames + self.offset..][..self.frames]
     }
     pub fn channel_mut(&mut self, ch: usize) -> &mut [T] {
-        let (start, len) = (ch * self.max_frames, self.frames);
+        let (start, len) = (ch * self.max_frames + self.offset, self.frames);
         &mut self.data[start..][..len]
     }
     /// Every channel as a mutable slice, in order.
     pub fn channels_mut(&mut self) -> impl Iterator<Item = &mut [T]> {
-        let frames = self.frames;
-        self.data.chunks_exact_mut(self.max_frames).map(move |c| &mut c[..frames])
+        let (offset, frames) = (self.offset, self.frames);
+        self.data.chunks_exact_mut(self.max_frames).map(move |c| &mut c[offset..offset + frames])
     }
     /// (left, right) of a stereo buffer. Panics unless there are exactly 2 channels.
     pub fn stereo_mut(&mut self) -> (&mut [T], &mut [T]) {
         assert_eq!(self.channels, 2, "stereo_mut needs a 2-channel buffer");
-        let frames = self.frames;
+        let (offset, frames) = (self.offset, self.frames);
         let (l, r) = self.data.split_at_mut(self.max_frames);
-        (&mut l[..frames], &mut r[..frames])
+        (&mut l[offset..offset + frames], &mut r[offset..offset + frames])
     }
     pub fn fill(&mut self, value: T) {
         self.channels_mut().for_each(|c| c.iter_mut().for_each(|s| *s = value));
     }
     /// The current frames as a `[channel, time]` n-d view (no copy), e.g. to hand to an ML runtime.
     pub fn as_nd_view(&self) -> NdView<'_, T> {
-        NdView::from_parts(&self.data, &[self.channels, self.frames], &[self.max_frames, 1], 0)
+        NdView::from_parts(&self.data, &[self.channels, self.frames], &[self.max_frames, 1], self.offset)
             .and_then(|v| v.with_labels(&[Axis::Channel, Axis::Time]))
             .expect("an AudioBuffer's layout always fits its storage")
     }
     /// Mutable `[channel, time]` n-d view of the current frames.
     pub fn as_nd_view_mut(&mut self) -> NdViewMut<'_, T> {
-        let (channels, frames, max) = (self.channels, self.frames, self.max_frames);
-        NdViewMut::from_parts(&mut self.data, &[channels, frames], &[max, 1], 0)
+        let (channels, frames, max, offset) = (self.channels, self.frames, self.max_frames, self.offset);
+        NdViewMut::from_parts(&mut self.data, &[channels, frames], &[max, 1], offset)
             .and_then(|v| v.with_labels(&[Axis::Channel, Axis::Time]))
             .expect("an AudioBuffer's layout always fits its storage")
     }
@@ -88,20 +103,20 @@ impl<T: Float> AudioBuffer<T> {
     pub fn copy_from_interleaved(&mut self, interleaved: &[T]) {
         assert_eq!(interleaved.len() % self.channels, 0, "interleaved length must be a whole number of frames");
         self.set_frames(interleaved.len() / self.channels);
-        let (n, max) = (self.channels, self.max_frames);
+        let (n, max, offset) = (self.channels, self.max_frames, self.offset);
         for (f, frame) in interleaved.chunks_exact(n).enumerate() {
             for (ch, &s) in frame.iter().enumerate() {
-                self.data[ch * max + f] = s;
+                self.data[ch * max + offset + f] = s;
             }
         }
     }
     /// Writes the current frames interleaved. Panics unless `out.len() == frames * channels`.
     pub fn copy_to_interleaved(&self, out: &mut [T]) {
         assert_eq!(out.len(), self.frames * self.channels, "output must hold exactly frames * channels samples");
-        let (n, max) = (self.channels, self.max_frames);
+        let (n, max, offset) = (self.channels, self.max_frames, self.offset);
         for (f, frame) in out.chunks_exact_mut(n).enumerate() {
             for (ch, s) in frame.iter_mut().enumerate() {
-                *s = self.data[ch * max + f];
+                *s = self.data[ch * max + offset + f];
             }
         }
     }
@@ -162,8 +177,8 @@ pub struct Linked<P>(pub P);
 /// Linked compression: the loudest channel drives one gain applied to all channels.
 impl<T: Float> MultiProcessor<T> for Linked<Compressor<T>> {
     fn process(&mut self, buffer: &mut AudioBuffer<T>) {
-        let (n, max) = (buffer.channels, buffer.max_frames);
-        for f in 0..buffer.frames {
+        let (n, max, offset) = (buffer.channels, buffer.max_frames, buffer.offset);
+        for f in offset..offset + buffer.frames {
             let level = (0..n).fold(T::_ZERO, |m, ch| m._max(buffer.data[ch * max + f]._abs()));
             let g = self.0.gain_for_level(level);
             for ch in 0..n {
@@ -305,6 +320,26 @@ mod tests {
         buf
     }
 
+    #[test]
+    fn windows_narrow_every_accessor_and_restore() {
+        let mut buffer = AudioBuffer::<f32>::new(2, 8);
+        for ch in 0..2 {
+            buffer.channel_mut(ch).iter_mut().enumerate().for_each(|(i, s)| *s = (ch * 10 + i) as f32);
+        }
+        buffer.with_window(2, 3, |b| {
+            assert_eq!(b.frames(), 3);
+            assert_eq!(b.channel(1), &[12.0, 13.0, 14.0]);
+            b.channels_mut().for_each(|c| c[0] = -1.0);
+            let (l, r) = b.stereo_mut();
+            assert_eq!((l[0], r[2]), (-1.0, 14.0));
+            assert_eq!(b.as_nd_view().shape(), &[2, 3]);
+            let mut inter = [0.0; 6];
+            b.copy_to_interleaved(&mut inter);
+            assert_eq!(inter, [-1.0, -1.0, 3.0, 13.0, 4.0, 14.0]);
+        });
+        assert_eq!(buffer.frames(), 8, "restored");
+        assert_eq!(buffer.channel(0), &[0.0, 1.0, -1.0, 3.0, 4.0, 5.0, 6.0, 7.0]);
+    }
     #[test]
     fn interleave_roundtrip_and_frame_count() {
         let interleaved = [1.0, -1.0, 2.0, -2.0, 3.0, -3.0];

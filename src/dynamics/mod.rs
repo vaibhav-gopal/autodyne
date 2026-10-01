@@ -5,7 +5,7 @@
 //! and release times, and applies it. Smoothing happens on the gain in dB, not on the signal, which
 //! keeps attack and release independent of level.
 
-use crate::gain::{db_to_gain, gain_to_db};
+use crate::gain::{db_to_gain, gain_to_db, SmoothedValue};
 use crate::units::*;
 
 /// One-pole coefficient for a time constant: after `seconds`, a step response has covered
@@ -89,6 +89,8 @@ pub struct Compressor<T: Float> {
     slope: T,
     knee_db: T,
     makeup_db: T,
+    /// makeup as a linear gain, ramped per sample so changes never click
+    makeup: SmoothedValue<T>,
     attack_seconds: T,
     release_seconds: T,
     attack_coeff: T,
@@ -107,6 +109,7 @@ impl<T: Float> Compressor<T> {
             slope: T::_lit(0.25),
             knee_db: T::_lit(6.0),
             makeup_db: T::_ZERO,
+            makeup: SmoothedValue::new(T::_ONE).with_ramp_seconds(T::_lit(0.02), sample_rate),
             attack_seconds: T::_lit(0.010),
             release_seconds: T::_lit(0.100),
             attack_coeff: time_coeff(T::_lit(0.010), sample_rate),
@@ -145,8 +148,10 @@ impl<T: Float> Compressor<T> {
     pub fn set_knee_db(&mut self, db: T) {
         self.knee_db = db._max(T::_ZERO);
     }
+    /// Output gain after compression; changes ramp over 20 ms.
     pub fn set_makeup_db(&mut self, db: T) {
         self.makeup_db = db;
+        self.makeup.set_target(db_to_gain(db));
     }
     pub fn set_attack(&mut self, seconds: T) {
         self.attack_seconds = seconds;
@@ -181,6 +186,7 @@ impl<T: Float> Compressor<T> {
     }
     pub fn reset(&mut self) {
         self.reduction_db = T::_ZERO;
+        self.makeup.set_immediate(self.makeup.target());
     }
     /// The static curve: steady-state output level for a given input level, before makeup gain.
     pub fn output_level_db(&self, input_db: T) -> T {
@@ -206,7 +212,7 @@ impl<T: Float> Compressor<T> {
         let target = level_db - self.output_level_db(level_db);
         let coeff = if target > self.reduction_db { self.attack_coeff } else { self.release_coeff };
         self.reduction_db = coeff * self.reduction_db + (T::_ONE - coeff) * target;
-        db_to_gain(self.makeup_db - self.reduction_db)
+        self.makeup.next_value() * db_to_gain(-self.reduction_db)
     }
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {

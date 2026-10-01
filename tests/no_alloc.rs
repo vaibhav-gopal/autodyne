@@ -16,7 +16,7 @@ use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::distortion::{Shape, Waveshaper};
 use autodyne::envelope::Adsr;
 use autodyne::osc::{Impulse, Noise, Oscillator, Phasor, Sine, Waveform};
-use autodyne::params::Parameterized;
+use autodyne::params::{process_buffer_events, process_events, ParamEvent, Parameterized, Smoothed};
 use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
@@ -231,6 +231,23 @@ fn parameters_and_dynamic_processing_do_not_allocate() {
     let mut dynamic = build_dyn(&Comp, DType::F32, FS).unwrap();
     let mut block = vec![0.25f32; 512];
     assert_no_alloc("DynProcessor::process_dyn", || dynamic.process_dyn(DynBlock::F32(&mut block)).unwrap());
+
+    // ramped automation with sample-accurate events, mono and multichannel
+    let mut smoothed = Smoothed::new((Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q), Compressor::new(FS)), 0.02, FS);
+    let mut audio = vec![0.25f64; 512];
+    let mut flip = false;
+    assert_no_alloc("Smoothed + process_events", || {
+        flip = !flip;
+        let events = [ParamEvent { offset: 100, index: 0, value: if flip { 8_000.0 } else { 200.0 } }];
+        process_events(&mut smoothed, &mut audio, &events).unwrap();
+    });
+    let mut stereo = Smoothed::new(Linked(Compressor::new(FS)), 0.02, FS);
+    let mut buffer = AudioBuffer::new(2, 512);
+    assert_no_alloc("Smoothed multichannel + process_buffer_events", || {
+        flip = !flip;
+        let events = [ParamEvent { offset: 64, index: 0, value: if flip { -30.0 } else { -10.0 } }];
+        process_buffer_events(&mut stereo, &mut buffer, &events).unwrap();
+    });
 }
 
 #[test]

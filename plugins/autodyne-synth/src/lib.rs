@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use autodyne::gain::Gain;
-use autodyne::params::Parameterized;
+use autodyne::params::{Parameterized, Smoothed};
 use autodyne::reverb::Reverb;
 use autodyne::synth::{MidiMessage, Poly, SynthVoice};
 use autodyne_plug::ParamBridge;
@@ -20,6 +20,8 @@ use nice_plug::midi::Key;
 use nice_plug::prelude::*;
 
 const VOICES: usize = 16;
+/// How long parameter changes take to glide to their new value.
+const RAMP_SECONDS: f64 = 0.02;
 /// Voices render in pieces of at most this many samples, whatever the host's buffer size.
 const VOICE_BLOCK: usize = 256;
 
@@ -41,12 +43,12 @@ pub fn patch(sample_rate: f32) -> Patch {
 
 pub struct AutodyneSynth {
     params: Arc<ParamBridge>,
-    patch: Patch,
+    patch: Smoothed<Patch>,
 }
 
 impl Default for AutodyneSynth {
     fn default() -> Self {
-        let patch = patch(48_000.0);
+        let patch = Smoothed::new(patch(48_000.0), RAMP_SECONDS, 48_000.0);
         Self { params: Arc::new(ParamBridge::new(&patch)), patch }
     }
 }
@@ -78,31 +80,36 @@ impl Plugin for AutodyneSynth {
 
     fn activate(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl ActivateContext<Self>) -> bool {
         // allocation is fine here: this runs outside the audio callback
-        self.patch = patch(config.sample_rate);
+        self.patch = Smoothed::new(patch(config.sample_rate), RAMP_SECONDS, config.sample_rate as f64);
         self.params.invalidate(); // the new patch must receive every current setting
         true
     }
 
     fn reset(&mut self) {
-        self.patch.0.reset();
-        self.patch.2.reset();
+        self.patch.settle();
+        let (voices, _, reverb) = self.patch.inner_mut();
+        voices.reset();
+        reverb.reset();
     }
 
     fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, context: &mut impl ProcessContext<Self>) -> ProcessStatus {
         self.params.apply(&mut self.patch);
-        let (voices, level, reverb) = &mut self.patch;
         let [left, right] = buffer.as_slice() else { return ProcessStatus::Normal };
 
-        // render up to each event, apply it, carry on: every event lands on its sample
+        // render up to each event, apply it, carry on: every event lands on its sample, and
+        // parameter ramps advance as the voices render (`Smoothed::run`)
         let mut pos = 0;
         while let Some(event) = context.next_event() {
             let at = (event.timing() as usize).clamp(pos, left.len());
-            voices.render(&mut left[pos..at]);
+            let segment = &mut left[pos..at];
+            self.patch.run(segment.len(), |p, range| p.0.render(&mut segment[range]));
             pos = at;
-            handle(voices, event);
+            handle(&mut self.patch.inner_mut().0, event);
         }
-        voices.render(&mut left[pos..]);
+        let segment = &mut left[pos..];
+        self.patch.run(segment.len(), |p, range| p.0.render(&mut segment[range]));
 
+        let (_, level, reverb) = self.patch.inner_mut();
         level.process(left);
         right.copy_from_slice(left);
         reverb.process_stereo(left, right);

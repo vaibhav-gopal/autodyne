@@ -5,12 +5,18 @@
 //!   0..1 range plugin hosts (VST3, CLAP, ...) use.
 //! - [`Parameterized`]: index-based access, as plugin APIs do, plus lookup by id, normalized values,
 //!   snapshot / restore, and `param_group` to tell which stage of a chain a parameter belongs to.
+//! - [`Smoothed`]: wraps any processor so changes to continuous parameters ramp instead of jumping;
+//!   [`ParamEvent`] with [`process_events`] / [`process_buffer_events`] applies changes at exact
+//!   sample offsets. Each `ParamInfo` declares its [`Smoothing`]: ramped, smoothed internally, or instant.
 //!
 //! Values cross the API as `f64` whatever the processor's sample type. Setting a value validates it
 //! (must be finite), clamps it into range and returns what was applied. Chains (tuples, `Vec`) expose
 //! their stages' parameters one after another; `PerChannel` exposes one set that controls every channel.
 
 use thiserror::Error;
+
+mod smoothed;
+pub use smoothed::*;
 
 use crate::channels::{Linked, Panner, PerChannel, StereoWidth};
 use crate::delay::Echo;
@@ -66,6 +72,18 @@ pub enum ParamKind {
     Choice(&'static [&'static str]),
 }
 
+/// How a change to a parameter should reach the audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Smoothing {
+    /// ramp to new values (the default for continuous parameters): applied by [`Smoothed`], so
+    /// automation never jumps audibly
+    Ramp,
+    /// the processor already smooths this parameter sample by sample: pass changes straight through
+    Internal,
+    /// apply immediately (discrete parameters, and ones where a glide would sound wrong)
+    Instant,
+}
+
 /// Description of one parameter.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParamInfo {
@@ -79,33 +97,45 @@ pub struct ParamInfo {
     pub default: f64,
     pub scale: ParamScale,
     pub kind: ParamKind,
+    pub smoothing: Smoothing,
 }
 
 impl ParamInfo {
     /// A linear, continuous parameter.
     pub const fn new(id: &'static str, name: &'static str, unit: ParamUnit, min: f64, max: f64, default: f64) -> Self {
-        Self { id, name, unit, min, max, default, scale: ParamScale::Linear, kind: ParamKind::Continuous }
+        Self { id, name, unit, min, max, default, scale: ParamScale::Linear, kind: ParamKind::Continuous, smoothing: Smoothing::Ramp }
     }
     /// An on/off switch (0 or 1).
     pub const fn toggle(id: &'static str, name: &'static str, default: bool) -> Self {
         let default = if default { 1.0 } else { 0.0 };
-        Self { kind: ParamKind::Toggle, ..Self::new(id, name, ParamUnit::None, 0.0, 1.0, default) }
+        Self { kind: ParamKind::Toggle, smoothing: Smoothing::Instant, ..Self::new(id, name, ParamUnit::None, 0.0, 1.0, default) }
     }
     /// A choice between named options; the value is an index into `options`.
     /// Panics if `options` is empty or `default` is out of range (at compile time in a `const`).
     pub const fn choice(id: &'static str, name: &'static str, options: &'static [&'static str], default: usize) -> Self {
         assert!(!options.is_empty() && default < options.len(), "a choice needs options and a default among them");
         let max = (options.len() - 1) as f64;
-        Self { kind: ParamKind::Choice(options), ..Self::new(id, name, ParamUnit::None, 0.0, max, default as f64) }
+        Self { kind: ParamKind::Choice(options), smoothing: Smoothing::Instant, ..Self::new(id, name, ParamUnit::None, 0.0, max, default as f64) }
     }
     /// The same parameter on a log scale.
     pub const fn log(mut self) -> Self {
         self.scale = ParamScale::Log;
         self
     }
-    /// The same parameter restricted to whole numbers.
+    /// The same parameter restricted to whole numbers (applied instantly: no ramp between steps).
     pub const fn integer(mut self) -> Self {
         self.kind = ParamKind::Integer;
+        self.smoothing = Smoothing::Instant;
+        self
+    }
+    /// Marks the parameter as smoothed by its processor already (no extra ramp).
+    pub const fn smoothed_internally(mut self) -> Self {
+        self.smoothing = Smoothing::Internal;
+        self
+    }
+    /// Marks the parameter as applied immediately (no ramp).
+    pub const fn instant(mut self) -> Self {
+        self.smoothing = Smoothing::Instant;
         self
     }
     /// Whether the parameter only takes whole-number values (integer, toggle or choice).
@@ -475,16 +505,16 @@ macro_rules! parameterized {
 use ParamUnit::{Decibels, Fraction, Hertz, Seconds, Slope};
 
 parameterized!(Gain, "Gain",
-    infos: |_s| [ParamInfo::new("gain_db", "Gain", Decibels, -60.0, 24.0, 0.0)],
+    infos: |_s| [ParamInfo::new("gain_db", "Gain", Decibels, -60.0, 24.0, 0.0).smoothed_internally()],
     read: |p, _i| f(gain_to_db(p.gain())).max(-60.0),
     write: |p, _i, v| p.set_gain_db(t(v)),
 );
 
 parameterized!(Echo, "Echo",
     infos: |s| [
-        ParamInfo::new("delay_s", "Delay", Seconds, 1.0 / f(s.sample_rate()), f(s.max_delay_seconds()), (0.3f64).min(f(s.max_delay_seconds()))).log(),
-        ParamInfo::new("feedback", "Feedback", Fraction, 0.0, 0.99, 0.5),
-        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.5),
+        ParamInfo::new("delay_s", "Delay", Seconds, 1.0 / f(s.sample_rate()), f(s.max_delay_seconds()), (0.3f64).min(f(s.max_delay_seconds()))).log().smoothed_internally(),
+        ParamInfo::new("feedback", "Feedback", Fraction, 0.0, 0.99, 0.5).smoothed_internally(),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.5).smoothed_internally(),
     ],
     read: |p, i| match i { 0 => f(p.delay_seconds()), 1 => f(p.feedback()), _ => f(p.mix()) },
     write: |p, i, v| match i { 0 => p.set_delay_seconds(t(v)), 1 => p.set_feedback(t(v)), _ => p.set_mix(t(v)) },
@@ -498,7 +528,7 @@ parameterized!(Compressor, "Compressor",
         ParamInfo::new("knee_db", "Knee", Decibels, 0.0, 24.0, 6.0),
         ParamInfo::new("attack_s", "Attack", Seconds, 0.0, 0.5, 0.010),
         ParamInfo::new("release_s", "Release", Seconds, 0.001, 5.0, 0.100).log(),
-        ParamInfo::new("makeup_db", "Makeup", Decibels, -24.0, 24.0, 0.0),
+        ParamInfo::new("makeup_db", "Makeup", Decibels, -24.0, 24.0, 0.0).smoothed_internally(),
     ],
     read: |p, i| match i {
         0 => f(p.threshold_db()),
@@ -532,7 +562,7 @@ parameterized!(ModulatedDelay, "Modulated delay",
         ParamInfo::new("rate_hz", "Rate", Hertz, 0.01, 20.0, 0.5).log(),
         ParamInfo::new("depth_s", "Depth", Seconds, 0.0, f(s.max_depth()), f(s.max_depth()) / 2.0),
         ParamInfo::new("feedback", "Feedback", Fraction, -0.95, 0.95, 0.0),
-        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.5),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.5).smoothed_internally(),
     ],
     read: |p, i| match i { 0 => f(p.rate()), 1 => f(p.depth()), 2 => f(p.feedback()), _ => f(p.mix()) },
     write: |p, i, v| match i { 0 => p.set_rate(t(v)), 1 => p.set_depth(t(v)), 2 => p.set_feedback(t(v)), _ => p.set_mix(t(v)) },
@@ -546,7 +576,7 @@ parameterized!(Phaser, "Phaser",
             ParamInfo::new("min_hz", "Sweep low", Hertz, 20.0, top, 200.0).log(),
             ParamInfo::new("max_hz", "Sweep high", Hertz, 20.0, top, 2_000.0f64.min(top)).log(),
             ParamInfo::new("feedback", "Feedback", Fraction, -0.95, 0.95, 0.0),
-            ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.5),
+            ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.5).smoothed_internally(),
         ]
     },
     read: |p, i| {
@@ -579,9 +609,9 @@ parameterized!(Adsr, "ADSR",
 
 parameterized!(Waveshaper, "Waveshaper",
     infos: |_s| [
-        ParamInfo::new("drive_db", "Drive", Decibels, 0.0, 48.0, 0.0),
-        ParamInfo::new("output_db", "Output", Decibels, -24.0, 24.0, 0.0),
-        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0),
+        ParamInfo::new("drive_db", "Drive", Decibels, 0.0, 48.0, 0.0).smoothed_internally(),
+        ParamInfo::new("output_db", "Output", Decibels, -24.0, 24.0, 0.0).smoothed_internally(),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0).smoothed_internally(),
     ],
     read: |p, i| match i { 0 => f(p.drive_db()), 1 => f(p.output_db()), _ => f(p.mix()) },
     write: |p, i, v| match i { 0 => p.set_drive_db(t(v)), 1 => p.set_output_db(t(v)), _ => p.set_mix(t(v)) },
@@ -678,12 +708,12 @@ impl<V: Voice + Parameterized> Parameterized for Poly<V> {
 
 parameterized!(Reverb, "Reverb",
     infos: |_s| [
-        ParamInfo::new("size", "Size", ParamUnit::None, 0.25, 2.0, 1.0),
+        ParamInfo::new("size", "Size", ParamUnit::None, 0.25, 2.0, 1.0).instant(),
         ParamInfo::new("decay_s", "Decay", Seconds, 0.05, 30.0, 1.8).log(),
         ParamInfo::new("damping_hz", "Damping", Hertz, 500.0, 24_000.0, 6_000.0).log(),
-        ParamInfo::new("predelay_s", "Pre-delay", Seconds, 0.0, 0.25, 0.02),
-        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.3),
-        ParamInfo::new("width", "Width", Fraction, 0.0, 1.0, 1.0),
+        ParamInfo::new("predelay_s", "Pre-delay", Seconds, 0.0, 0.25, 0.02).instant(),
+        ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 0.3).smoothed_internally(),
+        ParamInfo::new("width", "Width", Fraction, 0.0, 1.0, 1.0).smoothed_internally(),
         ParamInfo::new("modulation", "Modulation", Fraction, 0.0, 1.0, 0.5),
     ],
     read: |p, i| match i {
@@ -707,19 +737,19 @@ parameterized!(Reverb, "Reverb",
 );
 
 parameterized!(Convolver, "Convolver",
-    infos: |_s| [ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0)],
+    infos: |_s| [ParamInfo::new("mix", "Mix", Fraction, 0.0, 1.0, 1.0).smoothed_internally()],
     read: |p, _i| f(p.mix()),
     write: |p, _i, v| p.set_mix(t(v)),
 );
 
 parameterized!(StereoWidth, "Stereo width",
-    infos: |_s| [ParamInfo::new("width", "Width", Fraction, 0.0, 4.0, 1.0)],
+    infos: |_s| [ParamInfo::new("width", "Width", Fraction, 0.0, 4.0, 1.0).smoothed_internally()],
     read: |p, _i| f(p.width()),
     write: |p, _i, v| p.set_width(t(v)),
 );
 
 parameterized!(Panner, "Panner",
-    infos: |_s| [ParamInfo::new("position", "Pan", ParamUnit::None, -1.0, 1.0, 0.0)],
+    infos: |_s| [ParamInfo::new("position", "Pan", ParamUnit::None, -1.0, 1.0, 0.0).smoothed_internally()],
     read: |p, _i| f(p.position()),
     write: |p, _i, v| p.set_position(t(v)),
 );
