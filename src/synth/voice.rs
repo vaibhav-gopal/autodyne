@@ -1,90 +1,182 @@
 use super::{midi_to_hz, Voice};
 use crate::envelope::Adsr;
-use crate::filter::{Biquad, BiquadDesign, BiquadKind};
+use crate::filter::{Ladder, Svf, SvfMode};
 use crate::osc::{Oscillator, Waveform};
 use crate::units::*;
 
-/// Samples between filter-cutoff updates while the filter envelope moves (coefficients cost a sin/cos).
-const MOD_INTERVAL: usize = 16;
+/// Samples between pitch and filter-coefficient updates (glide, envelopes, expression).
+const CONTROL: usize = 8;
+/// Most oscillators one voice stacks in unison.
+pub const MAX_UNISON: usize = 7;
 
-/// A subtractive synth voice: band-limited oscillator -> resonant low-pass whose cutoff is swept by its
-/// own envelope -> amplitude ADSR, scaled by velocity.
+/// The filter of a [`SynthVoice`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum VoiceFilter {
+    /// 12 dB/octave state-variable low-pass
+    Lowpass12,
+    Bandpass12,
+    Highpass12,
+    /// 24 dB/octave Moog-style ladder (self-oscillates at full resonance)
+    Ladder24,
+}
+
+impl VoiceFilter {
+    pub const ALL: [VoiceFilter; 4] = [VoiceFilter::Lowpass12, VoiceFilter::Bandpass12, VoiceFilter::Highpass12, VoiceFilter::Ladder24];
+    pub const NAMES: [&'static str; 4] = ["Low-pass 12", "Band-pass 12", "High-pass 12", "Ladder 24"];
+}
+
+/// A subtractive synth voice: up to [`MAX_UNISON`] detuned band-limited oscillators -> a resonant
+/// filter whose cutoff is swept by its own envelope, by pressure and by timbre -> amplitude ADSR,
+/// scaled by velocity. Glides between notes when a glide time is set.
 #[derive(Debug, Clone)]
 pub struct SynthVoice<T: Float> {
     sample_rate: T,
-    osc: Oscillator<T>,
-    filter: Biquad<T>,
+    oscs: [Oscillator<T>; MAX_UNISON],
+    /// each oscillator's starting phase (spread, so unison doesn't start phase-aligned)
+    phases: [T; MAX_UNISON],
+    unison: usize,
+    detune_cents: T,
+    /// kept while another waveform plays, so switching back to the pulse restores it
+    pulse_width: T,
+    filter_type: VoiceFilter,
+    svf: Svf<T>,
+    ladder: Ladder<T>,
+    cutoff: T,
+    /// 0..1: SVF Q 0.5..25 (exponentially), ladder feedback 0..4
+    resonance: T,
+    env_amount: T,
     amp_env: Adsr<T>,
     filter_env: Adsr<T>,
     note: u8,
     velocity: T,
     bend: T,
-    /// kept while another waveform plays, so switching back to the pulse restores it
-    pulse_width: T,
-    cutoff: T,
-    resonance: T,
-    env_amount: T,
+    /// current and target pitch in semitones (MIDI note numbers), and the glide speed
+    pitch: T,
+    target_pitch: T,
+    glide_seconds: T,
+    glide_per_sample: T,
+    pitch_dirty: bool,
+    pressure: T,
+    timbre: T,
+    pressure_octaves: T,
+    timbre_octaves: T,
+    /// cutoff the filter coefficients were last computed for (NaN = recompute)
+    applied_cutoff: T,
 }
 
 impl<T: Float> SynthVoice<T> {
-    /// A saw voice with a plucky filter envelope: cutoff 800 Hz swept up 3 octaves.
+    /// A single saw through the 12 dB low-pass with a plucky filter envelope: cutoff 800 Hz swept
+    /// up 3 octaves.
     pub fn new(sample_rate: T) -> Self {
         let lit = T::_lit;
+        // golden-ratio spacing keeps unison oscillators' starting phases apart for any count
+        let phases: [T; MAX_UNISON] = std::array::from_fn(|i| lit((i as f64 * 0.618_034).fract()));
         let cutoff = lit(800.0);
-        Self {
+        let top = lit(0.45) * sample_rate;
+        let mut voice = Self {
             sample_rate,
-            osc: Oscillator::new(Waveform::Saw, lit(440.0), sample_rate),
-            // (render keeps the cutoff below Nyquist; the initial design must be valid at low rates too)
-            filter: Biquad::from_design(BiquadDesign {
-                kind: BiquadKind::Lowpass,
-                frequency: cutoff._min(lit(0.45) * sample_rate),
-                q: lit(1.2),
-                gain_db: T::_ZERO,
-                sample_rate,
-            }),
+            oscs: std::array::from_fn(|i| Oscillator::new(Waveform::Saw, lit(440.0), sample_rate).with_phase(phases[i])),
+            phases,
+            unison: 1,
+            detune_cents: lit(15.0),
+            pulse_width: lit(0.5),
+            filter_type: VoiceFilter::Lowpass12,
+            svf: Svf::lowpass(cutoff._min(top), lit(1.2), sample_rate),
+            ladder: Ladder::new(cutoff._min(top), T::_ZERO, sample_rate),
+            cutoff,
+            resonance: lit(0.22),
+            env_amount: lit(3.0),
             amp_env: Adsr::new(lit(0.005), lit(0.3), lit(0.6), lit(0.3), sample_rate),
             filter_env: Adsr::new(lit(0.002), lit(0.25), lit(0.2), lit(0.3), sample_rate),
             note: 69,
             velocity: T::_ZERO,
             bend: T::_ZERO,
-            pulse_width: lit(0.5),
-            cutoff,
-            resonance: lit(1.2),
-            env_amount: lit(3.0),
-        }
+            pitch: lit(69.0),
+            target_pitch: lit(69.0),
+            glide_seconds: T::_ZERO,
+            glide_per_sample: T::_ZERO,
+            pitch_dirty: true,
+            pressure: T::_ZERO,
+            timbre: lit(0.5),
+            pressure_octaves: T::_ONE,
+            timbre_octaves: T::_ONE,
+            applied_cutoff: T::_NAN,
+        };
+        voice.set_resonance(lit(0.22));
+        voice
     }
     pub fn set_waveform(&mut self, waveform: Waveform<T>) {
         if let Waveform::Pulse { pulse_width } = waveform {
             self.pulse_width = pulse_width;
         }
-        self.osc.set_waveform(waveform);
+        self.oscs.iter_mut().for_each(|o| o.set_waveform(waveform));
     }
     pub fn waveform(&self) -> Waveform<T> {
-        self.osc.waveform()
+        self.oscs[0].waveform()
     }
     /// Duty cycle of the pulse wave, 0.5 = square (remembered while another waveform is selected).
     pub fn set_pulse_width(&mut self, pulse_width: T) {
-        self.pulse_width = pulse_width;
-        if let Waveform::Pulse { .. } = self.osc.waveform() {
-            self.osc.set_waveform(Waveform::Pulse { pulse_width });
+        self.pulse_width = pulse_width._clamp(T::_lit(0.01), T::_lit(0.99));
+        if let Waveform::Pulse { .. } = self.waveform() {
+            self.set_waveform(Waveform::Pulse { pulse_width: self.pulse_width });
         }
     }
     pub fn pulse_width(&self) -> T {
         self.pulse_width
     }
-    /// Base filter cutoff in Hz (before the envelope).
+    /// Oscillators stacked per note, 1..=[`MAX_UNISON`] (clamped).
+    pub fn set_unison(&mut self, count: usize) {
+        self.unison = count.clamp(1, MAX_UNISON);
+        self.pitch_dirty = true;
+    }
+    pub fn unison(&self) -> usize {
+        self.unison
+    }
+    /// Spread of the unison oscillators in cents, outermost to the center.
+    pub fn set_detune(&mut self, cents: T) {
+        self.detune_cents = cents._max(T::_ZERO);
+        self.pitch_dirty = true;
+    }
+    pub fn detune(&self) -> T {
+        self.detune_cents
+    }
+    pub fn set_filter(&mut self, filter: VoiceFilter) {
+        if filter != self.filter_type {
+            self.filter_type = filter;
+            self.svf.set_mode(match filter {
+                VoiceFilter::Bandpass12 => SvfMode::Bandpass,
+                VoiceFilter::Highpass12 => SvfMode::Highpass,
+                _ => SvfMode::Lowpass,
+            });
+            self.applied_cutoff = T::_NAN;
+        }
+    }
+    pub fn filter(&self) -> VoiceFilter {
+        self.filter_type
+    }
+    /// Base filter cutoff in Hz (before the envelope and expression).
     pub fn set_cutoff(&mut self, hz: T) {
         self.cutoff = hz;
+        self.applied_cutoff = T::_NAN;
     }
     pub fn cutoff(&self) -> T {
         self.cutoff
     }
-    /// Filter Q (resonance).
-    pub fn set_resonance(&mut self, q: T) {
-        self.resonance = q;
+    /// Resonance, 0 (none) .. 1 (the ladder self-oscillates; the SVF reaches Q 25).
+    pub fn set_resonance(&mut self, resonance: T) {
+        self.resonance = resonance._clamp(T::_ZERO, T::_ONE);
+        self.ladder.set_resonance(self.resonance);
+        self.applied_cutoff = T::_NAN;
     }
     pub fn resonance(&self) -> T {
         self.resonance
+    }
+    /// The ladder's drive in dB (0 = clean at moderate levels).
+    pub fn set_drive_db(&mut self, db: T) {
+        self.ladder.set_drive(T::_lit(10.0)._pow(db / T::_lit(20.0)));
+    }
+    pub fn drive_db(&self) -> T {
+        T::_lit(20.0) * self.ladder.drive()._log10()
     }
     /// How far the filter envelope opens the cutoff at its peak, in octaves.
     pub fn set_env_amount(&mut self, octaves: T) {
@@ -92,6 +184,28 @@ impl<T: Float> SynthVoice<T> {
     }
     pub fn env_amount(&self) -> T {
         self.env_amount
+    }
+    /// Time to glide from one note to the next (0 = jump). Glides whenever the voice is still
+    /// sounding when the next note arrives (portamento), and in legato playing.
+    pub fn set_glide(&mut self, seconds: T) {
+        self.glide_seconds = seconds._max(T::_ZERO);
+    }
+    pub fn glide(&self) -> T {
+        self.glide_seconds
+    }
+    /// Octaves the cutoff rises at full pressure.
+    pub fn set_pressure_amount(&mut self, octaves: T) {
+        self.pressure_octaves = octaves;
+    }
+    pub fn pressure_amount(&self) -> T {
+        self.pressure_octaves
+    }
+    /// Octaves the cutoff moves at the timbre extremes (0 and 1; 0.5 is neutral).
+    pub fn set_timbre_amount(&mut self, octaves: T) {
+        self.timbre_octaves = octaves;
+    }
+    pub fn timbre_amount(&self) -> T {
+        self.timbre_octaves
     }
     pub fn amp_env(&self) -> &Adsr<T> {
         &self.amp_env
@@ -105,17 +219,52 @@ impl<T: Float> SynthVoice<T> {
     pub fn filter_env_mut(&mut self) -> &mut Adsr<T> {
         &mut self.filter_env
     }
-
-    fn update_pitch(&mut self) {
-        let note = self.note as f64 + self.bend.to_f64().unwrap_or(0.0);
-        self.osc.set_frequency(T::_lit(midi_to_hz(note)), self.sample_rate);
+    /// The pitch sounding now, in semitones (a MIDI note number, fractional while gliding or bent).
+    pub fn current_pitch(&self) -> T {
+        self.pitch + self.bend
     }
 
-    /// Cutoff for the filter envelope's current level: at least 20 Hz, but always below Nyquist
-    /// (which wins at very low sample rates).
-    fn current_cutoff(&self) -> T {
-        let hz = self.cutoff * T::_lit(2.0)._pow(self.env_amount * self.filter_env.level());
-        hz._max(T::_lit(20.0))._min(T::_lit(0.45) * self.sample_rate)
+    /// Heads for `note`, gliding there when `glide` and a glide time are set.
+    fn retarget(&mut self, note: u8, glide: bool) {
+        self.note = note;
+        self.target_pitch = T::_lit(note as f64);
+        if glide && self.glide_seconds > T::_ZERO {
+            self.glide_per_sample = (self.target_pitch - self.pitch)._abs() / (self.glide_seconds * self.sample_rate);
+        } else {
+            self.pitch = self.target_pitch;
+        }
+        self.pitch_dirty = true;
+    }
+
+    /// Advances glide by `samples` and updates oscillator frequencies and filter coefficients.
+    fn update_controls(&mut self, samples: usize) {
+        if self.pitch != self.target_pitch {
+            let step = self.glide_per_sample * T::_lit(samples as f64);
+            let distance = self.target_pitch - self.pitch;
+            self.pitch = if distance._abs() <= step { self.target_pitch } else { self.pitch + step * distance._signum() };
+            self.pitch_dirty = true;
+        }
+        if self.pitch_dirty {
+            self.pitch_dirty = false;
+            let center = (self.pitch + self.bend).to_f64().unwrap_or(69.0);
+            let spread = self.detune_cents.to_f64().unwrap_or(0.0) / 100.0;
+            let n = self.unison;
+            for (i, osc) in self.oscs[..n].iter_mut().enumerate() {
+                let offset = if n > 1 { spread * (2.0 * i as f64 / (n - 1) as f64 - 1.0) } else { 0.0 };
+                osc.set_frequency(T::_lit(midi_to_hz(center + offset)), self.sample_rate);
+            }
+        }
+        let octaves = self.env_amount * self.filter_env.level()
+            + self.pressure_octaves * self.pressure
+            + self.timbre_octaves * (T::_lit(2.0) * self.timbre - T::_ONE);
+        let hz = (self.cutoff * T::_lit(2.0)._pow(octaves))._max(T::_lit(20.0))._min(T::_lit(0.45) * self.sample_rate);
+        if hz != self.applied_cutoff {
+            self.applied_cutoff = hz;
+            match self.filter_type {
+                VoiceFilter::Ladder24 => self.ladder.set_cutoff(hz),
+                _ => self.svf.set_cutoff_and_q(hz, T::_lit(0.5) * T::_lit(50.0)._pow(self.resonance)),
+            }
+        }
     }
 }
 
@@ -123,11 +272,15 @@ impl<T: Float> Voice for SynthVoice<T> {
     type Sample = T;
 
     fn note_on(&mut self, note: u8, velocity: T) {
-        self.note = note;
+        // a voice still sounding glides to its next note (portamento); a silent one starts there
+        let sounding = self.is_active();
         self.velocity = velocity._clamp(T::_ZERO, T::_ONE);
-        self.update_pitch();
+        self.retarget(note, sounding);
         self.amp_env.note_on();
         self.filter_env.note_on();
+    }
+    fn legato(&mut self, note: u8, _velocity: T) {
+        self.retarget(note, true);
     }
     fn note_off(&mut self) {
         self.amp_env.note_off();
@@ -141,11 +294,22 @@ impl<T: Float> Voice for SynthVoice<T> {
             out.iter_mut().for_each(|s| *s = T::_ZERO);
             return;
         }
-        self.osc.fill(out);
-        for chunk in out.chunks_mut(MOD_INTERVAL) {
-            let design = BiquadDesign { frequency: self.current_cutoff(), q: self.resonance, ..*self.filter.design().expect("built from a design") };
-            self.filter.set_design(design);
-            self.filter.process(chunk);
+        let n = self.unison;
+        // equal loudness for any unison count (the oscillators are uncorrelated)
+        let gain = T::_ONE / T::_lit(n as f64)._sqrt();
+        for chunk in out.chunks_mut(CONTROL) {
+            self.update_controls(chunk.len());
+            for s in chunk.iter_mut() {
+                let mut x = T::_ZERO;
+                for osc in &mut self.oscs[..n] {
+                    x = x + osc.next_sample();
+                }
+                *s = x * gain;
+            }
+            match self.filter_type {
+                VoiceFilter::Ladder24 => self.ladder.process(chunk),
+                _ => self.svf.process(chunk),
+            }
             for _ in 0..chunk.len() {
                 self.filter_env.next_value();
             }
@@ -154,17 +318,28 @@ impl<T: Float> Voice for SynthVoice<T> {
         out.iter_mut().for_each(|s| *s = *s * self.velocity);
     }
     fn set_pitch_bend(&mut self, semitones: T) {
-        self.bend = semitones;
-        self.update_pitch();
+        if semitones != self.bend {
+            self.bend = semitones;
+            self.pitch_dirty = true;
+        }
+    }
+    fn set_pressure(&mut self, pressure: T) {
+        self.pressure = pressure._clamp(T::_ZERO, T::_ONE);
+    }
+    fn set_timbre(&mut self, timbre: T) {
+        self.timbre = timbre._clamp(T::_ZERO, T::_ONE);
     }
     fn reset(&mut self) {
         self.amp_env.reset();
         self.filter_env.reset();
-        self.filter.reset();
-        self.osc.reset();
+        self.svf.reset();
+        self.ladder.reset();
+        for (osc, &phase) in self.oscs.iter_mut().zip(&self.phases) {
+            *osc = osc.with_phase(phase);
+        }
+        self.pitch = self.target_pitch;
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -230,5 +405,103 @@ mod tests {
             v.render(&mut out);
             assert!(out.iter().all(|s| s.is_finite()), "{fs} Hz");
         }
+    }
+
+    /// Magnitude spectrum (first half) of 32768 settled samples.
+    fn spectrum(voice: &mut SynthVoice<f64>) -> Vec<f64> {
+        render(voice, 9_600); // settle past the envelope attack
+        let out = render(voice, 32_768);
+        let fft = Fft::new(32_768);
+        let mut z = vec![Complex::zero(); 32_768];
+        fft.forward_real(&out, &mut z);
+        z[..16_384].iter().map(|c| c.norm_sqr().sqrt()).collect()
+    }
+
+    #[test]
+    fn unison_detunes_symmetrically_in_cents() {
+        let mut v = sine_voice();
+        v.set_unison(3);
+        v.set_detune(50.0);
+        v.note_on(69, 1.0);
+        let mags = spectrum(&mut v);
+        let bin = FS / 32_768.0;
+        let top = mags.iter().cloned().fold(0.0, f64::max);
+        for cents in [-50.0f64, 0.0, 50.0] {
+            let expected = 440.0 * 2f64.powf(cents / 1_200.0);
+            let k = (expected / bin).round() as usize;
+            let (best, mag) = (k - 3..=k + 3).map(|i| (i, mags[i])).fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
+            assert!(((best as f64 * bin) - expected).abs() < 2.0 * bin, "an oscillator at {expected:.1} Hz");
+            assert!(mag > 0.3 * top, "{expected:.1} Hz is a real peak");
+        }
+        // equal loudness whatever the count
+        let level = |n: usize| {
+            let mut v = sine_voice();
+            v.set_unison(n);
+            v.note_on(69, 1.0);
+            render(&mut v, 4_800);
+            render(&mut v, 48_000).rms().unwrap()
+        };
+        assert!((20.0 * (level(7) / level(1)).log10()).abs() < 2.0);
+    }
+
+    #[test]
+    fn glide_moves_the_pitch_in_the_set_time() {
+        let mut v = sine_voice();
+        v.set_glide(0.1);
+        v.note_on(60, 1.0);
+        assert_eq!(v.current_pitch(), 60.0, "a silent voice starts on its note");
+        render(&mut v, 4_800);
+        v.note_on(72, 1.0); // still sounding: glides
+        render(&mut v, 2_400); // 50 ms
+        assert!((v.current_pitch() - 66.0).abs() < 0.2, "halfway after half the time: {}", v.current_pitch());
+        render(&mut v, 2_480);
+        assert_eq!(v.current_pitch(), 72.0);
+    }
+
+    #[test]
+    fn legato_changes_pitch_without_retriggering() {
+        let mut v = sine_voice();
+        v.note_on(60, 1.0);
+        render(&mut v, 48_000); // well into the sustain (0.6)
+        let sustain = v.amp_env().level();
+        v.legato(67, 1.0);
+        render(&mut v, 480);
+        assert!((v.amp_env().level() - sustain).abs() < 1e-9, "the envelope carries on");
+        assert_eq!(v.current_pitch(), 67.0, "no glide time: the pitch jumps");
+        v.note_on(72, 1.0);
+        render(&mut v, 480);
+        assert!(v.amp_env().level() > sustain + 0.1, "a retrigger restarts the attack");
+    }
+
+    /// RMS of the first difference: grows with high-frequency content.
+    fn brightness(x: &[f64]) -> f64 {
+        let d: Vec<f64> = x.windows(2).map(|w| w[1] - w[0]).collect();
+        d.rms().unwrap()
+    }
+
+    #[test]
+    fn filter_types_and_expression_shape_the_tone() {
+        let tone = |filter: VoiceFilter, pressure: f64, timbre: f64| {
+            let mut v = SynthVoice::new(FS);
+            v.set_filter(filter);
+            v.set_cutoff(300.0);
+            v.set_env_amount(0.0);
+            v.set_pressure_amount(4.0);
+            v.set_timbre_amount(2.0);
+            v.set_pressure(pressure);
+            v.set_timbre(timbre);
+            v.note_on(45, 1.0); // a 110 Hz saw
+            render(&mut v, 4_800);
+            render(&mut v, 24_000)
+        };
+        let low = tone(VoiceFilter::Lowpass12, 0.0, 0.5);
+        let high = tone(VoiceFilter::Highpass12, 0.0, 0.5);
+        assert!(brightness(&high) > 3.0 * brightness(&low), "the high-pass keeps the edges, the low-pass the body");
+        let ladder = tone(VoiceFilter::Ladder24, 0.0, 0.5);
+        assert!(brightness(&ladder) < brightness(&low), "24 dB/octave is darker than 12");
+        assert!(brightness(&tone(VoiceFilter::Lowpass12, 1.0, 0.5)) > 2.0 * brightness(&low), "pressure opens the filter");
+        assert!(brightness(&tone(VoiceFilter::Lowpass12, 0.0, 1.0)) > 1.5 * brightness(&low), "timbre opens it");
+        assert!(brightness(&tone(VoiceFilter::Lowpass12, 0.0, 0.0)) < brightness(&low), "and closes it");
+        assert!(low.iter().chain(&high).chain(&ladder).all(|s| s.is_finite()));
     }
 }

@@ -4,12 +4,14 @@
 //! cargo xtask bundle autodyne-synth --release   # target/bundled: .clap and .vst3
 //! ```
 //!
-//! Signal path: MIDI -> 16-voice `Poly<SynthVoice>` (band-limited oscillator -> enveloped resonant
-//! low-pass -> ADSR) -> level -> FDN reverb. Notes land on their exact sample; the sustain pedal,
-//! all-notes-off and pitch bend (±2 semitones) are handled. An LFO (free or locked to the host's
-//! tempo) modulates cutoff and pulse width through a modulation matrix. Every parameter comes from
-//! the chain's `Parameterized` implementation through `ParamBridge`, grouped by stage, and host
-//! automation ramps through `Smoothed`.
+//! Signal path: MIDI -> 16-voice `Poly<SynthVoice>` (up to 7 detuned oscillators -> state-variable
+//! or ladder filter swept by its envelope, pressure and timbre -> ADSR; poly, mono or legato with
+//! glide) -> level -> FDN reverb. Notes land on their exact sample; the sustain pedal,
+//! all-notes-off, pitch bend, aftertouch, MPE and CLAP per-note expressions (pressure, tuning,
+//! brightness) are handled. An LFO (free or locked to the host's tempo) modulates cutoff and pulse
+//! width through a modulation matrix. Every parameter comes from the chain's `Parameterized`
+//! implementation through `ParamBridge`, grouped by stage, and host automation ramps through
+//! `Smoothed`.
 
 use std::sync::Arc;
 
@@ -19,7 +21,7 @@ use autodyne::params::{Parameterized, Smoothed};
 use autodyne::reverb::Reverb;
 use autodyne::synth::{MidiMessage, Poly, SynthVoice};
 use autodyne_plug::ParamBridge;
-use nice_plug::midi::Key;
+use nice_plug::midi::{Channel, Key};
 use nice_plug::prelude::*;
 
 const VOICES: usize = 16;
@@ -40,7 +42,7 @@ pub type Patch = (Lfo, Voices, Gain<f32>, Reverb<f32>);
 /// The patch at `sample_rate`, with its default sound (modulation depths at zero).
 pub fn patch(sample_rate: f32) -> Patch {
     let mut poly = Poly::new(VOICES, VOICE_BLOCK, |_| SynthVoice::new(sample_rate));
-    for (id, value) in [("cutoff_hz", 700.0), ("resonance", 2.0), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
+    for (id, value) in [("cutoff_hz", 700.0), ("resonance", 0.35), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
         poly.set_param_by_id(id, value).expect("known parameter");
     }
     let mut voices = Modulated::new(poly, 1, 2);
@@ -163,28 +165,33 @@ impl Plugin for AutodyneSynth {
     }
 }
 
-/// Applies one host note event to the voices.
+/// Applies one host note event to the voices. MIDI stays channel-aware, so MPE controllers shape
+/// each note through its member channel (with MPE on); CLAP note expressions arrive per key.
 fn handle(voices: &mut Poly<SynthVoice<f32>>, event: NoteEvent<()>) {
+    let number = |channel: Channel| if let Channel::Number(n) = channel { n } else { 0 };
     match event {
-        NoteEvent::NoteOn { key: Key::Number(note), velocity, .. } => voices.note_on(note, velocity),
-        NoteEvent::NoteOff { key: Key::Number(note), .. } | NoteEvent::Choke { key: Key::Number(note), .. } => {
-            voices.note_off(note)
+        NoteEvent::NoteOn { channel, key: Key::Number(note), velocity, .. } => voices.note_on_channel(number(channel), note, velocity),
+        NoteEvent::NoteOff { channel, key: Key::Number(note), .. } | NoteEvent::Choke { channel, key: Key::Number(note), .. } => {
+            voices.note_off_channel(number(channel), note)
         }
         // a wildcard key means every note: release them all, or silence everything for a choke
         NoteEvent::NoteOff { key: Key::Wildcard, .. } => voices.all_notes_off(),
         NoteEvent::Choke { key: Key::Wildcard, .. } => voices.reset(),
-        // sustain, all notes off and all sound off are handled as MIDI controllers
+        NoteEvent::PolyPressure { key: Key::Number(note), pressure, .. } => voices.set_note_pressure(note, pressure),
+        NoteEvent::PolyTuning { key: Key::Number(note), tuning, .. } => voices.set_note_tuning(note, tuning),
+        NoteEvent::PolyBrightness { key: Key::Number(note), brightness, .. } => voices.set_note_timbre(note, brightness),
+        // sustain, all notes off, all sound off and timbre (CC 74) are handled as MIDI controllers
         NoteEvent::MidiCC { channel, cc, value, .. } => voices.handle(MidiMessage::ControlChange {
             channel,
             controller: cc,
             value: (value * 127.0).round() as u8,
         }),
         // 0..1 with 0.5 centered
-        NoteEvent::MidiPitchBend { value, .. } => voices.set_pitch_bend(value * 2.0 - 1.0),
+        NoteEvent::MidiPitchBend { channel, value, .. } => voices.set_channel_bend(channel, value * 2.0 - 1.0),
+        NoteEvent::MidiChannelPressure { channel, pressure, .. } => voices.set_channel_pressure(channel, pressure),
         _ => {}
     }
 }
-
 impl ClapPlugin for AutodyneSynth {
     const CLAP_ID: &'static str = "com.github.vaibhav-gopal.autodyne.synth";
     const CLAP_DESCRIPTION: Option<&'static str> = Some("Polyphonic subtractive synth with an FDN reverb");
@@ -207,7 +214,8 @@ nice_export_vst3!(AutodyneSynth);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nice_plug::midi::{Channel, VoiceID};
+    use autodyne::synth::Voice;
+    use nice_plug::midi::VoiceID;
 
     fn note_on(note: u8) -> NoteEvent<()> {
         NoteEvent::NoteOn { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Number(0), key: Key::Number(note), velocity: 0.8 }
@@ -285,5 +293,50 @@ mod tests {
         assert!(lo < 600.0 && hi > 800.0, "the cutoff swings around its 700 Hz base: {lo:.0}..{hi:.0}");
         assert!((transport.position - 47.0 * 512.0 / fs * 2.0).abs() < 1e-9, "the transport moved with the audio");
         assert!(out.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn mpe_and_note_expressions_reach_single_notes() {
+        let mut voices = patch(48_000.0).1.into_inner();
+        voices.set_mpe(true);
+        let on = |channel, note| NoteEvent::NoteOn { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Number(channel), key: Key::Number(note), velocity: 0.8 };
+        handle(&mut voices, on(1, 60));
+        handle(&mut voices, on(2, 64));
+        // a member channel's pitch bend moves only its note (48 semitones full scale)
+        handle(&mut voices, NoteEvent::MidiPitchBend { timing: 0, channel: 1, value: 0.5 + 0.5 / 48.0 });
+        // a CLAP tuning expression detunes one key
+        let tuning = NoteEvent::PolyTuning { timing: 0, voice_id: VoiceID::Wildcard, channel: Channel::Number(2), key: Key::Number(64), tuning: -0.5 };
+        handle(&mut voices, tuning);
+        let pitches: Vec<f32> = voices.voices().iter().filter(|v| v.is_active()).map(|v| v.current_pitch()).collect();
+        assert!(pitches.iter().any(|p| (p - 61.0).abs() < 1e-3), "{pitches:?}");
+        assert!(pitches.iter().any(|p| (p - 63.5).abs() < 1e-3), "{pitches:?}");
+    }
+
+    #[test]
+    fn random_parameter_values_while_playing_never_panic() {
+        // what a host's automation (and clap-validator's parameter fuzzing) does
+        let fs = 48_000.0;
+        let mut patch = Smoothed::new(patch(fs as f32), RAMP_SECONDS, fs);
+        let mut transport = Transport { playing: true, ..Transport::new(120.0) };
+        let mut out = vec![0.0f32; 256];
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut random = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for round in 0..300 {
+            for index in 0..patch.param_count() {
+                let normalized = random();
+                patch.set_normalized(index, normalized).unwrap_or_else(|e| panic!("param {index}: {e}"));
+            }
+            if round % 3 == 0 {
+                let note = 36 + (random() * 48.0) as u8;
+                patch.inner_mut().1.inner_mut().note_on_channel((random() * 16.0) as u8, note, 0.8);
+            }
+            render_voices(&mut patch, &mut out, &mut transport, fs);
+            assert!(out.iter().all(|s| s.is_finite()), "round {round}");
+        }
     }
 }

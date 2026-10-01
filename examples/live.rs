@@ -121,7 +121,7 @@ impl Engine {
     fn new(sample_rate: f32, midi: Option<Consumer<MidiMessage>>) -> Self {
         let mut poly = Poly::new(VOICES, MAX_FRAMES, |_| SynthVoice::new(sample_rate));
         // a warmer patch than the defaults, set through the same parameter API a host would use
-        for (id, value) in [("cutoff_hz", 700.0), ("resonance", 2.0), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
+        for (id, value) in [("cutoff_hz", 700.0), ("resonance", 0.35), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
             poly.set_param_by_id(id, value).expect("known parameter");
         }
         let mut shaper = Waveshaper::new(Shape::Tanh, 4.0 * sample_rate); // runs at 4x the rate

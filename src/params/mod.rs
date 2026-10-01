@@ -25,8 +25,8 @@ use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::resample::Oversampled;
 use crate::reverb::{Convolver, Reverb};
-use crate::synth::{Poly, SynthVoice, Voice};
-use crate::filter::{Biquad, Fir, MultiBiquad};
+use crate::synth::{Poly, SynthVoice, Voice, VoiceFilter, VoiceMode, MAX_UNISON};
+use crate::filter::{Biquad, Fir, Ladder, MultiBiquad, Svf, SvfMode};
 use crate::gain::{gain_to_db, Gain};
 use crate::modulation::{ModulatedDelay, Phaser};
 use crate::osc::Waveform;
@@ -46,6 +46,8 @@ pub enum ParamUnit {
     Slope,
     /// 0..1, displayed as a percentage
     Fraction,
+    /// hundredths of a semitone
+    Cents,
 }
 
 /// How a parameter maps onto a 0..1 control (knob, slider, host automation lane).
@@ -192,6 +194,7 @@ impl ParamInfo {
             ParamUnit::Slope if value <= 0.0 => "∞:1".to_string(),
             ParamUnit::Slope => format!("{:.1}:1", 1.0 / value),
             ParamUnit::Fraction => format!("{:.0}%", value * 100.0),
+            ParamUnit::Cents => format!("{value:.1} ct"),
             ParamUnit::None => format!("{value:.3}"),
         }
     }
@@ -502,7 +505,7 @@ macro_rules! parameterized {
     };
 }
 
-use ParamUnit::{Decibels, Fraction, Hertz, Seconds, Slope};
+use ParamUnit::{Cents, Decibels, Fraction, Hertz, Seconds, Slope};
 
 parameterized!(Gain, "Gain",
     infos: |_s| [ParamInfo::new("gain_db", "Gain", Decibels, -60.0, 24.0, 0.0).smoothed_internally()],
@@ -640,8 +643,12 @@ parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
         ParamInfo::choice("waveform", "Waveform", &Waveform::<f64>::NAMES, 1),
         ParamInfo::new("pulse_width", "Pulse width", Fraction, 0.05, 0.95, 0.5),
+        ParamInfo::new("unison", "Unison", ParamUnit::None, 1.0, MAX_UNISON as f64, 1.0).integer(),
+        ParamInfo::new("detune_cents", "Detune", Cents, 0.0, 100.0, 15.0),
+        ParamInfo::choice("filter", "Filter", &VoiceFilter::NAMES, 0),
         ParamInfo::new("cutoff_hz", "Cutoff", Hertz, 20.0, 20_000.0, 800.0).log(),
-        ParamInfo::new("resonance", "Resonance", ParamUnit::None, 0.5, 12.0, 1.2).log(),
+        ParamInfo::new("resonance", "Resonance", Fraction, 0.0, 1.0, 0.22),
+        ParamInfo::new("drive_db", "Drive (ladder)", Decibels, 0.0, 24.0, 0.0),
         ParamInfo::new("env_amount", "Filter env (octaves)", ParamUnit::None, 0.0, 6.0, 3.0),
         ParamInfo::new("amp_attack_s", "Amp attack", Seconds, 0.0, 10.0, 0.005),
         ParamInfo::new("amp_decay_s", "Amp decay", Seconds, 0.0, 10.0, 0.3),
@@ -651,61 +658,144 @@ parameterized!(SynthVoice, "Synth voice",
         ParamInfo::new("filter_decay_s", "Filter decay", Seconds, 0.0, 10.0, 0.25),
         ParamInfo::new("filter_sustain", "Filter sustain", Fraction, 0.0, 1.0, 0.2),
         ParamInfo::new("filter_release_s", "Filter release", Seconds, 0.0, 20.0, 0.3),
+        ParamInfo::new("glide_s", "Glide", Seconds, 0.0, 5.0, 0.0),
+        ParamInfo::new("pressure_octaves", "Pressure > cutoff (octaves)", ParamUnit::None, 0.0, 4.0, 1.0),
+        ParamInfo::new("timbre_octaves", "Timbre > cutoff (octaves)", ParamUnit::None, 0.0, 4.0, 1.0),
     ],
     read: |p, i| match i {
         0 => p.waveform().index() as f64,
         1 => f(p.pulse_width()),
-        2 => f(p.cutoff()),
-        3 => f(p.resonance()),
-        4 => f(p.env_amount()),
-        5 => f(p.amp_env().attack()),
-        6 => f(p.amp_env().decay()),
-        7 => f(p.amp_env().sustain()),
-        8 => f(p.amp_env().release()),
-        9 => f(p.filter_env().attack()),
-        10 => f(p.filter_env().decay()),
-        11 => f(p.filter_env().sustain()),
-        _ => f(p.filter_env().release()),
+        2 => p.unison() as f64,
+        3 => f(p.detune()),
+        4 => VoiceFilter::ALL.iter().position(|&v| v == p.filter()).unwrap_or(0) as f64,
+        5 => f(p.cutoff()),
+        6 => f(p.resonance()),
+        7 => f(p.drive_db()),
+        8 => f(p.env_amount()),
+        9 => f(p.amp_env().attack()),
+        10 => f(p.amp_env().decay()),
+        11 => f(p.amp_env().sustain()),
+        12 => f(p.amp_env().release()),
+        13 => f(p.filter_env().attack()),
+        14 => f(p.filter_env().decay()),
+        15 => f(p.filter_env().sustain()),
+        16 => f(p.filter_env().release()),
+        17 => f(p.glide()),
+        18 => f(p.pressure_amount()),
+        _ => f(p.timbre_amount()),
     },
     write: |p, i, v| match i {
         0 => p.set_waveform(Waveform::from_index(v as usize, p.pulse_width())),
         1 => p.set_pulse_width(t(v)),
-        2 => p.set_cutoff(t(v)),
-        3 => p.set_resonance(t(v)),
-        4 => p.set_env_amount(t(v)),
-        5 => p.amp_env_mut().set_attack(t(v)),
-        6 => p.amp_env_mut().set_decay(t(v)),
-        7 => p.amp_env_mut().set_sustain(t(v)),
-        8 => p.amp_env_mut().set_release(t(v)),
-        9 => p.filter_env_mut().set_attack(t(v)),
-        10 => p.filter_env_mut().set_decay(t(v)),
-        11 => p.filter_env_mut().set_sustain(t(v)),
-        _ => p.filter_env_mut().set_release(t(v)),
+        2 => p.set_unison(v as usize),
+        3 => p.set_detune(t(v)),
+        4 => p.set_filter(VoiceFilter::ALL[v as usize]),
+        5 => p.set_cutoff(t(v)),
+        6 => p.set_resonance(t(v)),
+        7 => p.set_drive_db(t(v)),
+        8 => p.set_env_amount(t(v)),
+        9 => p.amp_env_mut().set_attack(t(v)),
+        10 => p.amp_env_mut().set_decay(t(v)),
+        11 => p.amp_env_mut().set_sustain(t(v)),
+        12 => p.amp_env_mut().set_release(t(v)),
+        13 => p.filter_env_mut().set_attack(t(v)),
+        14 => p.filter_env_mut().set_decay(t(v)),
+        15 => p.filter_env_mut().set_sustain(t(v)),
+        16 => p.filter_env_mut().set_release(t(v)),
+        17 => p.set_glide(t(v)),
+        18 => p.set_pressure_amount(t(v)),
+        _ => p.set_timbre_amount(t(v)),
     },
 );
 
-/// One set of parameters controlling every voice.
+/// The voices' parameters (one set controlling every voice), followed by the pool's own: voice mode,
+/// pitch bend range and MPE.
 impl<V: Voice + Parameterized> Parameterized for Poly<V> {
     fn param_count(&self) -> usize {
-        self.voices().first().map_or(0, Parameterized::param_count)
+        self.voices().first().map_or(0, Parameterized::param_count) + POLY_PARAMS
     }
     fn param_info(&self, index: usize) -> Option<ParamInfo> {
-        self.voices().first()?.param_info(index)
+        let voice = self.voices().first()?;
+        match index.checked_sub(voice.param_count()) {
+            None => voice.param_info(index),
+            Some(0) => Some(ParamInfo::choice("voice_mode", "Voice mode", &VoiceMode::NAMES, 0)),
+            Some(1) => Some(ParamInfo::new("bend_range", "Bend range", ParamUnit::None, 0.0, 48.0, 2.0).integer()),
+            Some(2) => Some(ParamInfo::toggle("mpe", "MPE", false)),
+            Some(_) => None,
+        }
     }
     fn param_group(&self, index: usize) -> Option<&'static str> {
-        self.voices().first()?.param_group(index)
+        let voice = self.voices().first()?;
+        if index < voice.param_count() {
+            voice.param_group(index)
+        } else {
+            (index < self.param_count()).then_some("Polyphony")
+        }
     }
     fn get_param(&self, index: usize) -> Option<f64> {
-        self.voices().first()?.get_param(index)
+        let voice = self.voices().first()?;
+        match index.checked_sub(voice.param_count()) {
+            None => voice.get_param(index),
+            Some(0) => Some(VoiceMode::ALL.iter().position(|&m| m == self.mode()).unwrap_or(0) as f64),
+            Some(1) => Some(f(self.bend_range())),
+            Some(2) => Some(f64::from(u8::from(self.mpe()))),
+            Some(_) => None,
+        }
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let mut applied = Err(ParamError::UnknownIndex(index));
-        for v in self.voices_mut() {
-            applied = Ok(v.set_param(index, value)?);
+        let voice_params = self.voices().first().map_or(0, Parameterized::param_count);
+        if index < voice_params {
+            let mut applied = Err(ParamError::UnknownIndex(index));
+            for v in self.voices_mut() {
+                applied = Ok(v.set_param(index, value)?);
+            }
+            return applied;
         }
-        applied
+        let applied = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        match index - voice_params {
+            0 => self.set_mode(VoiceMode::ALL[applied as usize]),
+            1 => self.set_bend_range(t(applied)),
+            _ => self.set_mpe(applied >= 0.5),
+        }
+        Ok(applied)
     }
 }
+
+/// Parameters `Poly` adds after its voices' own.
+const POLY_PARAMS: usize = 3;
+parameterized!(Svf, "State-variable filter",
+    infos: |s| {
+        let top = (0.49 * f(s.sample_rate())).min(20_000.0);
+        [
+            ParamInfo::choice("mode", "Mode", &SvfMode::NAMES, 0),
+            ParamInfo::new("cutoff_hz", "Cutoff", Hertz, 20.0, top, 1_000.0f64.min(top)).log(),
+            ParamInfo::new("q", "Q", ParamUnit::None, 0.1, 25.0, std::f64::consts::FRAC_1_SQRT_2).log(),
+        ]
+    },
+    read: |p, i| match i {
+        0 => SvfMode::ALL.iter().position(|&m| m == p.mode()).unwrap_or(0) as f64,
+        1 => f(p.cutoff()),
+        _ => f(p.q()),
+    },
+    write: |p, i, v| match i {
+        0 => p.set_mode(SvfMode::ALL[v as usize]),
+        1 => p.set_cutoff(t(v)),
+        _ => p.set_q(t(v)),
+    },
+);
+
+parameterized!(Ladder, "Ladder filter",
+    infos: |s| {
+        let top = (0.49 * f(s.sample_rate())).min(20_000.0);
+        [
+            ParamInfo::new("cutoff_hz", "Cutoff", Hertz, 20.0, top, 1_000.0f64.min(top)).log(),
+            ParamInfo::new("resonance", "Resonance", Fraction, 0.0, 1.0, 0.3),
+            ParamInfo::new("drive_db", "Drive", Decibels, 0.0, 24.0, 0.0),
+        ]
+    },
+    read: |p, i| match i { 0 => f(p.cutoff()), 1 => f(p.resonance()), _ => f(gain_to_db(p.drive())) },
+    write: |p, i, v| match i { 0 => p.set_cutoff(t(v)), 1 => p.set_resonance(t(v)), _ => p.set_drive(T::_lit(10f64.powf(v / 20.0))) },
+);
 
 parameterized!(Reverb, "Reverb",
     infos: |_s| [

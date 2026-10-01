@@ -1,4 +1,5 @@
-//! Filters: plain convolution, FIR (with windowed-sinc low-pass design) and biquad IIR (RBJ cookbook).
+//! Filters: plain convolution, FIR (with windowed-sinc low-pass design), biquad IIR (RBJ cookbook),
+//! and two filters built for modulation: the state-variable [`Svf`] and the 4-pole [`Ladder`].
 //!
 //! Filters are stateful block processors: construct (allocates once), then `process(&mut [T])`
 //! in place as often as needed without allocating, e.g. from an audio callback.
@@ -7,6 +8,12 @@
 
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
+
+mod ladder;
+mod svf;
+
+pub use ladder::*;
+pub use svf::*;
 
 /// Full linear convolution of `a` and `b`; the result has `a.len() + b.len() - 1` samples
 /// (empty if either input is empty). Allocates; for streaming use `Fir`.

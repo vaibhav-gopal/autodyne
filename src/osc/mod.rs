@@ -173,6 +173,11 @@ impl<T: Float> Oscillator<T> {
         self.amplitude = amplitude;
         self
     }
+    /// Starting phase in cycles, [0, 1) (e.g. to spread unison oscillators).
+    pub fn with_phase(mut self, cycles: T) -> Self {
+        self.phase = cycles - cycles._floor();
+        self
+    }
     /// Changes frequency without resetting phase (no click).
     pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
         self.increment = frequency / sample_rate;

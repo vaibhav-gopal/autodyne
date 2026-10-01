@@ -24,12 +24,12 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 |---|---|
 | `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...), `Complex<T>`, and reflection: `DType` (runtime element type) and `Reflection` |
 | `osc` | band-limited `Oscillator` (saw / pulse with PolyBLEP, triangle, sine), `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse` |
-| `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch, all-pass, peaking, low/high shelf), `MultiBiquad` (one per channel, 4 channels in lockstep: ~3.8x faster on 8 channels), `magnitude_at` for analytic responses |
+| `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch, all-pass, peaking, low/high shelf), `MultiBiquad` (one per channel, 4 channels in lockstep: ~3.8x faster on 8 channels), and two filters built for modulation: `Svf` (zero-delay-feedback state-variable filter, stable under per-sample cutoff changes, six simultaneous responses) and `Ladder` (4-pole Moog-style, zero-delay feedback, self-oscillates at the cutoff, level-compensated drive); `magnitude_at` for analytic responses |
 | `spectral` | radix-2 `Fft` (forward, inverse, real input), `RealFft` (real signals, ~1.7x faster) and a reference `dft` |
 | `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
 | `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
 | `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
-| `synth` | `MidiMessage` parsing, the `Voice` trait, `Poly` (voice allocation and stealing, sustain pedal, pitch bend, sample-accurate events) and `SynthVoice` (oscillator -> enveloped resonant low-pass -> ADSR) |
+| `synth` | `MidiMessage` parsing (including aftertouch), the `Voice` trait, `Poly` (voice allocation and stealing, sustain pedal, pitch bend, sample-accurate events, poly / mono / legato modes with last-note priority, MPE and per-note expression) and `SynthVoice` (up to 7 detuned unison oscillators -> SVF or ladder filter swept by its envelope, pressure and timbre -> ADSR, with glide) |
 | `reverb` | `Reverb` (8-line feedback delay network: exact RT60, modulated delays with all-pass interpolation, damping, pre-delay, diffusion, decorrelated stereo) and `Convolver` (partitioned FFT convolution with any impulse response; `synthetic_ir`) |
 | `envelope` | `Adsr`: exact linear segments, click-free retrigger / release; a VCA `Processor` and a modulation `Source` |
 | `distortion` | `Waveshaper` (tanh, soft clip, hard clip, fold) with smoothed drive / output / mix |

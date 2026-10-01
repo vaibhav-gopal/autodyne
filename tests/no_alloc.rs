@@ -289,6 +289,27 @@ fn polyphonic_synth_does_not_allocate() {
         poly.render(&mut out);
         poly.set_param_by_id("cutoff_hz", 2_000.0).unwrap();
     });
+    // unison, the ladder, glide, MPE expression and the mono modes
+    for (id, value) in [("unison", 7.0), ("filter", 3.0), ("glide_s", 0.05), ("mpe", 1.0)] {
+        poly.set_param_by_id(id, value).unwrap();
+    }
+    assert_no_alloc("Poly with unison, ladder, glide and MPE", || {
+        poly.handle(MidiMessage::NoteOn { channel: 3, note: 62, velocity: 90 });
+        poly.handle(MidiMessage::PitchBend { channel: 3, value: -2_000 });
+        poly.handle(MidiMessage::ChannelPressure { channel: 3, value: 100 });
+        poly.handle(MidiMessage::ControlChange { channel: 3, controller: 74, value: 20 });
+        poly.handle(MidiMessage::PolyPressure { channel: 3, note: 62, value: 60 });
+        poly.set_note_tuning(62, 0.3);
+        poly.render(&mut out);
+    });
+    poly.set_param_by_id("voice_mode", 2.0).unwrap(); // legato
+    assert_no_alloc("Poly in legato mode", || {
+        for n in [60, 64, 67] {
+            poly.note_on(n, 0.7);
+        }
+        poly.note_off(67);
+        poly.render(&mut out);
+    });
 }
 
 #[test]

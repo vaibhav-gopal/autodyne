@@ -8,12 +8,20 @@ pub enum MidiMessage {
     ControlChange { channel: u8, controller: u8, value: u8 },
     /// -8192 (full down) ..= 8191 (full up), 0 = centered
     PitchBend { channel: u8, value: i16 },
+    /// aftertouch for the whole channel (in MPE: one note's pressure)
+    ChannelPressure { channel: u8, value: u8 },
+    /// aftertouch for one note
+    PolyPressure { channel: u8, note: u8, value: u8 },
 }
 
 /// Controller numbers with meaning to a synth.
 pub mod cc {
+    /// modulation wheel
+    pub const MOD_WHEEL: u8 = 1;
     /// sustain (damper) pedal: values >= 64 are down
     pub const SUSTAIN: u8 = 64;
+    /// brightness / timbre: MPE's third dimension ("slide")
+    pub const TIMBRE: u8 = 74;
     /// all sound off: silence immediately
     pub const ALL_SOUND_OFF: u8 = 120;
     /// all notes off: release every note
@@ -22,7 +30,7 @@ pub mod cc {
 
 impl MidiMessage {
     /// Parses one complete channel message. Returns `None` for other messages (system, clock,
-    /// aftertouch, program change, ...), truncated input or out-of-range data bytes.
+    /// program change, ...), truncated input or out-of-range data bytes.
     /// A note-on with velocity 0 is a note-off, as the MIDI spec defines.
     pub fn parse(bytes: &[u8]) -> Option<MidiMessage> {
         let (&status, data) = bytes.split_first()?;
@@ -38,7 +46,9 @@ impl MidiMessage {
                     MidiMessage::NoteOn { channel, note, velocity }
                 })
             }
+            0xA0 => Some(MidiMessage::PolyPressure { channel, note: byte(0)?, value: byte(1)? }),
             0xB0 => Some(MidiMessage::ControlChange { channel, controller: byte(0)?, value: byte(1)? }),
+            0xD0 => Some(MidiMessage::ChannelPressure { channel, value: byte(0)? }),
             0xE0 => {
                 let raw = ((byte(1)? as i16) << 7) | byte(0)? as i16;
                 Some(MidiMessage::PitchBend { channel, value: raw - 8192 })
@@ -47,7 +57,8 @@ impl MidiMessage {
         }
     }
 
-    /// The raw bytes of this message (e.g. to send or log it).
+    /// The raw bytes of this message (e.g. to send or log it): the first [`wire_len`](Self::wire_len) are
+    /// meaningful (channel pressure has 2).
     pub fn to_bytes(self) -> [u8; 3] {
         match self {
             MidiMessage::NoteOn { channel, note, velocity } => [0x90 | channel, note, velocity],
@@ -57,6 +68,23 @@ impl MidiMessage {
                 let raw = (value.clamp(-8192, 8191) + 8192) as u16;
                 [0xE0 | channel, (raw & 0x7F) as u8, (raw >> 7) as u8]
             }
+            MidiMessage::ChannelPressure { channel, value } => [0xD0 | channel, value, 0],
+            MidiMessage::PolyPressure { channel, note, value } => [0xA0 | channel, note, value],
+        }
+    }
+    /// Number of bytes the message takes on the wire.
+    pub fn wire_len(self) -> usize {
+        if matches!(self, MidiMessage::ChannelPressure { .. }) { 2 } else { 3 }
+    }
+    /// The channel the message is on.
+    pub fn channel(self) -> u8 {
+        match self {
+            MidiMessage::NoteOn { channel, .. }
+            | MidiMessage::NoteOff { channel, .. }
+            | MidiMessage::ControlChange { channel, .. }
+            | MidiMessage::PitchBend { channel, .. }
+            | MidiMessage::ChannelPressure { channel, .. }
+            | MidiMessage::PolyPressure { channel, .. } => channel,
         }
     }
 }
@@ -86,6 +114,7 @@ mod tests {
         assert_eq!(MidiMessage::parse(&[]), None);
         assert_eq!(MidiMessage::parse(&[0xF8]), None, "clock");
         assert_eq!(MidiMessage::parse(&[0xC0, 5]), None, "program change");
+        assert_eq!(MidiMessage::parse(&[0xD0]), None, "truncated channel pressure");
         assert_eq!(MidiMessage::parse(&[0x90, 60]), None, "truncated");
         assert_eq!(MidiMessage::parse(&[0x90, 200, 10]), None, "data byte out of range");
     }
@@ -97,8 +126,10 @@ mod tests {
             MidiMessage::NoteOff { channel: 0, note: 36, velocity: 64 },
             MidiMessage::ControlChange { channel: 2, controller: 1, value: 33 },
             MidiMessage::PitchBend { channel: 15, value: -1234 },
+            MidiMessage::ChannelPressure { channel: 4, value: 99 },
+            MidiMessage::PolyPressure { channel: 1, note: 60, value: 12 },
         ] {
-            assert_eq!(MidiMessage::parse(&m.to_bytes()), Some(m));
+            assert_eq!(MidiMessage::parse(&m.to_bytes()[..m.wire_len()]), Some(m));
         }
     }
 
