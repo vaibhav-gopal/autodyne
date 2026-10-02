@@ -92,6 +92,9 @@ pub enum Op {
     Pad { a: Id, low: Vec<usize>, high: Vec<usize>, interior: Vec<usize> },
     /// The operands joined along an axis (`stablehlo.concatenate`).
     Concat(Vec<Id>, usize),
+    /// One part of the complex DFT (or its inverse, scaled by `1 / n`) along the last axis of
+    /// `re + i·im`.
+    Fft { re: Id, im: Id, inverse: bool, part: Part },
     /// Max / min / product over `axes` (increasing), which are removed.
     Reduce(Id, Vec<usize>, Reduction),
     /// Reverses each of `axes`.
@@ -118,7 +121,7 @@ impl Op {
             Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
                 (Some(a), Some(b), None)
             }
-            Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } | Op::Take { table: a, indices: b } | Op::ScatterAdd { indices: a, updates: b } => {
+            Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } | Op::Take { table: a, indices: b } | Op::ScatterAdd { indices: a, updates: b } | Op::Fft { re: a, im: b, .. } => {
                 (Some(a), Some(b), None)
             }
             Op::Select(c, a, b) => (Some(c), Some(a), Some(b)),
@@ -159,6 +162,7 @@ impl Op {
             Op::Slice { a, start, limit, stride } => Op::Slice { a: f(a), start, limit, stride },
             Op::Pad { a, low, high, interior } => Op::Pad { a: f(a), low, high, interior },
             Op::Concat(parts, axis) => Op::Concat(parts.into_iter().map(f).collect(), axis),
+            Op::Fft { re, im, inverse, part } => Op::Fft { re: f(re), im: f(im), inverse, part },
             Op::Reduce(a, axes, r) => Op::Reduce(f(a), axes, r),
             Op::Reverse(a, axes) => Op::Reverse(f(a), axes),
             Op::Take { table, indices } => Op::Take { table: f(table), indices: f(indices) },
@@ -386,6 +390,14 @@ impl Tracer {
         (self.broadcast_to(&shape), rhs.broadcast_to(&shape), shape)
     }
 
+    fn complex_fft(re: Tracer, im: Tracer, inverse: bool) -> (Tracer, Tracer) {
+        let shape = re.shape();
+        assert_eq!(shape, im.shape(), "fft: real and imaginary parts differ in shape");
+        assert!(shape.last().is_some_and(|&n| n >= 1), "fft: needs a non-empty axis");
+        let (re, im) = (re.check(), im.check());
+        (Tracer::new(Op::Fft { re, im, inverse, part: Part::Re }, shape.clone()), Tracer::new(Op::Fft { re, im, inverse, part: Part::Im }, shape))
+    }
+
     fn reduce(self, axes: &[usize], r: Reduction) -> Tracer {
         let own = self.shape();
         let mut axes = axes.to_vec();
@@ -558,6 +570,14 @@ impl RealArrayMath for Tracer {
         let mut shape = sr;
         *shape.last_mut().unwrap() = n;
         Tracer::new(Op::Irfft { re: re.check(), im: im.check(), n }, shape)
+    }
+
+    fn fft_parts(re: Tracer, im: Tracer) -> (Tracer, Tracer) {
+        Tracer::complex_fft(re, im, false)
+    }
+
+    fn ifft_parts(re: Tracer, im: Tracer) -> (Tracer, Tracer) {
+        Tracer::complex_fft(re, im, true)
     }
 
     fn max_axes(self, axes: &[usize]) -> Tracer {

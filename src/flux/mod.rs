@@ -5,12 +5,13 @@
 //! Generic code runs on [`Tracer`] instead of `f32`; every operation is recorded into a flat
 //! [`Graph`] of primitives on f32 arrays: element-wise arithmetic and functions, comparisons and
 //! `select`, broadcasting, reshapes and transposes, slices, padding, concatenation and reversal,
-//! sums, products, maxima and minima, `dot_general`, real FFTs, and gathers (`take`, for
+//! sums, products, maxima and minima, `dot_general`, real and complex FFTs, and gathers (`take`, for
 //! wavetables and modulated delays) with their scatter. From there:
 //!
 //! - [`Graph::eval`] interprets it (f32, the reference semantics; values are
 //!   [`NdArray`](crate::signal::NdArray)s);
-//! - [`vjp`] differentiates it in reverse mode, recording the backward pass into the same trace;
+//! - [`vjp`] differentiates it in reverse mode, recording the backward pass into the same trace
+//!   ([`jvp`], forward mode, transposes it);
 //! - [`Scan`] runs a traced step over a whole signal, and its gradient as a reverse scan, with
 //!   respect to the parameters, the initial state and the input signal;
 //! - [`Loss`] scores a scan's whole output: mean squared error, the multi-resolution STFT loss
@@ -53,13 +54,14 @@ mod runtime;
 mod scan;
 mod xla;
 
-pub use ad::vjp;
+pub use ad::{jvp, vjp};
 pub use graph::{scalar, trace, vector, Cmp, Graph, Mask, Node, Op, Part, Reduction, Tracer};
 pub use hlo::Program;
 pub use iree::{Iree, IreeTarget};
 pub use pjrt::Pjrt;
 pub use runtime::{Backend, DeviceArray, Executable};
-pub use loss::{frames, multi_resolution_stft, stft_magnitude, Loss, StftResolution};
+pub use crate::signal::frames;
+pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
 pub use scan::{LossGrad, Scan, ScanVjp};
 pub use xla::Xla;
 

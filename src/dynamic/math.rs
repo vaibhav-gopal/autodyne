@@ -408,6 +408,28 @@ impl RealArrayMath for DynArray {
             _ => panic!("irfft needs real parts"),
         }
     }
+    fn fft_parts(re: Self, im: Self) -> (Self, Self) {
+        fft_parts_dyn(re, im, false)
+    }
+    fn ifft_parts(re: Self, im: Self) -> (Self, Self) {
+        fft_parts_dyn(re, im, true)
+    }
+}
+
+/// Complex FFTs of real and imaginary parts, in their common float type.
+fn fft_parts_dyn(re: DynArray, im: DynArray, inverse: bool) -> (DynArray, DynArray) {
+    let target = float_type(binary(re.clone(), im.clone(), BinaryOp::Add).dtype());
+    match (FloatArray::from(re.cast(target).expect("converts")), FloatArray::from(im.cast(target).expect("converts"))) {
+        (FloatArray::F32(r), FloatArray::F32(i)) => {
+            let (a, b) = if inverse { NdArray::ifft_parts(r, i) } else { NdArray::fft_parts(r, i) };
+            (DynArray::F32(a), DynArray::F32(b))
+        }
+        (FloatArray::F64(r), FloatArray::F64(i)) => {
+            let (a, b) = if inverse { NdArray::ifft_parts(r, i) } else { NdArray::fft_parts(r, i) };
+            (DynArray::F64(a), DynArray::F64(b))
+        }
+        _ => panic!("fft_parts needs real parts"),
+    }
 }
 
 /// Complex FFTs; real arrays are promoted to complex first.

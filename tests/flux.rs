@@ -142,6 +142,8 @@ fn every_primitive_matches_the_interpreter() {
             m.reverse(&[0, 1]),
             m.take((b * Tracer::lit(6.0)).abs()),
             b.take(Tracer::lit(3.5)),
+            Tracer::fft_parts(a, g).0,
+            Tracer::ifft_parts(g, a).1,
         ]
     });
     let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 1)).collect();
@@ -166,6 +168,9 @@ fn gradients_of_array_programs_match_the_interpreter() {
         let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum_axes(&[0]).mean_all() + (framed * framed).slice(&[1, 0, 0], &[4, 3, 6], &[2, 1, 2]).sum_all();
         let rows = Tracer::constant(&NdArray::from_vec(vec![0.0, 3.5, 3.0, 9.0, 1.2, 0.0], &[2, 3]).unwrap());
         let loss = loss + x.take(rows).max_axes(&[2]).sum_all() + w.reverse(&[0]).min_axes(&[1]).prod_axes(&[0]) * g.take(Tracer::lit(2.0));
+        let (fr, fi) = Tracer::fft_parts(x, x.reverse(&[1]));
+        let (ir, ii) = Tracer::ifft_parts(fr * fi, fi);
+        let loss = loss + (ir * ir + ii).sum_all();
         autodyne::flux::vjp(&[loss], &[Elementwise::lit(1.0)], v)
     });
     let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 10)).collect();

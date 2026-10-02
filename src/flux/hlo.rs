@@ -96,6 +96,7 @@ impl Writer {
         let mut names: Vec<String> = Vec::with_capacity(g.nodes.len());
         // complex spectra by operand, so the real and imaginary parts share one FFT
         let mut spectra: HashMap<u32, String> = HashMap::new();
+        let mut complex_spectra: HashMap<(u32, u32, bool), String> = HashMap::new();
         for node in &g.nodes {
             let n = |i: u32| names[i as usize].clone();
             let t = |i: u32| {
@@ -195,6 +196,22 @@ impl Writer {
                         i64s(interior),
                         t(a)
                     )
+                }
+                Op::Fft { re, im, inverse, part } => {
+                    let spectrum = ty(&node.shape, "complex<f32>");
+                    let c = match complex_spectra.get(&(re, im, inverse)) {
+                        Some(c) => c.clone(),
+                        None => {
+                            let z = self.emit(&format!("stablehlo.complex {}, {} : {spectrum}", n(re), n(im)));
+                            let kind = if inverse { "IFFT" } else { "FFT" };
+                            let len = node.shape.last().unwrap();
+                            let c = self.emit(&format!("stablehlo.fft {z}, type = {kind}, length = [{len}] : ({spectrum}) -> {spectrum}"));
+                            complex_spectra.insert((re, im, inverse), c.clone());
+                            c
+                        }
+                    };
+                    let op = if part == Part::Re { "real" } else { "imag" };
+                    format!("stablehlo.{op} {c} : ({spectrum}) -> {out}")
                 }
                 Op::Reduce(a, ref axes, r) => {
                     let (init, op) = match r {

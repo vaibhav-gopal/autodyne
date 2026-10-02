@@ -41,6 +41,7 @@ mod analysis;
 mod array_math;
 mod complex;
 mod container;
+mod generic;
 mod nd_axis;
 mod nd_ops;
 mod ndarray;
@@ -51,6 +52,7 @@ mod transform;
 
 pub use analysis::*;
 pub use array_math::{ArrayMath, ComplexArrayMath, RealArrayMath};
+pub use generic::{convolve, frames};
 pub(crate) use array_math::{
     broadcast_in_dim, broadcast_to_any, concatenate_any, dot_operands, pad_any, reduce_axes_with, reshape_any, reverse_any, select_any, slice_any, sum_axes_with,
     take_any, transpose_any,

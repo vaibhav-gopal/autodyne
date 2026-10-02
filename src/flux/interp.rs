@@ -80,6 +80,10 @@ impl Graph {
                 Op::Irfft { re, im, n } => Value::Real(NdArray::irfft(r(re), r(im), n)),
                 Op::Slice { a, ref start, ref limit, ref stride } => Value::Real(r(a).slice(start, limit, stride)),
                 Op::Pad { a, ref low, ref high, ref interior } => Value::Real(r(a).pad(low, high, interior)),
+                Op::Fft { re, im, inverse, part } => {
+                    let (a, b) = if inverse { NdArray::ifft_parts(r(re), r(im)) } else { NdArray::fft_parts(r(re), r(im)) };
+                    Value::Real(if part == Part::Re { a } else { b })
+                }
                 Op::Reduce(a, ref axes, Reduction::Max) => Value::Real(r(a).max_axes(axes)),
                 Op::Reduce(a, ref axes, Reduction::Min) => Value::Real(r(a).min_axes(axes)),
                 Op::Reduce(a, ref axes, Reduction::Prod) => Value::Real(r(a).prod_axes(axes)),

@@ -127,6 +127,39 @@ fn second_derivative() {
 // ARRAY OPERATIONS ================================================================================
 
 #[test]
+fn forward_mode_is_the_transpose_of_reverse_mode() {
+    // ⟨J v, w⟩ = ⟨v, Jᵀ w⟩ for a function with every kind of primitive
+    let shapes: &[&[usize]] = &[&[3, 8], &[8]];
+    let f = |v: &[Tracer]| {
+        let (a, b) = (v[0], v[1]);
+        let y = (a * b).tanh().maximum(a.abs().sqrt() * Tracer::lit(0.3));
+        let (re, im) = y.rfft();
+        vec![(re * re + im * im).max_axes(&[1]), crate::signal::convolve(y, b.slice_axis(0, 0, 3)).take(Tracer::lit(4.0)).reverse(&[0])]
+    };
+    let inputs = [random(shapes[0], 1), random(shapes[1], 2)];
+    let (v0, v1) = (random(shapes[0], 3), random(shapes[1], 4));
+    let out_shapes = trace(shapes, |v| f(v)).output_shapes();
+    let (w0, w1) = (random(&out_shapes[0], 5), random(&out_shapes[1], 6));
+    let jv = trace(shapes, |v| jvp(&f(v), v, &[Tracer::constant(&v0), Tracer::constant(&v1)])).eval(&inputs);
+    let jtw = trace(shapes, |v| vjp(&f(v), &[Tracer::constant(&w0), Tracer::constant(&w1)], v)).eval(&inputs);
+    let dot = |a: &NdArray<f32>, b: &NdArray<f32>| a.as_slice().iter().zip(b.as_slice()).map(|(x, y)| *x as f64 * *y as f64).sum::<f64>();
+    let left = dot(&jv[0], &w0) + dot(&jv[1], &w1);
+    let right = dot(&v0, &jtw[0]) + dot(&v1, &jtw[1]);
+    assert!((left - right).abs() < 1e-4 * (1.0 + left.abs()), "{left} vs {right}");
+    // and against a finite difference along v
+    let h = 1e-3f32;
+    let at = |s: f32| {
+        let moved = [&inputs[0] + &(&v0 * s), &inputs[1] + &(&v1 * s)];
+        trace(shapes, |v| f(v)).eval(&moved)
+    };
+    let (up, down) = (at(h), at(-h));
+    for i in 0..jv[0].len() {
+        let fd = (up[0].as_slice()[i] - down[0].as_slice()[i]) / (2.0 * h);
+        assert!((jv[0].as_slice()[i] - fd).abs() < 2e-2 * (1.0 + fd.abs()), "element {i}: {} vs {fd}", jv[0].as_slice()[i]);
+    }
+}
+
+#[test]
 fn shape_operations_forward() {
     let x = arr(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
     let column = vector(&[10.0, 20.0, 30.0]);
@@ -217,6 +250,38 @@ fn fft_forward_and_round_trip() {
             assert!(close(&out[1].as_slice()[row * m..(row + 1) * m], &im, 1e-5), "n = {n}");
         }
         assert!(close(out[2].as_slice(), x.as_slice(), 1e-5), "irfft(rfft(x)) == x for n = {n}");
+    }
+}
+
+#[test]
+fn complex_fft_forward_round_trip_and_gradients() {
+    for n in [8usize, 5] {
+        let (re, im) = (random(&[2, n], 31), random(&[2, n], 32));
+        let g = trace(&[&[2, n], &[2, n]], |v| {
+            let (a, b) = Tracer::fft_parts(v[0], v[1]);
+            let (c, d) = Tracer::ifft_parts(a, b);
+            vec![a, b, c, d]
+        });
+        let out = g.eval(&[re.clone(), im.clone()]);
+        for row in 0..2 {
+            for k in 0..n {
+                let (mut sr, mut si) = (0.0f64, 0.0f64);
+                for t in 0..n {
+                    let (xr, xi) = (re.as_slice()[row * n + t] as f64, im.as_slice()[row * n + t] as f64);
+                    let phase = -std::f64::consts::TAU * (k * t) as f64 / n as f64;
+                    sr += xr * phase.cos() - xi * phase.sin();
+                    si += xr * phase.sin() + xi * phase.cos();
+                }
+                assert!((out[0].as_slice()[row * n + k] as f64 - sr).abs() < 1e-5 && (out[1].as_slice()[row * n + k] as f64 - si).abs() < 1e-5);
+            }
+        }
+        assert!(close(out[2].as_slice(), re.as_slice(), 1e-5) && close(out[3].as_slice(), im.as_slice(), 1e-5), "round trip");
+        for inverse in [false, true] {
+            check_gradient(&[&[2, n], &[2, n]], 0.1, 1e-3, |v| {
+                let (a, b) = if inverse { Tracer::ifft_parts(v[0], v[1]) } else { Tracer::fft_parts(v[0], v[1]) };
+                Tracer::concatenate(&[a, b * Tracer::lit(0.7)], 1)
+            });
+        }
     }
 }
 
@@ -428,6 +493,9 @@ fn reduction_reverse_and_take_gradients() {
     let idx = arr(&[0.5, 2.2, 2.9, 7.0, -1.0], &[5]);
     check_gradient(&[&[3, 2]], 0.1, 1e-4, |v| v[0].take(Tracer::constant(&idx)));
     check_gradient(&[&[5, 2]], 0.1, 1e-4, |v| Tracer::scatter_add(&[3, 2], Tracer::constant(&idx), v[0]));
+    // convolution, direct and by FFT (signal and kernel both get gradients)
+    check_gradient(&[&[2, 12], &[5]], 0.1, 1e-3, |v| crate::signal::convolve(v[0], v[1]));
+    check_gradient(&[&[20], &[40]], 0.05, 2e-3, |v| crate::signal::convolve(v[0], v[1]));
     // ties share the gradient
     let g = trace(&[&[3]], |v| vjp(&[v[0].max_axes(&[0])], &[Tracer::lit(1.0)], v)).eval(&[arr(&[1.0, 3.0, 3.0], &[3])]);
     assert_eq!(g[0].as_slice(), &[0.0, 0.5, 0.5]);

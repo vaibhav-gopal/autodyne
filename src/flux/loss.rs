@@ -7,7 +7,7 @@
 
 use super::ad::vjp;
 use super::graph::{trace, Graph, Tracer};
-use crate::signal::{ArrayMath, NdArray, RealArrayMath};
+use crate::signal::{frames, ArrayMath, NdArray, RealArrayMath};
 use crate::units::Elementwise;
 
 /// A scalar function of an output signal and extra inputs, traced with its gradient.
@@ -119,52 +119,6 @@ impl StftResolution {
     pub const fn overlapping(n_fft: usize) -> Self {
         StftResolution::new(n_fft, n_fft / 4, n_fft)
     }
-}
-
-fn gcd(a: usize, b: usize) -> usize {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
-/// Overlapping frames along the last axis: `[..., n]` becomes `[..., count, length]`, frame `f`
-/// holding samples `f * hop .. f * hop + length`, `count = 1 + (n - length) / hop` (samples after
-/// the last whole frame are left out).
-///
-/// Built from slices, reshapes and one concatenation (no gather), so it traces to plain StableHLO:
-/// the signal is cut into blocks of `gcd(length, hop)` samples and each frame position takes a
-/// strided slice of them. The work grows with `length / gcd(length, hop)`.
-///
-/// ```
-/// use autodyne::flux::frames;
-/// use autodyne::signal::{ArrayMath, NdArray};
-///
-/// let x = NdArray::<f64>::array(&[0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[7]);
-/// let f = frames(x, 4, 2);
-/// assert_eq!(f.shape(), [2, 4]);
-/// assert_eq!(f.as_slice(), &[0.0, 1.0, 2.0, 3.0, 2.0, 3.0, 4.0, 5.0]);
-/// ```
-pub fn frames<A: ArrayMath>(x: A, length: usize, hop: usize) -> A {
-    let shape = x.shape();
-    let (&n, lead) = shape.split_last().expect("frames: needs an axis");
-    assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
-    assert!(n >= length, "frames: {n} samples are fewer than one frame of {length}");
-    let count = 1 + (n - length) / hop;
-    let used = (count - 1) * hop + length;
-    let g = gcd(length, hop);
-    let (per_frame, per_hop) = (length / g, hop / g);
-    let k = lead.len();
-    let blocks = x.slice_axis(k, 0, used).reshape(&[lead, &[used / g, g]].concat());
-    let parts: Vec<A> = (0..per_frame)
-        .map(|r| {
-            let (mut start, mut limit, mut stride) = (vec![0; k + 2], [lead, &[used / g, g]].concat(), vec![1; k + 2]);
-            (start[k], limit[k], stride[k]) = (r, r + (count - 1) * per_hop + 1, per_hop);
-            blocks.clone().slice(&start, &limit, &stride).reshape(&[lead, &[count, 1, g]].concat())
-        })
-        .collect();
-    A::concatenate(&parts, k + 1).reshape(&[lead, &[count, length]].concat())
 }
 
 /// The periodic Hann window of `n` points.

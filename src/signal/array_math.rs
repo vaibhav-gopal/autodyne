@@ -100,6 +100,11 @@ pub trait RealArrayMath: ArrayMath + RealValued {
     /// The inverse of [`rfft`](Self::rfft): `n` samples along the last axis from `n / 2 + 1` bins,
     /// scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
     fn irfft(re: Self, im: Self, n: usize) -> Self;
+    /// The complex DFT along the last axis of `re + i·im` (same shapes), as `(real parts,
+    /// imaginary parts)`: complex FFTs for code (and traces) on real arrays.
+    fn fft_parts(re: Self, im: Self) -> (Self, Self);
+    /// The inverse of [`fft_parts`](Self::fft_parts) (scaled by `1 / n`).
+    fn ifft_parts(re: Self, im: Self) -> (Self, Self);
     /// Maximum over `axes`, which are removed (NaN propagates; an empty axis gives -∞).
     fn max_axes(self, axes: &[usize]) -> Self;
     /// Minimum over `axes`, which are removed (NaN propagates; an empty axis gives +∞).
@@ -472,6 +477,12 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
 }
 
 impl<T: Float + Default> RealArrayMath for NdArray<T> {
+    fn fft_parts(re: Self, im: Self) -> (Self, Self) {
+        split_complex(complex_fft(join_complex(&re, &im), false))
+    }
+    fn ifft_parts(re: Self, im: Self) -> (Self, Self) {
+        split_complex(complex_fft(join_complex(&re, &im), true))
+    }
     fn max_axes(self, axes: &[usize]) -> Self {
         reduce_axes_with(self, axes, T::_NEG_INFINITY, max_nan)
     }
@@ -598,6 +609,15 @@ impl<T: Float + Default> ComplexArrayMath for NdArray<Complex<T>> {
 }
 
 /// The DFT (or its inverse) of every row along the last axis, in f64.
+fn join_complex<T: Float + Default>(re: &NdArray<T>, im: &NdArray<T>) -> NdArray<Complex<T>> {
+    assert_eq!(re.shape(), im.shape(), "complex parts differ in shape");
+    NdArray::from_vec(re.as_slice().iter().zip(im.as_slice()).map(|(&r, &i)| Complex::new(r, i)).collect(), re.shape()).expect("same shape")
+}
+
+fn split_complex<T: Float + Default>(a: NdArray<Complex<T>>) -> (NdArray<T>, NdArray<T>) {
+    (a.map(|c| c.re), a.map(|c| c.im))
+}
+
 fn complex_fft<T: Float + Default>(a: NdArray<Complex<T>>, inverse: bool) -> NdArray<Complex<T>> {
     let n = *a.shape().last().expect("fft: needs an axis");
     assert!(n >= 1, "fft: empty axis");

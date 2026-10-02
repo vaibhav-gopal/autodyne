@@ -191,6 +191,18 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 let stride: Vec<usize> = interior.iter().map(|k| k + 1).collect();
                 acc(&mut adj, a, g.slice(&low, &limit, &stride));
             }
+            Op::Fft { re, im, inverse, part } => {
+                // a complex-linear map pulls back by its conjugate transpose: n · ifft for the DFT,
+                // fft / n for the inverse
+                let (gr, gi) = match part {
+                    Part::Re => (g, zero().broadcast_to(&g.shape())),
+                    Part::Im => (zero().broadcast_to(&g.shape()), g),
+                };
+                let n = *shape_of(re).last().unwrap() as f64;
+                let ((dr, di), scale) = if inverse { (Tracer::fft_parts(gr, gi), 1.0 / n) } else { (Tracer::ifft_parts(gr, gi), n) };
+                acc(&mut adj, re, dr * Tracer::lit(scale));
+                acc(&mut adj, im, di * Tracer::lit(scale));
+            }
             Op::Reduce(a, axes, r) => {
                 let from = shape_of(a);
                 let kept: Vec<usize> = (0..from.len()).filter(|x| !axes.contains(x)).collect();
@@ -221,6 +233,40 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
         }
     }
     wrt.iter().map(|w| adj[w.id as usize].unwrap_or_else(|| zero().broadcast_to(&w.shape()))).collect()
+}
+
+/// Jacobian-vector product (forward mode) inside a trace: for `outputs` as functions of `wrt`,
+/// returns `Σ_w ∂output/∂w · tangent_w` for each output (of the output's shape), `tangents` having
+/// the shapes of `wrt`.
+///
+/// Built by transposing [`vjp`]: the vector-Jacobian product is linear in its cotangents `u`, so
+/// differentiating `⟨vjp(u), tangents⟩` with respect to `u` gives `J · tangents`. The recorded
+/// program costs about two reverse passes.
+///
+/// ```
+/// use autodyne::flux::{jvp, scalar, trace, Tracer};
+/// use autodyne::units::Elementwise;
+///
+/// // directional derivative of (x y, sin x) along (1, 2) at (0.5, 3)
+/// let g = trace(&[&[], &[]], |v| {
+///     let outputs = [v[0] * v[1], v[0].sin()];
+///     jvp(&outputs, v, &[Tracer::lit(1.0), Tracer::lit(2.0)])
+/// });
+/// let d = g.eval(&[scalar(0.5), scalar(3.0)]);
+/// assert_eq!(d[0].as_slice(), &[3.0 + 2.0 * 0.5]);
+/// assert!((d[1].as_slice()[0] - 0.5f32.cos()).abs() < 1e-7);
+/// ```
+pub fn jvp(outputs: &[Tracer], wrt: &[Tracer], tangents: &[Tracer]) -> Vec<Tracer> {
+    assert_eq!(wrt.len(), tangents.len(), "jvp: one tangent per input");
+    // stand-in cotangents: their values never matter, only that the pullback is linear in them
+    let u: Vec<Tracer> = outputs.iter().map(|o| Tracer::zeros(&o.shape())).collect();
+    let pulled = vjp(outputs, &u, wrt);
+    let mut inner = Tracer::lit(0.0);
+    for ((p, t), w) in pulled.iter().zip(tangents).zip(wrt) {
+        assert_eq!(t.shape(), w.shape(), "jvp: a tangent has the wrong shape");
+        inner = inner + (*p * *t).sum_all();
+    }
+    vjp(&[inner], &[Tracer::lit(1.0)], &u)
 }
 
 /// Per-bin weights for an `n`-point real FFT: `ends` on bins 0 and n/2 (when n is even), `middle`
