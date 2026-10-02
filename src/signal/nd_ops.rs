@@ -12,7 +12,7 @@
 //! [`NdView::sum_into`] and friends write into a smaller array whose shape broadcasts to the input.
 
 use std::mem::MaybeUninit;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use super::ndarray::{Layout, NdArray, NdError, NdView, NdViewMut, MAX_DIMS};
 use super::{Storage, StorageMut};
@@ -477,6 +477,13 @@ macro_rules! arithmetic {
                 $Op::$op(self.view(), rhs)
             }
         }
+        /// A new array from two owned ones, broadcast to their common shape. Panics if they can't be.
+        impl<T: Copy + Default + $Op<Output = T>> $Op for NdArray<T> {
+            type Output = NdArray<T>;
+            fn $op(self, rhs: NdArray<T>) -> NdArray<T> {
+                $Op::$op(self.view(), rhs.view())
+            }
+        }
     };
 }
 
@@ -484,6 +491,14 @@ arithmetic!(Add add AddAssign add_assign);
 arithmetic!(Sub sub SubAssign sub_assign);
 arithmetic!(Mul mul MulAssign mul_assign);
 arithmetic!(Div div DivAssign div_assign);
+
+impl<T: Copy + Default + Neg<Output = T>> Neg for NdArray<T> {
+    type Output = NdArray<T>;
+    fn neg(mut self) -> NdArray<T> {
+        self.map_inplace(|x| *x = -*x);
+        self
+    }
+}
 
 // REDUCTIONS ======================================================================================
 

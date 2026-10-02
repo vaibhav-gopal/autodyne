@@ -7,7 +7,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
 use crate::signal::{NdArray, MAX_DIMS};
-use crate::units::Real;
+use crate::signal::ArrayMath;
+use crate::units::Elementwise;
 
 /// Index of a node in its [`Graph`].
 pub(crate) type Id = u32;
@@ -190,16 +191,17 @@ impl fmt::Display for Graph {
 
 /// A traced array of real numbers: a handle to a node in the graph being traced on this thread.
 ///
-/// Implements [`Real`] (element-wise), so generic DSP code runs on it unchanged and records what it
-/// computes; the inherent methods add the array operations. Operators broadcast NumPy style.
-/// Only valid inside the [`trace`] that created it.
+/// Implements [`Real`](crate::units::Real) (element-wise, so per-sample DSP code runs on it unchanged)
+/// and [`ArrayMath`] (shapes, reductions, products, FFTs, so array code written for `NdArray` runs
+/// on it too), recording what it computes. Operators broadcast NumPy style. Only valid inside the
+/// [`trace`] that created it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tracer {
     pub(crate) id: Id,
     trace: u32,
 }
 
-/// A traced array of booleans (the result of a comparison), consumed by [`Real::select`].
+/// A traced array of booleans (the result of a comparison), consumed by [`Elementwise::select`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mask {
     pub(crate) id: Id,
@@ -215,7 +217,7 @@ thread_local! {
 ///
 /// ```
 /// use autodyne::flux::{scalar, trace};
-/// use autodyne::units::Real;
+/// use autodyne::units::Elementwise;
 ///
 /// let g = trace(&[&[], &[]], |v| vec![(v[0] * v[1]).exp()]);
 /// assert_eq!(g.eval(&[scalar(1.0), scalar(2.0)])[0].as_slice(), &[2.0f32.exp()]);
@@ -320,15 +322,14 @@ impl Tracer {
         Tracer { id: push(op, shape, false), trace: current_trace() }
     }
 
-    /// The shape of this value (`[]` for a scalar).
-    pub fn shape(self) -> Vec<usize> {
-        let id = self.check();
-        with_graph(|g| g.nodes[id as usize].shape.clone())
-    }
-
     /// A constant array.
     pub fn constant(value: &NdArray<f32>) -> Tracer {
         Tracer::new(Op::Literal(value.as_slice().into()), value.shape().to_vec())
+    }
+
+    /// Zeros of `shape` (initial states, padding).
+    pub fn zeros(shape: &[usize]) -> Tracer {
+        Tracer::lit(0.0).broadcast_to(shape)
     }
 
     fn unary(self, f: fn(Id) -> Op) -> Tracer {
@@ -352,9 +353,16 @@ impl Tracer {
         let (a, b, shape) = self.align(rhs);
         Mask { id: push(Op::Compare(c, a.check(), b.check()), shape, true), trace: self.trace }
     }
+}
 
-    /// Stretches to `shape`, NumPy style (trailing axes line up; axes of length 1 stretch).
-    pub fn broadcast_to(self, shape: &[usize]) -> Tracer {
+/// Array operations record nodes; see [`ArrayMath`] for what each computes.
+impl ArrayMath for Tracer {
+    fn shape(&self) -> Vec<usize> {
+        let id = self.check();
+        with_graph(|g| g.nodes[id as usize].shape.clone())
+    }
+
+    fn broadcast_to(self, shape: &[usize]) -> Tracer {
         let own = self.shape();
         if own == shape {
             return self;
@@ -364,9 +372,7 @@ impl Tracer {
         self.broadcast_in_dim(shape, &(offset..shape.len()).collect::<Vec<_>>())
     }
 
-    /// Operand axis `i` becomes axis `dims[i]` of `shape` (`dims` increasing); axes of length 1
-    /// stretch, the other axes of `shape` repeat the value.
-    pub fn broadcast_in_dim(self, shape: &[usize], dims: &[usize]) -> Tracer {
+    fn broadcast_in_dim(self, shape: &[usize], dims: &[usize]) -> Tracer {
         let own = self.shape();
         assert_eq!(own.len(), dims.len(), "broadcast_in_dim: one result axis per operand axis");
         assert!(dims.windows(2).all(|w| w[0] < w[1]), "broadcast_in_dim: dims must increase");
@@ -376,8 +382,7 @@ impl Tracer {
         Tracer::new(Op::Broadcast(self.check(), dims.to_vec()), shape.to_vec())
     }
 
-    /// The same elements (row-major) in another shape.
-    pub fn reshape(self, shape: &[usize]) -> Tracer {
+    fn reshape(self, shape: &[usize]) -> Tracer {
         let own = self.shape();
         assert_eq!(own.iter().product::<usize>(), shape.iter().product::<usize>(), "reshape: {own:?} to {shape:?} changes the element count");
         if own == shape {
@@ -386,8 +391,7 @@ impl Tracer {
         Tracer::new(Op::Reshape(self.check()), shape.to_vec())
     }
 
-    /// Axis `i` of the result is axis `perm[i]` of `self`.
-    pub fn transpose(self, perm: &[usize]) -> Tracer {
+    fn transpose(self, perm: &[usize]) -> Tracer {
         let own = self.shape();
         let mut seen = vec![false; own.len()];
         assert_eq!(perm.len(), own.len(), "transpose: one entry per axis");
@@ -400,13 +404,12 @@ impl Tracer {
         Tracer::new(Op::Transpose(self.check(), perm.to_vec()), perm.iter().map(|&p| own[p]).collect())
     }
 
-    /// Sum over `axes`, which are removed.
-    pub fn sum(self, axes: &[usize]) -> Tracer {
+    fn sum_axes(self, axes: &[usize]) -> Tracer {
         let own = self.shape();
         let mut axes = axes.to_vec();
         axes.sort_unstable();
         axes.dedup();
-        assert!(axes.iter().all(|&a| a < own.len()), "sum: axis out of range for {own:?}");
+        assert!(axes.iter().all(|&a| a < own.len()), "sum_axes: axis out of range for {own:?}");
         if axes.is_empty() {
             return self;
         }
@@ -414,29 +417,7 @@ impl Tracer {
         Tracer::new(Op::Sum(self.check(), axes), shape)
     }
 
-    /// Sum of every element (a scalar).
-    pub fn sum_all(self) -> Tracer {
-        let n = self.shape().len();
-        self.sum(&(0..n).collect::<Vec<_>>())
-    }
-
-    /// Mean of every element.
-    pub fn mean(self) -> Tracer {
-        let count: usize = self.shape().iter().product();
-        self.sum_all() / Tracer::lit(count as f64)
-    }
-
-    /// Tensor product contracting the last axis of `self` with the first axis of `rhs`: matrix ·
-    /// vector, vector · vector (a scalar), matrix · matrix.
-    pub fn dot(self, rhs: Tracer) -> Tracer {
-        let n = self.shape().len();
-        assert!(n >= 1 && !rhs.shape().is_empty(), "dot: both operands need an axis");
-        self.dot_general(rhs, &[n - 1], &[0])
-    }
-
-    /// Contracts axes `ca` of `self` with axes `cb` of `rhs` (pairwise, equal lengths). The result
-    /// has the remaining axes of `self`, then those of `rhs`.
-    pub fn dot_general(self, rhs: Tracer, ca: &[usize], cb: &[usize]) -> Tracer {
+    fn dot_general(self, rhs: Tracer, ca: &[usize], cb: &[usize]) -> Tracer {
         let (sa, sb) = (self.shape(), rhs.shape());
         assert_eq!(ca.len(), cb.len(), "dot_general: pair each contracted axis");
         for (&i, &j) in ca.iter().zip(cb) {
@@ -448,8 +429,7 @@ impl Tracer {
         Tracer::new(Op::Dot { a: self.check(), b: rhs.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
     }
 
-    /// The real FFT along the last axis: `(real parts, imaginary parts)`, `n / 2 + 1` bins each.
-    pub fn rfft(self) -> (Tracer, Tracer) {
+    fn rfft(self) -> (Tracer, Tracer) {
         let mut shape = self.shape();
         let n = *shape.last().expect("rfft: needs an axis");
         assert!(n >= 1, "rfft: empty axis");
@@ -458,9 +438,7 @@ impl Tracer {
         (Tracer::new(Op::Rfft(id, Part::Re), shape.clone()), Tracer::new(Op::Rfft(id, Part::Im), shape))
     }
 
-    /// The inverse of [`rfft`](Self::rfft): `n` real samples along the last axis from `n / 2 + 1`
-    /// bins (real and imaginary parts of the same shape).
-    pub fn irfft(re: Tracer, im: Tracer, n: usize) -> Tracer {
+    fn irfft(re: Tracer, im: Tracer, n: usize) -> Tracer {
         let (sr, si) = (re.shape(), im.shape());
         assert_eq!(sr, si, "irfft: real and imaginary parts differ in shape");
         assert!(n >= 1 && sr.last() == Some(&(n / 2 + 1)), "irfft: {n} samples need {} bins, got {sr:?}", n / 2 + 1);
@@ -506,7 +484,7 @@ impl Neg for Tracer {
     }
 }
 
-impl Real for Tracer {
+impl Elementwise for Tracer {
     type Mask = Mask;
     fn lit(v: f64) -> Self {
         Tracer::new(Op::Const(v), Vec::new())
@@ -535,10 +513,10 @@ impl Real for Tracer {
     fn powf(self, e: Self) -> Self {
         self.binary(e, Op::Pow)
     }
-    fn min(self, other: Self) -> Self {
+    fn minimum(self, other: Self) -> Self {
         self.binary(other, Op::Min)
     }
-    fn max(self, other: Self) -> Self {
+    fn maximum(self, other: Self) -> Self {
         self.binary(other, Op::Max)
     }
     fn less(self, other: Self) -> Mask {

@@ -1,19 +1,23 @@
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-/// Real-valued arithmetic that can be traced: the part of [`Float`](super::Float) a processor needs
-/// for its maths, without anything that inspects a concrete value.
+/// Element-wise real arithmetic that can be traced: the maths a processor needs, without anything
+/// that inspects a concrete value.
 ///
-/// Code written over `Real` runs unchanged on `f32` / `f64` (monomorphized, the real-time path) and
-/// on `flux::Tracer`, which records the operations into a graph that can be differentiated and
-/// compiled. So it may not branch on values: a comparison returns a [`Mask`](Real::Mask) (a plain
-/// `bool` for floats, a traced boolean for tracers) and [`select`](Real::select) picks between two
+/// Implemented by single numbers (`f32`, `f64`), by `NdArray<f32 / f64>` (element-wise, NumPy-style
+/// broadcasting) and by `flux::Tracer`, which records the operations into a graph that can be
+/// differentiated and compiled. Code written over this trait may not branch on values: a
+/// comparison returns a [`Mask`](Elementwise::Mask) (`bool` for numbers, an array of `bool` for
+/// arrays, a traced mask for tracers) and [`select`](Elementwise::select) picks between two
 /// results, which becomes `stablehlo.select` when traced.
 ///
-/// Every [`Float`](super::Float) is `Real`.
-pub trait Real: Copy + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> {
-    /// The result of a comparison: `bool` for floats.
-    type Mask: Copy;
-    /// A constant (sample rates, frequencies, coefficients), rounded to this type.
+/// Per-sample code uses [`Real`] (the `Copy` types); array code uses
+/// [`ArrayMath`](crate::signal::ArrayMath), which adds shapes, reductions, products and FFTs.
+/// Names follow NumPy: `minimum` / `maximum` are element-wise (`min` / `max` are reductions).
+pub trait Elementwise: Clone + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> {
+    /// The result of a comparison.
+    type Mask: Clone;
+    /// A constant (sample rates, frequencies, coefficients), rounded to this type. For arrays, a
+    /// scalar that broadcasts against any shape.
     fn lit(v: f64) -> Self;
     fn exp(self) -> Self;
     /// Natural logarithm.
@@ -25,8 +29,10 @@ pub trait Real: Copy + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Se
     fn abs(self) -> Self;
     /// `self` raised to the power `e`.
     fn powf(self, e: Self) -> Self;
-    fn min(self, other: Self) -> Self;
-    fn max(self, other: Self) -> Self;
+    /// The smaller of each pair of elements.
+    fn minimum(self, other: Self) -> Self;
+    /// The larger of each pair of elements.
+    fn maximum(self, other: Self) -> Self;
     /// `self < other`.
     fn less(self, other: Self) -> Self::Mask;
     /// `self > other`.
@@ -35,9 +41,18 @@ pub trait Real: Copy + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Se
     fn select(mask: Self::Mask, if_true: Self, if_false: Self) -> Self;
 }
 
-macro_rules! impl_real {
+/// [`Elementwise`] arithmetic on values that are `Copy`: single numbers (`f32`, `f64`) and
+/// `flux::Tracer`. The trait per-sample processors are written over, so the same code runs on the
+/// audio thread and traces into a differentiable program.
+///
+/// Every [`Float`](super::Float) is `Real`.
+pub trait Real: Elementwise + Copy {}
+
+impl<T: Elementwise + Copy> Real for T {}
+
+macro_rules! impl_elementwise {
     ($($T:ident),+) => {$(
-        impl Real for $T {
+        impl Elementwise for $T {
             type Mask = bool;
             #[inline(always)]
             fn lit(v: f64) -> Self {
@@ -76,11 +91,11 @@ macro_rules! impl_real {
                 $T::powf(self, e)
             }
             #[inline(always)]
-            fn min(self, other: Self) -> Self {
+            fn minimum(self, other: Self) -> Self {
                 $T::min(self, other)
             }
             #[inline(always)]
-            fn max(self, other: Self) -> Self {
+            fn maximum(self, other: Self) -> Self {
                 $T::max(self, other)
             }
             #[inline(always)]
@@ -99,4 +114,4 @@ macro_rules! impl_real {
     )+};
 }
 
-impl_real!(f32, f64);
+impl_elementwise!(f32, f64);

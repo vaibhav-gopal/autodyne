@@ -2,8 +2,8 @@
 //! same trace as the forward pass, so it is evaluated, emitted and compiled like any other code.
 
 use super::graph::{self, Id, Mask, Op, Part, Tracer};
-use crate::signal::NdArray;
-use crate::units::Real;
+use crate::signal::{ArrayMath, NdArray};
+use crate::units::Elementwise;
 
 /// Vector-Jacobian product inside a trace.
 ///
@@ -12,13 +12,13 @@ use crate::units::Real;
 /// the current trace, reusing forward values where the rules need them.
 ///
 /// ```
-/// use autodyne::flux::{scalar, trace, vjp};
-/// use autodyne::units::Real;
+/// use autodyne::flux::{scalar, trace, vjp, Tracer};
+/// use autodyne::units::Elementwise;
 ///
 /// // d/dx sin(x) * x = cos(x) * x + sin(x)
 /// let g = trace(&[&[]], |v| {
 ///     let y = v[0].sin() * v[0];
-///     vjp(&[y], &[Real::lit(1.0)], &[v[0]])
+///     vjp(&[y], &[Tracer::lit(1.0)], &[v[0]])
 /// });
 /// let x = 0.7f32;
 /// assert!((g.eval(&[scalar(x)])[0].as_slice()[0] - (x.cos() * x + x.sin())).abs() < 1e-6);
@@ -115,7 +115,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                         Some(i) => from[i] == 1 && to[*j] != 1,
                     })
                     .collect();
-                acc(&mut adj, a, g.sum(&axes).reshape(&from));
+                acc(&mut adj, a, g.sum_axes(&axes).reshape(&from));
             }
             Op::Reshape(a) => acc(&mut adj, a, g.reshape(&shape_of(a))),
             Op::Transpose(a, perm) => {

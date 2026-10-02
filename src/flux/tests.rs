@@ -1,7 +1,7 @@
 use super::*;
 use crate::filter::OnePole;
-use crate::signal::NdArray;
-use crate::units::Real;
+use crate::signal::{ArrayMath, NdArray};
+use crate::units::Elementwise;
 
 const FS: f64 = 48_000.0;
 
@@ -70,12 +70,12 @@ fn derivatives_of_each_function() {
         (|x| x.tanh(), |x| 1.0 - x.tanh().powi(2), 0.6),
         (|x| x.sqrt(), |x| 0.5 / x.sqrt(), 2.0),
         (|x| x.abs(), |_| -1.0, -1.5),
-        (|x| x.powf(Real::lit(3.0)), |x| 3.0 * x * x, 1.2),
+        (|x| x.powf(Tracer::lit(3.0)), |x| 3.0 * x * x, 1.2),
         (|x| Tracer::lit(2.0).powf(x), |x| 2f32.powf(x) * 2f32.ln(), 1.2),
         (|x| Tracer::lit(1.0) / x - x * x, |x| -1.0 / (x * x) - 2.0 * x, 0.8),
     ];
     for (k, (f, df, x)) in cases.into_iter().enumerate() {
-        let g = trace(&[&[]], |v| vjp(&[f(v[0])], &[Real::lit(1.0)], &[v[0]]));
+        let g = trace(&[&[]], |v| vjp(&[f(v[0])], &[Tracer::lit(1.0)], &[v[0]]));
         let got = g.eval(&[scalar(x)])[0].as_slice()[0];
         assert!((got - df(x)).abs() < 1e-5 * df(x).abs().max(1.0), "case {k}: {got} vs {}", df(x));
     }
@@ -85,8 +85,8 @@ fn derivatives_of_each_function() {
 fn min_max_select_route_the_gradient() {
     let g = trace(&[&[], &[]], |v| {
         let (a, b) = (v[0], v[1]);
-        let y = a.min(b) + Tracer::lit(2.0) * a.max(b) + Tracer::select(a.less(b), a * a, b);
-        vjp(&[y], &[Real::lit(1.0)], &[a, b])
+        let y = a.minimum(b) + Tracer::lit(2.0) * a.maximum(b) + Tracer::select(a.less(b), a * a, b);
+        vjp(&[y], &[Tracer::lit(1.0)], &[a, b])
     });
     let at = |a: f32, b: f32| g.eval(&[scalar(a), scalar(b)]).iter().map(|x| x.as_slice()[0]).collect::<Vec<_>>();
     // a < b: min = a, max = b, select = a²  ->  d/da = 1 + 2a, d/db = 2
@@ -106,7 +106,7 @@ fn element_wise_on_arrays_with_broadcasting() {
 
 #[test]
 fn unused_inputs_get_zero_gradient() {
-    let g = trace(&[&[], &[2]], |v| vjp(&[v[0] * v[0]], &[Real::lit(1.0)], &[v[0], v[1]]));
+    let g = trace(&[&[], &[2]], |v| vjp(&[v[0] * v[0]], &[Tracer::lit(1.0)], &[v[0], v[1]]));
     let out = g.eval(&[scalar(3.0), vector(&[1.0, 2.0])]);
     assert_eq!(out[0].as_slice(), &[6.0]);
     assert_eq!(out[1].shape(), &[2]);
@@ -118,8 +118,8 @@ fn second_derivative() {
     // d²/dx² x³ = 6x, by differentiating the traced derivative again
     let g = trace(&[&[]], |v| {
         let x = v[0];
-        let d = vjp(&[x * x * x], &[Real::lit(1.0)], &[x])[0];
-        vjp(&[d], &[Real::lit(1.0)], &[x])
+        let d = vjp(&[x * x * x], &[Tracer::lit(1.0)], &[x])[0];
+        vjp(&[d], &[Tracer::lit(1.0)], &[x])
     });
     assert_eq!(g.eval(&[scalar(2.0)])[0].as_slice(), &[12.0]);
 }
@@ -134,11 +134,11 @@ fn shape_operations_forward() {
         vec![
             v[0].transpose(&[1, 0]),
             v[0].reshape(&[3, 2]),
-            v[0].sum(&[0]),
-            v[0].sum(&[1]),
+            v[0].sum_axes(&[0]),
+            v[0].sum_axes(&[1]),
             v[0].sum_all(),
             Tracer::constant(&column).broadcast_in_dim(&[3, 2], &[0]),
-            v[0].sum(&[1]).broadcast_in_dim(&[2, 2], &[0]),
+            v[0].sum_axes(&[1]).broadcast_in_dim(&[2, 2], &[0]),
         ]
     });
     let out = g.eval(&[x]);
@@ -158,8 +158,8 @@ fn shape_operation_gradients() {
     check_gradient(&[&[2, 1]], 0.1, 1e-4, |v| v[0].broadcast_to(&[3, 2, 4]));
     check_gradient(&[&[2, 3]], 0.1, 1e-4, |v| v[0].reshape(&[3, 2]));
     check_gradient(&[&[2, 3, 4]], 0.1, 1e-4, |v| v[0].transpose(&[2, 0, 1]));
-    check_gradient(&[&[2, 3, 4]], 0.1, 1e-4, |v| v[0].sum(&[0, 2]));
-    check_gradient(&[&[2, 3]], 1e-2, 1e-3, |v| v[0].mean() * v[0]);
+    check_gradient(&[&[2, 3, 4]], 0.1, 1e-4, |v| v[0].sum_axes(&[0, 2]));
+    check_gradient(&[&[2, 3]], 1e-2, 1e-3, |v| v[0].mean_all() * v[0]);
 }
 
 #[test]
@@ -239,7 +239,7 @@ fn fft_gradients() {
 
 fn one_pole() -> Scan {
     Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
-        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
+        let (s, y) = OnePole::lowpass(p[0], Tracer::lit(FS)).tick(s[0], x);
         (vec![s], y)
     })
 }
@@ -287,7 +287,7 @@ fn scan_gradient_matches_finite_differences() {
 fn multichannel_scan_runs_each_channel_like_the_scalar_filter() {
     // four one-poles at once: parameters, state and samples are [4]
     let bank = Scan::trace(&[&[4]], &[&[4]], &[4], |p, s, x| {
-        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
+        let (s, y) = OnePole::lowpass(p[0], Tracer::lit(FS)).tick(s[0], x);
         (vec![s], y)
     });
     let cutoffs = [200.0f32, 1_000.0, 3_000.0, 9_000.0];
@@ -353,7 +353,7 @@ fn programs_have_the_expected_signatures() {
     assert_eq!(grad.text.matches("stablehlo.while").count(), 2);
     assert_eq!(grad.inputs, vec![vec![2, 2], vec![2], vec![2], vec![64], vec![64], vec![2]]);
     assert_eq!(grad.outputs, vec![vec![], vec![2, 2], vec![2], vec![2], vec![2]]);
-    let g = trace(&[&[4, 8]], |v| vec![v[0].rfft().0.sum(&[1])]).program();
+    let g = trace(&[&[4, 8]], |v| vec![v[0].rfft().0.sum_axes(&[1])]).program();
     assert!(g.text.contains("stablehlo.fft") && g.text.contains("stablehlo.reduce"));
 }
 

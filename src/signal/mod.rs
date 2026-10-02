@@ -20,7 +20,8 @@
 //!   ([`SigOwnedOps`], [`SigResizeOps`]).
 //! - [`NdArray`] and zero-copy [`NdView`] / [`NdViewMut`] (slicing, steps, transposes, broadcasting and
 //!   reshapes as O(1) layout changes): n-dimensional data (batched, multichannel,
-//!   ML tensors) whose 1-D lanes along any axis are signals.
+//!   ML tensors) whose 1-D lanes along any axis are signals. [`ArrayMath`] is array maths (broadcasting,
+//!   reductions, products, FFTs) written once for arrays and for `flux` tracers.
 //!
 //! Stateful block processing (filters, effects) lives in `processor`; a `Source` feeds it with `through`.
 //!
@@ -37,6 +38,7 @@
 //! ```
 
 mod analysis;
+mod array_math;
 mod complex;
 mod container;
 mod nd_ops;
@@ -47,6 +49,9 @@ mod stream;
 mod transform;
 
 pub use analysis::*;
+pub use array_math::ArrayMath;
+#[cfg(feature = "flux")]
+pub(crate) use array_math::broadcast_in_dim;
 pub use complex::*;
 pub use container::*;
 pub use nd_ops::*;

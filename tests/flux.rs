@@ -10,8 +10,8 @@
 
 use autodyne::filter::OnePole;
 use autodyne::flux::{scalar, trace, vector, Backend, Executable, Iree, Program, Scan, Tracer, Xla};
-use autodyne::signal::NdArray;
-use autodyne::units::Real;
+use autodyne::signal::{ArrayMath, NdArray};
+use autodyne::units::Elementwise;
 
 const FS: f64 = 48_000.0;
 const N: usize = 512;
@@ -60,7 +60,7 @@ fn assert_close(name: &str, got: &NdArray<f32>, want: &NdArray<f32>, tol: f32) {
 /// The step, with the cutoff as its parameter.
 fn one_pole() -> Scan {
     Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
-        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
+        let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(FS)).tick(s[0], x);
         (vec![s], y)
     })
 }
@@ -89,7 +89,7 @@ fn every_primitive_matches_the_interpreter() {
     let graph = trace(shapes, |v| {
         let (a, b, m, c) = (v[0], v[1], v[2], v[3]);
         let e = (a * b + c).tanh() - (a.abs() + Tracer::lit(0.5)).sqrt().ln() / (b.exp() + Tracer::lit(1.0));
-        let f = e.sin() * e.cos() + e.powf(Tracer::lit(2.0)).min(b.max(c));
+        let f = e.sin() * e.cos() + e.powf(Tracer::lit(2.0)).minimum(b.maximum(c));
         let g = Tracer::select(f.greater(a), f, -a) + Tracer::select(f.less(c), c, a);
         let (re, im) = g.rfft();
         let spectrum = Tracer::irfft(re * Tracer::lit(0.5), im, 8);
@@ -100,8 +100,8 @@ fn every_primitive_matches_the_interpreter() {
             im,
             g.dot(m),
             g.transpose(&[1, 0]).reshape(&[4, 6]),
-            g.sum(&[1]),
-            g.mean(),
+            g.sum_axes(&[1]),
+            g.mean_all(),
             b.broadcast_in_dim(&[8, 2], &[0]),
             a.dot_general(m, &[1], &[0]).dot_general(a, &[0], &[0]),
         ]
@@ -124,8 +124,8 @@ fn gradients_of_array_programs_match_the_interpreter() {
         let (x, w, g) = (v[0], v[1], v[2]);
         let (re, im) = x.rfft();
         let y = Tracer::irfft(re * g, im * g, 8).dot(w).tanh();
-        let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum(&[0]).mean();
-        autodyne::flux::vjp(&[loss], &[Real::lit(1.0)], v)
+        let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum_axes(&[0]).mean_all();
+        autodyne::flux::vjp(&[loss], &[Elementwise::lit(1.0)], v)
     });
     let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 10)).collect();
     let want = graph.eval(&inputs);
@@ -172,7 +172,7 @@ fn scan_gradient_matches_finite_differences() {
 fn shaped_scans_match_the_interpreter() {
     // a bank of four one-poles, and a state space model with dot products
     let bank = Scan::trace(&[&[4]], &[&[4]], &[4], |p, s, x| {
-        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
+        let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(FS)).tick(s[0], x);
         (vec![s], y)
     });
     let ss = Scan::trace(&[&[2, 2], &[2], &[2]], &[&[2]], &[], |p, s, x| {
@@ -210,6 +210,28 @@ fn shaped_scans_match_the_interpreter() {
     }
 }
 
+/// One generic function: a spectral gain, then a dense layer, then a soft clip. Written once over
+/// `ArrayMath`, run eagerly on `NdArray` and traced for the backends.
+fn model<A: ArrayMath>(x: A, gain: A, w: A) -> A {
+    let n = *x.shape().last().unwrap();
+    let (re, im) = x.rfft();
+    let y = A::irfft(re * gain.clone(), im * gain, n).dot(w);
+    (y.clone() * A::lit(0.5)).tanh() + y.minimum(A::lit(0.25))
+}
+
+#[test]
+fn one_generic_function_runs_eagerly_and_compiled() {
+    let (x, gain, w) = (random(&[4, 16], 21), random(&[9], 22), random(&[16, 3], 23));
+    let eager = model(x.clone(), gain.clone(), w.clone());
+    let graph = trace(&[&[4, 16], &[9], &[16, 3]], |v| vec![model(v[0], v[1], v[2])]);
+    let inputs = [x, gain, w];
+    assert_close("interpreter", &graph.eval(&inputs)[0], &eager, 1e-6);
+    for backend in backends() {
+        let got = compile(&*backend, &graph.program()).run(&inputs).unwrap();
+        assert_close(backend.name(), &got[0], &eager, 1e-4);
+    }
+}
+
 /// Adam on `params` (flattened), `steps` at most, until `done`.
 fn adam(mut params: Vec<f32>, lr: f32, steps: i32, mut grad: impl FnMut(&[f32]) -> (f32, Vec<f32>), done: impl Fn(&[f32]) -> bool) -> (Vec<f32>, f32, f32, i32) {
     let (b1, b2) = (0.9f32, 0.999f32);
@@ -239,7 +261,7 @@ fn adam(mut params: Vec<f32>, lr: f32, steps: i32, mut grad: impl FnMut(&[f32]) 
 fn fits_the_cutoff_by_gradient_descent() {
     // optimise the log of the cutoff, so steps are relative
     let scan = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
-        let (s, y) = OnePole::lowpass(p[0].exp(), Real::lit(FS)).tick(s[0], x);
+        let (s, y) = OnePole::lowpass(p[0].exp(), Elementwise::lit(FS)).tick(s[0], x);
         (vec![s], y)
     });
     let xs = vector(&noise(N, 3));

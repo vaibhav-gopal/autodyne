@@ -1,5 +1,6 @@
-//! flux: trace DSP and array code written over [`Real`](crate::units::Real), differentiate it, and
-//! compile it with XLA or IREE (cargo feature `flux`).
+//! flux: trace DSP and array code written over [`Real`](crate::units::Real) or
+//! [`ArrayMath`](crate::signal::ArrayMath), differentiate it, and compile it with XLA or IREE (cargo
+//! feature `flux`). The same generic code runs eagerly on `f32` samples or `NdArray`s.
 //!
 //! Generic code runs on [`Tracer`] instead of `f32`; every operation is recorded into a flat
 //! [`Graph`] of primitives on f32 arrays: element-wise arithmetic and functions, comparisons and
@@ -19,11 +20,11 @@
 //! ```
 //! use autodyne::filter::OnePole;
 //! use autodyne::flux::{scalar, vector, Scan};
-//! use autodyne::units::Real;
+//! use autodyne::units::Elementwise;
 //!
 //! // fit a one-pole's cutoff: the gradient of the error with respect to the cutoff
 //! let scan = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
-//!     let (s, y) = OnePole::lowpass(p[0], Real::lit(48_000.0)).tick(s[0], x);
+//!     let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(48_000.0)).tick(s[0], x);
 //!     (vec![s], y)
 //! });
 //! let xs = vector(&(0..256).map(|i| if i % 32 < 16 { 1.0 } else { -1.0 }).collect::<Vec<f32>>());

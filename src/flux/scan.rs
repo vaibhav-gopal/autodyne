@@ -2,8 +2,7 @@
 
 use super::ad::vjp;
 use super::graph::{trace, Graph, Tracer};
-use crate::signal::NdArray;
-use crate::units::Real;
+use crate::signal::{ArrayMath, NdArray};
 
 /// A recurrence `step(params, state, x) -> (state', y)`, traced once, run over a signal.
 ///
@@ -20,11 +19,11 @@ use crate::units::Real;
 /// ```
 /// use autodyne::filter::OnePole;
 /// use autodyne::flux::{scalar, vector, Scan};
-/// use autodyne::units::Real;
+/// use autodyne::units::Elementwise;
 ///
 /// // one scalar parameter (the cutoff), one scalar state value, scalar samples
 /// let scan = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
-///     let (s, y) = OnePole::lowpass(p[0], Real::lit(48_000.0)).tick(s[0], x);
+///     let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(48_000.0)).tick(s[0], x);
 ///     (vec![s], y)
 /// });
 /// let (ys, _) = scan.run(&[scalar(1_000.0)], &vector(&[1.0; 64]), &[scalar(0.0)]);
@@ -198,9 +197,3 @@ fn steps<'a>(stacked: &'a NdArray<f32>, shape: &'a [usize]) -> impl Iterator<Ite
     stacked.as_slice().chunks(size.max(1)).take(stacked.shape()[0]).map(move |c| NdArray::from_vec(c[..size].to_vec(), shape).expect("step shape"))
 }
 
-impl Tracer {
-    /// A zero of `shape` (a convenience for initial states and padding).
-    pub fn zeros(shape: &[usize]) -> Tracer {
-        Tracer::lit(0.0).broadcast_to(shape)
-    }
-}
