@@ -82,7 +82,10 @@ The others write WAV files to `target/examples-out/`:
 ### Python
 `bindings/python` builds the `autodyne` Python package (PyO3 + maturin). Arrays cross between NumPy (or PyTorch,
 JAX...) and autodyne through DLPack in both directions, so nothing is copied: inputs are read in place with any strides,
-results come back as NumPy arrays that own autodyne's memory.
+results come back as NumPy arrays that own autodyne's memory. Besides the core functions, `autodyne.linalg`,
+`autodyne.signal` and `autodyne.fft` follow `numpy.linalg` / `scipy.signal` / `numpy.fft` names and defaults (solve,
+eig, svd, expm; butter / cheby / ellip / bessel, firwin, remez, lfilter, sosfilt, filtfilt, welch, stft, spectrogram...),
+tested against NumPy and SciPy.
 
 ```sh
 cd bindings/python

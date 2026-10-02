@@ -20,17 +20,19 @@ use pyo3::types::PyDict;
 use numpy::ndarray::{ArrayD, IxDyn, ShapeBuilder};
 use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 
+mod science;
+
 const VERSIONED: &CStr = c"dltensor_versioned";
 const USED_VERSIONED: &CStr = c"used_dltensor_versioned";
 const LEGACY: &CStr = c"dltensor";
 const USED_LEGACY: &CStr = c"used_dltensor";
 
-fn value_error(e: impl std::fmt::Display) -> PyErr {
+pub(crate) fn value_error(e: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
 /// Takes the DLPack tensor of any object with `__dlpack__` (versioned when the producer offers it).
-fn import(obj: &Bound<'_, PyAny>) -> PyResult<DlpackTensor> {
+pub(crate) fn import(obj: &Bound<'_, PyAny>) -> PyResult<DlpackTensor> {
     let py = obj.py();
     let kwargs = PyDict::new(py);
     kwargs.set_item("max_version", (1u32, 0u32))?;
@@ -152,7 +154,7 @@ impl Array {
     }
 }
 
-fn axis_index(axis: isize, ndim: usize) -> PyResult<usize> {
+pub(crate) fn axis_index(axis: isize, ndim: usize) -> PyResult<usize> {
     let a = if axis < 0 { axis + ndim as isize } else { axis };
     if a < 0 || a as usize >= ndim {
         return Err(PyValueError::new_err(format!("axis {axis} is out of range for {ndim} dimensions")));
@@ -161,6 +163,7 @@ fn axis_index(axis: isize, ndim: usize) -> PyResult<usize> {
 }
 
 /// Runs `$body` with `$T` = f32 or f64 for the tensor's dtype.
+#[macro_export]
 macro_rules! float_dispatch {
     ($tensor:expr, $T:ident => $body:expr) => {
         match $tensor.dtype() {
@@ -179,19 +182,19 @@ macro_rules! float_dispatch {
     };
 }
 
-fn typed<T: DynElement>(tensor: &DlpackTensor) -> PyResult<NdView<'_, T>> {
+pub(crate) fn typed<T: DynElement>(tensor: &DlpackTensor) -> PyResult<NdView<'_, T>> {
     tensor.typed::<T>().map_err(value_error)
 }
 
 /// A float input: a NumPy array read through NumPy's C API (a type check, no Python call), or
 /// anything else through DLPack. Both are zero-copy views.
-enum Input<'py> {
+pub(crate) enum Input<'py> {
     F32(PyReadonlyArrayDyn<'py, f32>),
     F64(PyReadonlyArrayDyn<'py, f64>),
     Dlpack(DlpackTensor),
 }
 
-fn input<'py>(x: &Bound<'py, PyAny>) -> PyResult<Input<'py>> {
+pub(crate) fn input<'py>(x: &Bound<'py, PyAny>) -> PyResult<Input<'py>> {
     if let Ok(a) = x.cast::<PyArrayDyn<f32>>() {
         if let Ok(r) = a.try_readonly() {
             return Ok(Input::F32(r));
@@ -206,6 +209,7 @@ fn input<'py>(x: &Bound<'py, PyAny>) -> PyResult<Input<'py>> {
 }
 
 /// Runs `$body` with `$T` = f32 / f64 and `$view` the input's typed view.
+#[macro_export]
 macro_rules! with_float_input {
     ($input:expr, $T:ident, $view:ident => $body:expr) => {
         match &$input {
@@ -221,7 +225,7 @@ macro_rules! with_float_input {
                 let $view: NdView<'_, f64> = NdView::try_from(a.as_array()).map_err(value_error)?;
                 $body
             }
-            Input::Dlpack(tensor) => float_dispatch!(tensor, $T => {
+            Input::Dlpack(tensor) => $crate::float_dispatch!(tensor, $T => {
                 let $view = typed::<$T>(tensor)?;
                 $body
             }),
@@ -231,7 +235,7 @@ macro_rules! with_float_input {
 
 /// A NumPy array that owns `data` (no copy), with `shape`, row-major, or exported through the
 /// inverse of `order` (a result computed in an input's memory order goes back with its strides).
-fn numpy_out<T: numpy::Element>(py: Python<'_>, data: Vec<T>, shape: &[usize], order: Option<&[usize]>) -> PyResult<Py<PyAny>> {
+pub(crate) fn numpy_out<T: numpy::Element>(py: Python<'_>, data: Vec<T>, shape: &[usize], order: Option<&[usize]>) -> PyResult<Py<PyAny>> {
     let array = match order {
         None => ArrayD::from_shape_vec(IxDyn(shape), data),
         Some(order) => {
@@ -255,13 +259,13 @@ fn numpy_out<T: numpy::Element>(py: Python<'_>, data: Vec<T>, shape: &[usize], o
     Ok(PyArray::from_owned_array(py, array).into_any().unbind())
 }
 
-fn numpy_array<T: numpy::Element>(py: Python<'_>, array: NdArray<T>) -> PyResult<Py<PyAny>> {
+pub(crate) fn numpy_array<T: numpy::Element>(py: Python<'_>, array: NdArray<T>) -> PyResult<Py<PyAny>> {
     let shape = array.shape().to_vec();
     numpy_out(py, array.into_vec(), &shape, None)
 }
 
 /// Complex results: autodyne's and num-complex's `Complex` are both `repr(C) { re, im }`.
-fn numpy_complex<T: Float>(py: Python<'_>, array: NdArray<Complex<T>>) -> PyResult<Py<PyAny>>
+pub(crate) fn numpy_complex<T: Float>(py: Python<'_>, array: NdArray<Complex<T>>) -> PyResult<Py<PyAny>>
 where
     num_complex::Complex<T>: numpy::Element,
 {
@@ -401,5 +405,6 @@ fn _autodyne(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(axpb, m)?)?;
     m.add_function(wrap_pyfunction!(lowpass, m)?)?;
     m.add_function(wrap_pyfunction!(rfft, m)?)?;
+    science::register(m)?;
     Ok(())
 }
