@@ -1,6 +1,8 @@
 use super::*;
 
-pub trait Float: Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive {
+/// A concrete floating-point number (`f32`, `f64`): [`Real`] arithmetic plus everything that
+/// inspects a value (bits, rounding, NaN checks, ordering).
+pub trait Float: Real + Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive {
     /// Special states
     const _NAN: Self;
     const _INFINITY: Self;

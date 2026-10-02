@@ -21,6 +21,9 @@ pub use integer::*;
 mod float;
 pub use float::*;
 
+mod real;
+pub use real::*;
+
 mod reflection;
 pub use reflection::*;
 

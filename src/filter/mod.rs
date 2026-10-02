@@ -4,7 +4,8 @@
 //! Filters are stateful block processors: construct (allocates once), then `process(&mut [T])`
 //! in place as often as needed without allocating, e.g. from an audio callback.
 //!
-//! [`MultiBiquad`] runs one biquad per channel, several channels at a time.
+//! [`MultiBiquad`] runs one biquad per channel, several channels at a time. [`OnePole`] is written
+//! over [`Real`], so it can also be traced and differentiated.
 
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
@@ -12,11 +13,13 @@ use crate::units::*;
 mod crossover;
 mod eq;
 mod ladder;
+mod one_pole;
 mod svf;
 
 pub use crossover::*;
 pub use eq::*;
 pub use ladder::*;
+pub use one_pole::*;
 pub use svf::*;
 
 /// Full linear convolution of `a` and `b`; the result has `a.len() + b.len() - 1` samples

@@ -25,6 +25,8 @@ rtrb = "0.4.0"
 # rustfft: the FFT backend (AVX / SSE / NEON mixed-radix kernels); without it, a portable radix-2
 default = ["rustfft"]
 ndarray = ["dep:ndarray"]
+# flux: trace, differentiate and emit StableHLO (no dependencies; IREE / XLA are external tools)
+flux = []
 rustfft = ["dep:rustfft", "dep:realfft"]
 realfft = ["dep:realfft"]
 

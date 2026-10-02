@@ -116,6 +116,19 @@ on a Ryzen 9 7900 + RTX 5070 Ti:
 - GPU (Burn wgpu, CubeCL, data already on the GPU): ~10-15x faster than one CPU core on element-wise work, slower on
   these reductions; uploading and downloading from CPU memory costs ~5x the CPU computation, so the GPU pays off
   only for data that lives there (batches, fitting)
+### flux: differentiable programs (feature `flux`)
+DSP written over the `Real` trait (every `Float` is one) runs unchanged on `f32` / `f64` and on `flux::Tracer`,
+which records it into a graph of primitives. flux differentiates the graph in reverse mode, runs per-sample recurrences
+over whole signals as a `scan` (gradient = a reverse scan), and emits textual StableHLO for IREE or XLA, which run as
+external tools: nothing is linked, and the real-time path never touches a trace. The first slice: `OnePole` traced
+over 512 samples, compiled with IREE, matches the f32 filter; its gradient matches finite differences; gradient descent
+fits its cutoff (300 Hz -> 1200 Hz in 30 steps).
+
+```sh
+pip install iree-base-compiler iree-base-runtime   # iree-compile, iree-run-module on PATH (or AUTODYNE_IREE_DIR)
+cargo test --features flux --test flux              # skipped with a message when the tools are missing
+```
+
 ### Plugins
 `plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
 the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):
@@ -140,9 +153,6 @@ VST3 validator).
 - `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips), and `tests/no_alloc.rs` proves processing never allocates
 - `cargo bench`: throughput per 512-sample block. The SIMD pass made FIR filtering 4.5-13x faster
   (more taps, bigger win) and resampling 6-11x faster than the scalar versions.
-
-## Not here
-The `flux` IR/compiler experiment (a JAX/XLA-style tracer and compiler) lives on the `flux` branch.
 
 ## License
 autodyne is licensed under the [GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`): you may use, study,

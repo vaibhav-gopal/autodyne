@@ -35,7 +35,7 @@ jobs:
       - name: Doc tests
         run: cargo test --workspace --doc
       - name: Docs build without warnings
-        run: cargo doc --workspace --exclude xtask --no-deps
+        run: cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux
         env:
           RUSTDOCFLAGS: -D warnings
       # `live` needs a sound device, so CI only builds it (via --all-targets above)
@@ -54,7 +54,7 @@ jobs:
         run: cargo bench --no-run
       # The crate is warning-free; keep it that way.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --features autodyne/ndarray -- -D warnings
+        run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux -- -D warnings
 
   # The n-d views are raw pointers over validated layouts: check their unsafe code for undefined
   # behaviour (Miri's float noise is turned off so exact-equality assertions stay meaningful).
@@ -93,6 +93,27 @@ jobs:
           VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release --uv
       - name: Test
         run: .venv/bin/python -m pytest tests -q
+
+  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE.
+  flux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: astral-sh/setup-uv@v7
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Install IREE
+        run: |
+          uv venv .iree --python 3.12
+          uv pip install --python .iree iree-base-compiler==3.11.0 iree-base-runtime==3.11.0
+          .iree/bin/iree-compile --version
+          echo "AUTODYNE_IREE_DIR=$PWD/.iree/bin" >> "$GITHUB_ENV"
+      - name: Test (interpreter)
+        run: cargo test -p autodyne --features flux --lib flux
+      - name: Test (IREE)
+        run: cargo test -p autodyne --features flux --test flux -- --nocapture
 
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
   deny:

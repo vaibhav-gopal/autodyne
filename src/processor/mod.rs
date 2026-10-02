@@ -91,11 +91,11 @@ use crate::dynamics::{Compressor, EnvelopeFollower};
 use crate::distortion::Waveshaper;
 use crate::envelope::Adsr;
 use crate::reverb::Convolver;
-use crate::filter::{Biquad, Fir, Ladder, Svf};
+use crate::filter::{Biquad, Fir, Ladder, OnePole, Svf};
 use crate::gain::Gain;
 use crate::modulation::{ModulatedDelay, Phaser};
 
-forward_processor!(Biquad, Fir, Svf, Ladder, Gain, Echo, Compressor, EnvelopeFollower, ModulatedDelay, Phaser, Adsr, Waveshaper, Convolver);
+forward_processor!(Biquad, Fir, OnePole, Svf, Ladder, Gain, Echo, Compressor, EnvelopeFollower, ModulatedDelay, Phaser, Adsr, Waveshaper, Convolver);
 
 #[cfg(test)]
 mod tests {
