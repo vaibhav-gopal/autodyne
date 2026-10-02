@@ -1,15 +1,16 @@
 //! flux end to end: traced programs emitted as StableHLO, compiled and run by each backend found
-//! (IREE, XLA), and compared with the interpreter and with the concrete f32 code.
+//! (IREE, PJRT, XLA), and compared with the interpreter and with the concrete f32 code.
 //!
 //! IREE needs `iree-compile` and `iree-run-module` (`pip install iree-base-compiler
 //! iree-base-runtime`) in `AUTODYNE_IREE_DIR` or on `PATH`; XLA needs Python with `jax`
-//! (`AUTODYNE_XLA_PYTHON`, else `python3` / `python` on `PATH`). A missing backend is reported and
-//! skipped; with neither, the tests pass without running.
+//! (`AUTODYNE_XLA_PYTHON`, else `python3` / `python` on `PATH`); PJRT needs a plugin library in
+//! `AUTODYNE_PJRT_PLUGIN`. A missing backend is reported and skipped; with none, the tests pass
+//! without running.
 
 #![cfg(feature = "flux")]
 
 use autodyne::filter::OnePole;
-use autodyne::flux::{scalar, trace, vector, Backend, Executable, Iree, Program, Scan, Tracer, Xla};
+use autodyne::flux::{scalar, trace, vector, Backend, Executable, Iree, Pjrt, Program, Scan, Tracer, Xla};
 use autodyne::signal::{ArrayMath, NdArray};
 use autodyne::units::Elementwise;
 
@@ -21,6 +22,16 @@ fn backends() -> Vec<Box<dyn Backend>> {
     match Iree::find() {
         Some(iree) => found.push(Box::new(iree)),
         None => eprintln!("skipping IREE: tools not found (set AUTODYNE_IREE_DIR or put iree-compile / iree-run-module on PATH)"),
+    }
+    match std::env::var_os("AUTODYNE_PJRT_PLUGIN") {
+        Some(path) => match Pjrt::load(std::path::Path::new(&path)) {
+            Ok(pjrt) => {
+                eprintln!("PJRT: {}", pjrt.description());
+                found.push(Box::new(pjrt));
+            }
+            Err(e) => panic!("AUTODYNE_PJRT_PLUGIN is set but the plugin fails to load: {e}"),
+        },
+        None => eprintln!("skipping PJRT: set AUTODYNE_PJRT_PLUGIN to a plugin library (e.g. libpjrt_cpu.so)"),
     }
     match Xla::start() {
         Ok(xla) => {

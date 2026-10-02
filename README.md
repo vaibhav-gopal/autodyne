@@ -117,23 +117,30 @@ on a Ryzen 9 7900 + RTX 5070 Ti:
   these reductions; uploading and downloading from CPU memory costs ~5x the CPU computation, so the GPU pays off
   only for data that lives there (batches, fitting)
 ### flux: differentiable programs (feature `flux`)
-Plain Rust, no DSL: code written over the `Real` trait (every `Float` is one) runs unchanged on `f32` / `f64` and on
-`flux::Tracer`, whose operators record what it computes into a graph of primitives on f32 arrays: element-wise maths,
-comparisons and `select` (in place of branching on values), NumPy-style broadcasting, reshape, transpose, sums,
-`dot_general` and real FFTs. flux differentiates the graph in reverse mode (the backward pass is just more graph, so
-derivatives compose and nest), runs per-step recurrences over whole signals as a `Scan` with array-valued parameters,
-state and samples (gradient = a reverse scan), and emits textual StableHLO. Two backends run it, both external tools found
-at run time (nothing is linked, and the real-time path never touches a trace):
+Plain Rust, no DSL. Code is written once over two traits and runs eagerly or traced:
+
+- `Real` (`f32` / `f64` samples, the real-time path) and `ArrayMath` (`NdArray`s, NumPy-style: element-wise maths
+  with broadcasting, reshape, transpose, sums, `dot_general`, real FFTs) compute directly;
+- on `flux::Tracer` the same code records a graph of primitives (comparisons become `select`), which flux
+  differentiates in reverse mode (the backward pass is just more graph, so derivatives compose and nest), runs over
+  whole signals as a `Scan` with array-valued parameters, state and samples (gradient = a reverse scan), and emits as
+  textual StableHLO.
+
+Three backends run the programs, all found at run time (nothing is linked at build time, and the real-time path never
+touches a trace):
 
 - IREE: `iree-compile` / `iree-run-module`
-- XLA through PJRT, driven by JAX's client in a long-lived Python process
+- PJRT: a plugin library (XLA CPU / CUDA / ROCm, ...) loaded in-process through the PJRT C API, no Python
+- XLA through JAX's client in a long-lived Python process, for platforms without a plugin (Windows)
 
-Every primitive and its gradient agree with flux's reference interpreter on both; a traced `OnePole` matches the f32
-filter, its gradient matches finite differences, and gradient descent fits its cutoff (300 Hz -> 1200 Hz in 30 steps)
-and recovers per-bin gains through `rfft` / `irfft` frame by frame.
+Every primitive and its gradient agree with flux's reference interpreter on all three; one generic model gives the same
+result run on `NdArray`s and compiled; a traced `OnePole` matches the f32 filter, its gradient matches finite
+differences, and gradient descent fits its cutoff (300 Hz -> 1200 Hz in 30 steps) and recovers per-bin gains through
+`rfft` / `irfft` frame by frame.
 
 ```sh
 pip install iree-base-compiler iree-base-runtime jax   # tools on PATH, or AUTODYNE_IREE_DIR / AUTODYNE_XLA_PYTHON
+export AUTODYNE_PJRT_PLUGIN=/path/to/libpjrt_cpu.so    # e.g. from github.com/zml/pjrt-artifacts (Linux, macOS)
 cargo test --features flux --test flux                  # each missing backend is reported and skipped
 ```
 

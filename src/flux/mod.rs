@@ -11,7 +11,8 @@
 //! - [`vjp`] differentiates it in reverse mode, recording the backward pass into the same trace;
 //! - [`Scan`] runs a traced step over a whole signal, and its gradient as a reverse scan;
 //! - [`Graph::program`] and the `Scan` programs emit textual StableHLO, which a [`Backend`]
-//!   compiles and runs: [`Iree`] (its command-line tools) or [`Xla`] (PJRT, through JAX).
+//!   compiles and runs: [`Iree`] (its command-line tools), [`Pjrt`] (a PJRT plugin such as XLA's,
+//!   loaded in-process through the PJRT C API) or [`Xla`] (XLA through JAX, where no plugin exists).
 //!
 //! flux is a front end only: no IR of its own beyond the trace, no code generation, nothing linked;
 //! the compilers are external tools found at run time. The real-time path is unchanged: the same
@@ -40,6 +41,7 @@ mod graph;
 mod hlo;
 mod interp;
 mod iree;
+mod pjrt;
 mod runtime;
 mod scan;
 mod xla;
@@ -48,6 +50,7 @@ pub use ad::vjp;
 pub use graph::{scalar, trace, vector, Cmp, Graph, Mask, Node, Op, Part, Tracer};
 pub use hlo::Program;
 pub use iree::Iree;
+pub use pjrt::Pjrt;
 pub use runtime::{Backend, Executable};
 pub use scan::{LossGrad, Scan};
 pub use xla::Xla;

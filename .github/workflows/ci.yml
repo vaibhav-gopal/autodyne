@@ -94,7 +94,8 @@ jobs:
       - name: Test
         run: .venv/bin/python -m pytest tests -q
 
-  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE and XLA.
+  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE, a PJRT plugin
+  # (XLA CPU, loaded in-process) and XLA through JAX.
   flux:
     runs-on: ubuntu-latest
     steps:
@@ -112,9 +113,14 @@ jobs:
           .flux/bin/python -c "import jax; print(jax.devices())"
           echo "AUTODYNE_IREE_DIR=$PWD/.flux/bin" >> "$GITHUB_ENV"
           echo "AUTODYNE_XLA_PYTHON=$PWD/.flux/bin/python" >> "$GITHUB_ENV"
+      - name: Install the PJRT CPU plugin
+        run: |
+          mkdir -p .pjrt
+          curl -sSL https://github.com/zml/pjrt-artifacts/releases/download/manual-2026-09-08T13-23-00Z/pjrt-cpu_linux-amd64.tar.gz | tar xz -C .pjrt
+          echo "AUTODYNE_PJRT_PLUGIN=$PWD/.pjrt/libpjrt_cpu.so" >> "$GITHUB_ENV"
       - name: Test (interpreter)
         run: cargo test -p autodyne --features flux --lib flux
-      - name: Test (IREE, XLA)
+      - name: Test (IREE, PJRT, XLA)
         run: cargo test -p autodyne --features flux --test flux -- --nocapture
 
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
