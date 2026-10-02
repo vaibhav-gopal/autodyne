@@ -655,6 +655,37 @@ fn scan_gradient_reaches_the_input_signal() {
     let v = scan.vjp(&params, &xs, &s0, &dys);
     assert_eq!((v.params, v.state, v.input), (g.params, g.state, g.input));
 }
+// DOUBLE PRECISION ================================================================================
+
+#[test]
+fn graphs_run_in_double_precision() {
+    // one trace, evaluated in f64: constants keep their f64 value
+    let g = trace(&[&[3]], |v| vec![(v[0] * Tracer::lit(0.1)).exp().sum_all() + Tracer::lit(1e-12)]);
+    let x = NdArray::<f64>::array(&[1.0, 2.0, 3.0], &[3]);
+    let want: f64 = [1.0f64, 2.0, 3.0].iter().map(|v| (v * 0.1).exp()).sum::<f64>() + 1e-12;
+    assert!((g.eval(std::slice::from_ref(&x))[0].as_slice()[0] - want).abs() < 1e-14);
+    // its gradient against central differences at f64 resolution
+    let d = trace(&[&[3]], |v| vjp(&[(v[0] * v[0]).sin().prod_axes(&[0])], &[Tracer::lit(1.0)], v)).eval(std::slice::from_ref(&x));
+    let f = |x: &[f64]| x.iter().map(|v| (v * v).sin()).product::<f64>();
+    for i in 0..3 {
+        let (mut up, mut down) = (x.as_slice().to_vec(), x.as_slice().to_vec());
+        up[i] += 1e-6;
+        down[i] -= 1e-6;
+        let fd = (f(&up) - f(&down)) / 2e-6;
+        assert!((d[0].as_slice()[i] - fd).abs() < 1e-8 * (1.0 + fd.abs()), "{} vs {fd}", d[0].as_slice()[i]);
+    }
+    // a scan in f64 is the f64 filter, exactly
+    let xs: Vec<f64> = noise(256, 3).iter().map(|&v| v as f64).collect();
+    let (ys, _) = one_pole().run(&[NdArray::<f64>::array(&[700.0], &[])], &NdArray::array(&xs, &[256]), &[NdArray::<f64>::array(&[0.0], &[])]);
+    let mut lp = OnePole::lowpass(700.0f64, FS);
+    let mut block = xs.clone();
+    lp.process(&mut block);
+    assert_eq!(ys.as_slice(), block.as_slice());
+    // programs are emitted in either precision
+    let p = one_pole().forward_program_as::<f64>(16);
+    assert!(p.text.contains("tensor<16xf64>") && !p.text.contains("f32") && p.dtype == crate::units::DType::F64);
+}
+
 // TRACING RULES ===================================================================================
 
 #[test]

@@ -17,9 +17,10 @@ use std::ptr::null_mut;
 use std::sync::Arc;
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_resident, Backend, DeviceArray, Executable, Resident};
+use super::runtime::{check_inputs, check_resident, Backend, DeviceArray, Executable, HostArray, HostRef, Resident};
 use super::FluxError;
 use crate::signal::NdArray;
+use crate::units::DType;
 
 // opaque plugin objects
 type Error = c_void;
@@ -70,6 +71,7 @@ struct ApiHeader {
 }
 
 const BUFFER_TYPE_F32: i32 = 11;
+const BUFFER_TYPE_F64: i32 = 12;
 const HOST_BUFFER_IMMUTABLE_ONLY_DURING_CALL: i32 = 0;
 
 /// Declares an argument struct (`struct_size` and `extension_start` first, then the fields) with a
@@ -391,21 +393,27 @@ impl Compiled {
 }
 
 impl Executable for Compiled {
-    fn run(&self, inputs: &[NdArray<f32>]) -> Result<Vec<NdArray<f32>>, FluxError> {
-        check_inputs(&self.program, inputs)?;
-        let resident = inputs.iter().map(|x| self.upload(x)).collect::<Result<Vec<_>, _>>()?;
-        let outputs = self.run_resident(&resident.iter().collect::<Vec<_>>())?;
-        outputs.iter().map(|o| self.download(o)).collect()
+    fn program(&self) -> &Program {
+        &self.program
     }
 
-    fn upload(&self, a: &NdArray<f32>) -> Result<DeviceArray, FluxError> {
+    fn run_host(&self, inputs: &[HostRef<'_>]) -> Result<Vec<HostArray>, FluxError> {
+        check_inputs(&self.program, inputs)?;
+        let resident = inputs.iter().map(|x| self.upload_host(*x)).collect::<Result<Vec<_>, _>>()?;
+        let outputs = self.run_resident(&resident.iter().collect::<Vec<_>>())?;
+        outputs.iter().map(|o| self.download_host(o)).collect()
+    }
+
+    fn upload_host(&self, a: HostRef<'_>) -> Result<DeviceArray, FluxError> {
         let plugin = &*self.plugin;
         // the data is copied during the call
         let dims: Vec<i64> = a.shape().iter().map(|&d| d as i64).collect();
         let mut args = BufferFromHostArgs::new();
         args.client = plugin.client;
-        args.data = a.as_slice().as_ptr().cast();
-        args.element_type = BUFFER_TYPE_F32;
+        (args.data, args.element_type) = match a {
+            HostRef::F32(x) => (x.as_slice().as_ptr().cast(), BUFFER_TYPE_F32),
+            HostRef::F64(x) => (x.as_slice().as_ptr().cast(), BUFFER_TYPE_F64),
+        };
         args.dims = dims.as_ptr();
         args.num_dims = dims.len();
         args.semantics = HOST_BUFFER_IMMUTABLE_ONLY_DURING_CALL;
@@ -413,7 +421,7 @@ impl Executable for Compiled {
         plugin.call(index::CLIENT_BUFFER_FROM_HOST_BUFFER, &mut args)?;
         let buffer = DeviceBuffer { plugin: self.plugin.clone(), buffer: args.buffer };
         plugin.await_event(args.done_with_host_buffer)?;
-        Ok(DeviceArray::device(a.shape().to_vec(), Box::new(buffer)))
+        Ok(DeviceArray::device(a.shape().to_vec(), a.dtype(), Box::new(buffer)))
     }
 
     fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
@@ -440,22 +448,39 @@ impl Executable for Compiled {
         let outputs: Vec<DeviceArray> = outputs
             .into_iter()
             .zip(&self.program.outputs)
-            .map(|(buffer, shape)| DeviceArray::device(shape.clone(), Box::new(DeviceBuffer { plugin: self.plugin.clone(), buffer })))
+            .map(|(buffer, shape)| DeviceArray::device(shape.clone(), self.program.dtype, Box::new(DeviceBuffer { plugin: self.plugin.clone(), buffer })))
             .collect();
         plugin.await_event(done)?;
         Ok(outputs)
     }
 
-    fn download(&self, a: &DeviceArray) -> Result<NdArray<f32>, FluxError> {
-        let plugin = &*self.plugin;
+    fn download_host(&self, a: &DeviceArray) -> Result<HostArray, FluxError> {
         let buffer = self.buffer_of(a)?;
-        let mut data = vec![0.0f32; a.shape().iter().product()];
+        let shape = a.shape();
+        let shape_error = |e: crate::signal::NdError| FluxError::Shape(e.to_string());
+        match a.dtype() {
+            DType::F64 => {
+                let mut data = vec![0.0f64; shape.iter().product()];
+                self.copy_to_host(buffer, data.as_mut_ptr().cast(), std::mem::size_of_val(data.as_slice()))?;
+                NdArray::from_vec(data, shape).map(HostArray::F64).map_err(shape_error)
+            }
+            _ => {
+                let mut data = vec![0.0f32; shape.iter().product()];
+                self.copy_to_host(buffer, data.as_mut_ptr().cast(), std::mem::size_of_val(data.as_slice()))?;
+                NdArray::from_vec(data, shape).map(HostArray::F32).map_err(shape_error)
+            }
+        }
+    }
+}
+
+impl Compiled {
+    /// Copies `buffer` into `size` bytes at `dst`, waiting until done.
+    fn copy_to_host(&self, buffer: *mut Buffer, dst: *mut c_void, size: usize) -> Result<(), FluxError> {
         let mut args = BufferToHostArgs::new();
         args.src = buffer;
-        args.dst = data.as_mut_ptr().cast();
-        args.dst_size = std::mem::size_of_val(data.as_slice());
-        plugin.call(index::BUFFER_TO_HOST_BUFFER, &mut args)?;
-        plugin.await_event(args.event)?;
-        NdArray::from_vec(data, a.shape()).map_err(|e| FluxError::Shape(e.to_string()))
+        args.dst = dst;
+        args.dst_size = size;
+        self.plugin.call(index::BUFFER_TO_HOST_BUFFER, &mut args)?;
+        self.plugin.await_event(args.event)
     }
 }

@@ -1,19 +1,19 @@
 //! The reference interpreter: each node evaluated by the eager [`ArrayMath`] implementation on
 //! `NdArray<f32>`, so a traced function and the same function run on arrays agree by construction.
 
-use super::graph::{Cmp, Graph, Op, Part, Reduction};
+use super::graph::{Cmp, FluxFloat, Graph, Op, Part, Reduction};
 use crate::signal::{ArrayMath, NdArray, RealArrayMath};
 use crate::units::{Elementwise, RealValued};
 
 /// A node's value.
 #[derive(Clone)]
-enum Value {
-    Real(NdArray<f32>),
+enum Value<T> {
+    Real(NdArray<T>),
     Mask(NdArray<bool>),
 }
 
-impl Value {
-    fn real(&self) -> NdArray<f32> {
+impl<T: FluxFloat> Value<T> {
+    fn real(&self) -> NdArray<T> {
         match self {
             Value::Real(a) => a.clone(),
             Value::Mask(_) => panic!("flux: a mask used as a number"),
@@ -28,20 +28,20 @@ impl Value {
 }
 
 impl Graph {
-    /// Evaluates the graph on `inputs` (one array per input, of its shape) and returns its outputs.
-    /// Masks come back as 1.0 / 0.0.
-    pub fn eval(&self, inputs: &[NdArray<f32>]) -> Vec<NdArray<f32>> {
+    /// Evaluates the graph in `T` (`f32` or `f64`) on `inputs` (one array per input, of its
+    /// shape) and returns its outputs. Masks come back as 1.0 / 0.0.
+    pub fn eval<T: FluxFloat>(&self, inputs: &[NdArray<T>]) -> Vec<NdArray<T>> {
         assert_eq!(inputs.len(), self.inputs.len(), "Graph::eval: wrong number of inputs");
         for (k, (x, s)) in inputs.iter().zip(&self.inputs).enumerate() {
             assert_eq!(x.shape(), s.as_slice(), "Graph::eval: input {k} has the wrong shape");
         }
-        let mut values: Vec<Value> = Vec::with_capacity(self.nodes.len());
+        let mut values: Vec<Value<T>> = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
             let r = |i: u32| values[i as usize].real();
             let value = match node.op {
                 Op::Input(n) => Value::Real(inputs[n as usize].clone()),
                 Op::Const(c) => Value::Real(NdArray::lit(c)),
-                Op::Literal(ref data) => Value::Real(NdArray::from_vec(data.to_vec(), &node.shape).expect("literal shape")),
+                Op::Literal(ref data) => Value::Real(NdArray::array(data, &node.shape)),
                 Op::Add(a, b) => Value::Real(r(a) + r(b)),
                 Op::Sub(a, b) => Value::Real(r(a) - r(b)),
                 Op::Mul(a, b) => Value::Real(r(a) * r(b)),
@@ -98,20 +98,20 @@ impl Graph {
             .iter()
             .map(|&o| match &values[o as usize] {
                 Value::Real(x) => x.clone(),
-                Value::Mask(m) => m.map(|&b| f32::from(b)),
+                Value::Mask(m) => m.map(|&b| if b { T::_ONE } else { T::_ZERO }),
             })
             .collect()
     }
 }
 
 /// Zeros of `shape` with each row of `updates` added at its index's row (rounded down, clamped).
-fn scatter_add(shape: &[usize], indices: &NdArray<f32>, updates: &NdArray<f32>) -> NdArray<f32> {
+fn scatter_add<T: FluxFloat>(shape: &[usize], indices: &NdArray<T>, updates: &NdArray<T>) -> NdArray<T> {
     let row: usize = shape[1..].iter().product();
-    let mut out = vec![0.0f32; shape.iter().product()];
+    let mut out = vec![T::_ZERO; shape.iter().product()];
     if row > 0 {
         for (&i, u) in indices.as_slice().iter().zip(updates.as_slice().chunks(row)) {
-            let k = crate::signal::clamp_index(i as f64, shape[0]);
-            out[k * row..(k + 1) * row].iter_mut().zip(u).for_each(|(o, v)| *o += v);
+            let k = crate::signal::clamp_index(i.to_f64().unwrap_or(f64::NAN), shape[0]);
+            out[k * row..(k + 1) * row].iter_mut().zip(u).for_each(|(o, &v)| *o = *o + v);
         }
     }
     NdArray::from_vec(out, shape).expect("valid shape")

@@ -1,7 +1,7 @@
 //! `scan`: a step traced once and run over a whole signal, forward and backward.
 
 use super::ad::vjp;
-use super::graph::{trace, Graph, Tracer};
+use super::graph::{trace, FluxFloat, Graph, Tracer};
 use super::loss::Loss;
 use crate::signal::{ArrayMath, NdArray};
 
@@ -49,22 +49,22 @@ pub struct Scan {
 
 /// A loss and its gradient, from [`Scan::grad`] / [`Scan::loss_grad`].
 #[derive(Clone, Debug, PartialEq)]
-pub struct LossGrad {
-    pub loss: f32,
+pub struct LossGrad<T = f32> {
+    pub loss: T,
     /// d loss / d each parameter.
-    pub params: Vec<NdArray<f32>>,
+    pub params: Vec<NdArray<T>>,
     /// d loss / d each initial state value.
-    pub state: Vec<NdArray<f32>>,
+    pub state: Vec<NdArray<T>>,
     /// d loss / d the input signal (`[len, sample...]`).
-    pub input: NdArray<f32>,
+    pub input: NdArray<T>,
 }
 
 /// Cotangents from [`Scan::vjp`].
 #[derive(Clone, Debug, PartialEq)]
-pub struct ScanVjp {
-    pub params: Vec<NdArray<f32>>,
-    pub state: Vec<NdArray<f32>>,
-    pub input: NdArray<f32>,
+pub struct ScanVjp<T = f32> {
+    pub params: Vec<NdArray<T>>,
+    pub state: Vec<NdArray<T>>,
+    pub input: NdArray<T>,
 }
 
 impl Scan {
@@ -121,13 +121,13 @@ impl Scan {
 
     /// Runs the scan over `xs` (`[len, sample...]`) from state `s0`: returns the outputs
     /// (`[len, output...]`) and the final state.
-    pub fn run(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>]) -> (NdArray<f32>, Vec<NdArray<f32>>) {
+    pub fn run<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>]) -> (NdArray<T>, Vec<NdArray<T>>) {
         let len = self.check(params, xs, s0);
         let s = self.states.len();
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(len * self.output.iter().product::<usize>());
         for x in steps(xs, &self.sample) {
-            let args: Vec<NdArray<f32>> = params.iter().chain(&state).cloned().chain([x]).collect();
+            let args: Vec<NdArray<T>> = params.iter().chain(&state).cloned().chain([x]).collect();
             let mut out = self.step.eval(&args);
             ys.extend_from_slice(out[s].as_slice());
             out.truncate(s);
@@ -137,13 +137,13 @@ impl Scan {
     }
 
     /// The outputs, and the state each step starts from.
-    fn forward(&self, params: &[NdArray<f32>], inputs: &[NdArray<f32>], s0: &[NdArray<f32>]) -> (NdArray<f32>, Vec<Vec<NdArray<f32>>>) {
+    fn forward<T: FluxFloat>(&self, params: &[NdArray<T>], inputs: &[NdArray<T>], s0: &[NdArray<T>]) -> (NdArray<T>, Vec<Vec<NdArray<T>>>) {
         let s = self.states.len();
         let mut saved = Vec::with_capacity(inputs.len());
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(inputs.len() * self.output.iter().product::<usize>());
         for x in inputs {
-            let args: Vec<NdArray<f32>> = params.iter().chain(&state).cloned().chain([x.clone()]).collect();
+            let args: Vec<NdArray<T>> = params.iter().chain(&state).cloned().chain([x.clone()]).collect();
             let mut out = self.step.eval(&args);
             ys.extend_from_slice(out[s].as_slice());
             out.truncate(s);
@@ -154,18 +154,18 @@ impl Scan {
 
     /// The reverse scan: from the cotangents of every output step, those of the parameters, the
     /// initial state and the input steps.
-    fn backward(&self, params: &[NdArray<f32>], inputs: &[NdArray<f32>], saved: &[Vec<NdArray<f32>>], dys: &NdArray<f32>) -> ScanVjp {
+    fn backward<T: FluxFloat>(&self, params: &[NdArray<T>], inputs: &[NdArray<T>], saved: &[Vec<NdArray<T>>], dys: &NdArray<T>) -> ScanVjp<T> {
         let (p, s) = (self.params.len(), self.states.len());
-        let dys: Vec<NdArray<f32>> = steps(dys, &self.output).collect();
-        let mut d_params: Vec<NdArray<f32>> = self.params.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
-        let mut d_state: Vec<NdArray<f32>> = self.states.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
+        let dys: Vec<NdArray<T>> = steps(dys, &self.output).collect();
+        let mut d_params: Vec<NdArray<T>> = self.params.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
+        let mut d_state: Vec<NdArray<T>> = self.states.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
         let mut d_xs = vec![NdArray::zeros(&self.sample).expect("shape"); inputs.len()];
         for i in (0..inputs.len()).rev() {
-            let args: Vec<NdArray<f32>> = params.iter().chain(&saved[i]).cloned().chain([inputs[i].clone()]).chain(d_state).chain([dys[i].clone()]).collect();
+            let args: Vec<NdArray<T>> = params.iter().chain(&saved[i]).cloned().chain([inputs[i].clone()]).chain(d_state).chain([dys[i].clone()]).collect();
             let mut out = self.step_vjp.eval(&args);
             d_xs[i] = out.pop().expect("d x");
             for (d, g) in d_params.iter_mut().zip(&out[..p]) {
-                d.as_mut_slice().iter_mut().zip(g.as_slice()).for_each(|(d, g)| *d += g);
+                d.as_mut_slice().iter_mut().zip(g.as_slice()).for_each(|(d, &g)| *d = *d + g);
             }
             d_state = out.split_off(p);
             debug_assert_eq!(d_state.len(), s);
@@ -177,10 +177,10 @@ impl Scan {
     /// The vector-Jacobian product of the scan's outputs: given a cotangent for each output step
     /// (`dys`, `[len, output...]`), returns `Σ dys · ∂ys/∂w` for the parameters, the initial state
     /// and the input signal. This is how a scan's gradient composes with anything after it.
-    pub fn vjp(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>], dys: &NdArray<f32>) -> ScanVjp {
+    pub fn vjp<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>], dys: &NdArray<T>) -> ScanVjp<T> {
         let len = self.check(params, xs, s0);
         assert_eq!(dys.shape(), [&[len], self.output.as_slice()].concat(), "Scan::vjp: dys must be [len, output...]");
-        let inputs: Vec<NdArray<f32>> = steps(xs, &self.sample).collect();
+        let inputs: Vec<NdArray<T>> = steps(xs, &self.sample).collect();
         let (_, saved) = self.forward(params, &inputs, s0);
         self.backward(params, &inputs, &saved, dys)
     }
@@ -204,10 +204,10 @@ impl Scan {
     /// assert!(g.loss > 0.0 && g.params[0].as_slice()[0] < 0.0); // raising the cutoff helps
     /// assert_eq!(g.input.shape(), [256]);
     /// ```
-    pub fn grad(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>], loss: &Loss, aux: &[NdArray<f32>]) -> LossGrad {
+    pub fn grad<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>], loss: &Loss, aux: &[NdArray<T>]) -> LossGrad<T> {
         let len = self.check(params, xs, s0);
         assert_eq!(loss.output_shape(), [&[len], self.output.as_slice()].concat(), "Scan::grad: the loss scores outputs of another shape");
-        let inputs: Vec<NdArray<f32>> = steps(xs, &self.sample).collect();
+        let inputs: Vec<NdArray<T>> = steps(xs, &self.sample).collect();
         let (ys, saved) = self.forward(params, &inputs, s0);
         let (value, dys) = loss.grad(&ys, aux);
         let ScanVjp { params, state, input } = self.backward(params, &inputs, &saved, &dys);
@@ -216,11 +216,11 @@ impl Scan {
 
     /// The mean squared error between the outputs and `targets` (`[len, output...]`), and its
     /// gradient: [`grad`](Self::grad) with [`Loss::mse`].
-    pub fn loss_grad(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, targets: &NdArray<f32>, s0: &[NdArray<f32>]) -> LossGrad {
+    pub fn loss_grad<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, targets: &NdArray<T>, s0: &[NdArray<T>]) -> LossGrad<T> {
         self.grad(params, xs, s0, &Loss::mse(targets.shape()), std::slice::from_ref(targets))
     }
     /// Checks the argument shapes; returns the number of steps.
-    fn check(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>]) -> usize {
+    fn check<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>]) -> usize {
         assert_eq!(params.len(), self.params.len(), "Scan: wrong number of parameters");
         assert_eq!(s0.len(), self.states.len(), "Scan: wrong number of state values");
         for (k, (a, sh)) in params.iter().zip(&self.params).enumerate() {
@@ -235,7 +235,7 @@ impl Scan {
 }
 
 /// The steps of a stacked signal (`[len, shape...]`), each of `shape`.
-fn steps<'a>(stacked: &'a NdArray<f32>, shape: &'a [usize]) -> impl Iterator<Item = NdArray<f32>> + 'a {
+fn steps<'a, T: FluxFloat>(stacked: &'a NdArray<T>, shape: &'a [usize]) -> impl Iterator<Item = NdArray<T>> + 'a {
     let size = shape.iter().product::<usize>();
     stacked.as_slice().chunks(size.max(1)).take(stacked.shape()[0]).map(move |c| NdArray::from_vec(c[..size].to_vec(), shape).expect("step shape"))
 }

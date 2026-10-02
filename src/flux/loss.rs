@@ -6,7 +6,7 @@
 //! [`RealArrayMath`]: they run eagerly on `NdArray`s and trace into losses alike.
 
 use super::ad::vjp;
-use super::graph::{trace, Graph, Tracer};
+use super::graph::{trace, FluxFloat, Graph, Tracer};
 use crate::signal::{frames, ArrayMath, NdArray, RealArrayMath};
 use crate::units::Elementwise;
 
@@ -80,18 +80,18 @@ impl Loss {
     }
 
     /// The loss of `output`.
-    pub fn eval(&self, output: &NdArray<f32>, aux: &[NdArray<f32>]) -> f32 {
+    pub fn eval<T: FluxFloat>(&self, output: &NdArray<T>, aux: &[NdArray<T>]) -> T {
         self.value.eval(&self.args(output, aux))[0].as_slice()[0]
     }
 
     /// The loss of `output` and its gradient with respect to `output`.
-    pub fn grad(&self, output: &NdArray<f32>, aux: &[NdArray<f32>]) -> (f32, NdArray<f32>) {
+    pub fn grad<T: FluxFloat>(&self, output: &NdArray<T>, aux: &[NdArray<T>]) -> (T, NdArray<T>) {
         let mut out = self.grad.eval(&self.args(output, aux));
         let d = out.pop().expect("two outputs");
         (out[0].as_slice()[0], d)
     }
 
-    fn args(&self, output: &NdArray<f32>, aux: &[NdArray<f32>]) -> Vec<NdArray<f32>> {
+    fn args<T: FluxFloat>(&self, output: &NdArray<T>, aux: &[NdArray<T>]) -> Vec<NdArray<T>> {
         assert_eq!(aux.len(), self.aux.len(), "Loss: wrong number of extra inputs");
         std::iter::once(output).chain(aux).cloned().collect()
     }

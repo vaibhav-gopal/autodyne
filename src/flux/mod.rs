@@ -3,7 +3,8 @@
 //! feature `flux`). The same generic code runs eagerly on `f32` samples or `NdArray`s.
 //!
 //! Generic code runs on [`Tracer`] instead of `f32`; every operation is recorded into a flat
-//! [`Graph`] of primitives on f32 arrays: element-wise arithmetic and functions, comparisons and
+//! [`Graph`] of primitives on real arrays, run in `f32` or `f64` ([`FluxFloat`], chosen when the graph
+//! is evaluated or emitted): element-wise arithmetic and functions, comparisons and
 //! `select`, broadcasting, reshapes and transposes, slices, padding, concatenation and reversal,
 //! sums, products, maxima and minima, `dot_general`, real and complex FFTs, and gathers (`take`, for
 //! wavetables and modulated delays) with their scatter. From there:
@@ -55,11 +56,11 @@ mod scan;
 mod xla;
 
 pub use ad::{jvp, vjp};
-pub use graph::{scalar, trace, vector, Cmp, Graph, Mask, Node, Op, Part, Reduction, Tracer};
+pub use graph::{scalar, trace, vector, Cmp, FluxFloat, Graph, Mask, Node, Op, Part, Reduction, Tracer};
 pub use hlo::Program;
 pub use iree::{Iree, IreeTarget};
 pub use pjrt::Pjrt;
-pub use runtime::{Backend, DeviceArray, Executable};
+pub use runtime::{Backend, DeviceArray, Executable, ExecutableExt, HostArray, HostRef};
 pub use crate::signal::frames;
 pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
 pub use scan::{LossGrad, Scan, ScanVjp};

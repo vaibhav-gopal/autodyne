@@ -13,9 +13,8 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_outputs, check_resident, find_tool, npy, Backend, DeviceArray, Executable, Resident, Scratch, TempDir};
+use super::runtime::{check_inputs, check_outputs, check_resident, find_tool, npy, Backend, DeviceArray, Executable, HostArray, HostRef, Resident, Scratch, TempDir};
 use super::FluxError;
-use crate::signal::NdArray;
 
 /// The request loop run by Python: one tab-separated request per line, one reply per line.
 const SERVER: &str = r#"
@@ -23,6 +22,7 @@ import os, sys
 try:
     import numpy as np
     import jax, jax.extend
+    jax.config.update("jax_enable_x64", True)  # keep f64 programs' inputs f64
     backend = jax.extend.backend.get_backend(os.environ.get("AUTODYNE_XLA_PLATFORM", "cpu"))
     device = backend.local_devices()[0]
 except Exception as e:
@@ -183,14 +183,18 @@ struct Compiled {
 }
 
 impl Executable for Compiled {
-    fn run(&self, inputs: &[NdArray<f32>]) -> Result<Vec<NdArray<f32>>, FluxError> {
+    fn program(&self) -> &Program {
+        &self.program
+    }
+
+    fn run_host(&self, inputs: &[HostRef<'_>]) -> Result<Vec<HostArray>, FluxError> {
         check_inputs(&self.program, inputs)?;
         let ins: Vec<PathBuf> = inputs.iter().map(|_| self.server.dir.file("in", "npy")).collect();
         let outs: Vec<PathBuf> = self.program.outputs.iter().map(|_| self.server.dir.file("out", "npy")).collect();
         let _cleanup = Scratch(ins.iter().chain(&outs).cloned().collect());
         let mut request = vec!["run".to_string(), self.id.clone(), inputs.len().to_string()];
         for (x, p) in inputs.iter().zip(&ins) {
-            npy::save(p, x)?;
+            npy::save(p, *x)?;
             request.push(path(p)?);
         }
         for p in &outs {
@@ -202,12 +206,12 @@ impl Executable for Compiled {
         Ok(results)
     }
 
-    fn upload(&self, a: &NdArray<f32>) -> Result<DeviceArray, FluxError> {
+    fn upload_host(&self, a: HostRef<'_>) -> Result<DeviceArray, FluxError> {
         let file = self.server.dir.file("put", "npy");
         let _cleanup = Scratch(vec![file.clone()]);
         npy::save(&file, a)?;
         let id = self.server.request(&["put".into(), path(&file)?])?;
-        Ok(DeviceArray::device(a.shape().to_vec(), Box::new(ServerArray { server: self.server.clone(), id })))
+        Ok(DeviceArray::device(a.shape().to_vec(), a.dtype(), Box::new(ServerArray { server: self.server.clone(), id })))
     }
 
     fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
@@ -220,7 +224,7 @@ impl Executable for Compiled {
         let outputs: Vec<DeviceArray> = ids
             .split(',')
             .zip(&self.program.outputs)
-            .map(|(id, shape)| DeviceArray::device(shape.clone(), Box::new(ServerArray { server: self.server.clone(), id: id.to_string() })))
+            .map(|(id, shape)| DeviceArray::device(shape.clone(), self.program.dtype, Box::new(ServerArray { server: self.server.clone(), id: id.to_string() })))
             .collect();
         if outputs.len() != self.program.outputs.len() {
             return Err(FluxError::Shape(format!("the program should return {} outputs, got {}", self.program.outputs.len(), outputs.len())));
@@ -228,14 +232,14 @@ impl Executable for Compiled {
         Ok(outputs)
     }
 
-    fn download(&self, a: &DeviceArray) -> Result<NdArray<f32>, FluxError> {
+    fn download_host(&self, a: &DeviceArray) -> Result<HostArray, FluxError> {
         let held = self.held(a)?;
         let file = self.server.dir.file("get", "npy");
         let _cleanup = Scratch(vec![file.clone()]);
         self.server.request(&["get".into(), held.id.clone(), path(&file)?])?;
         let x = npy::load(&file)?;
-        if x.shape() != a.shape() {
-            return Err(FluxError::Shape(format!("expected {:?}, got {:?}", a.shape(), x.shape())));
+        if x.shape() != a.shape() || x.dtype() != a.dtype() {
+            return Err(FluxError::Shape(format!("expected {:?} {:?}, got {:?} {:?}", a.shape(), a.dtype(), x.shape(), x.dtype())));
         }
         Ok(x)
     }

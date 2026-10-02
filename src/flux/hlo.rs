@@ -1,21 +1,25 @@
 //! Emits traced programs as textual StableHLO (MLIR), the input format of XLA (through PJRT) and
-//! IREE. Values are `tensor<...xf32>` (masks `xi1`); a scan is a `stablehlo.while` loop that slices
-//! one step per iteration out of the signal's first axis.
+//! IREE. Values are `tensor<...xf32>` or `tensor<...xf64>` (masks `xi1`), the precision chosen at
+//! emission; a scan is a `stablehlo.while` loop that slices one step per iteration out of the
+//! signal's first axis.
 
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use super::graph::{Cmp, Graph, Op, Part, Reduction};
+use super::graph::{Cmp, FluxFloat, Graph, Op, Part, Reduction};
 use super::loss::Loss;
 use super::scan::Scan;
+use crate::units::DType;
 
-/// A StableHLO module with one function, `@main`, and the shapes of its f32 inputs and outputs.
+/// A StableHLO module with one function, `@main`, the shapes of its inputs and outputs, and their
+/// element type (`DType::F32` or `DType::F64`).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Program {
     /// The module text (MLIR, StableHLO dialect).
     pub text: String,
     pub inputs: Vec<Vec<usize>>,
     pub outputs: Vec<Vec<usize>>,
+    pub dtype: DType,
 }
 
 const INDEX: &str = "tensor<i32>";
@@ -31,9 +35,6 @@ fn ty(shape: &[usize], elem: &str) -> String {
     s
 }
 
-fn real(shape: &[usize]) -> String {
-    ty(shape, "f32")
-}
 
 fn list(xs: &[usize]) -> String {
     xs.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
@@ -54,11 +55,31 @@ struct Writer {
     out: String,
     next: usize,
     depth: usize,
+    dtype: DType,
 }
 
 impl Writer {
-    fn new() -> Self {
-        Writer { out: String::new(), next: 0, depth: 1 }
+    fn new(dtype: DType) -> Self {
+        assert!(matches!(dtype, DType::F32 | DType::F64), "flux: programs are f32 or f64, not {dtype:?}");
+        Writer { out: String::new(), next: 0, depth: 1, dtype }
+    }
+
+    fn elem(&self) -> &'static str {
+        if self.dtype == DType::F64 { "f64" } else { "f32" }
+    }
+
+    /// The real tensor type of `shape`.
+    fn real(&self, shape: &[usize]) -> String {
+        ty(shape, self.elem())
+    }
+
+    fn complex(&self, shape: &[usize]) -> String {
+        ty(shape, &format!("complex<{}>", self.elem()))
+    }
+
+    /// `v` rounded to the element type, as the bit pattern MLIR reads exactly.
+    fn hex(&self, v: f64) -> String {
+        if self.dtype == DType::F64 { format!("0x{:016X}", v.to_bits()) } else { format!("0x{:08X}", (v as f32).to_bits()) }
     }
 
     fn fresh(&mut self) -> String {
@@ -82,8 +103,9 @@ impl Writer {
     }
 
     /// `v` (bit-exact, as hex) splatted over `shape`.
-    fn splat(&mut self, v: f32, shape: &[usize]) -> String {
-        self.emit(&format!("stablehlo.constant dense<0x{:08X}> : {}", v.to_bits(), real(shape)))
+    fn splat(&mut self, v: f64, shape: &[usize]) -> String {
+        let (hex, t) = (self.hex(v), self.real(shape));
+        self.emit(&format!("stablehlo.constant dense<{hex}> : {t}"))
     }
 
     fn index(&mut self, v: i32) -> String {
@@ -97,13 +119,15 @@ impl Writer {
         // complex spectra by operand, so the real and imaginary parts share one FFT
         let mut spectra: HashMap<u32, String> = HashMap::new();
         let mut complex_spectra: HashMap<(u32, u32, bool), String> = HashMap::new();
+        let elem = self.elem();
+        let scalar = self.real(&[]);
         for node in &g.nodes {
             let n = |i: u32| names[i as usize].clone();
             let t = |i: u32| {
                 let node = &g.nodes[i as usize];
-                ty(&node.shape, if node.mask { "i1" } else { "f32" })
+                ty(&node.shape, if node.mask { "i1" } else { elem })
             };
-            let out = ty(&node.shape, if node.mask { "i1" } else { "f32" });
+            let out = ty(&node.shape, if node.mask { "i1" } else { elem });
             let unary = |name: &str, a: u32| format!("stablehlo.{name} {} : {out}", n(a));
             let binary = |name: &str, a: u32, b: u32| format!("stablehlo.{name} {}, {} : {out}", n(a), n(b));
             let rhs = match node.op {
@@ -111,12 +135,13 @@ impl Writer {
                     names.push(args[i as usize].clone());
                     continue;
                 }
-                Op::Const(c) => format!("stablehlo.constant dense<0x{:08X}> : {out}", (c as f32).to_bits()),
+                Op::Const(c) => format!("stablehlo.constant dense<{}> : {out}", self.hex(c)),
                 Op::Literal(ref data) => {
-                    let mut hex = String::with_capacity(2 + 8 * data.len());
+                    let mut hex = String::with_capacity(2 + 16 * data.len());
                     hex.push_str("0x");
-                    for v in data.iter() {
-                        for b in v.to_le_bytes() {
+                    for &v in data.iter() {
+                        let bytes = if self.dtype == DType::F64 { v.to_le_bytes().to_vec() } else { (v as f32).to_le_bytes().to_vec() };
+                        for b in bytes {
                             write!(hex, "{b:02X}").unwrap();
                         }
                     }
@@ -152,14 +177,14 @@ impl Writer {
                 Op::Transpose(a, ref perm) => format!("stablehlo.transpose {}, dims = [{}] : ({}) -> {out}", n(a), list(perm), t(a)),
                 Op::Sum(a, ref axes) => {
                     let zero = self.splat(0.0, &[]);
-                    format!("stablehlo.reduce({} init: {zero}) applies stablehlo.add across dimensions = [{}] : ({}, tensor<f32>) -> {out}", n(a), list(axes), t(a))
+                    format!("stablehlo.reduce({} init: {zero}) applies stablehlo.add across dimensions = [{}] : ({}, {scalar}) -> {out}", n(a), list(axes), t(a))
                 }
                 Op::Dot { a, b, ref ca, ref cb } => {
                     format!("stablehlo.dot_general {}, {}, contracting_dims = [{}] x [{}] : ({}, {}) -> {out}", n(a), n(b), list(ca), list(cb), t(a), t(b))
                 }
                 Op::Rfft(a, part) => {
                     let from = &g.nodes[a as usize].shape;
-                    let spectrum = ty(&node.shape, "complex<f32>");
+                    let spectrum = self.complex(&node.shape);
                     let c = match spectra.get(&a) {
                         Some(c) => c.clone(),
                         None => {
@@ -173,7 +198,7 @@ impl Writer {
                     format!("stablehlo.{op} {c} : ({spectrum}) -> {out}")
                 }
                 Op::Irfft { re, im, n: len } => {
-                    let spectrum = ty(&g.nodes[re as usize].shape, "complex<f32>");
+                    let spectrum = self.complex(&g.nodes[re as usize].shape);
                     let c = self.emit(&format!("stablehlo.complex {}, {} : {spectrum}", n(re), n(im)));
                     format!("stablehlo.fft {c}, type = IRFFT, length = [{len}] : ({spectrum}) -> {out}")
                 }
@@ -189,7 +214,7 @@ impl Writer {
                 Op::Pad { a, ref low, ref high, ref interior } => {
                     let zero = self.splat(0.0, &[]);
                     format!(
-                        "\"stablehlo.pad\"({}, {zero}) {{edge_padding_low = {}, edge_padding_high = {}, interior_padding = {}}} : ({}, tensor<f32>) -> {out}",
+                        "\"stablehlo.pad\"({}, {zero}) {{edge_padding_low = {}, edge_padding_high = {}, interior_padding = {}}} : ({}, {scalar}) -> {out}",
                         n(a),
                         i64s(low),
                         i64s(high),
@@ -198,7 +223,7 @@ impl Writer {
                     )
                 }
                 Op::Fft { re, im, inverse, part } => {
-                    let spectrum = ty(&node.shape, "complex<f32>");
+                    let spectrum = self.complex(&node.shape);
                     let c = match complex_spectra.get(&(re, im, inverse)) {
                         Some(c) => c.clone(),
                         None => {
@@ -215,12 +240,12 @@ impl Writer {
                 }
                 Op::Reduce(a, ref axes, r) => {
                     let (init, op) = match r {
-                        Reduction::Max => (f32::NEG_INFINITY, "maximum"),
-                        Reduction::Min => (f32::INFINITY, "minimum"),
+                        Reduction::Max => (f64::NEG_INFINITY, "maximum"),
+                        Reduction::Min => (f64::INFINITY, "minimum"),
                         Reduction::Prod => (1.0, "multiply"),
                     };
                     let init = self.splat(init, &[]);
-                    format!("stablehlo.reduce({} init: {init}) applies stablehlo.{op} across dimensions = [{}] : ({}, tensor<f32>) -> {out}", n(a), list(axes), t(a))
+                    format!("stablehlo.reduce({} init: {init}) applies stablehlo.{op} across dimensions = [{}] : ({}, {scalar}) -> {out}", n(a), list(axes), t(a))
                 }
                 Op::Reverse(a, ref axes) => format!("stablehlo.reverse {}, dims = [{}] : {out}", n(a), list(axes)),
                 Op::Take { table, indices } => {
@@ -254,7 +279,7 @@ impl Writer {
                     dims.extend(["inserted_window_dims = [0]".to_string(), "scatter_dims_to_operand_dims = [0]".into(), format!("index_vector_dim = {}", is.len())]);
                     let (x, y, s) = (self.fresh(), self.fresh(), self.fresh());
                     format!(
-                        "\"stablehlo.scatter\"({zeros}, {ix}, {}) ({{\n^bb0({x}: tensor<f32>, {y}: tensor<f32>):\n  {s} = stablehlo.add {x}, {y} : tensor<f32>\n  stablehlo.return {s} : tensor<f32>\n}}) {{scatter_dimension_numbers = #stablehlo.scatter<{}>, indices_are_sorted = false, unique_indices = false}} : ({out}, {}, {}) -> {out}",
+                        "\"stablehlo.scatter\"({zeros}, {ix}, {}) ({{\n^bb0({x}: {scalar}, {y}: {scalar}):\n  {s} = stablehlo.add {x}, {y} : {scalar}\n  stablehlo.return {s} : {scalar}\n}}) {{scatter_dimension_numbers = #stablehlo.scatter<{}>, indices_are_sorted = false, unique_indices = false}} : ({out}, {}, {}) -> {out}",
                         n(updates),
                         dims.join(", "),
                         ty(is, "i32"),
@@ -276,9 +301,9 @@ impl Writer {
     /// Real indices into `rows` rows as `i32`s: rounded down and clamped (the gather would clamp
     /// anyway, but the scatter that is its gradient drops out-of-range rows instead).
     fn row_indices(&mut self, v: &str, shape: &[usize], rows: usize) -> String {
-        let real_t = real(shape);
+        let real_t = self.real(shape);
         let floor = self.emit(&format!("stablehlo.floor {v} : {real_t}"));
-        let (lo, hi) = (self.splat(0.0, shape), self.splat((rows - 1) as f32, shape));
+        let (lo, hi) = (self.splat(0.0, shape), self.splat((rows - 1) as f64, shape));
         let clamped = self.emit(&format!("\"stablehlo.clamp\"({lo}, {floor}, {hi}) : ({real_t}, {real_t}, {real_t}) -> {real_t}"));
         self.emit(&format!("stablehlo.convert {clamped} : ({real_t}) -> {}", ty(shape, "i32")))
     }
@@ -294,26 +319,26 @@ impl Writer {
             "stablehlo.dynamic_slice {v}, {}, sizes = [{}] : ({}, {index_types}) -> {}",
             indices.join(", "),
             list(&one),
-            real(shape),
-            real(&one)
+            self.real(shape),
+            self.real(&one)
         ));
-        self.emit(&format!("stablehlo.reshape {sliced} : ({}) -> {}", real(&one), real(rest)))
+        self.emit(&format!("stablehlo.reshape {sliced} : ({}) -> {}", self.real(&one), self.real(rest)))
     }
 
     /// `v` (shape `[len, rest...]`) with step `i` replaced by `x` (shape `rest`).
     fn store(&mut self, v: &str, x: &str, i: &str, shape: &[usize]) -> String {
         let rest = &shape[1..];
         let one = [&[1], rest].concat();
-        let x1 = self.emit(&format!("stablehlo.reshape {x} : ({}) -> {}", real(rest), real(&one)));
+        let x1 = self.emit(&format!("stablehlo.reshape {x} : ({}) -> {}", self.real(rest), self.real(&one)));
         let zero = if rest.is_empty() { String::new() } else { self.index(0) };
         let indices: Vec<&str> = std::iter::once(i).chain(rest.iter().map(|_| zero.as_str())).collect();
         let index_types = vec![INDEX; indices.len()].join(", ");
         self.emit(&format!(
             "stablehlo.dynamic_update_slice {v}, {x1}, {} : ({}, {}, {index_types}) -> {}",
             indices.join(", "),
-            real(shape),
-            real(&one),
-            real(shape)
+            self.real(shape),
+            self.real(&one),
+            self.real(shape)
         ))
     }
 
@@ -353,22 +378,27 @@ impl Writer {
     /// Wraps the body into `func.func @main`.
     fn function(self, params: &[(String, Vec<usize>)], results: &[(String, Vec<usize>)]) -> Program {
         let mut text = String::new();
-        let args: Vec<String> = params.iter().map(|(n, s)| format!("{n}: {}", real(s))).collect();
-        let types: Vec<String> = results.iter().map(|(_, s)| real(s)).collect();
+        let args: Vec<String> = params.iter().map(|(n, s)| format!("{n}: {}", self.real(s))).collect();
+        let types: Vec<String> = results.iter().map(|(_, s)| self.real(s)).collect();
         let names: Vec<&str> = results.iter().map(|(n, _)| n.as_str()).collect();
         writeln!(text, "func.func @main({}) -> ({}) {{", args.join(", "), types.join(", ")).unwrap();
         text.push_str(&self.out);
         writeln!(text, "  return {} : {}", names.join(", "), types.join(", ")).unwrap();
         text.push_str("}\n");
-        Program { text, inputs: params.iter().map(|(_, s)| s.clone()).collect(), outputs: results.iter().map(|(_, s)| s.clone()).collect() }
+        Program { text, inputs: params.iter().map(|(_, s)| s.clone()).collect(), outputs: results.iter().map(|(_, s)| s.clone()).collect(), dtype: self.dtype }
     }
 }
 
 impl Graph {
-    /// This graph as a program: `@main(inputs...) -> (outputs...)`.
+    /// This graph as an f32 program: `@main(inputs...) -> (outputs...)`.
     pub fn program(&self) -> Program {
+        self.program_as::<f32>()
+    }
+
+    /// This graph as a program computing in `T` (`f32` or `f64`).
+    pub fn program_as<T: FluxFloat>(&self) -> Program {
         assert!(self.outputs.iter().all(|&o| !self.nodes[o as usize].mask), "Graph::program: outputs must be real, not masks");
-        let mut w = Writer::new();
+        let mut w = Writer::new(T::DTYPE);
         let args: Vec<String> = self.inputs.iter().map(|_| w.fresh()).collect();
         let outs = w.graph(self, &args);
         let params: Vec<(String, Vec<usize>)> = args.into_iter().zip(self.inputs.iter().cloned()).collect();
@@ -390,19 +420,24 @@ impl Scan {
     /// The scan over `len` steps: `@main(params..., xs: [len, sample...], s0...) -> (ys: [len,
     /// output...], final state...)`.
     pub fn forward_program(&self, len: usize) -> Program {
+        self.forward_program_as::<f32>(len)
+    }
+
+    /// [`forward_program`](Self::forward_program) computing in `T` (`f32` or `f64`).
+    pub fn forward_program_as<T: FluxFloat>(&self, len: usize) -> Program {
         check_len(len);
         let (p, s) = (self.params.len(), self.states.len());
         let (xs_shape, ys_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
-        let mut w = Writer::new();
+        let mut w = Writer::new(T::DTYPE);
         let params: Vec<String> = (0..p).map(|_| w.fresh()).collect();
         let xs = w.fresh();
         let s0: Vec<String> = (0..s).map(|_| w.fresh()).collect();
         let ys = w.splat(0.0, &ys_shape);
 
-        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), real(sh))).collect();
-        init.push((xs.clone(), real(&xs_shape)));
-        init.push((ys, real(&ys_shape)));
-        init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), real(sh))));
+        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), w.real(sh))).collect();
+        init.push((xs.clone(), w.real(&xs_shape)));
+        init.push((ys, w.real(&ys_shape)));
+        init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), w.real(sh))));
         let out = w.for_loop(len, &init, |w, i, c| {
             let (params, xs, ys, state) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..]);
             let x = w.step_of(xs, i, &xs_shape);
@@ -428,26 +463,31 @@ impl Scan {
     /// walks the steps in reverse from the loss's cotangent, applying the step's vector-Jacobian
     /// product.
     pub fn grad_program(&self, len: usize, loss: &Loss) -> Program {
+        self.grad_program_as::<f32>(len, loss)
+    }
+
+    /// [`grad_program`](Self::grad_program) computing in `T` (`f32` or `f64`).
+    pub fn grad_program_as<T: FluxFloat>(&self, len: usize, loss: &Loss) -> Program {
         check_len(len);
         let (p, s) = (self.params.len(), self.states.len());
         let (xs_shape, ys_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
         assert_eq!(loss.output_shape(), ys_shape.as_slice(), "Scan::grad_program: the loss scores outputs of another shape");
         let saved_shapes: Vec<Vec<usize>> = self.states.iter().map(|sh| stacked(len, sh)).collect();
-        let mut w = Writer::new();
+        let mut w = Writer::new(T::DTYPE);
         let params: Vec<String> = (0..p).map(|_| w.fresh()).collect();
         let xs = w.fresh();
         let aux: Vec<String> = loss.aux_shapes().iter().map(|_| w.fresh()).collect();
         let s0: Vec<String> = (0..s).map(|_| w.fresh()).collect();
 
         // forward: carry params, xs, ys, state, saved states
-        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), real(sh))).collect();
-        init.push((xs.clone(), real(&xs_shape)));
+        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), w.real(sh))).collect();
+        init.push((xs.clone(), w.real(&xs_shape)));
         let ys = w.splat(0.0, &ys_shape);
-        init.push((ys, real(&ys_shape)));
-        init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), real(sh))));
+        init.push((ys, w.real(&ys_shape)));
+        init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), w.real(sh))));
         for sh in &saved_shapes {
             let z = w.splat(0.0, sh);
-            init.push((z, real(sh)));
+            init.push((z, w.real(sh)));
         }
         let fwd = w.for_loop(len, &init, |w, i, c| {
             let (params, xs, ys) = (&c[..p], &c[p], &c[p + 1]);
@@ -467,13 +507,13 @@ impl Scan {
         let (value, dys) = (out[0].clone(), out[1].clone());
 
         // backward: carry params, xs, dys, saved states, d state, d params, d xs
-        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), real(sh))).collect();
-        init.push((xs.clone(), real(&xs_shape)));
-        init.push((dys, real(&ys_shape)));
-        init.extend(saved.iter().zip(&saved_shapes).map(|(v, sh)| (v.clone(), real(sh))));
+        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), w.real(sh))).collect();
+        init.push((xs.clone(), w.real(&xs_shape)));
+        init.push((dys, w.real(&ys_shape)));
+        init.extend(saved.iter().zip(&saved_shapes).map(|(v, sh)| (v.clone(), w.real(sh))));
         for sh in self.states.iter().chain(&self.params).chain([&xs_shape]) {
             let z = w.splat(0.0, sh);
-            init.push((z, real(sh)));
+            init.push((z, w.real(sh)));
         }
         let bwd = w.for_loop(len, &init, |w, j, c| {
             let (params, xs, dys, saved) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..p + 2 + s]);
@@ -489,7 +529,7 @@ impl Scan {
                 .iter()
                 .zip(&out[..p])
                 .zip(&self.params)
-                .map(|((acc, g), sh)| w.emit(&format!("stablehlo.add {acc}, {g} : {}", real(sh))))
+                .map(|((acc, g), sh)| w.emit(&format!("stablehlo.add {acc}, {g} : {}", w.real(sh))))
                 .collect();
             let d_xs = w.store(d_xs, &out[p + s], &i, &xs_shape);
             params.iter().chain([xs, dys]).chain(saved).cloned().chain(out[p..p + s].iter().cloned()).chain(d_params).chain([d_xs]).collect()

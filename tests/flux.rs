@@ -14,7 +14,7 @@
 use autodyne::distortion::Shape;
 use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
 use autodyne::flux::optim::{Adam, Optimizer};
-use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, Backend, Executable, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, Backend, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
 use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
 use autodyne::units::{Elementwise, RealValued};
 
@@ -441,18 +441,18 @@ fn iree_modules_are_saved_and_loaded() {
     let program = one_pole().forward_program(N);
     let path = std::env::temp_dir().join(format!("autodyne-one-pole-{}.vmfb", std::process::id()));
     iree.compile_to(&program, &path).unwrap();
-    let exe = iree.load(&path, &program.inputs, &program.outputs).unwrap();
+    let exe = iree.load(&path, &program).unwrap();
     let xs = noise(N, 9);
     let out = exe.run(&[scalar(700.0), vector(&xs), scalar(0.0)]).unwrap();
     assert_close("loaded module", &out[0], &vector(&concrete(700.0, &xs)), 1e-5);
     assert!(exe.run(&[scalar(700.0), vector(&xs[..N - 1]), scalar(0.0)]).is_err(), "shapes are checked");
     std::fs::remove_file(&path).unwrap();
-    assert!(iree.load(&path, &program.inputs, &program.outputs).is_err());
+    assert!(iree.load(&path, &program).is_err());
 }
 #[test]
 fn resident_arrays_run_like_host_arrays() {
     let scan = one_pole();
-    let len = 1 << 14;
+    let len = 1 << 12;
     let xs = vector(&noise(len, 51));
     let targets = vector(&concrete(1_500.0, xs.as_slice()));
     for backend in backends() {
@@ -483,5 +483,40 @@ fn resident_arrays_run_like_host_arrays() {
         // shapes are checked, and arrays belong to their backend
         assert!(forward.run_resident(&[&p, &s0, &s0]).is_err());
         eprintln!("{name}: resident arrays {} (3 host + 3 resident gradient runs of {len} samples in {both:?})", if dxs.is_on_device() { "on the device" } else { "on the host" });
+    }
+}
+#[test]
+fn double_precision_programs_run_on_every_backend() {
+    let xs: Vec<f64> = noise(N, 61).iter().map(|&v| v as f64).collect();
+    let mut lp = OnePole::lowpass(900.0f64, FS);
+    let mut want = xs.clone();
+    lp.process(&mut want);
+    let f64s = |v: &[f64], shape: &[usize]| NdArray::<f64>::array(v, shape);
+    let (p, x, s0) = (f64s(&[900.0], &[]), f64s(&xs, &[N]), f64s(&[0.0], &[]));
+    let targets = f64s(&want.iter().map(|v| v * 0.9).collect::<Vec<_>>(), &[N]);
+    let interpreted = one_pole().loss_grad(std::slice::from_ref(&p), &x, &targets, std::slice::from_ref(&s0));
+    for backend in backends() {
+        let name = backend.name();
+        let forward = match backend.compile(&one_pole().forward_program_as::<f64>(N)) {
+            Ok(exe) => exe,
+            // IREE 3.11 has no f64 transcendentals on the CPU (no libm in its modules) or on Vulkan
+            Err(e) if name.starts_with("iree") => {
+                eprintln!("skipping {name}: no f64 on this target: {}", e.to_string().lines().next().unwrap_or_default());
+                continue;
+            }
+            Err(e) => panic!("{name}: {e}"),
+        };
+        let out = forward.run(&[p.clone(), x.clone(), s0.clone()]).unwrap();
+        for (i, (g, w)) in out[0].as_slice().iter().zip(&want).enumerate() {
+            assert!((g - w).abs() < 1e-12, "{name} sample {i}: {g} vs {w}");
+        }
+        // f32 data is refused by an f64 program
+        assert!(forward.run(&[scalar(900.0), vector(&[0.0; N]), scalar(0.0)]).is_err(), "{name}");
+        let grad = compile(&*backend, &one_pole().grad_program_as::<f64>(N, &Loss::mse(&[N])));
+        let out = grad.run(&[p.clone(), x.clone(), targets.clone(), s0.clone()]).unwrap();
+        assert!((out[0].as_slice()[0] - interpreted.loss).abs() < 1e-12 * (1.0 + interpreted.loss), "{name} loss");
+        assert!((out[1].as_slice()[0] - interpreted.params[0].as_slice()[0]).abs() < 1e-9 * (1.0 + interpreted.params[0].as_slice()[0].abs()), "{name} gradient");
+        let resident = grad.upload(&p).unwrap();
+        assert_eq!(resident.dtype(), autodyne::units::DType::F64);
     }
 }

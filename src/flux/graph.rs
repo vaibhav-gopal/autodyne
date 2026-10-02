@@ -6,9 +6,53 @@ use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
+use super::runtime::{HostArray, HostRef};
+use super::FluxError;
 use crate::signal::{NdArray, MAX_DIMS};
 use crate::signal::{ArrayMath, RealArrayMath};
-use crate::units::{Elementwise, RealValued};
+use crate::units::{DType, Elementwise, Float, RealValued};
+
+/// The element types traced programs compute in: `f32` and `f64`. A trace has no precision of its
+/// own (constants are kept as `f64`); it is chosen when the graph is evaluated or emitted.
+pub trait FluxFloat: Float + Default + sealed::Sealed {
+    const DTYPE: DType;
+    #[doc(hidden)]
+    fn host_ref(a: &NdArray<Self>) -> HostRef<'_>;
+    #[doc(hidden)]
+    fn from_host(a: HostArray) -> Result<NdArray<Self>, FluxError>;
+}
+
+impl FluxFloat for f32 {
+    const DTYPE: DType = DType::F32;
+    fn host_ref(a: &NdArray<f32>) -> HostRef<'_> {
+        HostRef::F32(a)
+    }
+    fn from_host(a: HostArray) -> Result<NdArray<f32>, FluxError> {
+        match a {
+            HostArray::F32(a) => Ok(a),
+            HostArray::F64(_) => Err(FluxError::Shape("expected f32 data, got f64".into())),
+        }
+    }
+}
+
+impl FluxFloat for f64 {
+    const DTYPE: DType = DType::F64;
+    fn host_ref(a: &NdArray<f64>) -> HostRef<'_> {
+        HostRef::F64(a)
+    }
+    fn from_host(a: HostArray) -> Result<NdArray<f64>, FluxError> {
+        match a {
+            HostArray::F64(a) => Ok(a),
+            HostArray::F32(_) => Err(FluxError::Shape("expected f64 data, got f32".into())),
+        }
+    }
+}
+
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for f32 {}
+    impl Sealed for f64 {}
+}
 
 /// Index of a node in its [`Graph`].
 pub(crate) type Id = u32;
@@ -44,10 +88,10 @@ pub enum Part {
 pub enum Op {
     /// The graph's `n`-th input.
     Input(u32),
-    /// A scalar constant; stored as f64, evaluated and emitted at the graph's precision (f32).
+    /// A scalar constant; stored as f64, rounded to the precision the graph is run at.
     Const(f64),
-    /// A constant array (row-major), of the node's shape.
-    Literal(Arc<[f32]>),
+    /// A constant array (row-major), of the node's shape; stored as f64 like [`Const`](Op::Const).
+    Literal(Arc<[f64]>),
     Add(Id, Id),
     Sub(Id, Id),
     Mul(Id, Id),
@@ -368,9 +412,9 @@ impl Tracer {
         Tracer { id: push(op, shape, false), trace: current_trace() }
     }
 
-    /// A constant array.
-    pub fn constant(value: &NdArray<f32>) -> Tracer {
-        Tracer::new(Op::Literal(value.as_slice().into()), value.shape().to_vec())
+    /// A constant array (of `f32` or `f64`).
+    pub fn constant<T: FluxFloat>(value: &NdArray<T>) -> Tracer {
+        Tracer::new(Op::Literal(value.as_slice().iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect()), value.shape().to_vec())
     }
 
     /// Zeros of `shape` (initial states, padding).
@@ -433,9 +477,9 @@ impl Tracer {
 
 /// Array operations record nodes; see [`ArrayMath`] for what each computes.
 impl ArrayMath for Tracer {
-    /// A literal, rounded to f32.
     fn array(values: &[f64], shape: &[usize]) -> Tracer {
-        Tracer::constant(&NdArray::array(values, shape))
+        assert_eq!(values.len(), shape.iter().product::<usize>(), "array: {} values do not fill {shape:?}", values.len());
+        Tracer::new(Op::Literal(values.into()), shape.to_vec())
     }
     fn shape(&self) -> Vec<usize> {
         let id = self.check();

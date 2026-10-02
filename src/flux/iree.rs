@@ -2,7 +2,11 @@
 //!
 //! The tools are found at run time: in `AUTODYNE_IREE_DIR` if set, else on `PATH`
 //! (`pip install iree-base-compiler iree-base-runtime` provides both). Arrays cross as `.npy` files.
-//! Each run starts `iree-run-module` (tens of milliseconds).
+//! Each run starts `iree-run-module` (tens of milliseconds). On GPUs, IREE drives a scan's loop
+//! from the host, one dispatch per step: long scans of a single channel run far faster on the CPU,
+//! and GPUs pay off when each step is wide (many channels, or frames). f64 programs need a target
+//! with f64 maths: IREE 3.11 compiles f64 transcendentals (`exp`, `sin`, ...) for CUDA but not for
+//! the CPU or Vulkan.
 //!
 //! An [`IreeTarget`] picks the hardware: the host CPU (the default), Vulkan, CUDA, ROCm or Metal.
 //! Compiled modules (`.vmfb`) can be saved with [`Iree::compile_to`] and run later, or elsewhere,
@@ -12,9 +16,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_outputs, find_tool, npy, Backend, Executable, Scratch, TempDir};
+use super::runtime::{check_inputs, check_outputs, find_tool, npy, Backend, Executable, HostArray, HostRef, Scratch, TempDir};
 use super::FluxError;
-use crate::signal::NdArray;
 
 /// The hardware IREE compiles for and runs on.
 #[derive(Clone, Debug, PartialEq, Eq, Default)]
@@ -120,17 +123,22 @@ impl Iree {
         let source = dir.path.join("module.mlir");
         std::fs::write(&source, &program.text)?;
         let mut cmd = Command::new(&self.compiler);
-        cmd.arg(&source).arg("--iree-input-type=stablehlo").args(self.target.flags()).arg("-o").arg(vmfb);
+        cmd.arg(&source).arg("--iree-input-type=stablehlo").args(self.target.flags());
+        if program.dtype == crate::units::DType::F64 {
+            // IREE narrows f64 to f32 unless told not to
+            cmd.arg("--iree-input-demote-f64-to-f32=false");
+        }
+        cmd.arg("-o").arg(vmfb);
         run(cmd, "iree-compile")
     }
 
-    /// A module saved by [`compile_to`](Self::compile_to), for a program with these input and
-    /// output shapes (the [`Program`]'s `inputs` and `outputs`), run on this target's device.
-    pub fn load(&self, vmfb: &Path, inputs: &[Vec<usize>], outputs: &[Vec<usize>]) -> Result<Box<dyn Executable>, FluxError> {
+    /// A module saved by [`compile_to`](Self::compile_to), run on this target's device. `signature`
+    /// gives its input and output shapes and element type (the text is not used, and may be empty).
+    pub fn load(&self, vmfb: &Path, signature: &Program) -> Result<Box<dyn Executable>, FluxError> {
         if !vmfb.is_file() {
             return Err(FluxError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("no module at {}", vmfb.display()))));
         }
-        let program = Program { text: String::new(), inputs: inputs.to_vec(), outputs: outputs.to_vec() };
+        let program = Program { text: String::new(), ..signature.clone() };
         Ok(Box::new(Module { runner: self.runner.clone(), target: self.target.clone(), vmfb: vmfb.to_path_buf(), dir: TempDir::new()?, program }))
     }
 }
@@ -167,7 +175,11 @@ struct Module {
 }
 
 impl Executable for Module {
-    fn run(&self, inputs: &[NdArray<f32>]) -> Result<Vec<NdArray<f32>>, FluxError> {
+    fn program(&self) -> &Program {
+        &self.program
+    }
+
+    fn run_host(&self, inputs: &[HostRef<'_>]) -> Result<Vec<HostArray>, FluxError> {
         check_inputs(&self.program, inputs)?;
         let ins: Vec<PathBuf> = inputs.iter().map(|_| self.dir.file("in", "npy")).collect();
         let outs: Vec<PathBuf> = self.program.outputs.iter().map(|_| self.dir.file("out", "npy")).collect();
@@ -175,7 +187,7 @@ impl Executable for Module {
         let mut cmd = Command::new(&self.runner);
         cmd.arg(format!("--device={}", self.target.device())).args(self.target.run_flags()).arg(flag("--module=", &self.vmfb)).arg("--function=main");
         for (x, path) in inputs.iter().zip(&ins) {
-            npy::save(path, x)?;
+            npy::save(path, *x)?;
             cmd.arg(flag("--input=@", path));
         }
         for path in &outs {
