@@ -4,7 +4,8 @@
 //! IREE needs `iree-compile` and `iree-run-module` (`pip install iree-base-compiler
 //! iree-base-runtime`) in `AUTODYNE_IREE_DIR` or on `PATH`; XLA needs Python with `jax`
 //! (`AUTODYNE_XLA_PYTHON`, else `python3` / `python` on `PATH`); PJRT needs a plugin library in
-//! `AUTODYNE_PJRT_PLUGIN`. A missing backend is reported and skipped; with none, the tests pass
+//! `AUTODYNE_PJRT_PLUGIN` (client options in `AUTODYNE_PJRT_OPTIONS`, e.g. `preallocate=false` for
+//! XLA's GPU plugin, as every test makes a client). A missing backend is reported and skipped; with none, the tests pass
 //! without running. `AUTODYNE_IREE_GPU` adds IREE on GPUs: a comma-separated list of `vulkan`,
 //! `cuda` or `rocm`, each with an optional architecture (`vulkan=ampere,cuda=sm_80`; the FFTs need
 //! one for Vulkan, and ROCm always does).
@@ -41,7 +42,7 @@ fn backends() -> Vec<Box<dyn Backend>> {
         None => eprintln!("skipping IREE: tools not found (set AUTODYNE_IREE_DIR or put iree-compile / iree-run-module on PATH)"),
     }
     match std::env::var_os("AUTODYNE_PJRT_PLUGIN") {
-        Some(path) => match Pjrt::load(std::path::Path::new(&path)) {
+        Some(path) => match Pjrt::load_with_options(std::path::Path::new(&path), &Pjrt::options_from_env()) {
             Ok(pjrt) => {
                 eprintln!("PJRT: {}", pjrt.description());
                 found.push(Box::new(pjrt));

@@ -180,7 +180,8 @@ impl Writer {
                     format!("stablehlo.reduce({} init: {zero}) applies stablehlo.add across dimensions = [{}] : ({}, {scalar}) -> {out}", n(a), list(axes), t(a))
                 }
                 Op::Dot { a, b, ref ca, ref cb } => {
-                    format!("stablehlo.dot_general {}, {}, contracting_dims = [{}] x [{}] : ({}, {}) -> {out}", n(a), n(b), list(ca), list(cb), t(a), t(b))
+                    // full precision: GPUs would otherwise multiply f32 in TF32 (10-bit mantissas)
+                    format!("stablehlo.dot_general {}, {}, contracting_dims = [{}] x [{}], precision = [HIGHEST, HIGHEST] : ({}, {}) -> {out}", n(a), n(b), list(ca), list(cb), t(a), t(b))
                 }
                 Op::Rfft(a, part) => {
                     let from = &g.nodes[a as usize].shape;

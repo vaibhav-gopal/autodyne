@@ -74,6 +74,39 @@ const BUFFER_TYPE_F32: i32 = 11;
 const BUFFER_TYPE_F64: i32 = 12;
 const HOST_BUFFER_IMMUTABLE_ONLY_DURING_CALL: i32 = 0;
 
+/// `PJRT_NamedValue`: a client creation option.
+#[repr(C)]
+struct NamedValue {
+    struct_size: usize,
+    extension_start: *mut c_void,
+    name: *const c_char,
+    name_size: usize,
+    kind: i32,
+    /// `string_value`, `int64_value`, `float_value` or `bool_value`
+    value: u64,
+    value_size: usize,
+}
+
+/// A value for a client creation option ([`Pjrt::load_with_options`]).
+#[derive(Clone, Debug, PartialEq)]
+pub enum PjrtOption {
+    Str(String),
+    Int(i64),
+    Float(f32),
+    Bool(bool),
+}
+
+impl PjrtOption {
+    /// `true` / `false`, an integer, a number, else a string.
+    pub fn parse(text: &str) -> PjrtOption {
+        match text {
+            "true" => PjrtOption::Bool(true),
+            "false" => PjrtOption::Bool(false),
+            _ => text.parse().map(PjrtOption::Int).or_else(|_| text.parse().map(PjrtOption::Float)).unwrap_or_else(|_| PjrtOption::Str(text.to_string())),
+        }
+    }
+}
+
 /// Declares an argument struct (`struct_size` and `extension_start` first, then the fields) with a
 /// constructor that zeroes it and sets its size.
 macro_rules! args {
@@ -267,11 +300,30 @@ impl Pjrt {
     /// (the reason is in the error from [`load`](Self::load)).
     pub fn find() -> Option<Pjrt> {
         let path = PathBuf::from(std::env::var_os("AUTODYNE_PJRT_PLUGIN")?);
-        Pjrt::load(&path).ok()
+        Pjrt::load_with_options(&path, &Pjrt::options_from_env()).ok()
+    }
+
+    /// Client options from `AUTODYNE_PJRT_OPTIONS`: `name=value` pairs separated by commas, such
+    /// as `preallocate=false,memory_fraction=0.25` for XLA's GPU plugin.
+    pub fn options_from_env() -> Vec<(String, PjrtOption)> {
+        std::env::var("AUTODYNE_PJRT_OPTIONS")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|kv| kv.split_once('='))
+            .map(|(k, v)| (k.trim().to_string(), PjrtOption::parse(v.trim())))
+            .collect()
     }
 
     /// Loads a PJRT plugin library and creates a client on its first device.
     pub fn load(path: &Path) -> Result<Pjrt, FluxError> {
+        Pjrt::load_with_options(path, &[])
+    }
+
+    /// [`load`](Self::load) with client creation options, which depend on the plugin: XLA's GPU
+    /// plugin takes `preallocate` (bool; by default it reserves most of the GPU's memory),
+    /// `memory_fraction` (float) and `allocator` (`"bfc"`, `"cuda_async"`, `"platform"`), for
+    /// instance. Unknown names are errors.
+    pub fn load_with_options(path: &Path, options: &[(String, PjrtOption)]) -> Result<Pjrt, FluxError> {
         let tool_error = |message: String| FluxError::Tool { tool: "pjrt", message };
         // SAFETY: loading a PJRT plugin runs its initializers, which is what the caller asks for
         let library = unsafe { libloading::Library::new(path) }.map_err(|e| tool_error(format!("cannot load {}: {e}", path.display())))?;
@@ -298,7 +350,22 @@ impl Pjrt {
         let mut plugin = Plugin { functions, client: null_mut(), device: null_mut(), platform: String::new(), _library: library };
 
         plugin.call(index::PLUGIN_INITIALIZE, &mut PluginInitializeArgs::new())?;
+        // the option structs point into `options`, alive for the call
+        let named: Vec<NamedValue> = options
+            .iter()
+            .map(|(name, value)| {
+                let (kind, value, value_size) = match value {
+                    PjrtOption::Str(s) => (0, s.as_ptr() as u64, s.len()),
+                    PjrtOption::Int(i) => (1, *i as u64, 1),
+                    PjrtOption::Float(f) => (3, f.to_bits() as u64, 1),
+                    PjrtOption::Bool(b) => (4, *b as u64, 1),
+                };
+                NamedValue { struct_size: std::mem::size_of::<NamedValue>(), extension_start: null_mut(), name: name.as_ptr().cast(), name_size: name.len(), kind, value, value_size }
+            })
+            .collect();
         let mut create = ClientCreateArgs::new();
+        create.create_options = named.as_ptr().cast();
+        create.num_options = named.len();
         plugin.call(index::CLIENT_CREATE, &mut create)?;
         plugin.client = create.client;
 

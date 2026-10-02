@@ -59,7 +59,7 @@ pub use ad::{jvp, vjp};
 pub use graph::{scalar, trace, vector, Cmp, FluxFloat, Graph, Mask, Node, Op, Part, Reduction, Tracer};
 pub use hlo::Program;
 pub use iree::{Iree, IreeTarget};
-pub use pjrt::Pjrt;
+pub use pjrt::{Pjrt, PjrtOption};
 pub use runtime::{Backend, DeviceArray, Executable, ExecutableExt, HostArray, HostRef};
 pub use crate::signal::frames;
 pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
