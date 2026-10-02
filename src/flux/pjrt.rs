@@ -17,7 +17,7 @@ use std::ptr::null_mut;
 use std::sync::Arc;
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, Backend, Executable};
+use super::runtime::{check_inputs, check_resident, Backend, DeviceArray, Executable, Resident};
 use super::FluxError;
 use crate::signal::NdArray;
 
@@ -361,13 +361,31 @@ impl Drop for Compiled {
     }
 }
 
-/// Buffers destroyed when dropped.
-struct Buffers<'a>(&'a Plugin, Vec<*mut Buffer>);
+/// A buffer on the plugin's device, destroyed when dropped (the handle inside a [`DeviceArray`]).
+struct DeviceBuffer {
+    plugin: Arc<Plugin>,
+    buffer: *mut Buffer,
+}
 
-impl Drop for Buffers<'_> {
+// SAFETY: PJRT buffers are thread-safe handles (see `Plugin`)
+unsafe impl Send for DeviceBuffer {}
+unsafe impl Sync for DeviceBuffer {}
+
+impl Drop for DeviceBuffer {
     fn drop(&mut self) {
-        for &b in &self.1 {
-            self.0.destroy_buffer(b);
+        self.plugin.destroy_buffer(self.buffer);
+    }
+}
+
+impl Compiled {
+    /// The PJRT buffer of `a`, which must live on this executable's plugin.
+    fn buffer_of(&self, a: &DeviceArray) -> Result<*mut Buffer, FluxError> {
+        match &a.data {
+            Resident::Device(handle) => match handle.downcast_ref::<DeviceBuffer>() {
+                Some(b) if Arc::ptr_eq(&b.plugin, &self.plugin) => Ok(b.buffer),
+                _ => Err(FluxError::Shape("this array is held by another backend".into())),
+            },
+            Resident::Host(_) => Err(FluxError::Shape("this array was not uploaded to this backend".into())),
         }
     }
 }
@@ -375,29 +393,38 @@ impl Drop for Buffers<'_> {
 impl Executable for Compiled {
     fn run(&self, inputs: &[NdArray<f32>]) -> Result<Vec<NdArray<f32>>, FluxError> {
         check_inputs(&self.program, inputs)?;
-        let plugin = &*self.plugin;
+        let resident = inputs.iter().map(|x| self.upload(x)).collect::<Result<Vec<_>, _>>()?;
+        let outputs = self.run_resident(&resident.iter().collect::<Vec<_>>())?;
+        outputs.iter().map(|o| self.download(o)).collect()
+    }
 
-        // upload (the data is copied during the call)
-        let mut arguments = Buffers(plugin, Vec::with_capacity(inputs.len()));
-        for x in inputs {
-            let dims: Vec<i64> = x.shape().iter().map(|&d| d as i64).collect();
-            let mut args = BufferFromHostArgs::new();
-            args.client = plugin.client;
-            args.data = x.as_slice().as_ptr().cast();
-            args.element_type = BUFFER_TYPE_F32;
-            args.dims = dims.as_ptr();
-            args.num_dims = dims.len();
-            args.semantics = HOST_BUFFER_IMMUTABLE_ONLY_DURING_CALL;
-            args.device = plugin.device;
-            plugin.call(index::CLIENT_BUFFER_FROM_HOST_BUFFER, &mut args)?;
-            arguments.1.push(args.buffer);
-            plugin.await_event(args.done_with_host_buffer)?;
-        }
+    fn upload(&self, a: &NdArray<f32>) -> Result<DeviceArray, FluxError> {
+        let plugin = &*self.plugin;
+        // the data is copied during the call
+        let dims: Vec<i64> = a.shape().iter().map(|&d| d as i64).collect();
+        let mut args = BufferFromHostArgs::new();
+        args.client = plugin.client;
+        args.data = a.as_slice().as_ptr().cast();
+        args.element_type = BUFFER_TYPE_F32;
+        args.dims = dims.as_ptr();
+        args.num_dims = dims.len();
+        args.semantics = HOST_BUFFER_IMMUTABLE_ONLY_DURING_CALL;
+        args.device = plugin.device;
+        plugin.call(index::CLIENT_BUFFER_FROM_HOST_BUFFER, &mut args)?;
+        let buffer = DeviceBuffer { plugin: self.plugin.clone(), buffer: args.buffer };
+        plugin.await_event(args.done_with_host_buffer)?;
+        Ok(DeviceArray::device(a.shape().to_vec(), Box::new(buffer)))
+    }
+
+    fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
+        check_resident(&self.program, inputs)?;
+        let plugin = &*self.plugin;
+        let arguments = inputs.iter().map(|a| self.buffer_of(a)).collect::<Result<Vec<_>, _>>()?;
 
         // execute on one device
-        let mut outputs = Buffers(plugin, vec![null_mut(); self.program.outputs.len()]);
-        let argument_list: *const *mut Buffer = arguments.1.as_ptr();
-        let output_list: *mut *mut Buffer = outputs.1.as_mut_ptr();
+        let mut outputs: Vec<*mut Buffer> = vec![null_mut(); self.program.outputs.len()];
+        let argument_list: *const *mut Buffer = arguments.as_ptr();
+        let output_list: *mut *mut Buffer = outputs.as_mut_ptr();
         let mut done: *mut Event = null_mut();
         let mut options = ExecuteOptions::new();
         let mut args = ExecuteArgs::new();
@@ -405,24 +432,30 @@ impl Executable for Compiled {
         args.options = &mut options;
         args.argument_lists = &argument_list;
         args.num_devices = 1;
-        args.num_args = inputs.len();
+        args.num_args = arguments.len();
         args.output_lists = &output_list;
         args.device_complete_events = &mut done;
         plugin.call(index::LOADED_EXECUTABLE_EXECUTE, &mut args)?;
+        // own the outputs before anything can fail
+        let outputs: Vec<DeviceArray> = outputs
+            .into_iter()
+            .zip(&self.program.outputs)
+            .map(|(buffer, shape)| DeviceArray::device(shape.clone(), Box::new(DeviceBuffer { plugin: self.plugin.clone(), buffer })))
+            .collect();
         plugin.await_event(done)?;
+        Ok(outputs)
+    }
 
-        // download
-        let mut results = Vec::with_capacity(outputs.1.len());
-        for (&buffer, shape) in outputs.1.iter().zip(&self.program.outputs) {
-            let mut data = vec![0.0f32; shape.iter().product()];
-            let mut args = BufferToHostArgs::new();
-            args.src = buffer;
-            args.dst = data.as_mut_ptr().cast();
-            args.dst_size = std::mem::size_of_val(data.as_slice());
-            plugin.call(index::BUFFER_TO_HOST_BUFFER, &mut args)?;
-            plugin.await_event(args.event)?;
-            results.push(NdArray::from_vec(data, shape).map_err(|e| FluxError::Shape(e.to_string()))?);
-        }
-        Ok(results)
+    fn download(&self, a: &DeviceArray) -> Result<NdArray<f32>, FluxError> {
+        let plugin = &*self.plugin;
+        let buffer = self.buffer_of(a)?;
+        let mut data = vec![0.0f32; a.shape().iter().product()];
+        let mut args = BufferToHostArgs::new();
+        args.src = buffer;
+        args.dst = data.as_mut_ptr().cast();
+        args.dst_size = std::mem::size_of_val(data.as_slice());
+        plugin.call(index::BUFFER_TO_HOST_BUFFER, &mut args)?;
+        plugin.await_event(args.event)?;
+        NdArray::from_vec(data, a.shape()).map_err(|e| FluxError::Shape(e.to_string()))
     }
 }

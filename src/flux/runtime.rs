@@ -17,9 +17,99 @@ pub trait Backend {
 }
 
 /// A compiled program.
+///
+/// [`run`](Self::run) copies its inputs to the device and its outputs back on every call. To keep
+/// data on the device across calls (a fitting loop's signal and target, say), [`upload`](Self::upload)
+/// it once and call [`run_resident`](Self::run_resident), which leaves its outputs on the device too;
+/// [`download`](Self::download) what the host needs. Backends without device memory of their own
+/// (IREE's command-line tools, the XLA server) keep resident arrays on the host, so the same code runs
+/// everywhere.
+///
+/// ```no_run
+/// use autodyne::flux::{scalar, vector, Backend, Executable, Pjrt, Program};
+/// # fn fit(pjrt: &Pjrt, program: &Program, xs: &[f32], target: &[f32]) -> Result<(), autodyne::flux::FluxError> {
+/// let exe = pjrt.compile(program)?;
+/// // once: the signal, the target and the initial state
+/// let (xs, target, s0) = (exe.upload(&vector(xs))?, exe.upload(&vector(target))?, exe.upload(&scalar(0.0))?);
+/// let mut cutoff = 500.0;
+/// for _ in 0..100 {
+///     let p = exe.upload(&scalar(cutoff))?; // small: the parameters change every step
+///     let out = exe.run_resident(&[&p, &xs, &target, &s0])?;
+///     cutoff -= 1e3 * exe.download(&out[1])?.as_slice()[0]; // only the gradient comes back
+/// }
+/// # Ok(())
+/// # }
+/// ```
 pub trait Executable {
     /// Runs `@main` on `inputs` (one array per program input, of its shape); returns the outputs.
     fn run(&self, inputs: &[NdArray<f32>]) -> Result<Vec<NdArray<f32>>, FluxError>;
+
+    /// Copies `a` into this executable's memory, for [`run_resident`](Self::run_resident).
+    fn upload(&self, a: &NdArray<f32>) -> Result<DeviceArray, FluxError> {
+        Ok(DeviceArray::host(a.clone()))
+    }
+
+    /// Runs `@main` on arrays already in this executable's memory; the outputs stay there.
+    fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
+        let host = inputs.iter().map(|a| self.download(a)).collect::<Result<Vec<_>, _>>()?;
+        Ok(self.run(&host)?.into_iter().map(DeviceArray::host).collect())
+    }
+
+    /// Copies a resident array back to the host.
+    fn download(&self, a: &DeviceArray) -> Result<NdArray<f32>, FluxError> {
+        match &a.data {
+            Resident::Host(x) => Ok((**x).clone()),
+            Resident::Device(_) => Err(FluxError::Shape("this array is held by another backend's device".into())),
+        }
+    }
+}
+
+/// An array held in an [`Executable`]'s memory: on its device for backends with device memory
+/// (PJRT), on the host otherwise. Freed when dropped.
+pub struct DeviceArray {
+    shape: Vec<usize>,
+    pub(crate) data: Resident,
+}
+
+pub(crate) enum Resident {
+    Host(Box<NdArray<f32>>),
+    /// A backend's own handle (freeing the memory when dropped).
+    Device(Box<dyn std::any::Any + Send + Sync>),
+}
+
+impl DeviceArray {
+    pub(crate) fn host(a: NdArray<f32>) -> DeviceArray {
+        DeviceArray { shape: a.shape().to_vec(), data: Resident::Host(Box::new(a)) }
+    }
+    pub(crate) fn device(shape: Vec<usize>, handle: Box<dyn std::any::Any + Send + Sync>) -> DeviceArray {
+        DeviceArray { shape, data: Resident::Device(handle) }
+    }
+    pub fn shape(&self) -> &[usize] {
+        &self.shape
+    }
+    /// Whether the data is in device memory (rather than held on the host for a backend without any).
+    pub fn is_on_device(&self) -> bool {
+        matches!(self.data, Resident::Device(_))
+    }
+}
+
+impl std::fmt::Debug for DeviceArray {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "DeviceArray({:?}, {})", self.shape, if self.is_on_device() { "device" } else { "host" })
+    }
+}
+
+/// Checks resident inputs against the program's input shapes.
+pub(crate) fn check_resident(program: &Program, inputs: &[&DeviceArray]) -> Result<(), FluxError> {
+    if inputs.len() != program.inputs.len() {
+        return Err(FluxError::Shape(format!("the program takes {} inputs, got {}", program.inputs.len(), inputs.len())));
+    }
+    for (k, (x, s)) in inputs.iter().zip(&program.inputs).enumerate() {
+        if x.shape() != s.as_slice() {
+            return Err(FluxError::Shape(format!("input {k} should be {s:?}, got {:?}", x.shape())));
+        }
+    }
+    Ok(())
 }
 
 /// Checks `inputs` against the program's input shapes.

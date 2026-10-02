@@ -436,3 +436,39 @@ fn iree_modules_are_saved_and_loaded() {
     std::fs::remove_file(&path).unwrap();
     assert!(iree.load(&path, &program.inputs, &program.outputs).is_err());
 }
+#[test]
+fn resident_arrays_run_like_host_arrays() {
+    let scan = one_pole();
+    let len = 1 << 14;
+    let xs = vector(&noise(len, 51));
+    let targets = vector(&concrete(1_500.0, xs.as_slice()));
+    for backend in backends() {
+        let name = backend.name();
+        let grad = compile(&*backend, &scan.loss_grad_program(len));
+        // the signal and target are uploaded once; the parameter every run
+        let (dxs, dtargets, ds0) = (grad.upload(&xs).unwrap(), grad.upload(&targets).unwrap(), grad.upload(&scalar(0.0)).unwrap());
+        assert_eq!(dxs.shape(), [len]);
+        let start = std::time::Instant::now();
+        for cutoff in [300.0f32, 1_000.0, 4_000.0] {
+            let host = grad.run(&[scalar(cutoff), xs.clone(), targets.clone(), scalar(0.0)]).unwrap();
+            let p = grad.upload(&scalar(cutoff)).unwrap();
+            let out = grad.run_resident(&[&p, &dxs, &dtargets, &ds0]).unwrap();
+            assert_eq!(out.len(), host.len());
+            for (k, (o, h)) in out.iter().zip(&host).enumerate() {
+                assert_close(&format!("{name} cutoff {cutoff} output {k}"), &grad.download(o).unwrap(), h, 1e-6);
+            }
+        }
+        let both = start.elapsed();
+        // outputs feed later runs without leaving the device: filter twice
+        let forward = compile(&*backend, &scan.forward_program(len));
+        let (p, s0) = (forward.upload(&scalar(2_000.0)).unwrap(), forward.upload(&scalar(0.0)).unwrap());
+        let x = forward.upload(&xs).unwrap();
+        let once = forward.run_resident(&[&p, &x, &s0]).unwrap();
+        let twice = forward.run_resident(&[&p, &once[0], &s0]).unwrap();
+        let want = concrete(2_000.0, &concrete(2_000.0, xs.as_slice()));
+        assert_close(&format!("{name} chained"), &forward.download(&twice[0]).unwrap(), &vector(&want), 1e-5);
+        // shapes are checked, and arrays belong to their backend
+        assert!(forward.run_resident(&[&p, &s0, &s0]).is_err());
+        eprintln!("{name}: resident arrays {} (3 host + 3 resident gradient runs of {len} samples in {both:?})", if dxs.is_on_device() { "on the device" } else { "on the host" });
+    }
+}

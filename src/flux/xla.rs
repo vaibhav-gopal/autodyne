@@ -1,7 +1,8 @@
 //! XLA through PJRT, driven by JAX's client (`jaxlib`) in a Python process that stays up.
 //!
 //! The process is started once (importing JAX takes seconds) and serves compile and run requests
-//! over its stdin / stdout; arrays cross as `.npy` files. Python is found at run time:
+//! over its stdin / stdout; arrays cross as `.npy` files. Resident arrays
+//! ([`Executable::upload`]) stay in the server, on its device, between runs. Python is found at run time:
 //! `AUTODYNE_XLA_PYTHON` if set, else `python3` / `python` on `PATH`, with `jax` installed
 //! (`pip install jax`). The platform defaults to the CPU; set `AUTODYNE_XLA_PLATFORM` (`cuda`,
 //! `rocm`, `tpu`) when that jaxlib plugin is installed.
@@ -12,7 +13,7 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_outputs, find_tool, npy, Backend, Executable, Scratch, TempDir};
+use super::runtime::{check_inputs, check_outputs, check_resident, find_tool, npy, Backend, DeviceArray, Executable, Resident, Scratch, TempDir};
 use super::FluxError;
 use crate::signal::NdArray;
 
@@ -29,6 +30,12 @@ except Exception as e:
     sys.exit(1)
 print(f"ready\t{backend.platform} {device.device_kind} (jax {jax.__version__})", flush=True)
 executables = []
+arrays, next_array = {}, 0
+def keep(a):
+    global next_array
+    arrays[next_array] = a
+    next_array += 1
+    return str(next_array - 1)
 for line in sys.stdin:
     request = line.rstrip("\n").split("\t")
     try:
@@ -43,6 +50,18 @@ for line in sys.stdin:
             for path, out in zip(request[3 + n:], outs):
                 np.save(path, np.asarray(out[0]))
             print(f"ok\t{len(outs)}", flush=True)
+        elif request[0] == "put":
+            print("ok\t" + keep(jax.device_put(np.load(request[1]), device)), flush=True)
+        elif request[0] == "exec":
+            exe = executables[int(request[1])]
+            outs = exe.execute_sharded([arrays[int(i)] for i in request[2:]]).disassemble_into_single_device_arrays()
+            print("ok\t" + ",".join(keep(out[0]) for out in outs), flush=True)
+        elif request[0] == "get":
+            np.save(request[2], np.asarray(arrays[int(request[1])]))
+            print("ok\t", flush=True)
+        elif request[0] == "free":
+            arrays.pop(int(request[1]), None)
+            print("ok\t", flush=True)
         else:
             print("error\tunknown request", flush=True)
     except Exception as e:
@@ -118,7 +137,7 @@ impl Server {
         if stdout.read_line(&mut line)? == 0 {
             return Err(FluxError::Tool { tool: "xla", message: "the server exited".into() });
         }
-        match line.trim_end().split_once('\t') {
+        match line.trim_end_matches(['\r', '\n']).split_once('\t') {
             Some(("ok", payload)) => Ok(payload.to_string()),
             Some(("error", message)) => Err(FluxError::Tool { tool: "xla", message: message.to_string() }),
             _ => Err(FluxError::Tool { tool: "xla", message: format!("unexpected reply {line:?}") }),
@@ -181,5 +200,68 @@ impl Executable for Compiled {
         let results = outs.iter().map(|p| npy::load(p)).collect::<Result<Vec<_>, _>>()?;
         check_outputs(&self.program, &results)?;
         Ok(results)
+    }
+
+    fn upload(&self, a: &NdArray<f32>) -> Result<DeviceArray, FluxError> {
+        let file = self.server.dir.file("put", "npy");
+        let _cleanup = Scratch(vec![file.clone()]);
+        npy::save(&file, a)?;
+        let id = self.server.request(&["put".into(), path(&file)?])?;
+        Ok(DeviceArray::device(a.shape().to_vec(), Box::new(ServerArray { server: self.server.clone(), id })))
+    }
+
+    fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
+        check_resident(&self.program, inputs)?;
+        let mut request = vec!["exec".to_string(), self.id.clone()];
+        for a in inputs {
+            request.push(self.held(a)?.id.clone());
+        }
+        let ids = self.server.request(&request)?;
+        let outputs: Vec<DeviceArray> = ids
+            .split(',')
+            .zip(&self.program.outputs)
+            .map(|(id, shape)| DeviceArray::device(shape.clone(), Box::new(ServerArray { server: self.server.clone(), id: id.to_string() })))
+            .collect();
+        if outputs.len() != self.program.outputs.len() {
+            return Err(FluxError::Shape(format!("the program should return {} outputs, got {}", self.program.outputs.len(), outputs.len())));
+        }
+        Ok(outputs)
+    }
+
+    fn download(&self, a: &DeviceArray) -> Result<NdArray<f32>, FluxError> {
+        let held = self.held(a)?;
+        let file = self.server.dir.file("get", "npy");
+        let _cleanup = Scratch(vec![file.clone()]);
+        self.server.request(&["get".into(), held.id.clone(), path(&file)?])?;
+        let x = npy::load(&file)?;
+        if x.shape() != a.shape() {
+            return Err(FluxError::Shape(format!("expected {:?}, got {:?}", a.shape(), x.shape())));
+        }
+        Ok(x)
+    }
+}
+
+impl Compiled {
+    /// The server's handle for `a`, which must be held by this executable's server.
+    fn held<'a>(&self, a: &'a DeviceArray) -> Result<&'a ServerArray, FluxError> {
+        match &a.data {
+            Resident::Device(handle) => match handle.downcast_ref::<ServerArray>() {
+                Some(s) if Arc::ptr_eq(&s.server, &self.server) => Ok(s),
+                _ => Err(FluxError::Shape("this array is held by another backend".into())),
+            },
+            Resident::Host(_) => Err(FluxError::Shape("this array was not uploaded to this backend".into())),
+        }
+    }
+}
+
+/// An array held by the server, freed when dropped.
+struct ServerArray {
+    server: Arc<Server>,
+    id: String,
+}
+
+impl Drop for ServerArray {
+    fn drop(&mut self) {
+        let _ = self.server.request(&["free".into(), self.id.clone()]);
     }
 }
