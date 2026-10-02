@@ -344,7 +344,40 @@ pub fn trace(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> G
     let (_, mut graph) = GRAPH.with(|g| g.borrow_mut().take()).expect("flux::trace: graph missing");
     drop(reset);
     graph.outputs = outs.iter().map(|t| t.id).collect();
+    graph.prune();
     graph
+}
+
+impl Graph {
+    /// Drops the nodes no output depends on (the inputs stay): reverse mode records cotangents for
+    /// constants and the like that nothing reads.
+    fn prune(&mut self) {
+        let mut needed = vec![false; self.nodes.len()];
+        for &o in &self.outputs {
+            needed[o as usize] = true;
+        }
+        for i in (0..self.nodes.len()).rev() {
+            if needed[i] || matches!(self.nodes[i].op, Op::Input(_)) {
+                needed[i] = true;
+                for a in self.nodes[i].op.operands() {
+                    needed[a as usize] = true;
+                }
+            }
+        }
+        if needed.iter().all(|&n| n) {
+            return;
+        }
+        let mut new_id = vec![Id::MAX; self.nodes.len()];
+        let mut nodes = Vec::with_capacity(needed.iter().filter(|&&n| n).count());
+        for (i, node) in std::mem::take(&mut self.nodes).into_iter().enumerate() {
+            if needed[i] {
+                new_id[i] = nodes.len() as Id;
+                nodes.push(Node { op: node.op.map(|a| new_id[a as usize]), ..node });
+            }
+        }
+        self.nodes = nodes;
+        self.outputs.iter_mut().for_each(|o| *o = new_id[*o as usize]);
+    }
 }
 
 /// An array constant for use in a trace (or as an input to [`Graph::eval`]).

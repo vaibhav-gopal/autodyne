@@ -41,6 +41,10 @@ realfft = ["dep:realfft"]
 name = "dsp"
 harness = false
 
+[[example]]
+name = "flux_programs"
+required-features = ["flux"]
+
 # The library is the root package; plugins and the bundler live alongside it so `autodyne` itself
 # never depends on a plugin framework.
 [workspace]
