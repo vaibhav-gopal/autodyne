@@ -117,16 +117,24 @@ on a Ryzen 9 7900 + RTX 5070 Ti:
   these reductions; uploading and downloading from CPU memory costs ~5x the CPU computation, so the GPU pays off
   only for data that lives there (batches, fitting)
 ### flux: differentiable programs (feature `flux`)
-DSP written over the `Real` trait (every `Float` is one) runs unchanged on `f32` / `f64` and on `flux::Tracer`,
-which records it into a graph of primitives. flux differentiates the graph in reverse mode, runs per-sample recurrences
-over whole signals as a `scan` (gradient = a reverse scan), and emits textual StableHLO for IREE or XLA, which run as
-external tools: nothing is linked, and the real-time path never touches a trace. The first slice: `OnePole` traced
-over 512 samples, compiled with IREE, matches the f32 filter; its gradient matches finite differences; gradient descent
-fits its cutoff (300 Hz -> 1200 Hz in 30 steps).
+Plain Rust, no DSL: code written over the `Real` trait (every `Float` is one) runs unchanged on `f32` / `f64` and on
+`flux::Tracer`, whose operators record what it computes into a graph of primitives on f32 arrays: element-wise maths,
+comparisons and `select` (in place of branching on values), NumPy-style broadcasting, reshape, transpose, sums,
+`dot_general` and real FFTs. flux differentiates the graph in reverse mode (the backward pass is just more graph, so
+derivatives compose and nest), runs per-step recurrences over whole signals as a `Scan` with array-valued parameters,
+state and samples (gradient = a reverse scan), and emits textual StableHLO. Two backends run it, both external tools found
+at run time (nothing is linked, and the real-time path never touches a trace):
+
+- IREE: `iree-compile` / `iree-run-module`
+- XLA through PJRT, driven by JAX's client in a long-lived Python process
+
+Every primitive and its gradient agree with flux's reference interpreter on both; a traced `OnePole` matches the f32
+filter, its gradient matches finite differences, and gradient descent fits its cutoff (300 Hz -> 1200 Hz in 30 steps)
+and recovers per-bin gains through `rfft` / `irfft` frame by frame.
 
 ```sh
-pip install iree-base-compiler iree-base-runtime   # iree-compile, iree-run-module on PATH (or AUTODYNE_IREE_DIR)
-cargo test --features flux --test flux              # skipped with a message when the tools are missing
+pip install iree-base-compiler iree-base-runtime jax   # tools on PATH, or AUTODYNE_IREE_DIR / AUTODYNE_XLA_PYTHON
+cargo test --features flux --test flux                  # each missing backend is reported and skipped
 ```
 
 ### Plugins

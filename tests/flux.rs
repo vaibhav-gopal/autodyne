@@ -1,33 +1,39 @@
-//! flux end to end: a one-pole low-pass traced over `Real`, emitted as StableHLO, compiled and run
-//! by IREE, then differentiated and fitted.
+//! flux end to end: traced programs emitted as StableHLO, compiled and run by each backend found
+//! (IREE, XLA), and compared with the interpreter and with the concrete f32 code.
 //!
-//! Needs `iree-compile` and `iree-run-module` (`pip install iree-base-compiler iree-base-runtime`)
-//! in `AUTODYNE_IREE_DIR` or on `PATH`; each test says so and passes without running when they
-//! are missing.
+//! IREE needs `iree-compile` and `iree-run-module` (`pip install iree-base-compiler
+//! iree-base-runtime`) in `AUTODYNE_IREE_DIR` or on `PATH`; XLA needs Python with `jax`
+//! (`AUTODYNE_XLA_PYTHON`, else `python3` / `python` on `PATH`). A missing backend is reported and
+//! skipped; with neither, the tests pass without running.
 
 #![cfg(feature = "flux")]
 
 use autodyne::filter::OnePole;
-use autodyne::flux::{Iree, Module, Scan, Tensor};
+use autodyne::flux::{scalar, trace, vector, Backend, Executable, Iree, Program, Scan, Tracer, Xla};
+use autodyne::signal::NdArray;
 use autodyne::units::Real;
 
 const FS: f64 = 48_000.0;
 const N: usize = 512;
 
-fn iree() -> Option<Iree> {
-    let found = Iree::find();
-    if found.is_none() {
-        eprintln!("skipping: IREE tools not found (set AUTODYNE_IREE_DIR or put iree-compile / iree-run-module on PATH)");
+fn backends() -> Vec<Box<dyn Backend>> {
+    let mut found: Vec<Box<dyn Backend>> = Vec::new();
+    match Iree::find() {
+        Some(iree) => found.push(Box::new(iree)),
+        None => eprintln!("skipping IREE: tools not found (set AUTODYNE_IREE_DIR or put iree-compile / iree-run-module on PATH)"),
+    }
+    match Xla::start() {
+        Ok(xla) => {
+            eprintln!("XLA: {}", xla.description());
+            found.push(Box::new(xla));
+        }
+        Err(e) => eprintln!("skipping XLA: {e}"),
     }
     found
 }
 
-/// The step, with the cutoff as its parameter.
-fn one_pole() -> Scan {
-    Scan::trace(1, 1, |p, s, x| {
-        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
-        (vec![s], y)
-    })
+fn compile(backend: &dyn Backend, program: &Program) -> Box<dyn Executable> {
+    backend.compile(program).unwrap_or_else(|e| panic!("{}: {e}\n{}", backend.name(), program.text))
 }
 
 fn noise(n: usize, seed: u32) -> Vec<f32> {
@@ -38,6 +44,25 @@ fn noise(n: usize, seed: u32) -> Vec<f32> {
             (state >> 8) as f32 / (1u32 << 23) as f32 - 1.0
         })
         .collect()
+}
+
+fn random(shape: &[usize], seed: u32) -> NdArray<f32> {
+    NdArray::from_vec(noise(shape.iter().product(), seed), shape).unwrap()
+}
+
+fn assert_close(name: &str, got: &NdArray<f32>, want: &NdArray<f32>, tol: f32) {
+    assert_eq!(got.shape(), want.shape(), "{name}: shape");
+    for (i, (g, w)) in got.as_slice().iter().zip(want.as_slice()).enumerate() {
+        assert!((g - w).abs() <= tol * (1.0 + w.abs()), "{name}[{i}]: {g} vs {w}");
+    }
+}
+
+/// The step, with the cutoff as its parameter.
+fn one_pole() -> Scan {
+    Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
+        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
+        (vec![s], y)
+    })
 }
 
 fn concrete(cutoff: f32, xs: &[f32]) -> Vec<f32> {
@@ -58,81 +83,213 @@ fn loss_f64(cutoff: f64, xs: &[f32], targets: &[f32]) -> f64 {
     sum / xs.len() as f64
 }
 
-/// `(loss, d loss / d param, d loss / d s0)` from a compiled `loss_grad_hlo` module.
-fn loss_grad(module: &Module, param: f32, xs: &[f32], targets: &[f32]) -> (f32, f32, f32) {
-    let out = module
-        .call("main", &[Tensor::scalar(param), Tensor::vector(xs), Tensor::vector(targets), Tensor::scalar(0.0)], 3)
-        .unwrap();
-    (out[0].data[0], out[1].data[0], out[2].data[0])
-}
-
 #[test]
-fn forward_matches_the_concrete_path() {
-    let Some(iree) = iree() else { return };
-    let module = iree.compile(&one_pole().forward_hlo(N)).unwrap();
-    let xs = noise(N, 1);
-    for cutoff in [200.0f32, 1_000.0, 8_000.0] {
-        let out = module.call("main", &[Tensor::scalar(cutoff), Tensor::vector(&xs), Tensor::scalar(0.0)], 2).unwrap();
-        assert_eq!(out[0].shape, vec![N]);
-        let expected = concrete(cutoff, &xs);
-        for (i, (got, want)) in out[0].data.iter().zip(&expected).enumerate() {
-            assert!((got - want).abs() <= 1e-5, "cutoff {cutoff}, sample {i}: {got} vs {want}");
+fn every_primitive_matches_the_interpreter() {
+    let shapes: &[&[usize]] = &[&[3, 8], &[8], &[8, 5], &[3, 1]];
+    let graph = trace(shapes, |v| {
+        let (a, b, m, c) = (v[0], v[1], v[2], v[3]);
+        let e = (a * b + c).tanh() - (a.abs() + Tracer::lit(0.5)).sqrt().ln() / (b.exp() + Tracer::lit(1.0));
+        let f = e.sin() * e.cos() + e.powf(Tracer::lit(2.0)).min(b.max(c));
+        let g = Tracer::select(f.greater(a), f, -a) + Tracer::select(f.less(c), c, a);
+        let (re, im) = g.rfft();
+        let spectrum = Tracer::irfft(re * Tracer::lit(0.5), im, 8);
+        vec![
+            g,
+            spectrum,
+            re,
+            im,
+            g.dot(m),
+            g.transpose(&[1, 0]).reshape(&[4, 6]),
+            g.sum(&[1]),
+            g.mean(),
+            b.broadcast_in_dim(&[8, 2], &[0]),
+            a.dot_general(m, &[1], &[0]).dot_general(a, &[0], &[0]),
+        ]
+    });
+    let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 1)).collect();
+    let want = graph.eval(&inputs);
+    for backend in backends() {
+        let got = compile(&*backend, &graph.program()).run(&inputs).unwrap();
+        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert_close(&format!("{} output {k}", backend.name()), g, w, 1e-4);
         }
-        assert!((out[1].data[0] - expected[N - 1]).abs() <= 1e-5);
     }
 }
 
 #[test]
-fn gradient_matches_finite_differences() {
-    let Some(iree) = iree() else { return };
-    let module = iree.compile(&one_pole().loss_grad_hlo(N)).unwrap();
+fn gradients_of_array_programs_match_the_interpreter() {
+    // gradient graphs are graphs: emit the backward pass of a program with every array primitive
+    let shapes: &[&[usize]] = &[&[4, 8], &[8, 3], &[5]];
+    let graph = trace(shapes, |v| {
+        let (x, w, g) = (v[0], v[1], v[2]);
+        let (re, im) = x.rfft();
+        let y = Tracer::irfft(re * g, im * g, 8).dot(w).tanh();
+        let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum(&[0]).mean();
+        autodyne::flux::vjp(&[loss], &[Real::lit(1.0)], v)
+    });
+    let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 10)).collect();
+    let want = graph.eval(&inputs);
+    for backend in backends() {
+        let got = compile(&*backend, &graph.program()).run(&inputs).unwrap();
+        for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+            assert_close(&format!("{} d input {k}", backend.name()), g, w, 1e-4);
+        }
+    }
+}
+
+#[test]
+fn forward_scan_matches_the_concrete_filter() {
+    let xs = noise(N, 1);
+    for backend in backends() {
+        let exe = compile(&*backend, &one_pole().forward_program(N));
+        for cutoff in [200.0f32, 1_000.0, 8_000.0] {
+            let out = exe.run(&[scalar(cutoff), vector(&xs), scalar(0.0)]).unwrap();
+            let want = vector(&concrete(cutoff, &xs));
+            assert_close(&format!("{} cutoff {cutoff}", backend.name()), &out[0], &want, 1e-5);
+            assert!((out[1].as_slice()[0] - want.as_slice()[N - 1]).abs() <= 1e-5);
+        }
+    }
+}
+
+#[test]
+fn scan_gradient_matches_finite_differences() {
     let xs = noise(N, 2);
     let targets = concrete(1_500.0, &xs);
-    for cutoff in [300.0f32, 1_000.0, 4_000.0] {
-        let (loss, grad, _) = loss_grad(&module, cutoff, &xs, &targets);
-        let h = cutoff as f64 * 1e-4;
-        let fd = (loss_f64(cutoff as f64 + h, &xs, &targets) - loss_f64(cutoff as f64 - h, &xs, &targets)) / (2.0 * h);
-        assert!(((grad as f64 - fd) / fd).abs() < 1e-3, "cutoff {cutoff}: {grad} vs {fd}");
-        assert!(((loss as f64 - loss_f64(cutoff as f64, &xs, &targets)) / loss as f64).abs() < 1e-4);
-        // the interpreter computes the same program
-        let reference = one_pole().loss_grad(&[cutoff], &xs, &targets, &[0.0]);
-        assert!(((grad - reference.params[0]) / reference.params[0]).abs() < 1e-4);
+    for backend in backends() {
+        let exe = compile(&*backend, &one_pole().loss_grad_program(N));
+        for cutoff in [300.0f32, 1_000.0, 4_000.0] {
+            let out = exe.run(&[scalar(cutoff), vector(&xs), vector(&targets), scalar(0.0)]).unwrap();
+            let (loss, grad) = (out[0].as_slice()[0], out[1].as_slice()[0]);
+            let h = cutoff as f64 * 1e-4;
+            let fd = (loss_f64(cutoff as f64 + h, &xs, &targets) - loss_f64(cutoff as f64 - h, &xs, &targets)) / (2.0 * h);
+            assert!(((grad as f64 - fd) / fd).abs() < 1e-3, "{} cutoff {cutoff}: {grad} vs {fd}", backend.name());
+            assert!(((loss as f64 - loss_f64(cutoff as f64, &xs, &targets)) / loss as f64).abs() < 1e-4);
+        }
     }
+}
+
+#[test]
+fn shaped_scans_match_the_interpreter() {
+    // a bank of four one-poles, and a state space model with dot products
+    let bank = Scan::trace(&[&[4]], &[&[4]], &[4], |p, s, x| {
+        let (s, y) = OnePole::lowpass(p[0], Real::lit(FS)).tick(s[0], x);
+        (vec![s], y)
+    });
+    let ss = Scan::trace(&[&[2, 2], &[2], &[2]], &[&[2]], &[], |p, s, x| {
+        let next = p[0].dot(s[0]) + p[1] * x;
+        (vec![next], p[2].dot(next))
+    });
+    let cases = [
+        (bank, vec![vector(&[200.0, 1_000.0, 3_000.0, 9_000.0])], random(&[64, 4], 3), random(&[64, 4], 4), vec![vector(&[0.0; 4])]),
+        (
+            ss,
+            vec![NdArray::from_vec(vec![0.6, -0.3, 0.2, 0.5], &[2, 2]).unwrap(), vector(&[1.0, 0.5]), vector(&[0.3, -0.7])],
+            random(&[64], 5),
+            random(&[64], 6),
+            vec![vector(&[0.1, -0.2])],
+        ),
+    ];
+    for backend in backends() {
+        for (k, (scan, params, xs, targets, s0)) in cases.iter().enumerate() {
+            let name = format!("{} scan {k}", backend.name());
+            let (ys, last) = scan.run(params, xs, s0);
+            let forward = compile(&*backend, &scan.forward_program(xs.shape()[0]));
+            let out = forward.run(&[params.clone(), vec![xs.clone()], s0.clone()].concat()).unwrap();
+            assert_close(&format!("{name} ys"), &out[0], &ys, 1e-5);
+            assert_close(&format!("{name} final state"), &out[1], &last[0], 1e-5);
+
+            let want = scan.loss_grad(params, xs, targets, s0);
+            let grad = compile(&*backend, &scan.loss_grad_program(xs.shape()[0]));
+            let out = grad.run(&[params.clone(), vec![xs.clone(), targets.clone()], s0.clone()].concat()).unwrap();
+            assert!((out[0].as_slice()[0] - want.loss).abs() <= 1e-5 * (1.0 + want.loss), "{name} loss");
+            for (p, w) in out[1..1 + params.len()].iter().zip(&want.params) {
+                assert_close(&format!("{name} d param"), p, w, 1e-4);
+            }
+            assert_close(&format!("{name} d state"), &out[1 + params.len()], &want.state[0], 1e-4);
+        }
+    }
+}
+
+/// Adam on `params` (flattened), `steps` at most, until `done`.
+fn adam(mut params: Vec<f32>, lr: f32, steps: i32, mut grad: impl FnMut(&[f32]) -> (f32, Vec<f32>), done: impl Fn(&[f32]) -> bool) -> (Vec<f32>, f32, f32, i32) {
+    let (b1, b2) = (0.9f32, 0.999f32);
+    let (mut m, mut v) = (vec![0.0; params.len()], vec![0.0; params.len()]);
+    let mut first = None;
+    let mut last = 0.0;
+    let mut taken = 0;
+    for step in 1..=steps {
+        let (loss, g) = grad(&params);
+        first.get_or_insert(loss);
+        last = loss;
+        taken = step;
+        if done(&params) {
+            break;
+        }
+        for i in 0..params.len() {
+            m[i] = b1 * m[i] + (1.0 - b1) * g[i];
+            v[i] = b2 * v[i] + (1.0 - b2) * g[i] * g[i];
+            let (mh, vh) = (m[i] / (1.0 - b1.powi(step)), v[i] / (1.0 - b2.powi(step)));
+            params[i] -= lr * mh / (vh.sqrt() + 1e-12);
+        }
+    }
+    (params, first.unwrap(), last, taken)
 }
 
 #[test]
 fn fits_the_cutoff_by_gradient_descent() {
-    let Some(iree) = iree() else { return };
     // optimise the log of the cutoff, so steps are relative
-    let scan = Scan::trace(1, 1, |p, s, x| {
+    let scan = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
         let (s, y) = OnePole::lowpass(p[0].exp(), Real::lit(FS)).tick(s[0], x);
         (vec![s], y)
     });
-    let module = iree.compile(&scan.loss_grad_hlo(N)).unwrap();
-    let xs = noise(N, 3);
+    let xs = vector(&noise(N, 3));
     let target_cutoff = 1_200.0f32;
-    let targets = concrete(target_cutoff, &xs);
-
-    // Adam
-    let (mut u, mut m, mut v) = (300.0f32.ln(), 0.0f32, 0.0f32);
-    let (lr, b1, b2) = (0.1f32, 0.9f32, 0.999f32);
-    let mut first_loss = None;
-    let mut steps = 0;
-    for step in 1..=300 {
-        steps = step;
-        let (loss, g, _) = loss_grad(&module, u, &xs, &targets);
-        first_loss.get_or_insert(loss);
-        if ((u.exp() - target_cutoff) / target_cutoff).abs() < 1e-3 {
-            break;
-        }
-        m = b1 * m + (1.0 - b1) * g;
-        v = b2 * v + (1.0 - b2) * g * g;
-        let (mh, vh) = (m / (1.0 - b1.powi(step)), v / (1.0 - b2.powi(step)));
-        u -= lr * mh / (vh.sqrt() + 1e-12);
+    let targets = vector(&concrete(target_cutoff, xs.as_slice()));
+    for backend in backends() {
+        let exe = compile(&*backend, &scan.loss_grad_program(N));
+        let (u, first, last, steps) = adam(
+            vec![300.0f32.ln()],
+            0.1,
+            300,
+            |u| {
+                let out = exe.run(&[scalar(u[0]), xs.clone(), targets.clone(), scalar(0.0)]).unwrap();
+                (out[0].as_slice()[0], vec![out[1].as_slice()[0]])
+            },
+            |u| ((u[0].exp() - target_cutoff) / target_cutoff).abs() < 1e-3,
+        );
+        let fitted = u[0].exp();
+        eprintln!("{}: fitted {fitted:.1} Hz (target {target_cutoff} Hz, start 300 Hz) in {steps} steps, loss {first} -> {last:e}", backend.name());
+        assert!(((fitted - target_cutoff) / target_cutoff).abs() < 1e-2, "{}: fitted {fitted} Hz", backend.name());
+        assert!(last < first * 1e-3);
     }
-    let fitted = u.exp();
-    let (loss, _, _) = loss_grad(&module, u, &xs, &targets);
-    eprintln!("fitted {fitted:.1} Hz (target {target_cutoff} Hz, start 300 Hz) in {steps} steps, loss {} -> {loss:e}", first_loss.unwrap());
-    assert!(((fitted - target_cutoff) / target_cutoff).abs() < 1e-2, "fitted {fitted} Hz, wanted {target_cutoff} Hz");
-    assert!(loss < first_loss.unwrap() * 1e-3, "loss {loss} from {}", first_loss.unwrap());
+}
+
+#[test]
+fn fits_a_spectral_gain_frame_by_frame() {
+    // frames of 16 samples through rfft -> per-bin gain -> irfft; recover the gains
+    let (n, m, frames) = (16usize, 9usize, 32usize);
+    let scan = Scan::trace(&[&[m]], &[], &[n], |p, _, x| {
+        let (re, im) = x.rfft();
+        (vec![], Tracer::irfft(re * p[0], im * p[0], n))
+    });
+    let xs = random(&[frames, n], 8);
+    let true_gains: Vec<f32> = (0..m).map(|k| 1.0 / (1.0 + k as f32 * 0.4)).collect();
+    let (targets, _) = scan.run(&[vector(&true_gains)], &xs, &[]);
+    for backend in backends() {
+        let exe = compile(&*backend, &scan.loss_grad_program(frames));
+        let (gains, first, last, steps) = adam(
+            vec![0.5; m],
+            0.05,
+            400,
+            |g| {
+                let out = exe.run(&[vector(g), xs.clone(), targets.clone()]).unwrap();
+                (out[0].as_slice()[0], out[1].as_slice().to_vec())
+            },
+            |g| g.iter().zip(&true_gains).all(|(a, b)| (a - b).abs() < 1e-3),
+        );
+        eprintln!("{}: spectral gains in {steps} steps, loss {first} -> {last:e}", backend.name());
+        for (k, (g, t)) in gains.iter().zip(&true_gains).enumerate() {
+            assert!((g - t).abs() < 1e-2, "{} bin {k}: {g} vs {t}", backend.name());
+        }
+    }
 }

@@ -94,7 +94,7 @@ jobs:
       - name: Test
         run: .venv/bin/python -m pytest tests -q
 
-  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE.
+  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE and XLA.
   flux:
     runs-on: ubuntu-latest
     steps:
@@ -104,15 +104,17 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - name: Install IREE
+      - name: Install IREE and JAX (XLA)
         run: |
-          uv venv .iree --python 3.12
-          uv pip install --python .iree iree-base-compiler==3.11.0 iree-base-runtime==3.11.0
-          .iree/bin/iree-compile --version
-          echo "AUTODYNE_IREE_DIR=$PWD/.iree/bin" >> "$GITHUB_ENV"
+          uv venv .flux --python 3.12
+          uv pip install --python .flux iree-base-compiler==3.11.0 iree-base-runtime==3.11.0 jax==0.11.2
+          .flux/bin/iree-compile --version
+          .flux/bin/python -c "import jax; print(jax.devices())"
+          echo "AUTODYNE_IREE_DIR=$PWD/.flux/bin" >> "$GITHUB_ENV"
+          echo "AUTODYNE_XLA_PYTHON=$PWD/.flux/bin/python" >> "$GITHUB_ENV"
       - name: Test (interpreter)
         run: cargo test -p autodyne --features flux --lib flux
-      - name: Test (IREE)
+      - name: Test (IREE, XLA)
         run: cargo test -p autodyne --features flux --test flux -- --nocapture
 
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml

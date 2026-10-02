@@ -1,29 +1,43 @@
-//! The traced graph: a flat list of primitive operations on scalars, and the `Tracer` handle that
+//! The traced graph: a flat list of primitive operations on f32 arrays, and the `Tracer` handle that
 //! records into it.
 
 use std::cell::{Cell, RefCell};
 use std::fmt;
 use std::ops::{Add, Div, Mul, Neg, Sub};
+use std::sync::Arc;
 
+use crate::signal::{NdArray, MAX_DIMS};
 use crate::units::Real;
 
 /// Index of a node in its [`Graph`].
 pub(crate) type Id = u32;
 
-/// Comparison directions (the result is a boolean node).
+/// Comparison directions (the result is a mask).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cmp {
     Lt,
     Gt,
 }
 
+/// Which half of a complex spectrum an [`Op::Rfft`] node holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Part {
+    Re,
+    Im,
+}
+
 /// A primitive operation. Operands are earlier nodes, so a graph is always in topological order.
-#[derive(Clone, Copy, Debug, PartialEq)]
+///
+/// Element-wise operations take operands of the node's own shape (the [`Tracer`] operators insert
+/// [`Broadcast`](Op::Broadcast)s, NumPy style, so the graph itself never broadcasts implicitly).
+#[derive(Clone, Debug, PartialEq)]
 pub enum Op {
     /// The graph's `n`-th input.
     Input(u32),
-    /// A constant; stored as f64, evaluated and emitted at the graph's precision (f32).
+    /// A scalar constant; stored as f64, evaluated and emitted at the graph's precision (f32).
     Const(f64),
+    /// A constant array (row-major), of the node's shape.
+    Literal(Arc<[f32]>),
     Add(Id, Id),
     Sub(Id, Id),
     Mul(Id, Id),
@@ -39,35 +53,107 @@ pub enum Op {
     Pow(Id, Id),
     Min(Id, Id),
     Max(Id, Id),
-    /// A boolean node.
+    /// A mask.
     Compare(Cmp, Id, Id),
     /// `select(mask, if_true, if_false)`.
     Select(Id, Id, Id),
+    /// Operand axis `i` becomes result axis `dims[i]` (`dims` increasing); operand axes of length 1
+    /// stretch, and the other result axes repeat the operand (`stablehlo.broadcast_in_dim`).
+    Broadcast(Id, Vec<usize>),
+    /// The same elements (row-major) in the node's shape.
+    Reshape(Id),
+    /// Result axis `i` is operand axis `perm[i]`.
+    Transpose(Id, Vec<usize>),
+    /// Sum over `axes` (increasing), which are removed.
+    Sum(Id, Vec<usize>),
+    /// Contracts axes `ca` of the first operand with axes `cb` of the second (pairwise); the result
+    /// has the first operand's other axes, then the second's (`stablehlo.dot_general`).
+    Dot { a: Id, b: Id, ca: Vec<usize>, cb: Vec<usize> },
+    /// One part of the real FFT along the last axis: length `n` becomes `n / 2 + 1` bins.
+    Rfft(Id, Part),
+    /// The inverse real FFT along the last axis from real and imaginary parts (`n / 2 + 1` bins)
+    /// to `n` samples, scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
+    Irfft { re: Id, im: Id, n: usize },
 }
 
 impl Op {
-    /// Whether this node is boolean (a mask) rather than real.
-    pub fn is_mask(&self) -> bool {
-        matches!(self, Op::Compare(..))
+    /// The operands, in order.
+    pub fn operands(&self) -> impl Iterator<Item = Id> {
+        let (a, b, c) = match *self {
+            Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
+            Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) => (Some(a), None, None),
+            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) => (Some(a), None, None),
+            Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
+                (Some(a), Some(b), None)
+            }
+            Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } => (Some(a), Some(b), None),
+            Op::Select(c, a, b) => (Some(c), Some(a), Some(b)),
+        };
+        [a, b, c].into_iter().flatten()
+    }
+
+    /// The same operation on other operands (`f` maps each operand id).
+    pub(crate) fn map(&self, f: impl Fn(Id) -> Id) -> Op {
+        match self.clone() {
+            op @ (Op::Input(_) | Op::Const(_) | Op::Literal(_)) => op,
+            Op::Add(a, b) => Op::Add(f(a), f(b)),
+            Op::Sub(a, b) => Op::Sub(f(a), f(b)),
+            Op::Mul(a, b) => Op::Mul(f(a), f(b)),
+            Op::Div(a, b) => Op::Div(f(a), f(b)),
+            Op::Neg(a) => Op::Neg(f(a)),
+            Op::Exp(a) => Op::Exp(f(a)),
+            Op::Log(a) => Op::Log(f(a)),
+            Op::Sin(a) => Op::Sin(f(a)),
+            Op::Cos(a) => Op::Cos(f(a)),
+            Op::Tanh(a) => Op::Tanh(f(a)),
+            Op::Sqrt(a) => Op::Sqrt(f(a)),
+            Op::Abs(a) => Op::Abs(f(a)),
+            Op::Pow(a, b) => Op::Pow(f(a), f(b)),
+            Op::Min(a, b) => Op::Min(f(a), f(b)),
+            Op::Max(a, b) => Op::Max(f(a), f(b)),
+            Op::Compare(c, a, b) => Op::Compare(c, f(a), f(b)),
+            Op::Select(c, a, b) => Op::Select(f(c), f(a), f(b)),
+            Op::Broadcast(a, dims) => Op::Broadcast(f(a), dims),
+            Op::Reshape(a) => Op::Reshape(f(a)),
+            Op::Transpose(a, perm) => Op::Transpose(f(a), perm),
+            Op::Sum(a, axes) => Op::Sum(f(a), axes),
+            Op::Dot { a, b, ca, cb } => Op::Dot { a: f(a), b: f(b), ca, cb },
+            Op::Rfft(a, part) => Op::Rfft(f(a), part),
+            Op::Irfft { re, im, n } => Op::Irfft { re: f(re), im: f(im), n },
+        }
     }
 }
 
-/// A traced program: nodes in topological order, the number of inputs, and the output nodes.
+/// A node: its operation, the shape of its value, and whether that value is a mask (booleans)
+/// rather than real numbers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Node {
+    pub op: Op,
+    pub shape: Vec<usize>,
+    pub mask: bool,
+}
+
+/// A traced program: nodes in topological order, the inputs' shapes, and the output nodes.
 ///
-/// Built by [`trace`]. Scalar f32 for now; shaped values (broadcast, dot, FFT) come later.
+/// Built by [`trace`]. Values are f32 arrays of up to [`MAX_DIMS`] axes (shape `[]` is a scalar).
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Graph {
-    pub(crate) nodes: Vec<Op>,
-    pub(crate) inputs: usize,
+    pub(crate) nodes: Vec<Node>,
+    pub(crate) inputs: Vec<Vec<usize>>,
     pub(crate) outputs: Vec<Id>,
 }
 
 impl Graph {
-    pub fn nodes(&self) -> &[Op] {
+    pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
-    pub fn inputs(&self) -> usize {
-        self.inputs
+    /// The shape of each input.
+    pub fn inputs(&self) -> &[Vec<usize>] {
+        &self.inputs
+    }
+    /// The shape of each output.
+    pub fn output_shapes(&self) -> Vec<Vec<usize>> {
+        self.outputs.iter().map(|&o| self.nodes[o as usize].shape.clone()).collect()
     }
     pub fn outputs(&self) -> usize {
         self.outputs.len()
@@ -76,30 +162,15 @@ impl Graph {
     /// Replays this graph into the current trace with `args` as its inputs; returns its outputs.
     /// This is how one traced function calls another (the call is inlined).
     pub fn call(&self, args: &[Tracer]) -> Vec<Tracer> {
-        assert_eq!(args.len(), self.inputs, "Graph::call: wrong number of arguments");
+        assert_eq!(args.len(), self.inputs.len(), "Graph::call: wrong number of arguments");
+        for (k, (a, s)) in args.iter().zip(&self.inputs).enumerate() {
+            assert_eq!(&a.shape(), s, "Graph::call: argument {k} has the wrong shape");
+        }
         let mut ids: Vec<Id> = Vec::with_capacity(self.nodes.len());
-        for op in &self.nodes {
-            let m = |i: &Id| ids[*i as usize];
-            let id = match *op {
+        for node in &self.nodes {
+            let id = match node.op {
                 Op::Input(n) => args[n as usize].check(),
-                Op::Const(v) => push(Op::Const(v)),
-                Op::Add(a, b) => push(Op::Add(m(&a), m(&b))),
-                Op::Sub(a, b) => push(Op::Sub(m(&a), m(&b))),
-                Op::Mul(a, b) => push(Op::Mul(m(&a), m(&b))),
-                Op::Div(a, b) => push(Op::Div(m(&a), m(&b))),
-                Op::Neg(a) => push(Op::Neg(m(&a))),
-                Op::Exp(a) => push(Op::Exp(m(&a))),
-                Op::Log(a) => push(Op::Log(m(&a))),
-                Op::Sin(a) => push(Op::Sin(m(&a))),
-                Op::Cos(a) => push(Op::Cos(m(&a))),
-                Op::Tanh(a) => push(Op::Tanh(m(&a))),
-                Op::Sqrt(a) => push(Op::Sqrt(m(&a))),
-                Op::Abs(a) => push(Op::Abs(m(&a))),
-                Op::Pow(a, b) => push(Op::Pow(m(&a), m(&b))),
-                Op::Min(a, b) => push(Op::Min(m(&a), m(&b))),
-                Op::Max(a, b) => push(Op::Max(m(&a), m(&b))),
-                Op::Compare(c, a, b) => push(Op::Compare(c, m(&a), m(&b))),
-                Op::Select(c, a, b) => push(Op::Select(m(&c), m(&a), m(&b))),
+                ref op => push(op.map(|i| ids[i as usize]), node.shape.clone(), node.mask),
             };
             ids.push(id);
         }
@@ -110,16 +181,17 @@ impl Graph {
 
 impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for (i, op) in self.nodes.iter().enumerate() {
-            writeln!(f, "%{i} = {op:?}")?;
+        for (i, n) in self.nodes.iter().enumerate() {
+            writeln!(f, "%{i}: {:?}{} = {:?}", n.shape, if n.mask { " mask" } else { "" }, n.op)?;
         }
         write!(f, "return {:?}", self.outputs)
     }
 }
 
-/// A traced real number: a handle to a node in the graph being traced on this thread.
+/// A traced array of real numbers: a handle to a node in the graph being traced on this thread.
 ///
-/// Implements [`Real`], so generic DSP code runs on it unchanged and records what it computes.
+/// Implements [`Real`] (element-wise), so generic DSP code runs on it unchanged and records what it
+/// computes; the inherent methods add the array operations. Operators broadcast NumPy style.
 /// Only valid inside the [`trace`] that created it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Tracer {
@@ -127,7 +199,7 @@ pub struct Tracer {
     trace: u32,
 }
 
-/// A traced boolean (the result of a comparison), consumed by [`Real::select`].
+/// A traced array of booleans (the result of a comparison), consumed by [`Real::select`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mask {
     pub(crate) id: Id,
@@ -139,17 +211,21 @@ thread_local! {
     static NEXT_TRACE: Cell<u32> = const { Cell::new(0) };
 }
 
-/// Traces `f` with `inputs` fresh inputs and returns the graph of what it computed.
+/// Traces `f` on inputs of the given shapes and returns the graph of what it computed.
 ///
 /// ```
-/// use autodyne::flux::trace;
+/// use autodyne::flux::{scalar, trace};
 /// use autodyne::units::Real;
 ///
-/// let g = trace(2, |v| vec![(v[0] * v[1]).exp()]);
-/// assert_eq!(g.eval(&[1.0, 2.0]), vec![2.0f32.exp()]);
+/// let g = trace(&[&[], &[]], |v| vec![(v[0] * v[1]).exp()]);
+/// assert_eq!(g.eval(&[scalar(1.0), scalar(2.0)])[0].as_slice(), &[2.0f32.exp()]);
 /// ```
-pub fn trace(inputs: usize, f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> Graph {
-    let graph = Graph { nodes: (0..inputs as u32).map(Op::Input).collect(), inputs, outputs: Vec::new() };
+pub fn trace(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> Graph {
+    for s in inputs {
+        assert!(s.len() <= MAX_DIMS, "flux::trace: at most {MAX_DIMS} axes");
+    }
+    let nodes = (0..inputs.len()).map(|n| Node { op: Op::Input(n as u32), shape: inputs[n].to_vec(), mask: false }).collect();
+    let graph = Graph { nodes, inputs: inputs.iter().map(|s| s.to_vec()).collect(), outputs: Vec::new() };
     let trace = NEXT_TRACE.with(|n| {
         let t = n.get();
         n.set(t.wrapping_add(1));
@@ -168,41 +244,64 @@ pub fn trace(inputs: usize, f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> Graph {
         }
     }
     let reset = Reset;
-    let args: Vec<Tracer> = (0..inputs as Id).map(|id| Tracer { id, trace }).collect();
+    let args: Vec<Tracer> = (0..inputs.len() as Id).map(|id| Tracer { id, trace }).collect();
     let outs = f(&args);
+    for t in &outs {
+        assert_eq!(t.trace, trace, "flux::trace: output belongs to another trace");
+    }
     let (_, mut graph) = GRAPH.with(|g| g.borrow_mut().take()).expect("flux::trace: graph missing");
     drop(reset);
-    graph.outputs = outs
-        .iter()
-        .map(|t| {
-            assert_eq!(t.trace, trace, "flux::trace: output belongs to another trace");
-            t.id
-        })
-        .collect();
+    graph.outputs = outs.iter().map(|t| t.id).collect();
     graph
+}
+
+/// An array constant for use in a trace (or as an input to [`Graph::eval`]).
+pub fn scalar(v: f32) -> NdArray<f32> {
+    NdArray::from_vec(vec![v], &[]).expect("a scalar always fits")
+}
+
+/// A 1-D array.
+pub fn vector(v: &[f32]) -> NdArray<f32> {
+    NdArray::from_vec(v.to_vec(), &[v.len()]).expect("a vector always fits")
+}
+
+fn with_graph<R>(f: impl FnOnce(&mut Graph) -> R) -> R {
+    GRAPH.with(|g| f(&mut g.borrow_mut().as_mut().expect("flux: tracer used outside flux::trace").1))
 }
 
 fn current_trace() -> u32 {
     GRAPH.with(|g| g.borrow().as_ref().map(|(t, _)| *t).expect("flux: tracer used outside flux::trace"))
 }
 
-/// The operation of node `id` in the current trace.
-pub(crate) fn op(id: Id) -> Op {
-    GRAPH.with(|g| g.borrow().as_ref().expect("flux: tracer used outside flux::trace").1.nodes[id as usize])
+/// Node `id` of the current trace.
+pub(crate) fn node(id: Id) -> Node {
+    with_graph(|g| g.nodes[id as usize].clone())
 }
 
 /// The number of nodes in the current trace so far.
 pub(crate) fn len() -> usize {
-    GRAPH.with(|g| g.borrow().as_ref().expect("flux: tracer used outside flux::trace").1.nodes.len())
+    with_graph(|g| g.nodes.len())
 }
 
-fn push(op: Op) -> Id {
-    GRAPH.with(|g| {
-        let mut g = g.borrow_mut();
-        let (_, graph) = g.as_mut().expect("flux: tracer used outside flux::trace");
-        graph.nodes.push(op);
-        (graph.nodes.len() - 1) as Id
+fn push(op: Op, shape: Vec<usize>, mask: bool) -> Id {
+    with_graph(|g| {
+        g.nodes.push(Node { op, shape, mask });
+        (g.nodes.len() - 1) as Id
     })
+}
+
+/// NumPy broadcasting: the shape both operands stretch to, if any.
+fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
+    let n = a.len().max(b.len());
+    let at = |s: &[usize], i: usize| if i + s.len() >= n { s[i + s.len() - n] } else { 1 };
+    (0..n)
+        .map(|i| match (at(a, i), at(b, i)) {
+            (x, y) if x == y => Some(x),
+            (1, y) => Some(y),
+            (x, 1) => Some(x),
+            _ => None,
+        })
+        .collect()
 }
 
 impl Tracer {
@@ -216,22 +315,174 @@ impl Tracer {
         self.id
     }
 
+    fn new(op: Op, shape: Vec<usize>) -> Tracer {
+        assert!(shape.len() <= MAX_DIMS, "flux: at most {MAX_DIMS} axes");
+        Tracer { id: push(op, shape, false), trace: current_trace() }
+    }
+
+    /// The shape of this value (`[]` for a scalar).
+    pub fn shape(self) -> Vec<usize> {
+        let id = self.check();
+        with_graph(|g| g.nodes[id as usize].shape.clone())
+    }
+
+    /// A constant array.
+    pub fn constant(value: &NdArray<f32>) -> Tracer {
+        Tracer::new(Op::Literal(value.as_slice().into()), value.shape().to_vec())
+    }
+
     fn unary(self, f: fn(Id) -> Op) -> Tracer {
-        Tracer { id: push(f(self.check())), trace: self.trace }
+        let shape = self.shape();
+        Tracer::new(f(self.check()), shape)
+    }
+
+    /// Both operands broadcast to a common shape.
+    fn align(self, rhs: Tracer) -> (Tracer, Tracer, Vec<usize>) {
+        let (sa, sb) = (self.shape(), rhs.shape());
+        let shape = broadcast_shapes(&sa, &sb).unwrap_or_else(|| panic!("flux: shapes {sa:?} and {sb:?} do not broadcast"));
+        (self.broadcast_to(&shape), rhs.broadcast_to(&shape), shape)
     }
 
     fn binary(self, rhs: Tracer, f: fn(Id, Id) -> Op) -> Tracer {
-        Tracer { id: push(f(self.check(), rhs.check())), trace: self.trace }
+        let (a, b, shape) = self.align(rhs);
+        Tracer::new(f(a.check(), b.check()), shape)
     }
 
     fn compare(self, rhs: Tracer, c: Cmp) -> Mask {
-        Mask { id: push(Op::Compare(c, self.check(), rhs.check())), trace: self.trace }
+        let (a, b, shape) = self.align(rhs);
+        Mask { id: push(Op::Compare(c, a.check(), b.check()), shape, true), trace: self.trace }
+    }
+
+    /// Stretches to `shape`, NumPy style (trailing axes line up; axes of length 1 stretch).
+    pub fn broadcast_to(self, shape: &[usize]) -> Tracer {
+        let own = self.shape();
+        if own == shape {
+            return self;
+        }
+        assert!(own.len() <= shape.len(), "flux: cannot broadcast {own:?} to {shape:?}");
+        let offset = shape.len() - own.len();
+        self.broadcast_in_dim(shape, &(offset..shape.len()).collect::<Vec<_>>())
+    }
+
+    /// Operand axis `i` becomes axis `dims[i]` of `shape` (`dims` increasing); axes of length 1
+    /// stretch, the other axes of `shape` repeat the value.
+    pub fn broadcast_in_dim(self, shape: &[usize], dims: &[usize]) -> Tracer {
+        let own = self.shape();
+        assert_eq!(own.len(), dims.len(), "broadcast_in_dim: one result axis per operand axis");
+        assert!(dims.windows(2).all(|w| w[0] < w[1]), "broadcast_in_dim: dims must increase");
+        for (&d, &n) in dims.iter().zip(&own) {
+            assert!(d < shape.len() && (n == 1 || n == shape[d]), "flux: cannot broadcast {own:?} to {shape:?} along {dims:?}");
+        }
+        Tracer::new(Op::Broadcast(self.check(), dims.to_vec()), shape.to_vec())
+    }
+
+    /// The same elements (row-major) in another shape.
+    pub fn reshape(self, shape: &[usize]) -> Tracer {
+        let own = self.shape();
+        assert_eq!(own.iter().product::<usize>(), shape.iter().product::<usize>(), "reshape: {own:?} to {shape:?} changes the element count");
+        if own == shape {
+            return self;
+        }
+        Tracer::new(Op::Reshape(self.check()), shape.to_vec())
+    }
+
+    /// Axis `i` of the result is axis `perm[i]` of `self`.
+    pub fn transpose(self, perm: &[usize]) -> Tracer {
+        let own = self.shape();
+        let mut seen = vec![false; own.len()];
+        assert_eq!(perm.len(), own.len(), "transpose: one entry per axis");
+        for &p in perm {
+            assert!(p < own.len() && !std::mem::replace(&mut seen[p], true), "transpose: {perm:?} is not a permutation");
+        }
+        if perm.iter().enumerate().all(|(i, &p)| i == p) {
+            return self;
+        }
+        Tracer::new(Op::Transpose(self.check(), perm.to_vec()), perm.iter().map(|&p| own[p]).collect())
+    }
+
+    /// Sum over `axes`, which are removed.
+    pub fn sum(self, axes: &[usize]) -> Tracer {
+        let own = self.shape();
+        let mut axes = axes.to_vec();
+        axes.sort_unstable();
+        axes.dedup();
+        assert!(axes.iter().all(|&a| a < own.len()), "sum: axis out of range for {own:?}");
+        if axes.is_empty() {
+            return self;
+        }
+        let shape = (0..own.len()).filter(|a| !axes.contains(a)).map(|a| own[a]).collect();
+        Tracer::new(Op::Sum(self.check(), axes), shape)
+    }
+
+    /// Sum of every element (a scalar).
+    pub fn sum_all(self) -> Tracer {
+        let n = self.shape().len();
+        self.sum(&(0..n).collect::<Vec<_>>())
+    }
+
+    /// Mean of every element.
+    pub fn mean(self) -> Tracer {
+        let count: usize = self.shape().iter().product();
+        self.sum_all() / Tracer::lit(count as f64)
+    }
+
+    /// Tensor product contracting the last axis of `self` with the first axis of `rhs`: matrix ·
+    /// vector, vector · vector (a scalar), matrix · matrix.
+    pub fn dot(self, rhs: Tracer) -> Tracer {
+        let n = self.shape().len();
+        assert!(n >= 1 && !rhs.shape().is_empty(), "dot: both operands need an axis");
+        self.dot_general(rhs, &[n - 1], &[0])
+    }
+
+    /// Contracts axes `ca` of `self` with axes `cb` of `rhs` (pairwise, equal lengths). The result
+    /// has the remaining axes of `self`, then those of `rhs`.
+    pub fn dot_general(self, rhs: Tracer, ca: &[usize], cb: &[usize]) -> Tracer {
+        let (sa, sb) = (self.shape(), rhs.shape());
+        assert_eq!(ca.len(), cb.len(), "dot_general: pair each contracted axis");
+        for (&i, &j) in ca.iter().zip(cb) {
+            assert!(i < sa.len() && j < sb.len() && sa[i] == sb[j], "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}");
+        }
+        let distinct = |c: &[usize]| c.iter().enumerate().all(|(k, x)| !c[..k].contains(x));
+        assert!(distinct(ca) && distinct(cb), "dot_general: an axis is contracted twice");
+        let shape = (0..sa.len()).filter(|a| !ca.contains(a)).map(|a| sa[a]).chain((0..sb.len()).filter(|b| !cb.contains(b)).map(|b| sb[b])).collect();
+        Tracer::new(Op::Dot { a: self.check(), b: rhs.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
+    }
+
+    /// The real FFT along the last axis: `(real parts, imaginary parts)`, `n / 2 + 1` bins each.
+    pub fn rfft(self) -> (Tracer, Tracer) {
+        let mut shape = self.shape();
+        let n = *shape.last().expect("rfft: needs an axis");
+        assert!(n >= 1, "rfft: empty axis");
+        *shape.last_mut().unwrap() = n / 2 + 1;
+        let id = self.check();
+        (Tracer::new(Op::Rfft(id, Part::Re), shape.clone()), Tracer::new(Op::Rfft(id, Part::Im), shape))
+    }
+
+    /// The inverse of [`rfft`](Self::rfft): `n` real samples along the last axis from `n / 2 + 1`
+    /// bins (real and imaginary parts of the same shape).
+    pub fn irfft(re: Tracer, im: Tracer, n: usize) -> Tracer {
+        let (sr, si) = (re.shape(), im.shape());
+        assert_eq!(sr, si, "irfft: real and imaginary parts differ in shape");
+        assert!(n >= 1 && sr.last() == Some(&(n / 2 + 1)), "irfft: {n} samples need {} bins, got {sr:?}", n / 2 + 1);
+        let mut shape = sr;
+        *shape.last_mut().unwrap() = n;
+        Tracer::new(Op::Irfft { re: re.check(), im: im.check(), n }, shape)
     }
 }
 
 impl Mask {
     pub(crate) fn node(id: Id) -> Mask {
         Mask { id, trace: current_trace() }
+    }
+
+    fn broadcast_to(self, shape: &[usize]) -> Mask {
+        let own = with_graph(|g| g.nodes[self.id as usize].shape.clone());
+        if own == shape {
+            return self;
+        }
+        let offset = shape.len() - own.len();
+        let dims = (offset..shape.len()).collect();
+        Mask { id: push(Op::Broadcast(self.id, dims), shape.to_vec(), true), trace: self.trace }
     }
 }
 
@@ -258,7 +509,7 @@ impl Neg for Tracer {
 impl Real for Tracer {
     type Mask = Mask;
     fn lit(v: f64) -> Self {
-        Tracer { id: push(Op::Const(v)), trace: current_trace() }
+        Tracer::new(Op::Const(v), Vec::new())
     }
     fn exp(self) -> Self {
         self.unary(Op::Exp)
@@ -298,6 +549,10 @@ impl Real for Tracer {
     }
     fn select(mask: Mask, if_true: Self, if_false: Self) -> Self {
         assert_eq!(mask.trace, current_trace(), "flux: mask used outside the trace that created it");
-        Tracer { id: push(Op::Select(mask.id, if_true.check(), if_false.check())), trace: if_true.trace }
+        let ms = with_graph(|g| g.nodes[mask.id as usize].shape.clone());
+        let (a, b, shape) = if_true.align(if_false);
+        let shape = broadcast_shapes(&shape, &ms).unwrap_or_else(|| panic!("flux: mask {ms:?} does not broadcast with {shape:?}"));
+        let (a, b, m) = (a.broadcast_to(&shape), b.broadcast_to(&shape), mask.broadcast_to(&shape));
+        Tracer::new(Op::Select(m.id, a.check(), b.check()), shape)
     }
 }
