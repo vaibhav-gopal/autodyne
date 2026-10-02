@@ -36,6 +36,8 @@ use crate::units::*;
 /// assert!((y.as_slice()[0] - 0.5).abs() < 1e-12); // (1 + 2 * 0.5 + 0) / 4
 /// ```
 pub trait ArrayMath: Elementwise {
+    /// A constant array of `shape` from row-major `values` (windows, weights), rounded to this type.
+    fn array(values: &[f64], shape: &[usize]) -> Self;
     /// The shape (`[]` for a scalar).
     fn shape(&self) -> Vec<usize>;
     /// Stretches to `shape`, NumPy style (trailing axes line up; axes of length 1 stretch).
@@ -52,6 +54,21 @@ pub trait ArrayMath: Elementwise {
     /// Contracts axes `ca` of `self` with axes `cb` of `rhs` (pairwise). The result has the
     /// remaining axes of `self`, then those of `rhs`.
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self;
+    /// Indices `start[i]..limit[i]` by `stride[i]` along each axis (`a[s:l:k, ...]`).
+    fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Self;
+    /// Zero padding: `low[i]` zeros before axis `i`, `high[i]` after, and `interior[i]` between
+    /// neighbouring elements.
+    fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self;
+    /// Joins arrays along `axis` (every other axis must match), like `numpy.concatenate`.
+    fn concatenate(parts: &[Self], axis: usize) -> Self;
+
+    /// `start..end` along `axis`, the other axes whole.
+    fn slice_axis(self, axis: usize, start: usize, end: usize) -> Self {
+        let shape = self.shape();
+        let (mut lo, mut hi) = (vec![0; shape.len()], shape.clone());
+        (lo[axis], hi[axis]) = (start, end);
+        self.slice(&lo, &hi, &vec![1; shape.len()])
+    }
 
     /// Sum of every element (a scalar).
     fn sum_all(self) -> Self {
@@ -131,6 +148,77 @@ pub(crate) fn reshape_any<T>(a: NdArray<T>, shape: &[usize]) -> NdArray<T> {
 
 pub(crate) fn transpose_any<T: Copy>(a: NdArray<T>, perm: &[usize]) -> NdArray<T> {
     a.view().permute(perm).unwrap_or_else(|_| panic!("transpose: {perm:?} is not a permutation of {:?}", a.shape())).to_owned()
+}
+
+/// The shape of a slice (checking its bounds).
+pub(crate) fn slice_shape(shape: &[usize], start: &[usize], limit: &[usize], stride: &[usize]) -> Vec<usize> {
+    let n = shape.len();
+    assert!(start.len() == n && limit.len() == n && stride.len() == n, "slice: one start, limit and stride per axis of {shape:?}");
+    (0..n)
+        .map(|i| {
+            assert!(start[i] <= limit[i] && limit[i] <= shape[i] && stride[i] >= 1, "slice: {start:?}..{limit:?} by {stride:?} is out of range for {shape:?}");
+            (limit[i] - start[i]).div_ceil(stride[i])
+        })
+        .collect()
+}
+
+/// The shape after padding (checking the arguments).
+pub(crate) fn pad_shape(shape: &[usize], low: &[usize], high: &[usize], interior: &[usize]) -> Vec<usize> {
+    let n = shape.len();
+    assert!(low.len() == n && high.len() == n && interior.len() == n, "pad: one low, high and interior count per axis of {shape:?}");
+    (0..n).map(|i| low[i] + high[i] + if shape[i] == 0 { 0 } else { shape[i] + (shape[i] - 1) * interior[i] }).collect()
+}
+
+/// The shape of a concatenation (checking that the other axes match).
+pub(crate) fn concat_shape(shapes: &[Vec<usize>], axis: usize) -> Vec<usize> {
+    let first = shapes.first().expect("concatenate: needs at least one array");
+    assert!(axis < first.len(), "concatenate: axis {axis} is out of range for {first:?}");
+    let mut shape = first.clone();
+    shape[axis] = 0;
+    for s in shapes {
+        assert!(s.len() == first.len() && (0..s.len()).all(|i| i == axis || s[i] == first[i]), "concatenate: {s:?} does not match {first:?} off axis {axis}");
+        shape[axis] += s[axis];
+    }
+    shape
+}
+
+pub(crate) fn slice_any<T: Copy>(a: &NdArray<T>, start: &[usize], limit: &[usize], stride: &[usize]) -> NdArray<T> {
+    let shape = slice_shape(a.shape(), start, limit, stride);
+    let mut v = a.view();
+    for i in 0..shape.len() {
+        v = v.slice_axis(i, start[i]..limit[i]).expect("checked");
+        if stride[i] > 1 && shape[i] > 0 {
+            v = v.step_axis(i, stride[i] as isize).expect("checked");
+        }
+    }
+    v.to_owned()
+}
+
+pub(crate) fn pad_any<T: Copy + Default>(a: &NdArray<T>, low: &[usize], high: &[usize], interior: &[usize]) -> NdArray<T> {
+    let (from, n) = (a.shape(), a.ndim());
+    let shape = pad_shape(from, low, high, interior);
+    let mut strides = vec![1; n];
+    for i in (0..n.saturating_sub(1)).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1];
+    }
+    let mut out = vec![T::default(); shape.iter().product()];
+    let mut index = vec![0; n];
+    for &x in a.as_slice() {
+        out[(0..n).map(|i| (low[i] + index[i] * (interior[i] + 1)) * strides[i]).sum::<usize>()] = x;
+        for i in (0..n).rev() {
+            index[i] += 1;
+            if index[i] < from[i] {
+                break;
+            }
+            index[i] = 0;
+        }
+    }
+    NdArray::from_vec(out, &shape).expect("valid shape")
+}
+
+pub(crate) fn concatenate_any<T: Copy + Default>(parts: &[NdArray<T>], axis: usize) -> NdArray<T> {
+    concat_shape(&parts.iter().map(|p| p.shape().to_vec()).collect::<Vec<_>>(), axis);
+    super::concatenate(&parts.iter().map(|p| p.view()).collect::<Vec<_>>(), axis).expect("checked")
 }
 
 /// Sums over `axes` by plain accumulation, for element types without a pairwise kernel.
@@ -250,6 +338,9 @@ impl<T: Float + Default> RealValued for NdArray<T> {
 }
 
 impl<T: Float + Default> ArrayMath for NdArray<T> {
+    fn array(values: &[f64], shape: &[usize]) -> Self {
+        NdArray::from_vec(values.iter().map(|&v| T::_lit(v)).collect(), shape).unwrap_or_else(|_| panic!("array: {} values do not fill {shape:?}", values.len()))
+    }
     fn shape(&self) -> Vec<usize> {
         NdArray::shape(self).to_vec()
     }
@@ -284,6 +375,15 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
             return NdArray::from_vec(out, &shape).expect("valid shape");
         }
         NdArray::from_vec(matmul_naive(&a, &b, m, k, n), &shape).expect("valid shape")
+    }
+    fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Self {
+        slice_any(&self, start, limit, stride)
+    }
+    fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self {
+        pad_any(&self, low, high, interior)
+    }
+    fn concatenate(parts: &[Self], axis: usize) -> Self {
+        concatenate_any(parts, axis)
     }
 }
 
@@ -349,6 +449,10 @@ impl<T: Float + Default> Elementwise for NdArray<Complex<T>> {
 }
 
 impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
+    fn array(values: &[f64], shape: &[usize]) -> Self {
+        NdArray::from_vec(values.iter().map(|&v| Complex::new(T::_lit(v), T::_ZERO)).collect(), shape)
+            .unwrap_or_else(|_| panic!("array: {} values do not fill {shape:?}", values.len()))
+    }
     fn shape(&self) -> Vec<usize> {
         NdArray::shape(self).to_vec()
     }
@@ -370,6 +474,15 @@ impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self {
         let (a, b, m, k, n, shape) = dot_operands(&self, &rhs, ca, cb);
         NdArray::from_vec(matmul_naive(&a, &b, m, k, n), &shape).expect("valid shape")
+    }
+    fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Self {
+        slice_any(&self, start, limit, stride)
+    }
+    fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self {
+        pad_any(&self, low, high, interior)
+    }
+    fn concatenate(parts: &[Self], axis: usize) -> Self {
+        concatenate_any(parts, axis)
     }
 }
 

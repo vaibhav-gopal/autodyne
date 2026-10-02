@@ -9,8 +9,10 @@
 
 #![cfg(feature = "flux")]
 
-use autodyne::filter::OnePole;
-use autodyne::flux::{scalar, trace, vector, Backend, Executable, Iree, Pjrt, Program, Scan, Tracer, Xla};
+use autodyne::distortion::Shape;
+use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
+use autodyne::flux::optim::{Adam, Optimizer};
+use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, Backend, Executable, Iree, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
 use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
 use autodyne::units::{Elementwise, RealValued};
 
@@ -115,6 +117,10 @@ fn every_primitive_matches_the_interpreter() {
             g.mean_all(),
             b.broadcast_in_dim(&[8, 2], &[0]),
             a.dot_general(m, &[1], &[0]).dot_general(a, &[0], &[0]),
+            a.slice(&[1, 1], &[3, 8], &[1, 3]),
+            m.pad(&[1, 0], &[0, 2], &[2, 1]),
+            Tracer::concatenate(&[a, c, a.slice_axis(1, 2, 4)], 1),
+            frames(m.transpose(&[1, 0]), 3, 2),
         ]
     });
     let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 1)).collect();
@@ -135,7 +141,8 @@ fn gradients_of_array_programs_match_the_interpreter() {
         let (x, w, g) = (v[0], v[1], v[2]);
         let (re, im) = x.rfft();
         let y = Tracer::irfft(re * g, im * g, 8).dot(w).tanh();
-        let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum_axes(&[0]).mean_all();
+        let framed = frames(Tracer::concatenate(&[x, x.pad(&[0, 1], &[0, 0], &[0, 1])], 1), 6, 4);
+        let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum_axes(&[0]).mean_all() + (framed * framed).slice(&[1, 0, 0], &[4, 3, 6], &[2, 1, 2]).sum_all();
         autodyne::flux::vjp(&[loss], &[Elementwise::lit(1.0)], v)
     });
     let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 10)).collect();
@@ -217,6 +224,7 @@ fn shaped_scans_match_the_interpreter() {
                 assert_close(&format!("{name} d param"), p, w, 1e-4);
             }
             assert_close(&format!("{name} d state"), &out[1 + params.len()], &want.state[0], 1e-4);
+            assert_close(&format!("{name} d xs"), &out[2 + params.len()], &want.input, 1e-4);
         }
     }
 }
@@ -324,5 +332,66 @@ fn fits_a_spectral_gain_frame_by_frame() {
         for (k, (g, t)) in gains.iter().zip(&true_gains).enumerate() {
             assert!((g - t).abs() < 1e-2, "{} bin {k}: {g} vs {t}", backend.name());
         }
+    }
+}
+
+#[test]
+fn spectral_loss_gradient_program_matches_the_interpreter() {
+    // a filter chain scored by a multi-resolution STFT loss plus MSE; every gradient, d xs included
+    let scan = Scan::trace(&[&[], &[]], &[&[]], &[], |p, s, x| {
+        let (s, y) = OnePole::lowpass(p[0].exp(), Elementwise::lit(FS)).tick(s[0], x);
+        (vec![s], (y * p[1]).tanh())
+    });
+    let len = 256;
+    let resolutions = [StftResolution::overlapping(64), StftResolution::new(32, 8, 24)];
+    let loss = Loss::trace(&[len], &[&[len]], |y, aux| {
+        let d = y - aux[0];
+        multi_resolution_stft(y, aux[0], &resolutions) + (d * d).mean_all()
+    });
+    let xs = random(&[len], 31);
+    let (targets, _) = scan.run(&[scalar(2_000f32.ln()), scalar(2.0)], &xs, &[scalar(0.0)]);
+    let params = [scalar(600f32.ln()), scalar(1.0)];
+    let want = scan.grad(&params, &xs, &[scalar(0.0)], &loss, std::slice::from_ref(&targets));
+    for backend in backends() {
+        let exe = compile(&*backend, &scan.grad_program(len, &loss));
+        let out = exe.run(&[params[0].clone(), params[1].clone(), xs.clone(), targets.clone(), scalar(0.0)]).unwrap();
+        let name = backend.name();
+        assert!((out[0].as_slice()[0] - want.loss).abs() <= 1e-4 * (1.0 + want.loss), "{name} loss {} vs {}", out[0].as_slice()[0], want.loss);
+        assert_close(&format!("{name} d cutoff"), &out[1], &want.params[0], 1e-3);
+        assert_close(&format!("{name} d gain"), &out[2], &want.params[1], 1e-3);
+        assert_close(&format!("{name} d state"), &out[3], &want.state[0], 1e-3);
+        assert_close(&format!("{name} d xs"), &out[4], &want.input, 1e-3);
+    }
+}
+#[test]
+fn fits_an_eq_and_drive_to_a_recording_with_the_stft_loss() {
+    // a peaking EQ into tanh drive: recover the centre frequency (log Hz), the gain (in units of
+    // 10 dB) and the drive from the target's spectrogram alone (no sample-by-sample error)
+    let scan = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
+        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(FS), Tracer::lit(1.0), p[1] * Tracer::lit(10.0));
+        let ([a, b], y) = c.tick([s[0], s[1]], x);
+        (vec![a, b], Shape::Tanh.apply(y * p[2]))
+    });
+    let len = 2048;
+    let loss = Loss::stft(&[len], &[StftResolution::overlapping(512), StftResolution::overlapping(128), StftResolution::overlapping(32)]);
+    let xs = NdArray::from_vec(noise(len, 41).iter().map(|v| 0.5 * v).collect(), &[len]).unwrap();
+    let s0 = [scalar(0.0), scalar(0.0)];
+    let truth = [3_000f32.ln(), 0.9, 2.0];
+    let (target, _) = scan.run(&truth.map(scalar), &xs, &s0);
+    for backend in backends() {
+        let exe = compile(&*backend, &scan.grad_program(len, &loss));
+        let mut params = vec![scalar(1_000f32.ln()), scalar(0.3), scalar(1.0)];
+        let mut adam = Adam::new(0.03);
+        let mut losses = Vec::new();
+        for _ in 0..300 {
+            let out = exe.run(&[params.clone(), vec![xs.clone(), target.clone()], s0.to_vec()].concat()).unwrap();
+            losses.push(out[0].as_slice()[0]);
+            adam.step(&mut params, &out[1..4]);
+        }
+        let [f, g, d] = [0, 1, 2].map(|k| params[k].as_slice()[0]);
+        eprintln!("{}: {:.0} Hz, {:.2} dB, drive {d:.3}; loss {} -> {}", backend.name(), f.exp(), 10.0 * g, losses[0], losses[losses.len() - 1]);
+        assert!((f.exp() / 3_000.0 - 1.0).abs() < 0.05, "{}: centre {} Hz", backend.name(), f.exp());
+        assert!((10.0 * g - 9.0).abs() < 0.5, "{}: gain {} dB", backend.name(), 10.0 * g);
+        assert!((d - 2.0).abs() < 0.1, "{}: drive {d}", backend.name());
     }
 }

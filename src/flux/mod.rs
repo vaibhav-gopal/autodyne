@@ -4,12 +4,16 @@
 //!
 //! Generic code runs on [`Tracer`] instead of `f32`; every operation is recorded into a flat
 //! [`Graph`] of primitives on f32 arrays: element-wise arithmetic and functions, comparisons and
-//! `select`, broadcasting, reshapes and transposes, sums, `dot_general` and real FFTs. From there:
+//! `select`, broadcasting, reshapes and transposes, slices, padding and concatenation, sums,
+//! `dot_general` and real FFTs. From there:
 //!
 //! - [`Graph::eval`] interprets it (f32, the reference semantics; values are
 //!   [`NdArray`](crate::signal::NdArray)s);
 //! - [`vjp`] differentiates it in reverse mode, recording the backward pass into the same trace;
-//! - [`Scan`] runs a traced step over a whole signal, and its gradient as a reverse scan;
+//! - [`Scan`] runs a traced step over a whole signal, and its gradient as a reverse scan, with
+//!   respect to the parameters, the initial state and the input signal;
+//! - [`Loss`] scores a scan's whole output: mean squared error, the multi-resolution STFT loss
+//!   usual for audio ([`Loss::stft`]), or any traced function; [`optim`] updates the parameters;
 //! - [`Graph::program`] and the `Scan` programs emit textual StableHLO, which a [`Backend`]
 //!   compiles and runs: [`Iree`] (its command-line tools), [`Pjrt`] (a PJRT plugin such as XLA's,
 //!   loaded in-process through the PJRT C API) or [`Xla`] (XLA through JAX, where no plugin exists).
@@ -41,6 +45,7 @@ mod graph;
 mod hlo;
 mod interp;
 mod iree;
+mod loss;
 pub mod optim;
 mod pjrt;
 mod runtime;
@@ -53,7 +58,8 @@ pub use hlo::Program;
 pub use iree::Iree;
 pub use pjrt::Pjrt;
 pub use runtime::{Backend, Executable};
-pub use scan::{LossGrad, Scan};
+pub use loss::{frames, multi_resolution_stft, stft_magnitude, Loss, StftResolution};
+pub use scan::{LossGrad, Scan, ScanVjp};
 pub use xla::Xla;
 
 /// Errors from compiling or running programs.

@@ -12,9 +12,10 @@
 
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
-use super::{BinaryOp, DynArray, Promotion, UnaryOp};
+use super::{BinaryOp, DynArray, DynElement, Promotion, UnaryOp};
 use crate::signal::{
-    broadcast_in_dim, broadcast_to_any, reshape_any, select_any, sum_axes_with, transpose_any, ArrayMath, ComplexArrayMath, NdArray, RealArrayMath,
+    broadcast_in_dim, broadcast_to_any, concatenate_any, pad_any, reshape_any, select_any, slice_any, sum_axes_with, transpose_any, ArrayMath, ComplexArrayMath,
+    NdArray, RealArrayMath,
 };
 use crate::units::*;
 
@@ -246,6 +247,10 @@ fn wide_int(a: &DynArray) -> DynArray {
 }
 
 impl ArrayMath for DynArray {
+    /// An `f64` array.
+    fn array(values: &[f64], shape: &[usize]) -> Self {
+        DynArray::F64(NdArray::array(values, shape))
+    }
     fn shape(&self) -> Vec<usize> {
         DynArray::shape(self).to_vec()
     }
@@ -300,6 +305,27 @@ impl ArrayMath for DynArray {
             }
         }
     }
+    fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Self {
+        dyn_match!(self, a => DynArray::from_array(slice_any(&a, start, limit, stride)))
+    }
+    fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self {
+        dyn_match!(self, a => DynArray::from_array(pad_any(&a, low, high, interior)))
+    }
+    /// The parts are promoted to a common type first.
+    fn concatenate(parts: &[Self], axis: usize) -> Self {
+        let first = parts.first().expect("concatenate: needs at least one array");
+        let target = parts[1..].iter().fold(first.dtype(), |t, p| {
+            super::result_type(t, p.dtype(), BinaryOp::Add, Promotion::Standard).unwrap_or_else(|e| panic!("concatenate: {t:?} with {:?}: {e}", p.dtype()))
+        });
+        let parts: Vec<DynArray> = parts.iter().map(|p| p.cast(target).expect("converts")).collect();
+        dyn_match!(&parts[0], a => concatenate_as(a, &parts, axis))
+    }
+}
+
+/// Concatenates `parts`, all of `T` (the first argument only names the type).
+fn concatenate_as<T: DynElement>(_: &NdArray<T>, parts: &[DynArray], axis: usize) -> DynArray {
+    let arrays: Vec<NdArray<T>> = parts.iter().map(|p| p.as_array::<T>().expect("one type").clone()).collect();
+    DynArray::from_array(concatenate_any(&arrays, axis))
 }
 
 fn int_matmul<T: Copy + Default>(a: &[T], b: &[T], m: usize, k: usize, n: usize, add: fn(T, T) -> T, mul: fn(T, T) -> T) -> Vec<T> {

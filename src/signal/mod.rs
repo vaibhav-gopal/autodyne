@@ -51,7 +51,11 @@ mod transform;
 
 pub use analysis::*;
 pub use array_math::{ArrayMath, ComplexArrayMath, RealArrayMath};
-pub(crate) use array_math::{broadcast_in_dim, broadcast_to_any, dot_operands, reshape_any, select_any, sum_axes_with, transpose_any};
+pub(crate) use array_math::{
+    broadcast_in_dim, broadcast_to_any, concatenate_any, dot_operands, pad_any, reshape_any, select_any, slice_any, sum_axes_with, transpose_any,
+};
+#[cfg(feature = "flux")]
+pub(crate) use array_math::{concat_shape, pad_shape, slice_shape};
 pub use complex::*;
 pub use container::*;
 pub use nd_axis::{concatenate, stack};

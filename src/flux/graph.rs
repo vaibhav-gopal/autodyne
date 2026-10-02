@@ -77,22 +77,34 @@ pub enum Op {
     /// The inverse real FFT along the last axis from real and imaginary parts (`n / 2 + 1` bins)
     /// to `n` samples, scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
     Irfft { re: Id, im: Id, n: usize },
+    /// Indices `start..limit` by `stride` along each axis (`stablehlo.slice`).
+    Slice { a: Id, start: Vec<usize>, limit: Vec<usize>, stride: Vec<usize> },
+    /// Zero padding before, after and between the elements of each axis (`stablehlo.pad`).
+    Pad { a: Id, low: Vec<usize>, high: Vec<usize>, interior: Vec<usize> },
+    /// The operands joined along an axis (`stablehlo.concatenate`).
+    Concat(Vec<Id>, usize),
 }
 
 impl Op {
     /// The operands, in order.
     pub fn operands(&self) -> impl Iterator<Item = Id> {
+        if let Op::Concat(parts, _) = self {
+            return parts.clone().into_iter();
+        }
         let (a, b, c) = match *self {
             Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
             Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) | Op::Floor(a) => (Some(a), None, None),
-            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) => (Some(a), None, None),
+            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) | Op::Slice { a, .. } | Op::Pad { a, .. } => {
+                (Some(a), None, None)
+            }
             Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
                 (Some(a), Some(b), None)
             }
             Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } => (Some(a), Some(b), None),
             Op::Select(c, a, b) => (Some(c), Some(a), Some(b)),
+            Op::Concat(..) => unreachable!("handled above"),
         };
-        [a, b, c].into_iter().flatten()
+        [a, b, c].into_iter().flatten().collect::<Vec<_>>().into_iter()
     }
 
     /// The same operation on other operands (`f` maps each operand id).
@@ -124,6 +136,9 @@ impl Op {
             Op::Dot { a, b, ca, cb } => Op::Dot { a: f(a), b: f(b), ca, cb },
             Op::Rfft(a, part) => Op::Rfft(f(a), part),
             Op::Irfft { re, im, n } => Op::Irfft { re: f(re), im: f(im), n },
+            Op::Slice { a, start, limit, stride } => Op::Slice { a: f(a), start, limit, stride },
+            Op::Pad { a, low, high, interior } => Op::Pad { a: f(a), low, high, interior },
+            Op::Concat(parts, axis) => Op::Concat(parts.into_iter().map(f).collect(), axis),
         }
     }
 }
@@ -360,6 +375,10 @@ impl Tracer {
 
 /// Array operations record nodes; see [`ArrayMath`] for what each computes.
 impl ArrayMath for Tracer {
+    /// A literal, rounded to f32.
+    fn array(values: &[f64], shape: &[usize]) -> Tracer {
+        Tracer::constant(&NdArray::array(values, shape))
+    }
     fn shape(&self) -> Vec<usize> {
         let id = self.check();
         with_graph(|g| g.nodes[id as usize].shape.clone())
@@ -432,6 +451,31 @@ impl ArrayMath for Tracer {
         Tracer::new(Op::Dot { a: self.check(), b: rhs.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
     }
 
+    fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Tracer {
+        let own = self.shape();
+        let shape = crate::signal::slice_shape(&own, start, limit, stride);
+        if shape == own {
+            return self;
+        }
+        Tracer::new(Op::Slice { a: self.check(), start: start.to_vec(), limit: limit.to_vec(), stride: stride.to_vec() }, shape)
+    }
+
+    fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Tracer {
+        let own = self.shape();
+        let shape = crate::signal::pad_shape(&own, low, high, interior);
+        if shape == own {
+            return self;
+        }
+        Tracer::new(Op::Pad { a: self.check(), low: low.to_vec(), high: high.to_vec(), interior: interior.to_vec() }, shape)
+    }
+
+    fn concatenate(parts: &[Tracer], axis: usize) -> Tracer {
+        let shape = crate::signal::concat_shape(&parts.iter().map(|p| p.shape()).collect::<Vec<_>>(), axis);
+        if parts.len() == 1 {
+            return parts[0];
+        }
+        Tracer::new(Op::Concat(parts.iter().map(|p| p.check()).collect(), axis), shape)
+    }
 }
 
 /// Real FFTs record nodes; the spectrum is two real arrays (real and imaginary parts).

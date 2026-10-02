@@ -74,6 +74,9 @@ impl Graph {
                     Value::Real(if part == Part::Re { re } else { im })
                 }
                 Op::Irfft { re, im, n } => Value::Real(NdArray::irfft(r(re), r(im), n)),
+                Op::Slice { a, ref start, ref limit, ref stride } => Value::Real(r(a).slice(start, limit, stride)),
+                Op::Pad { a, ref low, ref high, ref interior } => Value::Real(r(a).pad(low, high, interior)),
+                Op::Concat(ref parts, axis) => Value::Real(NdArray::concatenate(&parts.iter().map(|&p| r(p)).collect::<Vec<_>>(), axis)),
             };
             values.push(value);
         }

@@ -174,6 +174,31 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 acc(&mut adj, re, gr * s);
                 acc(&mut adj, im, gi * s);
             }
+            Op::Slice { a, start, stride, .. } => {
+                // scatter back: zeros around and between the kept elements
+                let (from, to) = (shape_of(a), shape_of(id));
+                if to.contains(&0) {
+                    acc(&mut adj, a, zero().broadcast_to(&from));
+                } else {
+                    let high: Vec<usize> = (0..from.len()).map(|i| from[i] - (start[i] + (to[i] - 1) * stride[i] + 1)).collect();
+                    let interior: Vec<usize> = stride.iter().map(|s| s - 1).collect();
+                    acc(&mut adj, a, g.pad(&start, &high, &interior));
+                }
+            }
+            Op::Pad { a, low, interior, .. } => {
+                let from = shape_of(a);
+                let limit: Vec<usize> = (0..from.len()).map(|i| low[i] + if from[i] == 0 { 0 } else { (from[i] - 1) * (interior[i] + 1) + 1 }).collect();
+                let stride: Vec<usize> = interior.iter().map(|k| k + 1).collect();
+                acc(&mut adj, a, g.slice(&low, &limit, &stride));
+            }
+            Op::Concat(parts, axis) => {
+                let mut offset = 0;
+                for p in parts {
+                    let n = shape_of(p)[axis];
+                    acc(&mut adj, p, g.slice_axis(axis, offset, offset + n));
+                    offset += n;
+                }
+            }
         }
     }
     wrt.iter().map(|w| adj[w.id as usize].unwrap_or_else(|| zero().broadcast_to(&w.shape()))).collect()

@@ -2,6 +2,7 @@
 
 use super::ad::vjp;
 use super::graph::{trace, Graph, Tracer};
+use super::loss::Loss;
 use crate::signal::{ArrayMath, NdArray};
 
 /// A recurrence `step(params, state, x) -> (state', y)`, traced once, run over a signal.
@@ -41,22 +42,29 @@ pub struct Scan {
     pub(crate) output: Vec<usize>,
     /// inputs: params, state, x; outputs: state', y
     pub(crate) step: Graph,
-    /// inputs: params, state, x, target; outputs: state', y, Σ (y - target)²
-    pub(crate) step_loss: Graph,
-    /// inputs: params, state, x, target, cotangents of state' and of the loss term;
-    /// outputs: cotangents of params and state
+    /// inputs: params, state, x, cotangents of state' and of y; outputs: cotangents of params,
+    /// state and x
     pub(crate) step_vjp: Graph,
 }
 
-/// The loss and its gradient from [`Scan::loss_grad`].
+/// A loss and its gradient, from [`Scan::grad`] / [`Scan::loss_grad`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct LossGrad {
-    /// Mean squared error between the outputs and the targets (over every element).
     pub loss: f32,
     /// d loss / d each parameter.
     pub params: Vec<NdArray<f32>>,
     /// d loss / d each initial state value.
     pub state: Vec<NdArray<f32>>,
+    /// d loss / d the input signal (`[len, sample...]`).
+    pub input: NdArray<f32>,
+}
+
+/// Cotangents from [`Scan::vjp`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScanVjp {
+    pub params: Vec<NdArray<f32>>,
+    pub state: Vec<NdArray<f32>>,
+    pub input: NdArray<f32>,
 }
 
 impl Scan {
@@ -77,19 +85,11 @@ impl Scan {
         let output = step.output_shapes()[s].clone();
 
         let mut shapes = shapes;
-        shapes.push(&output);
-        let step_loss = trace(&shapes, |v| {
-            let out = step.call(&v[..p + s + 1]);
-            let d = out[s] - v[p + s + 1];
-            out.into_iter().chain([(d * d).sum_all()]).collect()
-        });
-
         shapes.extend(states.iter().copied());
-        shapes.push(&[]);
+        shapes.push(&output);
         let step_vjp = trace(&shapes, |v| {
-            let out = step_loss.call(&v[..p + s + 2]);
-            let outputs: Vec<Tracer> = out[..s].iter().copied().chain([out[s + 1]]).collect();
-            vjp(&outputs, &v[p + s + 2..], &v[..p + s])
+            let out = step.call(&v[..p + s + 1]);
+            vjp(&out, &v[p + s + 1..], &v[..p + s + 1])
         });
         Scan {
             params: params.iter().map(|x| x.to_vec()).collect(),
@@ -97,11 +97,9 @@ impl Scan {
             sample: sample.to_vec(),
             output,
             step,
-            step_loss,
             step_vjp,
         }
     }
-
     pub fn param_shapes(&self) -> &[Vec<usize>] {
         &self.params
     }
@@ -138,44 +136,89 @@ impl Scan {
         (NdArray::from_vec(ys, &[&[len], self.output.as_slice()].concat()).expect("output shape"), state)
     }
 
-    /// The mean squared error between the outputs and `targets` (`[len, output...]`), and its
-    /// gradient with respect to the parameters and the initial state (interpreted; the same
-    /// computation as [`loss_grad_program`](Self::loss_grad_program)).
-    pub fn loss_grad(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, targets: &NdArray<f32>, s0: &[NdArray<f32>]) -> LossGrad {
-        let len = self.check(params, xs, s0);
-        assert_eq!(targets.shape(), [&[len], self.output.as_slice()].concat(), "Scan::loss_grad: targets must be [len, output...]");
-        let (p, s) = (self.params.len(), self.states.len());
-        let inputs: Vec<NdArray<f32>> = steps(xs, &self.sample).collect();
-        let targets: Vec<NdArray<f32>> = steps(targets, &self.output).collect();
-
-        // forward, saving the state each step starts from
-        let mut saved = Vec::with_capacity(len);
+    /// The outputs, and the state each step starts from.
+    fn forward(&self, params: &[NdArray<f32>], inputs: &[NdArray<f32>], s0: &[NdArray<f32>]) -> (NdArray<f32>, Vec<Vec<NdArray<f32>>>) {
+        let s = self.states.len();
+        let mut saved = Vec::with_capacity(inputs.len());
         let mut state = s0.to_vec();
-        let mut loss = 0.0f32;
-        for (x, t) in inputs.iter().zip(&targets) {
-            let args: Vec<NdArray<f32>> = params.iter().chain(&state).cloned().chain([x.clone(), t.clone()]).collect();
-            let mut out = self.step_loss.eval(&args);
-            loss += out[s + 1].as_slice()[0];
+        let mut ys = Vec::with_capacity(inputs.len() * self.output.iter().product::<usize>());
+        for x in inputs {
+            let args: Vec<NdArray<f32>> = params.iter().chain(&state).cloned().chain([x.clone()]).collect();
+            let mut out = self.step.eval(&args);
+            ys.extend_from_slice(out[s].as_slice());
             out.truncate(s);
             saved.push(std::mem::replace(&mut state, out));
         }
+        (NdArray::from_vec(ys, &[&[inputs.len()], self.output.as_slice()].concat()).expect("output shape"), saved)
+    }
 
-        // backward
-        let dl = 1.0 / (len * self.output.iter().product::<usize>()) as f32;
+    /// The reverse scan: from the cotangents of every output step, those of the parameters, the
+    /// initial state and the input steps.
+    fn backward(&self, params: &[NdArray<f32>], inputs: &[NdArray<f32>], saved: &[Vec<NdArray<f32>>], dys: &NdArray<f32>) -> ScanVjp {
+        let (p, s) = (self.params.len(), self.states.len());
+        let dys: Vec<NdArray<f32>> = steps(dys, &self.output).collect();
         let mut d_params: Vec<NdArray<f32>> = self.params.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
         let mut d_state: Vec<NdArray<f32>> = self.states.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
-        for i in (0..len).rev() {
-            let args: Vec<NdArray<f32>> =
-                params.iter().chain(&saved[i]).cloned().chain([inputs[i].clone(), targets[i].clone()]).chain(d_state).chain([super::scalar(dl)]).collect();
+        let mut d_xs = vec![NdArray::zeros(&self.sample).expect("shape"); inputs.len()];
+        for i in (0..inputs.len()).rev() {
+            let args: Vec<NdArray<f32>> = params.iter().chain(&saved[i]).cloned().chain([inputs[i].clone()]).chain(d_state).chain([dys[i].clone()]).collect();
             let mut out = self.step_vjp.eval(&args);
+            d_xs[i] = out.pop().expect("d x");
             for (d, g) in d_params.iter_mut().zip(&out[..p]) {
                 d.as_mut_slice().iter_mut().zip(g.as_slice()).for_each(|(d, g)| *d += g);
             }
             d_state = out.split_off(p);
+            debug_assert_eq!(d_state.len(), s);
         }
-        LossGrad { loss: loss * dl, params: d_params, state: d_state }
+        let input = d_xs.iter().flat_map(|d| d.as_slice().iter().copied()).collect();
+        ScanVjp { params: d_params, state: d_state, input: NdArray::from_vec(input, &[&[inputs.len()], self.sample.as_slice()].concat()).expect("input shape") }
     }
 
+    /// The vector-Jacobian product of the scan's outputs: given a cotangent for each output step
+    /// (`dys`, `[len, output...]`), returns `Σ dys · ∂ys/∂w` for the parameters, the initial state
+    /// and the input signal. This is how a scan's gradient composes with anything after it.
+    pub fn vjp(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>], dys: &NdArray<f32>) -> ScanVjp {
+        let len = self.check(params, xs, s0);
+        assert_eq!(dys.shape(), [&[len], self.output.as_slice()].concat(), "Scan::vjp: dys must be [len, output...]");
+        let inputs: Vec<NdArray<f32>> = steps(xs, &self.sample).collect();
+        let (_, saved) = self.forward(params, &inputs, s0);
+        self.backward(params, &inputs, &saved, dys)
+    }
+
+    /// `loss(outputs, aux...)` and its gradient with respect to the parameters, the initial state and
+    /// the input signal (interpreted; the same computation as [`grad_program`](Self::grad_program)).
+    ///
+    /// ```
+    /// use autodyne::filter::OnePole;
+    /// use autodyne::flux::{scalar, vector, Loss, Scan, StftResolution};
+    /// use autodyne::units::Elementwise;
+    ///
+    /// let scan = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
+    ///     let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(48_000.0)).tick(s[0], x);
+    ///     (vec![s], y)
+    /// });
+    /// let xs = vector(&(0..256).map(|i| ((i * 37 % 101) as f32 / 50.0) - 1.0).collect::<Vec<_>>());
+    /// let (target, _) = scan.run(&[scalar(2_000.0)], &xs, &[scalar(0.0)]);
+    /// let loss = Loss::stft(&[256], &[StftResolution::overlapping(64), StftResolution::overlapping(32)]);
+    /// let g = scan.grad(&[scalar(500.0)], &xs, &[scalar(0.0)], &loss, &[target]);
+    /// assert!(g.loss > 0.0 && g.params[0].as_slice()[0] < 0.0); // raising the cutoff helps
+    /// assert_eq!(g.input.shape(), [256]);
+    /// ```
+    pub fn grad(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>], loss: &Loss, aux: &[NdArray<f32>]) -> LossGrad {
+        let len = self.check(params, xs, s0);
+        assert_eq!(loss.output_shape(), [&[len], self.output.as_slice()].concat(), "Scan::grad: the loss scores outputs of another shape");
+        let inputs: Vec<NdArray<f32>> = steps(xs, &self.sample).collect();
+        let (ys, saved) = self.forward(params, &inputs, s0);
+        let (value, dys) = loss.grad(&ys, aux);
+        let ScanVjp { params, state, input } = self.backward(params, &inputs, &saved, &dys);
+        LossGrad { loss: value, params, state, input }
+    }
+
+    /// The mean squared error between the outputs and `targets` (`[len, output...]`), and its
+    /// gradient: [`grad`](Self::grad) with [`Loss::mse`].
+    pub fn loss_grad(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, targets: &NdArray<f32>, s0: &[NdArray<f32>]) -> LossGrad {
+        self.grad(params, xs, s0, &Loss::mse(targets.shape()), std::slice::from_ref(targets))
+    }
     /// Checks the argument shapes; returns the number of steps.
     fn check(&self, params: &[NdArray<f32>], xs: &NdArray<f32>, s0: &[NdArray<f32>]) -> usize {
         assert_eq!(params.len(), self.params.len(), "Scan: wrong number of parameters");

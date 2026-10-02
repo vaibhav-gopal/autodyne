@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use super::graph::{Cmp, Graph, Op, Part};
+use super::loss::Loss;
 use super::scan::Scan;
 
 /// A StableHLO module with one function, `@main`, and the shapes of its f32 inputs and outputs.
@@ -36,6 +37,15 @@ fn real(shape: &[usize]) -> String {
 
 fn list(xs: &[usize]) -> String {
     xs.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
+}
+
+/// An `array<i64: ...>` attribute.
+fn i64s(xs: &[usize]) -> String {
+    if xs.is_empty() {
+        "array<i64>".into()
+    } else {
+        format!("array<i64: {}>", list(xs))
+    }
 }
 
 /// A function body being written: SSA names are numbered once per function, so nested regions never
@@ -164,6 +174,31 @@ impl Writer {
                     let spectrum = ty(&g.nodes[re as usize].shape, "complex<f32>");
                     let c = self.emit(&format!("stablehlo.complex {}, {} : {spectrum}", n(re), n(im)));
                     format!("stablehlo.fft {c}, type = IRFFT, length = [{len}] : ({spectrum}) -> {out}")
+                }
+                // generic syntax for these three: it parses the same across StableHLO versions
+                Op::Slice { a, ref start, ref limit, ref stride } => format!(
+                    "\"stablehlo.slice\"({}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({}) -> {out}",
+                    n(a),
+                    i64s(start),
+                    i64s(limit),
+                    i64s(stride),
+                    t(a)
+                ),
+                Op::Pad { a, ref low, ref high, ref interior } => {
+                    let zero = self.splat(0.0, &[]);
+                    format!(
+                        "\"stablehlo.pad\"({}, {zero}) {{edge_padding_low = {}, edge_padding_high = {}, interior_padding = {}}} : ({}, tensor<f32>) -> {out}",
+                        n(a),
+                        i64s(low),
+                        i64s(high),
+                        i64s(interior),
+                        t(a)
+                    )
+                }
+                Op::Concat(ref parts, axis) => {
+                    let names: Vec<String> = parts.iter().map(|&p| n(p)).collect();
+                    let types: Vec<String> = parts.iter().map(|&p| t(p)).collect();
+                    format!("\"stablehlo.concatenate\"({}) {{dimension = {axis} : i64}} : ({}) -> {out}", names.join(", "), types.join(", "))
                 }
             };
             let name = self.emit(&rhs);
@@ -309,70 +344,70 @@ impl Scan {
         w.function(&signature, &results)
     }
 
-    /// The mean squared error and its gradient over `len` steps:
-    /// `@main(params..., xs, targets, s0...) -> (loss, d params..., d s0...)`.
+    /// `loss(outputs, aux...)` and its gradient over `len` steps:
+    /// `@main(params..., xs, aux..., s0...) -> (loss, d params..., d s0..., d xs)`.
     ///
-    /// Two loops: the forward one accumulates the loss and saves the state each step starts from;
-    /// the backward one walks the steps in reverse, applying the step's vector-Jacobian product.
-    pub fn loss_grad_program(&self, len: usize) -> Program {
+    /// Two loops around the loss: the forward one stores the outputs and the state each step starts
+    /// from; the loss and its vector-Jacobian product run on the whole output; the backward loop
+    /// walks the steps in reverse from the loss's cotangent, applying the step's vector-Jacobian
+    /// product.
+    pub fn grad_program(&self, len: usize, loss: &Loss) -> Program {
         check_len(len);
         let (p, s) = (self.params.len(), self.states.len());
-        let (xs_shape, ts_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
+        let (xs_shape, ys_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
+        assert_eq!(loss.output_shape(), ys_shape.as_slice(), "Scan::grad_program: the loss scores outputs of another shape");
         let saved_shapes: Vec<Vec<usize>> = self.states.iter().map(|sh| stacked(len, sh)).collect();
-        let dl = 1.0 / (len * self.output.iter().product::<usize>()) as f32;
         let mut w = Writer::new();
         let params: Vec<String> = (0..p).map(|_| w.fresh()).collect();
         let xs = w.fresh();
-        let ts = w.fresh();
+        let aux: Vec<String> = loss.aux_shapes().iter().map(|_| w.fresh()).collect();
         let s0: Vec<String> = (0..s).map(|_| w.fresh()).collect();
-        let zero = w.splat(0.0, &[]);
 
-        // forward: carry params, xs, ts, state, saved states, loss
+        // forward: carry params, xs, ys, state, saved states
         let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), real(sh))).collect();
         init.push((xs.clone(), real(&xs_shape)));
-        init.push((ts.clone(), real(&ts_shape)));
+        let ys = w.splat(0.0, &ys_shape);
+        init.push((ys, real(&ys_shape)));
         init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), real(sh))));
         for sh in &saved_shapes {
             let z = w.splat(0.0, sh);
             init.push((z, real(sh)));
         }
-        init.push((zero.clone(), real(&[])));
         let fwd = w.for_loop(len, &init, |w, i, c| {
-            let (params, xs, ts) = (&c[..p], &c[p], &c[p + 1]);
-            let (state, saved, loss) = (&c[p + 2..p + 2 + s], &c[p + 2 + s..p + 2 + 2 * s], &c[p + 2 + 2 * s]);
+            let (params, xs, ys) = (&c[..p], &c[p], &c[p + 1]);
+            let (state, saved) = (&c[p + 2..p + 2 + s], &c[p + 2 + s..]);
             let x = w.step_of(xs, i, &xs_shape);
-            let t = w.step_of(ts, i, &ts_shape);
             let saved: Vec<String> = saved.iter().zip(state).zip(&saved_shapes).map(|((v, st), sh)| w.store(v, st, i, sh)).collect();
-            let args: Vec<String> = params.iter().chain(state).cloned().chain([x, t]).collect();
-            let out = w.graph(&self.step_loss, &args);
-            let loss = w.emit(&format!("stablehlo.add {loss}, {} : tensor<f32>", out[s + 1]));
-            params.iter().cloned().chain([xs.clone(), ts.clone()]).chain(out[..s].iter().cloned()).chain(saved).chain([loss]).collect()
+            let args: Vec<String> = params.iter().chain(state).cloned().chain([x]).collect();
+            let out = w.graph(&self.step, &args);
+            let ys = w.store(ys, &out[s], i, &ys_shape);
+            params.iter().cloned().chain([xs.clone(), ys]).chain(out[..s].iter().cloned()).chain(saved).collect()
         });
-        let saved = &fwd[p + 2 + s..p + 2 + 2 * s];
-        let scale = w.splat(dl, &[]);
-        let loss = w.emit(&format!("stablehlo.multiply {}, {scale} : tensor<f32>", fwd[p + 2 + 2 * s]));
+        let saved = &fwd[p + 2 + s..];
 
-        // backward: carry params, xs, ts, saved states, d state, d params
+        // the loss and its cotangent
+        let args: Vec<String> = std::iter::once(fwd[p + 1].clone()).chain(aux.iter().cloned()).collect();
+        let out = w.graph(&loss.grad, &args);
+        let (value, dys) = (out[0].clone(), out[1].clone());
+
+        // backward: carry params, xs, dys, saved states, d state, d params, d xs
         let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), real(sh))).collect();
         init.push((xs.clone(), real(&xs_shape)));
-        init.push((ts.clone(), real(&ts_shape)));
+        init.push((dys, real(&ys_shape)));
         init.extend(saved.iter().zip(&saved_shapes).map(|(v, sh)| (v.clone(), real(sh))));
-        for sh in self.states.iter().chain(&self.params) {
+        for sh in self.states.iter().chain(&self.params).chain([&xs_shape]) {
             let z = w.splat(0.0, sh);
             init.push((z, real(sh)));
         }
         let bwd = w.for_loop(len, &init, |w, j, c| {
-            let (params, xs, ts, saved) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..p + 2 + s]);
-            let (d_state, d_params) = (&c[p + 2 + s..p + 2 + 2 * s], &c[p + 2 + 2 * s..]);
+            let (params, xs, dys, saved) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..p + 2 + s]);
+            let (d_state, d_params, d_xs) = (&c[p + 2 + s..p + 2 + 2 * s], &c[p + 2 + 2 * s..p + 2 + 2 * s + p], &c[p + 2 + 2 * s + p]);
             let last = w.index(len as i32 - 1);
             let i = w.emit(&format!("stablehlo.subtract {last}, {j} : {INDEX}"));
             let x = w.step_of(xs, &i, &xs_shape);
-            let t = w.step_of(ts, &i, &ts_shape);
+            let dy = w.step_of(dys, &i, &ys_shape);
             let state: Vec<String> = saved.iter().zip(&saved_shapes).map(|(v, sh)| w.step_of(v, &i, sh)).collect();
-            // the cotangent of each squared error (the loss is their mean); made in the region
-            // rather than captured from the function body
-            let dl = w.splat(dl, &[]);
-            let args: Vec<String> = params.iter().chain(&state).cloned().chain([x, t]).chain(d_state.iter().cloned()).chain([dl]).collect();
+            let args: Vec<String> = params.iter().chain(&state).cloned().chain([x]).chain(d_state.iter().cloned()).chain([dy]).collect();
             let out = w.graph(&self.step_vjp, &args);
             let d_params: Vec<String> = d_params
                 .iter()
@@ -380,16 +415,25 @@ impl Scan {
                 .zip(&self.params)
                 .map(|((acc, g), sh)| w.emit(&format!("stablehlo.add {acc}, {g} : {}", real(sh))))
                 .collect();
-            params.iter().chain([xs, ts]).chain(saved).cloned().chain(out[p..].iter().cloned()).chain(d_params).collect()
+            let d_xs = w.store(d_xs, &out[p + s], &i, &xs_shape);
+            params.iter().chain([xs, dys]).chain(saved).cloned().chain(out[p..p + s].iter().cloned()).chain(d_params).chain([d_xs]).collect()
         });
 
         let mut signature: Vec<(String, Vec<usize>)> = params.into_iter().zip(self.params.iter().cloned()).collect();
-        signature.push((xs, xs_shape));
-        signature.push((ts, ts_shape));
+        signature.push((xs, xs_shape.clone()));
+        signature.extend(aux.into_iter().zip(loss.aux_shapes().iter().cloned()));
         signature.extend(s0.into_iter().zip(self.states.iter().cloned()));
-        let mut results = vec![(loss, Vec::new())];
-        results.extend(bwd[p + 2 + 2 * s..].iter().cloned().zip(self.params.iter().cloned()));
+        let mut results = vec![(value, Vec::new())];
+        results.extend(bwd[p + 2 + 2 * s..p + 2 + 2 * s + p].iter().cloned().zip(self.params.iter().cloned()));
         results.extend(bwd[p + 2 + s..p + 2 + 2 * s].iter().cloned().zip(self.states.iter().cloned()));
+        results.push((bwd[p + 2 + 2 * s + p].clone(), xs_shape));
         w.function(&signature, &results)
+    }
+
+    /// The mean squared error and its gradient over `len` steps: [`grad_program`](Self::grad_program)
+    /// with [`Loss::mse`], `@main(params..., xs, targets, s0...) -> (loss, d params..., d s0...,
+    /// d xs)`.
+    pub fn loss_grad_program(&self, len: usize) -> Program {
+        self.grad_program(len, &Loss::mse(&stacked(len, &self.output)))
     }
 }
