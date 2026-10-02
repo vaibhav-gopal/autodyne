@@ -6,9 +6,11 @@
 
 use crate::units::*;
 
+mod estimate;
 mod real;
 mod vocoder;
 mod windows;
+pub use estimate::*;
 pub use real::*;
 pub use vocoder::*;
 pub use windows::*;

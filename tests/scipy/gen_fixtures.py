@@ -196,6 +196,35 @@ fx["systems"] = dict(A=r(Ac), B=r(Bc), C=r(Cc), D=r(Dc), discretized=disc, M=r(M
                      expm_big=r(expm(M * 10.0)), step=r(y_step), impulse=r(y_imp), u=r(u), dlsim_y=r(y_dl), dlsim_x=r(x_dl),
                      bilinear_b=r(bb), bilinear_a=r(ab))
 
+# ---- spectral estimation -----------------------------------------------------------------------
+xs = rng.standard_normal((2, 1000)) + np.sin(2 * np.pi * 50.0 * np.arange(1000) / 1000.0)
+ys = np.roll(xs, 3, axis=1) + 0.3 * rng.standard_normal((2, 1000))
+spec = {"x": r(xs), "y": r(ys)}
+f, p = signal.welch(xs, fs=1000.0, nperseg=128, axis=1)
+spec["welch"] = dict(f=r(f), p=r(p))
+f, p = signal.welch(xs, fs=1000.0, nperseg=100, noverlap=30, nfft=256, detrend="linear", scaling="spectrum", average="median", axis=1)
+spec["welch_median"] = dict(f=r(f), p=r(p))
+f, p = signal.welch(xs.T, fs=1000.0, nperseg=64, window=("kaiser", 5.0), return_onesided=False, axis=0)
+spec["welch_twosided_axis0"] = dict(f=r(f), p=r(p))
+f, p = signal.periodogram(xs, fs=1000.0, axis=1)
+spec["periodogram"] = dict(f=r(f), p=r(p))
+f, p = signal.periodogram(xs, fs=1000.0, window="hann", nfft=800, scaling="spectrum", axis=1)
+spec["periodogram_short"] = dict(f=r(f), p=r(p))
+f, p = signal.csd(xs, ys, fs=1000.0, nperseg=128, axis=1)
+spec["csd"] = dict(f=r(f), p=c(p))
+f, cxy = signal.coherence(xs, ys, fs=1000.0, nperseg=128, axis=1)
+spec["coherence"] = dict(f=r(f), c=r(cxy))
+for mode in ["psd", "magnitude", "angle", "phase"]:
+    f, t, s = signal.spectrogram(xs, fs=1000.0, nperseg=64, axis=1, mode=mode)
+    spec["spectrogram_" + mode] = dict(f=r(f), t=r(t), s=r(s))
+f, t, z = signal.stft(xs, fs=1000.0, nperseg=64, axis=1)
+spec["stft"] = dict(f=r(f), t=r(t), z=c(z), shape=list(z.shape))
+f, t, z2 = signal.stft(xs, fs=1000.0, nperseg=50, noverlap=20, boundary="odd", padded=False, return_onesided=False, axis=1)
+spec["stft_odd_twosided"] = dict(f=r(f), t=r(t), z=c(z2), shape=list(z2.shape))
+t, xr = signal.istft(z, fs=1000.0, nperseg=64)
+spec["istft"] = dict(t=r(t), x=r(xr))
+fx["spectral"] = spec
+
 out = pathlib.Path(__file__).with_name("fixtures.json")
 out.write_text(json.dumps(fx))
 print(f"wrote {out} ({out.stat().st_size // 1024} KiB), SciPy {scipy.__version__}")

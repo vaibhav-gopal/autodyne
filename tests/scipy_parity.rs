@@ -9,7 +9,7 @@ use autodyne::filter::design::{besselap, firls, firwin, firwin2, iirfilter, kais
 use autodyne::filter::{filtfilt, lfilter, lfilter_with_state, lfilter_zi, sosfilt, sosfilt_with_state, sosfilt_zi, sosfiltfilt, Pad};
 use autodyne::linalg::expm;
 use autodyne::signal::NdArray;
-use autodyne::spectral::{get_window, WindowSpec};
+use autodyne::spectral::{coherence, csd, get_window, istft, periodogram, spectrogram, stft, welch, Average, Boundary, Detrend, IstftOptions, Scaling, Segments, SpectrogramMode, StftOptions, WindowSpec};
 use autodyne::systems::{self, bilinear, freqs, freqz, group_delay, sosfreqz, ss2tf, tf2ss, tf2zpk, zpk2sos, Domain, Method, Pairing, StateSpace, C64};
 use serde_json::Value;
 
@@ -325,4 +325,69 @@ fn systems_match_scipy() {
     assert_close("bilinear b", &bb, &f64s(&s["bilinear_b"]), 1e-12);
     assert_close("bilinear a", &ab, &f64s(&s["bilinear_a"]), 1e-12);
     let _ = systems::freq_grid(4, false, 8000.0);
+}
+
+#[test]
+fn spectral_estimates_match_scipy() {
+    let s = &fixtures()["spectral"];
+    let (x, y) = (array(&s["x"]), array(&s["y"]));
+    let fs = 1000.0;
+    let flat = |v: &[autodyne::units::Complex<f64>]| v.iter().flat_map(|z| [z.re, z.im]).collect::<Vec<_>>();
+    let check = |name: &str, f: &[f64], p: &[f64], key: &str, field: &str| {
+        assert_close(&format!("{name} freqs"), f, &f64s(&s[key]["f"]), 1e-12);
+        assert_close(name, p, &nd(&s[key][field]).0, 1e-10);
+    };
+
+    let (f, p) = welch(x.view(), fs, 1, &Segments::welch().nperseg(128), Average::Mean).unwrap();
+    check("welch", &f, p.as_slice(), "welch", "p");
+    let seg = Segments::welch().nperseg(100).noverlap(30).nfft(256).detrend(Detrend::Linear).scaling(Scaling::Spectrum);
+    let (f, p) = welch(x.view(), fs, 1, &seg, Average::Median).unwrap();
+    check("welch median", &f, p.as_slice(), "welch_median", "p");
+    let xt = x.view().transpose().to_owned();
+    let seg = Segments::welch().nperseg(64).window(WindowSpec::Kaiser { beta: 5.0 }).onesided(false);
+    let (f, p) = welch(xt.view(), fs, 0, &seg, Average::Mean).unwrap();
+    check("welch two-sided, axis 0", &f, p.as_slice(), "welch_twosided_axis0", "p");
+
+    let (f, p) = periodogram(x.view(), fs, 1, WindowSpec::Boxcar, None, Detrend::Constant, Scaling::Density).unwrap();
+    check("periodogram", &f, p.as_slice(), "periodogram", "p");
+    let (f, p) = periodogram(x.view(), fs, 1, WindowSpec::Hann, Some(800), Detrend::Constant, Scaling::Spectrum).unwrap();
+    check("periodogram truncated", &f, p.as_slice(), "periodogram_short", "p");
+
+    let (f, p) = csd(x.view(), y.view(), fs, 1, &Segments::welch().nperseg(128), Average::Mean).unwrap();
+    assert_close("csd freqs", &f, &f64s(&s["csd"]["f"]), 1e-12);
+    assert_close("csd", &flat(p.as_slice()), &flat(&complexes(&s["csd"]["p"])), 1e-10);
+    let (_, cxy) = coherence(x.view(), y.view(), fs, 1, &Segments::welch().nperseg(128)).unwrap();
+    assert_close("coherence", cxy.as_slice(), &nd(&s["coherence"]["c"]).0, 1e-10);
+
+    for (mode, key) in [(SpectrogramMode::Psd, "psd"), (SpectrogramMode::Magnitude, "magnitude"), (SpectrogramMode::Angle, "angle"), (SpectrogramMode::Phase, "phase")] {
+        let (f, t, sxx) = spectrogram(x.view(), fs, 1, &Segments::spectrogram().nperseg(64), mode).unwrap();
+        let k = format!("spectrogram_{key}");
+        assert_close(&format!("{k} freqs"), &f, &f64s(&s[&k]["f"]), 1e-12);
+        assert_close(&format!("{k} times"), &t, &f64s(&s[&k]["t"]), 1e-12);
+        assert_close(&k, sxx.as_slice(), &nd(&s[&k]["s"]).0, 1e-9);
+    }
+
+    let (f, t, z) = stft(x.view(), fs, 1, &Segments::stft().nperseg(64), StftOptions::default()).unwrap();
+    assert_eq!(z.shape(), f64s(&s["stft"]["shape"]).iter().map(|&d| d as usize).collect::<Vec<_>>().as_slice());
+    assert_close("stft freqs", &f, &f64s(&s["stft"]["f"]), 1e-12);
+    assert_close("stft times", &t, &f64s(&s["stft"]["t"]), 1e-12);
+    assert_close("stft", &flat(z.as_slice()), &flat(&complexes(&s["stft"]["z"])), 1e-10);
+    let seg = Segments::stft().nperseg(50).noverlap(20).onesided(false);
+    let (f, t, z2) = stft(x.view(), fs, 1, &seg, StftOptions { boundary: Boundary::Odd, padded: false }).unwrap();
+    assert_eq!(z2.shape(), f64s(&s["stft_odd_twosided"]["shape"]).iter().map(|&d| d as usize).collect::<Vec<_>>().as_slice());
+    assert_close("stft two-sided freqs", &f, &f64s(&s["stft_odd_twosided"]["f"]), 1e-12);
+    assert_close("stft two-sided times", &t, &f64s(&s["stft_odd_twosided"]["t"]), 1e-12);
+    assert_close("stft two-sided", &flat(z2.as_slice()), &flat(&complexes(&s["stft_odd_twosided"]["z"])), 1e-10);
+
+    let (t, back) = istft(z.view(), fs, IstftOptions { nperseg: Some(64), ..Default::default() }).unwrap();
+    // SciPy builds the times from the first axis (the channels here); ours follow the signal
+    assert_eq!(t.len(), back.shape()[1]);
+    assert!((t[1] - 1.0 / fs).abs() < 1e-15);
+    assert_close("istft", back.as_slice(), &nd(&s["istft"]["x"]).0, 1e-10);
+    // the round trip recovers the signal
+    let n = x.shape()[1];
+    for ch in 0..2 {
+        let a = &back.as_slice()[ch * back.shape()[1]..ch * back.shape()[1] + n];
+        assert_close("round trip", a, &x.as_slice()[ch * n..(ch + 1) * n], 1e-10);
+    }
 }
