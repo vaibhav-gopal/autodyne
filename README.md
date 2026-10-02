@@ -102,6 +102,20 @@ results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULT
 - mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 1.45x faster
 - IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
 - FFT vs `numpy.fft` (pocketfft): 1.4x faster (`rustfft` / `realfft` kernels behind autodyne's `Fft` / `RealFft`)
+### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
+`bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
+on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, transposed, broadcast, reductions, FIR vs
+`conv1d`; every case first checks that the libraries agree. `cargo bench --bench compare` then `python results.py`
+writes `RESULTS.md` (run it on a quiet machine: single-threaded CPU timings swing with background load). Observed
+on a Ryzen 9 7900 + RTX 5070 Ti:
+
+- vs `ndarray`: on par for element-wise, transposed and broadcast work; reductions currently ~5-15% behind (pairwise
+  summation is more accurate than its running sums)
+- vs Burn's CPU backend: 2-7x faster on element-wise, transposed, broadcast and full / row reductions; on par for
+  column sums and FIR vs `conv1d`
+- GPU (Burn wgpu, CubeCL, data already on the GPU): ~10-15x faster than one CPU core on element-wise work, slower on
+  these reductions; uploading and downloading from CPU memory costs ~5x the CPU computation, so the GPU pays off
+  only for data that lives there (batches, fitting)
 ### Plugins
 `plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
 the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):

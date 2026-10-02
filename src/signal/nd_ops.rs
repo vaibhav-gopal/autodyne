@@ -487,39 +487,84 @@ arithmetic!(Div div DivAssign div_assign);
 
 // REDUCTIONS ======================================================================================
 
-/// Pairwise sum of `n` elements from `ptr` at `stride`: O(log n) rounding error growth instead of
-/// O(n), in a fixed order (so results are reproducible). Blocks of contiguous elements are summed
-/// with eight independent accumulators, which the compiler turns into vector adds.
-fn pairwise_sum<T: Float>(ptr: *const T, n: usize, stride: isize) -> T {
-    const BLOCK: usize = 256;
-    if n <= BLOCK {
-        if stride == 1 {
-            // SAFETY: the caller passes a run of `n` consecutive elements inside a validated layout
-            let run = unsafe { std::slice::from_raw_parts(ptr, n) };
-            let mut acc = [T::_ZERO; 8];
-            let (chunks, tail) = run.as_chunks::<8>();
-            for chunk in chunks {
-                for (a, &x) in acc.iter_mut().zip(chunk) {
-                    *a = *a + x;
-                }
-            }
-            let mut total = ((acc[0] + acc[1]) + (acc[2] + acc[3])) + ((acc[4] + acc[5]) + (acc[6] + acc[7]));
-            for &x in tail {
-                total = total + x;
-            }
-            return total;
+/// Independent partial sums in the contiguous base case: enough separate add chains to keep the
+/// vector units busy (32 = four 256-bit vectors of f32), so summing in cache isn't latency-bound.
+const LANES: usize = 32;
+/// Elements summed directly before pairwise combination takes over.
+const BLOCK: usize = 1_024;
+
+/// Sum of at most BLOCK elements: LANES partial sums over consecutive chunks, then combined pairwise.
+#[inline]
+fn block_sum<T: Float>(run: &[T]) -> T {
+    let mut acc = [T::_ZERO; LANES];
+    let (chunks, tail) = run.as_chunks::<LANES>();
+    for chunk in chunks {
+        for (a, &x) in acc.iter_mut().zip(chunk) {
+            *a = *a + x;
         }
-        let mut acc = T::_ZERO;
-        for k in 0..n as isize {
-            // SAFETY: as above, at `stride`
-            acc = acc + unsafe { *ptr.wrapping_offset(k * stride) };
-        }
-        return acc;
     }
-    let half = n / 2;
-    pairwise_sum(ptr, half, stride) + pairwise_sum(ptr.wrapping_offset(half as isize * stride), n - half, stride)
+    let mut width = LANES;
+    while width > 1 {
+        width /= 2;
+        for i in 0..width {
+            acc[i] = acc[i] + acc[i + width];
+        }
+    }
+    let mut total = acc[0];
+    for &x in tail {
+        total = total + x;
+    }
+    total
 }
 
+/// Pairwise sum of `n` elements from `ptr` at `stride`: O(log n) rounding error growth instead of
+/// O(n), in a fixed order (so results are reproducible). The run is walked once, front to back, in
+/// blocks of BLOCK; block sums merge like a binary counter (after block i, as many merges as i has
+/// trailing ones), which builds the same balanced tree as recursive halving without recursion or
+/// jumping around memory. Runs of one block need no merging at all.
+fn pairwise_sum<T: Float>(ptr: *const T, n: usize, stride: isize) -> T {
+    let block = |start: usize, len: usize| {
+        if stride == 1 {
+            // SAFETY: the caller passes a run of `n` consecutive elements inside a validated layout
+            block_sum(unsafe { std::slice::from_raw_parts(ptr.wrapping_add(start), len) })
+        } else {
+            let mut acc = T::_ZERO;
+            for k in start..start + len {
+                // SAFETY: as above, at `stride`
+                acc = acc + unsafe { *ptr.wrapping_offset(k as isize * stride) };
+            }
+            acc
+        }
+    };
+    if n <= BLOCK {
+        return block(0, n);
+    }
+    // one pending sum per level: 40 levels cover 2^40 blocks, far beyond any memory
+    let mut stack = [T::_ZERO; 40];
+    let mut depth = 0;
+    let mut start = 0;
+    let mut index = 0usize;
+    while start < n {
+        let len = BLOCK.min(n - start);
+        let mut sum = block(start, len);
+        index += 1;
+        let mut count = index;
+        while count.is_multiple_of(2) {
+            depth -= 1;
+            sum = stack[depth] + sum;
+            count /= 2;
+        }
+        stack[depth] = sum;
+        depth += 1;
+        start += len;
+    }
+    let mut total = T::_ZERO;
+    while depth > 0 {
+        depth -= 1;
+        total = stack[depth] + total;
+    }
+    total
+}
 /// How a reduction combines input elements into an output element: one at a time, or a whole run
 /// that lands on the same output element (where a reducer can do better than element by element).
 trait Reducer<T, U> {

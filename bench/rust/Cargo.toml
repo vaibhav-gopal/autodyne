@@ -1,0 +1,23 @@
+[package]
+name = "autodyne-compare"
+version = "0.1.0"
+edition = "2021"
+description = "autodyne against other Rust array / tensor libraries (ndarray, Burn, CubeCL) on shared axes"
+license = "GPL-3.0-only"
+publish = false
+
+[dependencies]
+autodyne = { path = "../..", features = ["ndarray"] }
+
+[dev-dependencies]
+burn = { version = "0.21", default-features = false, features = ["std", "flex", "wgpu"] }
+criterion = "0.8"
+cubecl = { version = "0.10", features = ["wgpu"] }
+ndarray = "0.17"
+
+[[bench]]
+name = "compare"
+harness = false
+
+# A workspace of its own: Burn and CubeCL are heavy, and the core crate's builds shouldn't pay for them.
+[workspace]
