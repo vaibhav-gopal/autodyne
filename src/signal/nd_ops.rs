@@ -502,22 +502,34 @@ impl<T: Copy + Default + Neg<Output = T>> Neg for NdArray<T> {
 
 // REDUCTIONS ======================================================================================
 
-/// Independent partial sums in the contiguous base case: enough separate add chains to keep the
-/// vector units busy (32 = four 256-bit vectors of f32), so summing in cache isn't latency-bound.
-const LANES: usize = 32;
+/// Bytes of independent partial sums for contiguous runs: enough separate add chains to keep the
+/// vector units busy (eight 128-bit vectors: 32 f32 or 16 f64), so summing in cache isn't
+/// latency-bound, without spilling registers.
+const LANE_BYTES: usize = 128;
 /// Elements summed directly before pairwise combination takes over.
 const BLOCK: usize = 1_024;
 
-/// Sum of at most BLOCK elements: LANES partial sums over consecutive chunks, then combined pairwise.
-#[inline]
-fn block_sum<T: Float>(run: &[T]) -> T {
-    let mut acc = [T::_ZERO; LANES];
-    let (chunks, tail) = run.as_chunks::<LANES>();
-    for chunk in chunks {
-        for (a, &x) in acc.iter_mut().zip(chunk) {
-            *a = *a + x;
+/// LANES partial sums of a contiguous run, pairwise: runs of up to BLOCK elements are summed lane by
+/// lane, and longer runs split at a block boundary near the middle, their halves' partial sums added
+/// lane-wise (recursive halving still reads memory front to back). Elements after the last whole
+/// chunk of LANES are left out; only the final piece of a run can have them.
+fn lanes_pairwise<T: Float, const LANES: usize>(run: &[T]) -> [T; LANES] {
+    if run.len() <= BLOCK {
+        let mut acc = [T::_ZERO; LANES];
+        for chunk in run.as_chunks::<LANES>().0 {
+            for (a, &x) in acc.iter_mut().zip(chunk) {
+                *a = *a + x;
+            }
         }
+        return acc;
     }
+    let mid = run.len().div_ceil(BLOCK) / 2 * BLOCK;
+    let (a, b) = (lanes_pairwise::<T, LANES>(&run[..mid]), lanes_pairwise::<T, LANES>(&run[mid..]));
+    std::array::from_fn(|i| a[i] + b[i])
+}
+
+fn contiguous_sum<T: Float, const LANES: usize>(run: &[T]) -> T {
+    let mut acc = lanes_pairwise::<T, LANES>(run);
     let mut width = LANES;
     while width > 1 {
         width /= 2;
@@ -525,62 +537,39 @@ fn block_sum<T: Float>(run: &[T]) -> T {
             acc[i] = acc[i] + acc[i + width];
         }
     }
-    let mut total = acc[0];
-    for &x in tail {
-        total = total + x;
-    }
-    total
+    let n = run.len();
+    run[n - n % LANES..].iter().fold(acc[0], |s, &x| s + x)
 }
 
 /// Pairwise sum of `n` elements from `ptr` at `stride`: O(log n) rounding error growth instead of
-/// O(n), in a fixed order (so results are reproducible). The run is walked once, front to back, in
-/// blocks of BLOCK; block sums merge like a binary counter (after block i, as many merges as i has
-/// trailing ones), which builds the same balanced tree as recursive halving without recursion or
-/// jumping around memory. Runs of one block need no merging at all.
+/// O(n), in a fixed order (so results are reproducible). Contiguous runs keep LANES independent
+/// partial sums all the way up the tree and combine them once at the end.
 fn pairwise_sum<T: Float>(ptr: *const T, n: usize, stride: isize) -> T {
-    let block = |start: usize, len: usize| {
-        if stride == 1 {
-            // SAFETY: the caller passes a run of `n` consecutive elements inside a validated layout
-            block_sum(unsafe { std::slice::from_raw_parts(ptr.wrapping_add(start), len) })
-        } else {
-            let mut acc = T::_ZERO;
-            for k in start..start + len {
-                // SAFETY: as above, at `stride`
-                acc = acc + unsafe { *ptr.wrapping_offset(k as isize * stride) };
-            }
-            acc
+    if stride == 1 {
+        // SAFETY: the caller passes a run of `n` consecutive elements inside a validated layout
+        let run = unsafe { std::slice::from_raw_parts(ptr, n) };
+        return match LANE_BYTES / std::mem::size_of::<T>() {
+            16 => contiguous_sum::<T, 16>(run),
+            _ => contiguous_sum::<T, 32>(run),
+        };
+    }
+    let strided = |start: usize, len: usize| {
+        let mut acc = T::_ZERO;
+        for k in start..start + len {
+            // SAFETY: as above, at `stride`
+            acc = acc + unsafe { *ptr.wrapping_offset(k as isize * stride) };
         }
+        acc
     };
-    if n <= BLOCK {
-        return block(0, n);
-    }
-    // one pending sum per level: 40 levels cover 2^40 blocks, far beyond any memory
-    let mut stack = [T::_ZERO; 40];
-    let mut depth = 0;
-    let mut start = 0;
-    let mut index = 0usize;
-    while start < n {
-        let len = BLOCK.min(n - start);
-        let mut sum = block(start, len);
-        index += 1;
-        let mut count = index;
-        while count.is_multiple_of(2) {
-            depth -= 1;
-            sum = stack[depth] + sum;
-            count /= 2;
+    fn halves<T: Float>(start: usize, len: usize, leaf: &impl Fn(usize, usize) -> T) -> T {
+        if len <= BLOCK {
+            return leaf(start, len);
         }
-        stack[depth] = sum;
-        depth += 1;
-        start += len;
+        let mid = len.div_ceil(BLOCK) / 2 * BLOCK;
+        halves(start, mid, leaf) + halves(start + mid, len - mid, leaf)
     }
-    let mut total = T::_ZERO;
-    while depth > 0 {
-        depth -= 1;
-        total = stack[depth] + total;
-    }
-    total
-}
-/// How a reduction combines input elements into an output element: one at a time, or a whole run
+    halves(0, n, &strided)
+}/// How a reduction combines input elements into an output element: one at a time, or a whole run
 /// that lands on the same output element (where a reducer can do better than element by element).
 trait Reducer<T, U> {
     fn element(&mut self, acc: U, x: &T) -> U;
@@ -725,6 +714,28 @@ impl<'a, T: Float> NdView<'a, T> {
     /// Sum along `axis`, which is removed (allocates the result).
     pub fn sum_axis(&self, axis: usize) -> Result<NdArray<T>, NdError> {
         let shape = self.layout.without_axis_checked(axis)?;
+        // in memory order, a summed axis that isn't the innermost sums whole rows at a time
+        let n = self.ndim();
+        let order = self.memory_order();
+        let order = &order[..n];
+        let at = order.iter().position(|&a| a == axis).expect("a permutation");
+        if at + 1 < n {
+            let p = self.permute(order)?;
+            if let Some(data) = p.as_slice() {
+                let ps = p.shape();
+                let sums = sum_rows(data, &ps[..at], ps[at], ps[at + 1..].iter().product());
+                // result axis i is the input's axis kept[i]; put them back in ascending order
+                let kept: Vec<usize> = order.iter().copied().filter(|&a| a != axis).collect();
+                let in_memory = NdArray::from_vec(sums, &kept.iter().map(|&a| self.shape()[a]).collect::<Vec<_>>())?;
+                let mut sorted = kept.clone();
+                sorted.sort_unstable();
+                let perm: Vec<usize> = sorted.iter().map(|a| kept.iter().position(|b| b == a).expect("kept")).collect();
+                if perm.iter().enumerate().all(|(i, &p)| i == p) {
+                    return Ok(in_memory);
+                }
+                return Ok(in_memory.view().permute(&perm)?.to_owned());
+            }
+        }
         let mut out = NdArray::full(shape.shape(), T::_ZERO)?;
         let mut target = out.view_mut().insert_axis(axis)?;
         self.sum_into(&mut target)?;
@@ -737,6 +748,33 @@ impl<'a, T: Float> NdView<'a, T> {
         sums.map_inplace(|x| *x = *x / n);
         Ok(sums)
     }
+}
+
+/// Sums the `rows` rows (of `inner` elements) in each of the `outer` blocks of row-major `data`:
+/// four rows per pass, so the output is read and written a quarter as often as row by row.
+fn sum_rows<T: Float>(data: &[T], outer: &[usize], rows: usize, inner: usize) -> Vec<T> {
+    let outer: usize = outer.iter().product();
+    let mut out = vec![T::_ZERO; outer * inner];
+    if inner == 0 {
+        return out;
+    }
+    for (block, acc) in data.chunks_exact(rows * inner).zip(out.chunks_exact_mut(inner)) {
+        let mut quads = block.chunks_exact(4 * inner);
+        for quad in &mut quads {
+            let (r0, rest) = quad.split_at(inner);
+            let (r1, rest) = rest.split_at(inner);
+            let (r2, r3) = rest.split_at(inner);
+            for ((((a, &w), &x), &y), &z) in acc.iter_mut().zip(r0).zip(r1).zip(r2).zip(r3) {
+                *a = *a + ((w + x) + (y + z));
+            }
+        }
+        for row in quads.remainder().chunks_exact(inner) {
+            for (a, &x) in acc.iter_mut().zip(row) {
+                *a = *a + x;
+            }
+        }
+    }
+    out
 }
 
 impl<T: Float, S: Storage<Elem = T>> NdArray<T, S> {
@@ -945,6 +983,36 @@ mod tests {
         assert!(a.view().sum_into(&mut NdArray::<f64>::zeros(&[2]).unwrap().view_mut()).is_err());
         let rms = NdArray::from_vec(vec![3.0, -4.0], &[2]).unwrap();
         assert_eq!((rms.view().rms(), rms.view().peak()), (Some(12.5f64.sqrt()), 4.0));
+    }
+
+    #[test]
+    fn axis_sums_agree_in_every_memory_order() {
+        // all six axis orders of a 3x4x5 array, summed along each axis (some through the row-block
+        // path, some through the general one), against direct sums
+        let a = counting(&[3, 4, 5]).map(|v| (v * 0.37).sin());
+        for perm in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+            let v = a.view().permute(&perm).unwrap();
+            for axis in 0..3 {
+                let got = v.sum_axis(axis).unwrap();
+                let mut shape = v.shape().to_vec();
+                shape.remove(axis);
+                assert_eq!(got.shape(), shape.as_slice());
+                for (k, g) in got.as_slice().iter().enumerate() {
+                    // the output index, then the sum over the removed axis
+                    let (mut rest, mut index) = (k, [0usize; 3]);
+                    for d in (0..3).filter(|&d| d != axis).rev() {
+                        let n = v.shape()[d];
+                        index[d] = rest % n;
+                        rest /= n;
+                    }
+                    let want: f64 = (0..v.shape()[axis]).map(|i| {
+                        index[axis] = i;
+                        *v.get(&index).unwrap()
+                    }).sum();
+                    assert!((g - want).abs() < 1e-12, "perm {perm:?} axis {axis} element {k}: {g} vs {want}");
+                }
+            }
+        }
     }
 
     #[test]

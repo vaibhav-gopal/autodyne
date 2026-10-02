@@ -101,7 +101,7 @@ results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULT
 - fused `a * x + b`: ~2x faster than NumPy's two passes with a temporary, on contiguous, transposed, strided or
   reversed inputs (results keep the input's memory order, as NumPy's do); 1.6-2.4x on small arrays (64-1,000 elements),
   where NumPy arrays cross through NumPy's C API rather than a Python-level DLPack call
-- sums: 1.4x (f32) to 3.4x (f64) faster, row sums 6.5x; column sums on par (both at memory bandwidth)
+- sums: 2.5x (f32) to 3.5x (f64) faster, row sums 5.8x, column sums (contiguous or transposed) 1.3x
 - mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 1.45x faster
 - IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
 - FFT vs `numpy.fft` (pocketfft): 1.3-1.5x faster, 2x at prime lengths (`rustfft` / `realfft` kernels; any length)
@@ -116,41 +116,49 @@ on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, trans
 writes `RESULTS.md` (run it on a quiet machine: single-threaded CPU timings swing with background load). Observed
 on a Ryzen 9 7900 + RTX 5070 Ti:
 
-- vs `ndarray`: on par for element-wise, transposed and broadcast work; reductions currently ~5-15% behind (pairwise
-  summation is more accurate than its running sums)
-- vs Burn's CPU backend: 2-7x faster on element-wise, transposed, broadcast and full / row reductions; on par for
-  column sums and FIR vs `conv1d`
+- vs `ndarray`: on par for element-wise, transposed and broadcast work; sums 1.7-2x faster (full, row and column),
+  while pairwise summation is also more accurate than its running sums
+- vs Burn's CPU backend: 2-7x faster on element-wise, transposed, broadcast and full / row reductions, 1.6x on column
+  sums; on par for FIR vs `conv1d`
 - GPU (Burn wgpu, CubeCL, data already on the GPU): ~10-15x faster than one CPU core on element-wise work, slower on
   these reductions; uploading and downloading from CPU memory costs ~5x the CPU computation, so the GPU pays off
   only for data that lives there (batches, fitting)
 ### flux: differentiable programs (feature `flux`)
 Plain Rust, no DSL. Code is written once over two traits and runs eagerly or traced:
 
-- `Real` (`f32` / `f64` samples, the real-time path) and `ArrayMath` (`NdArray`s, NumPy-style: element-wise maths
-  with broadcasting, reshape, transpose, sums, `dot_general`, real FFTs) compute directly;
-- on `flux::Tracer` the same code records a graph of primitives (comparisons become `select`), which flux
-  differentiates in reverse mode (the backward pass is just more graph, so derivatives compose and nest), runs over
-  whole signals as a `Scan` with array-valued parameters, state and samples (gradient = a reverse scan), and emits as
-  textual StableHLO.
+- `Real` (`f32` / `f64` samples, the real-time path) and `ArrayMath` / `RealArrayMath` (`NdArray`s, NumPy-style:
+  element-wise maths with broadcasting, reshape, transpose, slices, padding, concatenation, reversal, sums, products,
+  maxima, `dot_general`, real and complex FFTs, `take` gathers) compute directly; `signal::convolve` and
+  `signal::frames` are written over them;
+- on `flux::Tracer` the same code records a graph, which flux differentiates in reverse mode (`vjp`; the backward pass
+  is more graph, so derivatives nest) and forward mode (`jvp`), evaluates in `f32` or `f64`, and emits as textual
+  StableHLO.
 
-Three backends run the programs, all found at run time (nothing is linked at build time, and the real-time path never
-touches a trace):
+The audio processors' sample steps are generic, so biquads (every cookbook response), the SVF, the ladder, the
+waveshapers, the envelope follower and the compressor trace and differentiate unchanged. A `Scan` runs a step over
+whole signals, with gradients for the parameters, the initial state and the input signal, under any `Loss`: mean
+squared error, the multi-resolution STFT loss usual for audio, or a traced function. `flux::optim` has SGD and Adam.
+Fitting a peaking EQ into a tanh drive to a target recording from its spectrogram alone recovers 3000 Hz / 9 dB /
+drive 2 to within 1% on every backend.
 
-- IREE: `iree-compile` / `iree-run-module`
-- PJRT: a plugin library (XLA CPU / CUDA / ROCm, ...) loaded in-process through the PJRT C API, no Python
-- XLA through JAX's client in a long-lived Python process, for platforms without a plugin (Windows)
+Backends, all found at run time (nothing is linked at build time, and the real-time path never touches a trace):
 
-Every primitive and its gradient agree with flux's reference interpreter on all three; one generic model gives the same
-result run on `NdArray`s and compiled; a traced `OnePole` matches the f32 filter, its gradient matches finite
-differences, and gradient descent fits its cutoff (300 Hz -> 1200 Hz in 30 steps) and recovers per-bin gains through
-`rfft` / `irfft` frame by frame.
+- IREE: `iree-compile` / `iree-run-module`, for the CPU, Vulkan, CUDA, ROCm or Metal; modules can be saved (`.vmfb`)
+  and loaded elsewhere
+- PJRT: a plugin library (XLA CPU, CUDA, ...) loaded in-process through the PJRT C API, no Python; arrays can stay
+  on the device between runs (`upload` / `run_resident` / `download`). The test suite passes on XLA's CUDA plugin
+- XLA through JAX in a long-lived Python process, for platforms without a plugin (Windows)
+
+Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 15-35%
+sooner and run at 0.84-1.05x JAX's speed: on par for scans, behind on spectral models, as flux carries complex
+spectra as pairs of real arrays. From Python, `autodyne.flux` traces functions written with NumPy-style operators on
+tracers, with the same scans, losses, processors and backends.
 
 ```sh
 pip install iree-base-compiler iree-base-runtime jax   # tools on PATH, or AUTODYNE_IREE_DIR / AUTODYNE_XLA_PYTHON
 export AUTODYNE_PJRT_PLUGIN=/path/to/libpjrt_cpu.so    # e.g. from github.com/zml/pjrt-artifacts (Linux, macOS)
 cargo test --features flux --test flux                  # each missing backend is reported and skipped
 ```
-
 ### Plugins
 `plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
 the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):

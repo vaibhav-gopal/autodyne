@@ -33,10 +33,10 @@ NVIDIA GeForce RTX 5070 Ti for the GPU rows (wgpu). Every case first checks that
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| burn flex (CPU) | 268.0 µs | 14.93 Gelem/s | 2.13x |
-| ndarray (CPU, 1 thread) | 521.8 µs | 7.67 Gelem/s | 1.09x |
-| autodyne (CPU, 1 thread) | 569.8 µs | 7.02 Gelem/s | 1.00x |
-| burn wgpu (GPU, resident) | 720.7 µs | 5.55 Gelem/s | 0.79x |
+| autodyne (CPU, 1 thread) | 151.6 µs | 26.39 Gelem/s | 1.00x |
+| burn flex (CPU) | 250.0 µs | 16.00 Gelem/s | 0.61x |
+| ndarray (CPU, 1 thread) | 251.7 µs | 15.89 Gelem/s | 0.60x |
+| burn wgpu (GPU, resident) | 700.3 µs | 5.71 Gelem/s | 0.22x |
 
 ## FIR / conv1d, 16 x 48000 f32, 63 taps
 
@@ -59,16 +59,16 @@ NVIDIA GeForce RTX 5070 Ti for the GPU rows (wgpu). Every case first checks that
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| burn wgpu (GPU, resident) | 188.6 µs | 21.21 Gelem/s | 1.65x |
-| ndarray (CPU, 1 thread) | 281.4 µs | 14.21 Gelem/s | 1.11x |
-| autodyne (CPU, 1 thread) | 312.0 µs | 12.82 Gelem/s | 1.00x |
-| burn flex (CPU) | 2.62 ms | 1.53 Gelem/s | 0.12x |
+| autodyne (CPU, 1 thread) | 153.8 µs | 26.01 Gelem/s | 1.00x |
+| burn wgpu (GPU, resident) | 275.7 µs | 14.51 Gelem/s | 0.56x |
+| ndarray (CPU, 1 thread) | 282.6 µs | 14.15 Gelem/s | 0.54x |
+| burn flex (CPU) | 2.28 ms | 1.75 Gelem/s | 0.07x |
 
 ## sum of everything, 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| ndarray (CPU, 1 thread) | 280.8 µs | 14.25 Gelem/s | 1.04x |
-| autodyne (CPU, 1 thread) | 291.3 µs | 13.73 Gelem/s | 1.00x |
-| burn wgpu (GPU, resident) | 958.3 µs | 4.17 Gelem/s | 0.30x |
-| burn flex (CPU) | 2.65 ms | 1.51 Gelem/s | 0.11x |
+| autodyne (CPU, 1 thread) | 138.5 µs | 28.88 Gelem/s | 1.00x |
+| ndarray (CPU, 1 thread) | 280.5 µs | 14.26 Gelem/s | 0.49x |
+| burn wgpu (GPU, resident) | 618.7 µs | 6.47 Gelem/s | 0.22x |
+| burn flex (CPU) | 2.34 ms | 1.71 Gelem/s | 0.06x |
