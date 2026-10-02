@@ -316,10 +316,12 @@ pub fn remez(
     let mut ext: Vec<usize> = (0..=r).map(|i| i * (gridsize - 1) / r).collect();
     let (mut ad, mut x, mut y) = (vec![0.0; r + 1], vec![0.0; r + 1], vec![0.0; r + 1]);
     let mut e = vec![0.0; gridsize];
+    // the cosine of every grid frequency, once
+    let xgrid: Vec<f64> = grid.iter().map(|g| (2.0 * PI * g).cos()).collect();
     for _ in 0..maxiter {
         calc_parms(r, &ext, &grid, &d, &w, &mut ad, &mut x, &mut y);
         for i in 0..gridsize {
-            e[i] = w[i] * (d[i] - compute_a(grid[i], r, &ad, &x, &y));
+            e[i] = w[i] * (d[i] - interpolate(xgrid[i], r, &ad, &x, &y));
         }
         search(r, &mut ext, &e).map_err(|m| DesignError::Invalid(format!("remez failed to converge ({m}); try a wider transition band")))?;
         let errs: Vec<f64> = ext.iter().map(|&i| e[i].abs()).collect();
@@ -388,7 +390,11 @@ fn calc_parms(r: usize, ext: &[usize], grid: &[f64], d: &[f64], w: &[f64], ad: &
 /// The interpolated response at frequency `freq` (barycentric Lagrange through the r + 1 extremal
 /// points, whose values lie on one polynomial of degree r - 1).
 fn compute_a(freq: f64, r: usize, ad: &[f64], x: &[f64], y: &[f64]) -> f64 {
-    let xc = (2.0 * PI * freq).cos();
+    interpolate((2.0 * PI * freq).cos(), r, ad, x, y)
+}
+
+/// [`compute_a`] at `xc = cos(2π f)`.
+fn interpolate(xc: f64, r: usize, ad: &[f64], x: &[f64], y: &[f64]) -> f64 {
     let (mut numer, mut denom) = (0.0, 0.0);
     for i in 0..=r {
         let c = xc - x[i];

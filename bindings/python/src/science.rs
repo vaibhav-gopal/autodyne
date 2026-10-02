@@ -181,6 +181,15 @@ fn svd(py: Python<'_>, a: &Bound<'_, PyAny>, full_matrices: bool) -> PyResult<Ob
 }
 
 #[pyfunction]
+fn svdvals(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
+    float_view!(a, T, va => {
+        let s = linalg::svdvals(va).map_err(linalg_error)?;
+        let n = s.len();
+        numpy_array(py, NdArray::from_vec(s, &[n]).map_err(value_error)?)
+    })
+}
+
+#[pyfunction]
 fn pinv(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => numpy_array(py, linalg::pinv(va).map_err(linalg_error)?))
 }
@@ -633,8 +642,15 @@ fn irfft(py: Python<'_>, x: &Bound<'_, PyAny>, n: Option<usize>) -> PyResult<Obj
     numpy_out(py, out, &shape, None)
 }
 
+/// Threads for large matrix operations (0: all cores, 1: single-threaded).
+#[pyfunction]
+fn set_threads(threads: usize) {
+    linalg::set_threads(threads);
+}
+
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     for f in [
+        wrap_pyfunction!(set_threads, m)?,
         wrap_pyfunction!(matmul, m)?,
         wrap_pyfunction!(solve, m)?,
         wrap_pyfunction!(inv, m)?,
@@ -644,6 +660,7 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(eigvals, m)?,
         wrap_pyfunction!(eigh, m)?,
         wrap_pyfunction!(svd, m)?,
+        wrap_pyfunction!(svdvals, m)?,
         wrap_pyfunction!(pinv, m)?,
         wrap_pyfunction!(qr, m)?,
         wrap_pyfunction!(cholesky, m)?,

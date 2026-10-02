@@ -380,8 +380,36 @@ pub fn csd<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64, axis
 /// The power spectral density by Welch's method (`scipy.signal.welch`): the average of modified
 /// periodograms of overlapping windowed segments.
 pub fn welch<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments, average: Average) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
-    let (f, p) = csd(x, x, fs, axis, seg, average)?;
-    Ok((f, p.map(|z| z.re)))
+    // one transform per segment: |X|², not conj(X) X through csd
+    let xl = lanes(x, axis)?;
+    let len = x.shape()[axis];
+    let plan = Plan::new(seg, len, |n| n / 2, fs, false)?;
+    let mut fwd = Transform::new(plan.nfft, plan.onesided);
+    let nfreq = plan.nfreq();
+    let per_lane: Vec<Vec<T>> = xl
+        .iter()
+        .map(|lane| {
+            let segs = plan.transforms(lane, &mut fwd);
+            let mut p: Vec<f64> = match average {
+                Average::Median if segs.len() > 1 => {
+                    let bias = median_bias(segs.len());
+                    (0..nfreq).map(|f| median(&mut segs.iter().map(|s| s[f].norm_sqr() * plan.scale).collect::<Vec<_>>()) / bias).collect()
+                }
+                _ => {
+                    let mut acc = vec![0.0; nfreq];
+                    for s in &segs {
+                        for (a, z) in acc.iter_mut().zip(s) {
+                            *a += z.norm_sqr();
+                        }
+                    }
+                    acc.iter().map(|a| a * plan.scale / segs.len().max(1) as f64).collect()
+                }
+            };
+            fold_onesided(&mut p, &plan);
+            p.into_iter().map(T::_lit).collect()
+        })
+        .collect();
+    Ok((plan.freqs(fs), assemble(x.shape(), axis, nfreq, None, per_lane)))
 }
 
 /// The periodogram: one segment covering the signal (`scipy.signal.periodogram`; window default

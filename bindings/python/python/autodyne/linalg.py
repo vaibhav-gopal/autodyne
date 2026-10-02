@@ -5,8 +5,13 @@ import numpy as _np
 
 from . import _autodyne as _native
 
-__all__ = ["matmul", "solve", "inv", "det", "lstsq", "eig", "eigvals", "eigh", "svd", "pinv", "qr", "cholesky",
+__all__ = ["set_threads", "matmul", "solve", "inv", "det", "lstsq", "eig", "eigvals", "eigh", "svd", "pinv", "qr", "cholesky",
            "expm", "roots"]
+
+
+def set_threads(n):
+    """Threads for large matrix operations (0: all cores, 1: single-threaded)."""
+    _native.set_threads(n)
 
 
 def _float(a):
@@ -53,8 +58,9 @@ def eigh(a):
 
 def svd(a, full_matrices=True, compute_uv=True):
     """``(u, s, vt)``, or ``s`` alone when ``compute_uv`` is false."""
-    u, s, vt = _native.svd(_float(a), full_matrices)
-    return (u, s, vt) if compute_uv else s
+    if not compute_uv:
+        return _native.svdvals(_float(a))
+    return _native.svd(_float(a), full_matrices)
 
 
 def pinv(a):

@@ -104,7 +104,11 @@ results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULT
 - sums: 1.4x (f32) to 3.4x (f64) faster, row sums 6.5x; column sums on par (both at memory bandwidth)
 - mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 1.45x faster
 - IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
-- FFT vs `numpy.fft` (pocketfft): 1.4x faster (`rustfft` / `realfft` kernels behind autodyne's `Fft` / `RealFft`)
+- FFT vs `numpy.fft` (pocketfft): 1.3-1.5x faster, 2x at prime lengths (`rustfft` / `realfft` kernels; any length)
+- `scipy.signal`: `sosfilt` 1.1x, `sosfiltfilt` 1.5x, `lfilter` on par (lanes filtered four at a time), `welch` 3x,
+  `stft` 1.1x, filter design ~100x (SciPy designs in Python); `remez` 0.4x
+- linear algebra (faer vs OpenBLAS, one thread): `solve` 1.2-1.6x, `eigvals` 1.1x; `matmul` 0.6-0.9x, `eigh` 0.8x, `svd`
+  0.6x
 ### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
 `bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
 on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, transposed, broadcast, reductions, FIR vs

@@ -22,6 +22,11 @@ import scipy
 from scipy import signal
 
 import autodyne
+from autodyne import fft as afft
+from autodyne import linalg as al
+from autodyne import signal as asg
+
+al.set_threads(1)  # single-threaded, like NumPy with OMP_NUM_THREADS=1
 
 rng = np.random.default_rng(0)
 
@@ -95,6 +100,36 @@ case("IIR (scipy sosfilt)", "480,000 x 16 f32, along strided time", lambda: sign
 frames = rng.standard_normal((256, 4_096))
 case("FFT (numpy.fft)", "rfft, 256 x 4096 f64", lambda: np.fft.rfft(frames), lambda: autodyne.rfft(frames), 1e-8)
 case("FFT (numpy.fft)", "rfft, 4096 x 64 f64", lambda: np.fft.rfft(frames.reshape(-1, 64)), lambda: autodyne.rfft(frames.reshape(-1, 64)), 1e-8)
+
+# FFT of awkward lengths (Bluestein / mixed radix)
+for n in (1000, 1031, 4095):
+    z = rng.standard_normal((64, n)) + 1j * rng.standard_normal((64, n))
+    case("FFT (numpy.fft)", f"complex fft, 64 x {n}", lambda: np.fft.fft(z), lambda: afft.fft(z), 1e-8)
+
+# linear algebra (single-threaded on both sides)
+for n in (64, 512):
+    a, b = rng.standard_normal((n, n)), rng.standard_normal((n, n))
+    case("linalg (numpy)", f"matmul {n}x{n}", lambda: a @ b, lambda: al.matmul(a, b), 1e-9)
+    case("linalg (numpy)", f"solve {n}x{n}", lambda: np.linalg.solve(a, b), lambda: al.solve(a, b), 1e-6)
+a = rng.standard_normal((300, 300))
+case("linalg (numpy)", "eigvals 300x300", lambda: np.sort_complex(np.linalg.eigvals(a)), lambda: np.sort_complex(al.eigvals(a)), 1e-6)
+case("linalg (numpy)", "svd 300x300", lambda: np.linalg.svd(a, compute_uv=False), lambda: al.svd(a, compute_uv=False), 1e-8)
+sym = a + a.T
+case("linalg (numpy)", "eigh 300x300", lambda: np.linalg.eigh(sym)[0], lambda: al.eigh(sym)[0], 1e-8)
+
+# signal processing vs scipy.signal
+sig = rng.standard_normal((16, 48_000))
+sos8 = signal.ellip(8, 0.5, 60, [500, 4000], btype="band", fs=48_000, output="sos")
+case("filtering (scipy.signal)", "sosfilt, 8th-order ellip, 16 x 48000", lambda: signal.sosfilt(sos8, sig), lambda: asg.sosfilt(sos8, sig), 1e-8)
+case("filtering (scipy.signal)", "sosfiltfilt, 16 x 48000", lambda: signal.sosfiltfilt(sos8, sig), lambda: asg.sosfiltfilt(sos8, sig), 1e-7)
+b4, a4 = signal.butter(4, 0.1)
+case("filtering (scipy.signal)", "lfilter, 4th-order, 16 x 48000", lambda: signal.lfilter(b4, a4, sig), lambda: asg.lfilter(b4, a4, sig), 1e-8)
+case("filter design (scipy.signal)", "ellip(8) to sos", lambda: signal.ellip(8, 0.5, 60, [500, 4000], btype="band", fs=48_000, output="sos"),
+     lambda: asg.ellip(8, 0.5, 60, [500, 4000], btype="band", fs=48_000, output="sos"), 1e-8)
+case("filter design (scipy.signal)", "remez, 101 taps", lambda: signal.remez(101, [0, 0.2, 0.25, 0.5], [1, 0]),
+     lambda: asg.remez(101, [0, 0.2, 0.25, 0.5], [1, 0]), 1e-8)
+case("spectral (scipy.signal)", "welch, 16 x 48000, nperseg 1024", lambda: signal.welch(sig, nperseg=1024)[1], lambda: asg.welch(sig, nperseg=1024)[1], 1e-8)
+case("spectral (scipy.signal)", "stft, 16 x 48000, nperseg 512", lambda: signal.stft(sig, nperseg=512)[2], lambda: asg.stft(sig, nperseg=512)[2], 1e-8)
 
 out = pathlib.Path(__file__).with_name("RESULTS.md")
 lines = [
