@@ -4,8 +4,9 @@
 //!
 //! Generic code runs on [`Tracer`] instead of `f32`; every operation is recorded into a flat
 //! [`Graph`] of primitives on f32 arrays: element-wise arithmetic and functions, comparisons and
-//! `select`, broadcasting, reshapes and transposes, slices, padding and concatenation, sums,
-//! `dot_general` and real FFTs. From there:
+//! `select`, broadcasting, reshapes and transposes, slices, padding, concatenation and reversal,
+//! sums, products, maxima and minima, `dot_general`, real FFTs, and gathers (`take`, for
+//! wavetables and modulated delays) with their scatter. From there:
 //!
 //! - [`Graph::eval`] interprets it (f32, the reference semantics; values are
 //!   [`NdArray`](crate::signal::NdArray)s);
@@ -53,7 +54,7 @@ mod scan;
 mod xla;
 
 pub use ad::vjp;
-pub use graph::{scalar, trace, vector, Cmp, Graph, Mask, Node, Op, Part, Tracer};
+pub use graph::{scalar, trace, vector, Cmp, Graph, Mask, Node, Op, Part, Reduction, Tracer};
 pub use hlo::Program;
 pub use iree::{Iree, IreeTarget};
 pub use pjrt::Pjrt;

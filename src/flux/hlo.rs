@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::fmt::Write;
 
-use super::graph::{Cmp, Graph, Op, Part};
+use super::graph::{Cmp, Graph, Op, Part, Reduction};
 use super::loss::Loss;
 use super::scan::Scan;
 
@@ -141,6 +141,7 @@ impl Writer {
                     let dir = match c {
                         Cmp::Lt => "LT",
                         Cmp::Gt => "GT",
+                        Cmp::Eq => "EQ",
                     };
                     format!("stablehlo.compare {dir}, {}, {}, FLOAT : ({}, {}) -> {out}", n(a), n(b), t(a), t(b))
                 }
@@ -195,6 +196,54 @@ impl Writer {
                         t(a)
                     )
                 }
+                Op::Reduce(a, ref axes, r) => {
+                    let (init, op) = match r {
+                        Reduction::Max => (f32::NEG_INFINITY, "maximum"),
+                        Reduction::Min => (f32::INFINITY, "minimum"),
+                        Reduction::Prod => (1.0, "multiply"),
+                    };
+                    let init = self.splat(init, &[]);
+                    format!("stablehlo.reduce({} init: {init}) applies stablehlo.{op} across dimensions = [{}] : ({}, tensor<f32>) -> {out}", n(a), list(axes), t(a))
+                }
+                Op::Reverse(a, ref axes) => format!("stablehlo.reverse {}, dims = [{}] : {out}", n(a), list(axes)),
+                Op::Take { table, indices } => {
+                    let (ts, is) = (&g.nodes[table as usize].shape, &g.nodes[indices as usize].shape);
+                    let ix = self.row_indices(&n(indices), is, ts[0]);
+                    let offset: Vec<usize> = (is.len()..is.len() + ts.len() - 1).collect();
+                    let mut dims = Vec::new();
+                    if !offset.is_empty() {
+                        dims.push(format!("offset_dims = [{}]", list(&offset)));
+                    }
+                    dims.extend(["collapsed_slice_dims = [0]".to_string(), "start_index_map = [0]".into(), format!("index_vector_dim = {}", is.len())]);
+                    let sizes: Vec<usize> = std::iter::once(1).chain(ts[1..].iter().copied()).collect();
+                    format!(
+                        "\"stablehlo.gather\"({}, {ix}) {{dimension_numbers = #stablehlo.gather<{}>, slice_sizes = {}, indices_are_sorted = false}} : ({}, {}) -> {out}",
+                        n(table),
+                        dims.join(", "),
+                        i64s(&sizes),
+                        t(table),
+                        ty(is, "i32")
+                    )
+                }
+                Op::ScatterAdd { indices, updates } => {
+                    let (is, us) = (&g.nodes[indices as usize].shape, &g.nodes[updates as usize].shape);
+                    let ix = self.row_indices(&n(indices), is, node.shape[0]);
+                    let zeros = self.splat(0.0, &node.shape);
+                    let window: Vec<usize> = (is.len()..us.len()).collect();
+                    let mut dims = Vec::new();
+                    if !window.is_empty() {
+                        dims.push(format!("update_window_dims = [{}]", list(&window)));
+                    }
+                    dims.extend(["inserted_window_dims = [0]".to_string(), "scatter_dims_to_operand_dims = [0]".into(), format!("index_vector_dim = {}", is.len())]);
+                    let (x, y, s) = (self.fresh(), self.fresh(), self.fresh());
+                    format!(
+                        "\"stablehlo.scatter\"({zeros}, {ix}, {}) ({{\n^bb0({x}: tensor<f32>, {y}: tensor<f32>):\n  {s} = stablehlo.add {x}, {y} : tensor<f32>\n  stablehlo.return {s} : tensor<f32>\n}}) {{scatter_dimension_numbers = #stablehlo.scatter<{}>, indices_are_sorted = false, unique_indices = false}} : ({out}, {}, {}) -> {out}",
+                        n(updates),
+                        dims.join(", "),
+                        ty(is, "i32"),
+                        t(updates)
+                    )
+                }
                 Op::Concat(ref parts, axis) => {
                     let names: Vec<String> = parts.iter().map(|&p| n(p)).collect();
                     let types: Vec<String> = parts.iter().map(|&p| t(p)).collect();
@@ -205,6 +254,16 @@ impl Writer {
             names.push(name);
         }
         g.outputs.iter().map(|&o| names[o as usize].clone()).collect()
+    }
+
+    /// Real indices into `rows` rows as `i32`s: rounded down and clamped (the gather would clamp
+    /// anyway, but the scatter that is its gradient drops out-of-range rows instead).
+    fn row_indices(&mut self, v: &str, shape: &[usize], rows: usize) -> String {
+        let real_t = real(shape);
+        let floor = self.emit(&format!("stablehlo.floor {v} : {real_t}"));
+        let (lo, hi) = (self.splat(0.0, shape), self.splat((rows - 1) as f32, shape));
+        let clamped = self.emit(&format!("\"stablehlo.clamp\"({lo}, {floor}, {hi}) : ({real_t}, {real_t}, {real_t}) -> {real_t}"));
+        self.emit(&format!("stablehlo.convert {clamped} : ({real_t}) -> {}", ty(shape, "i32")))
     }
 
     /// Step `i` of `v` (shape `[len, rest...]`), shape `rest`.

@@ -395,6 +395,88 @@ fn slice_pad_concatenate_gradients() {
     check_gradient(&[&[2, 19]], 0.1, 1e-4, |v| frames(v[0], 6, 4));
 }
 
+// REDUCTIONS, REVERSAL, GATHER ====================================================================
+
+#[test]
+fn reductions_reverse_and_take_forward() {
+    let x = arr(&[3.0, -1.0, 4.0, 1.0, -5.0, 9.0], &[2, 3]);
+    let idx = arr(&[2.7, 0.0, -3.0, 1.0], &[2, 2]);
+    let g = trace(&[&[2, 3], &[2, 2]], |v| {
+        vec![v[0].max_axes(&[1]), v[0].min_axes(&[0]), v[0].prod_axes(&[0, 1]), v[0].reverse(&[1]), v[0].take(v[1]), v[0].reverse(&[0]).take(Tracer::lit(7.0))]
+    });
+    let out = g.eval(&[x.clone(), idx.clone()]);
+    assert_eq!(out[0].as_slice(), &[4.0, 9.0]);
+    assert_eq!(out[1].as_slice(), &[1.0, -5.0, 4.0]);
+    assert_eq!(out[2].as_slice(), &[540.0]);
+    assert_eq!(out[3].as_slice(), &[4.0, -1.0, 3.0, 9.0, -5.0, 1.0]);
+    // rows 1 (2.7 clamped), 0, 0 (clamped), 1
+    assert_eq!(out[4].shape(), [2, 2, 3]);
+    assert_eq!(out[4].as_slice(), &[1.0, -5.0, 9.0, 3.0, -1.0, 4.0, 3.0, -1.0, 4.0, 1.0, -5.0, 9.0]);
+    assert_eq!(out[5].as_slice(), &[3.0, -1.0, 4.0]);
+    // the eager implementation agrees
+    assert_eq!(x.clone().take(idx), out[4]);
+    assert_eq!(x.max_axes(&[1]), out[0]);
+}
+
+#[test]
+fn reduction_reverse_and_take_gradients() {
+    check_gradient(&[&[3, 4]], 1e-2, 1e-3, |v| v[0].max_axes(&[1]));
+    check_gradient(&[&[3, 4]], 1e-2, 1e-3, |v| v[0].min_axes(&[0, 1]));
+    check_gradient(&[&[3, 4]], 1e-2, 1e-3, |v| v[0].prod_axes(&[0]));
+    check_gradient(&[&[3, 4]], 0.1, 1e-4, |v| v[0].reverse(&[0, 1]));
+    // repeated and clamped indices accumulate into the table
+    let idx = arr(&[0.5, 2.2, 2.9, 7.0, -1.0], &[5]);
+    check_gradient(&[&[3, 2]], 0.1, 1e-4, |v| v[0].take(Tracer::constant(&idx)));
+    check_gradient(&[&[5, 2]], 0.1, 1e-4, |v| Tracer::scatter_add(&[3, 2], Tracer::constant(&idx), v[0]));
+    // ties share the gradient
+    let g = trace(&[&[3]], |v| vjp(&[v[0].max_axes(&[0])], &[Tracer::lit(1.0)], v)).eval(&[arr(&[1.0, 3.0, 3.0], &[3])]);
+    assert_eq!(g[0].as_slice(), &[0.0, 0.5, 0.5]);
+}
+
+#[test]
+fn a_wavetable_oscillator_and_a_modulated_delay_trace_and_differentiate() {
+    // wavetable: phase in table positions, linear interpolation between neighbouring entries
+    let n = 64usize;
+    let table: Vec<f32> = (0..=n).map(|i| (std::f32::consts::TAU * i as f32 / n as f32).sin()).collect(); // guard point
+    let osc = |table: Tracer, phase: Tracer| {
+        let i = phase.floor();
+        let frac = phase - i;
+        let (a, b) = (table.take(i), table.take(i + Tracer::lit(1.0)));
+        a + (b - a) * frac
+    };
+    let scan = Scan::trace(&[&[n + 1], &[]], &[&[]], &[], |p, s, _| {
+        let y = osc(p[0], s[0]);
+        let next = s[0] + p[1];
+        (vec![next - (next / Tracer::lit(n as f64)).floor() * Tracer::lit(n as f64)], y)
+    });
+    let (ys, _) = scan.run(&[vector(&table), scalar(3.3)], &NdArray::zeros(&[200]).unwrap(), &[scalar(0.0)]);
+    let mut phase = 0.0f32;
+    for (k, &y) in ys.as_slice().iter().enumerate() {
+        let i = phase.floor() as usize;
+        let want = table[i] + (table[i + 1] - table[i]) * (phase - i as f32);
+        assert!((y - want).abs() < 1e-5, "sample {k}: {y} vs {want}");
+        phase = (phase + 3.3) % n as f32;
+    }
+
+    // a delay line of 16 samples read at a fractional delay `d` (a parameter): its gradient is the
+    // slope of the interpolation, checked by central differences
+    let delay = Scan::trace(&[&[]], &[&[16]], &[], |p, s, x| {
+        let line = Tracer::concatenate(&[x.reshape(&[1]), s[0].slice_axis(0, 0, 15)], 0);
+        let i = p[0].floor();
+        let frac = p[0] - i;
+        let (a, b) = (line.take(i), line.take(i + Tracer::lit(1.0)));
+        (vec![line], a + (b - a) * frac)
+    });
+    let xs = random(&[96], 21);
+    let targets = random(&[96], 22);
+    let s0 = [NdArray::zeros(&[16]).unwrap()];
+    let loss = |d: f32| delay.loss_grad(&[scalar(d)], &xs, &targets, &s0).loss as f64;
+    for d in [2.3f32, 7.6, 11.1] {
+        let g = delay.loss_grad(&[scalar(d)], &xs, &targets, &s0).params[0].as_slice()[0];
+        let fd = ((loss(d + 1e-3) - loss(d - 1e-3)) / 2e-3) as f32;
+        assert!((g - fd).abs() < 1e-3 * (1.0 + fd.abs()), "delay {d}: {g} vs {fd}");
+    }
+}
 // LOSSES ==========================================================================================
 
 #[test]

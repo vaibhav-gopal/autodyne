@@ -14,7 +14,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{BinaryOp, DynArray, DynElement, Promotion, UnaryOp};
 use crate::signal::{
-    broadcast_in_dim, broadcast_to_any, concatenate_any, pad_any, reshape_any, select_any, slice_any, sum_axes_with, transpose_any, ArrayMath, ComplexArrayMath,
+    broadcast_in_dim, broadcast_to_any, concatenate_any, pad_any, reduce_axes_with, reshape_any, reverse_any, select_any, slice_any, sum_axes_with, take_any, transpose_any,
+    ArrayMath, ComplexArrayMath,
     NdArray, RealArrayMath,
 };
 use crate::units::*;
@@ -320,6 +321,38 @@ impl ArrayMath for DynArray {
         let parts: Vec<DynArray> = parts.iter().map(|p| p.cast(target).expect("converts")).collect();
         dyn_match!(&parts[0], a => concatenate_as(a, &parts, axis))
     }
+    /// Integer products wrap, in `i64` / `u64` (like their sums).
+    fn prod_axes(self, axes: &[usize]) -> Self {
+        match self {
+            DynArray::F32(a) => DynArray::F32(a.prod_axes(axes)),
+            DynArray::F64(a) => DynArray::F64(a.prod_axes(axes)),
+            DynArray::ComplexF32(a) => DynArray::ComplexF32(a.prod_axes(axes)),
+            DynArray::ComplexF64(a) => DynArray::ComplexF64(a.prod_axes(axes)),
+            ints => match wide_int(&ints) {
+                DynArray::I64(a) => DynArray::I64(reduce_axes_with(a, axes, 1, i64::wrapping_mul)),
+                DynArray::U64(a) => DynArray::U64(reduce_axes_with(a, axes, 1, u64::wrapping_mul)),
+                _ => unreachable!("widened to i64 or u64"),
+            },
+        }
+    }
+    fn reverse(self, axes: &[usize]) -> Self {
+        dyn_match!(self, a => DynArray::from_array(reverse_any(a, axes)))
+    }
+}
+
+/// `f` over `axes` for the real types (floats propagate NaN; complex arrays have no order).
+fn extreme(a: DynArray, axes: &[usize], max: bool) -> DynArray {
+    macro_rules! ints {
+        ($($V:ident $T:ty),+) => {
+            match a {
+                DynArray::F32(x) => DynArray::F32(if max { x.max_axes(axes) } else { x.min_axes(axes) }),
+                DynArray::F64(x) => DynArray::F64(if max { x.max_axes(axes) } else { x.min_axes(axes) }),
+                $(DynArray::$V(x) => DynArray::$V(if max { reduce_axes_with(x, axes, <$T>::MIN, <$T>::max) } else { reduce_axes_with(x, axes, <$T>::MAX, <$T>::min) }),)+
+                DynArray::ComplexF32(_) | DynArray::ComplexF64(_) => panic!("complex values have no order"),
+            }
+        };
+    }
+    ints!(I8 i8, I16 i16, I32 i32, I64 i64, U8 u8, U16 u16, U32 u32, U64 u64)
 }
 
 /// Concatenates `parts`, all of `T` (the first argument only names the type).
@@ -339,6 +372,20 @@ fn int_matmul<T: Copy + Default>(a: &[T], b: &[T], m: usize, k: usize, n: usize,
 }
 
 impl RealArrayMath for DynArray {
+    fn max_axes(self, axes: &[usize]) -> Self {
+        extreme(self, axes, true)
+    }
+    fn min_axes(self, axes: &[usize]) -> Self {
+        extreme(self, axes, false)
+    }
+    /// Indices of any real type.
+    fn take(self, indices: Self) -> Self {
+        let shape = DynArray::shape(&indices).to_vec();
+        let FloatArray::F64(at) = FloatArray::from(indices.cast(DType::F64).unwrap_or_else(|e| panic!("take: indices must be real: {e}"))) else {
+            unreachable!("cast to f64")
+        };
+        dyn_match!(self, a => DynArray::from_array(take_any(&a, at.as_slice().iter().copied(), &shape)))
+    }
     /// Real arrays only (complex arrays have no real FFT; use `fft`).
     fn rfft(self) -> (Self, Self) {
         match FloatArray::from(self.to_float()) {

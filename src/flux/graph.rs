@@ -18,6 +18,15 @@ pub(crate) type Id = u32;
 pub enum Cmp {
     Lt,
     Gt,
+    Eq,
+}
+
+/// Reductions other than sums.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reduction {
+    Max,
+    Min,
+    Prod,
 }
 
 /// Which half of a complex spectrum an [`Op::Rfft`] node holds.
@@ -83,6 +92,15 @@ pub enum Op {
     Pad { a: Id, low: Vec<usize>, high: Vec<usize>, interior: Vec<usize> },
     /// The operands joined along an axis (`stablehlo.concatenate`).
     Concat(Vec<Id>, usize),
+    /// Max / min / product over `axes` (increasing), which are removed.
+    Reduce(Id, Vec<usize>, Reduction),
+    /// Reverses each of `axes`.
+    Reverse(Id, Vec<usize>),
+    /// Rows of `table` (first axis) at `indices`, rounded down and clamped (`stablehlo.gather`).
+    Take { table: Id, indices: Id },
+    /// Zeros of the node's shape with each row of `updates` added at the row `indices` names (rounded
+    /// down and clamped): the transpose of [`Take`](Op::Take) (`stablehlo.scatter`).
+    ScatterAdd { indices: Id, updates: Id },
 }
 
 impl Op {
@@ -94,13 +112,15 @@ impl Op {
         let (a, b, c) = match *self {
             Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
             Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) | Op::Floor(a) => (Some(a), None, None),
-            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) | Op::Slice { a, .. } | Op::Pad { a, .. } => {
+            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) | Op::Slice { a, .. } | Op::Pad { a, .. } | Op::Reduce(a, ..) | Op::Reverse(a, _) => {
                 (Some(a), None, None)
             }
             Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
                 (Some(a), Some(b), None)
             }
-            Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } => (Some(a), Some(b), None),
+            Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } | Op::Take { table: a, indices: b } | Op::ScatterAdd { indices: a, updates: b } => {
+                (Some(a), Some(b), None)
+            }
             Op::Select(c, a, b) => (Some(c), Some(a), Some(b)),
             Op::Concat(..) => unreachable!("handled above"),
         };
@@ -139,6 +159,10 @@ impl Op {
             Op::Slice { a, start, limit, stride } => Op::Slice { a: f(a), start, limit, stride },
             Op::Pad { a, low, high, interior } => Op::Pad { a: f(a), low, high, interior },
             Op::Concat(parts, axis) => Op::Concat(parts.into_iter().map(f).collect(), axis),
+            Op::Reduce(a, axes, r) => Op::Reduce(f(a), axes, r),
+            Op::Reverse(a, axes) => Op::Reverse(f(a), axes),
+            Op::Take { table, indices } => Op::Take { table: f(table), indices: f(indices) },
+            Op::ScatterAdd { indices, updates } => Op::ScatterAdd { indices: f(indices), updates: f(updates) },
         }
     }
 }
@@ -362,12 +386,34 @@ impl Tracer {
         (self.broadcast_to(&shape), rhs.broadcast_to(&shape), shape)
     }
 
+    fn reduce(self, axes: &[usize], r: Reduction) -> Tracer {
+        let own = self.shape();
+        let mut axes = axes.to_vec();
+        axes.sort_unstable();
+        axes.dedup();
+        assert!(axes.iter().all(|&a| a < own.len()), "reduction: axis out of range for {own:?}");
+        if axes.is_empty() {
+            return self;
+        }
+        let shape = (0..own.len()).filter(|a| !axes.contains(a)).map(|a| own[a]).collect();
+        Tracer::new(Op::Reduce(self.check(), axes, r), shape)
+    }
+
+    /// Zeros of `shape` (`[n, rest...]`) with each row of `updates` (`[indices..., rest...]`) added
+    /// at the row its index names (rounded down, clamped): the transpose of [`take`](RealArrayMath::take).
+    pub fn scatter_add(shape: &[usize], indices: Tracer, updates: Tracer) -> Tracer {
+        let (is, us) = (indices.shape(), updates.shape());
+        assert!(!shape.is_empty() && shape[0] > 0, "scatter_add: needs a non-empty first axis");
+        assert_eq!(us, [is.as_slice(), &shape[1..]].concat(), "scatter_add: updates must be [indices..., rows...]");
+        Tracer::new(Op::ScatterAdd { indices: indices.check(), updates: updates.check() }, shape.to_vec())
+    }
+
     fn binary(self, rhs: Tracer, f: fn(Id, Id) -> Op) -> Tracer {
         let (a, b, shape) = self.align(rhs);
         Tracer::new(f(a.check(), b.check()), shape)
     }
 
-    fn compare(self, rhs: Tracer, c: Cmp) -> Mask {
+    pub(crate) fn compare(self, rhs: Tracer, c: Cmp) -> Mask {
         let (a, b, shape) = self.align(rhs);
         Mask { id: push(Op::Compare(c, a.check(), b.check()), shape, true), trace: self.trace }
     }
@@ -469,6 +515,22 @@ impl ArrayMath for Tracer {
         Tracer::new(Op::Pad { a: self.check(), low: low.to_vec(), high: high.to_vec(), interior: interior.to_vec() }, shape)
     }
 
+    fn prod_axes(self, axes: &[usize]) -> Tracer {
+        self.reduce(axes, Reduction::Prod)
+    }
+
+    fn reverse(self, axes: &[usize]) -> Tracer {
+        let own = self.shape();
+        let mut axes = axes.to_vec();
+        axes.sort_unstable();
+        axes.dedup();
+        assert!(axes.iter().all(|&a| a < own.len()), "reverse: axis out of range for {own:?}");
+        if axes.iter().all(|&a| own[a] <= 1) {
+            return self;
+        }
+        Tracer::new(Op::Reverse(self.check(), axes), own)
+    }
+
     fn concatenate(parts: &[Tracer], axis: usize) -> Tracer {
         let shape = crate::signal::concat_shape(&parts.iter().map(|p| p.shape()).collect::<Vec<_>>(), axis);
         if parts.len() == 1 {
@@ -496,6 +558,21 @@ impl RealArrayMath for Tracer {
         let mut shape = sr;
         *shape.last_mut().unwrap() = n;
         Tracer::new(Op::Irfft { re: re.check(), im: im.check(), n }, shape)
+    }
+
+    fn max_axes(self, axes: &[usize]) -> Tracer {
+        self.reduce(axes, Reduction::Max)
+    }
+
+    fn min_axes(self, axes: &[usize]) -> Tracer {
+        self.reduce(axes, Reduction::Min)
+    }
+
+    fn take(self, indices: Tracer) -> Tracer {
+        let (table, is) = (self.shape(), indices.shape());
+        assert!(!table.is_empty() && table[0] > 0, "take: the table needs a non-empty first axis");
+        assert!(is.len() + table.len() - 1 <= MAX_DIMS, "flux: at most {MAX_DIMS} axes");
+        Tracer::new(Op::Take { table: self.check(), indices: indices.check() }, [is.as_slice(), &table[1..]].concat())
     }
 }
 

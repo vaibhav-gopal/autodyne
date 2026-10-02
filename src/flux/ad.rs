@@ -1,7 +1,7 @@
 //! Reverse-mode differentiation as a graph transformation: the backward pass is recorded into the
 //! same trace as the forward pass, so it is evaluated, emitted and compiled like any other code.
 
-use super::graph::{self, Id, Mask, Op, Part, Tracer};
+use super::graph::{self, Cmp, Id, Mask, Op, Part, Reduction, Tracer};
 use crate::signal::{ArrayMath, NdArray, RealArrayMath};
 use crate::units::{Elementwise, RealValued};
 
@@ -191,6 +191,25 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 let stride: Vec<usize> = interior.iter().map(|k| k + 1).collect();
                 acc(&mut adj, a, g.slice(&low, &limit, &stride));
             }
+            Op::Reduce(a, axes, r) => {
+                let from = shape_of(a);
+                let kept: Vec<usize> = (0..from.len()).filter(|x| !axes.contains(x)).collect();
+                let (gb, yb) = (g.broadcast_in_dim(&from, &kept), t(id).broadcast_in_dim(&from, &kept));
+                match r {
+                    // d/dx_i Π x = Π x / x_i (not defined where an element is zero)
+                    Reduction::Prod => acc(&mut adj, a, gb * yb / t(a)),
+                    // to the elements equal to the extreme, shared equally among ties (as in JAX)
+                    Reduction::Max | Reduction::Min => {
+                        let hit = Tracer::select(t(a).compare(yb, Cmp::Eq), Tracer::lit(1.0), zero()).broadcast_to(&from);
+                        let count = hit.sum_axes(&axes).broadcast_in_dim(&from, &kept);
+                        acc(&mut adj, a, hit * gb / count);
+                    }
+                }
+            }
+            Op::Reverse(a, axes) => acc(&mut adj, a, g.reverse(&axes)),
+            // indices are piecewise constant: no gradient
+            Op::Take { table, indices } => acc(&mut adj, table, Tracer::scatter_add(&shape_of(table), t(indices), g)),
+            Op::ScatterAdd { indices, updates } => acc(&mut adj, updates, g.take(t(indices))),
             Op::Concat(parts, axis) => {
                 let mut offset = 0;
                 for p in parts {

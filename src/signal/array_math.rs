@@ -61,6 +61,10 @@ pub trait ArrayMath: Elementwise {
     fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self;
     /// Joins arrays along `axis` (every other axis must match), like `numpy.concatenate`.
     fn concatenate(parts: &[Self], axis: usize) -> Self;
+    /// Product over `axes`, which are removed.
+    fn prod_axes(self, axes: &[usize]) -> Self;
+    /// The elements in reverse order along each of `axes` (`numpy.flip`).
+    fn reverse(self, axes: &[usize]) -> Self;
 
     /// `start..end` along `axis`, the other axes whole.
     fn slice_axis(self, axis: usize, start: usize, end: usize) -> Self {
@@ -96,6 +100,16 @@ pub trait RealArrayMath: ArrayMath + RealValued {
     /// The inverse of [`rfft`](Self::rfft): `n` samples along the last axis from `n / 2 + 1` bins,
     /// scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
     fn irfft(re: Self, im: Self, n: usize) -> Self;
+    /// Maximum over `axes`, which are removed (NaN propagates; an empty axis gives -∞).
+    fn max_axes(self, axes: &[usize]) -> Self;
+    /// Minimum over `axes`, which are removed (NaN propagates; an empty axis gives +∞).
+    fn min_axes(self, axes: &[usize]) -> Self;
+    /// Rows of `self` along its first axis at `indices` (`numpy.take(self, indices, axis=0)`): the
+    /// result has the indices' shape followed by `self`'s other axes. Indices are real numbers,
+    /// rounded down and clamped to the table (so the lookup never fails, as in XLA); interpolate
+    /// between `take(floor(i))` and `take(floor(i) + 1)` for fractional positions (wavetables,
+    /// modulated delays). The gradient flows to the table, not the indices.
+    fn take(self, indices: Self) -> Self;
 }
 
 /// Complex arrays: [`ArrayMath`] with complex FFTs along the last axis.
@@ -238,8 +252,16 @@ pub(crate) fn select_any<T: Copy>(mask: &NdArray<bool>, if_true: &NdArray<T>, if
 
 /// Sums over `axes` with an explicit addition (wrapping for integers).
 pub(crate) fn sum_axes_with<T: Copy + Default>(a: NdArray<T>, axes: &[usize], add: impl Fn(T, T) -> T) -> NdArray<T> {
+    reduce_axes_with(a, axes, T::default(), add)
+}
+
+/// Folds `axes` (removed) with `f`, starting each fold from `init` (what an empty axis gives).
+pub(crate) fn reduce_axes_with<T: Copy>(a: NdArray<T>, axes: &[usize], init: T, f: impl Fn(T, T) -> T) -> NdArray<T> {
     let shape = a.shape().to_vec();
-    assert!(axes.iter().all(|&x| x < shape.len()), "sum_axes: axis out of range for {shape:?}");
+    let mut axes = axes.to_vec();
+    axes.sort_unstable();
+    axes.dedup();
+    assert!(axes.iter().all(|&x| x < shape.len()), "reduction: axis out of range for {shape:?}");
     let reduced: Vec<usize> = shape.iter().enumerate().filter(|(i, _)| !axes.contains(i)).map(|(_, &n)| n).collect();
     // move the summed axes last, then add up each run
     let kept: Vec<usize> = (0..shape.len()).filter(|i| !axes.contains(i)).collect();
@@ -247,11 +269,67 @@ pub(crate) fn sum_axes_with<T: Copy + Default>(a: NdArray<T>, axes: &[usize], ad
     let moved = a.view().permute(&perm).expect("a permutation").to_vec();
     let run: usize = axes.iter().map(|&x| shape[x]).product();
     let out: Vec<T> = if run == 0 {
-        vec![T::default(); reduced.iter().product()]
+        vec![init; reduced.iter().product()]
     } else {
-        moved.chunks(run).map(|c| c.iter().fold(T::default(), |s, &x| add(s, x))).collect()
+        moved.chunks(run).map(|c| c.iter().fold(init, |s, &x| f(s, x))).collect()
     };
     NdArray::from_vec(out, &reduced).expect("valid shape")
+}
+
+/// The larger, NaN if either is (StableHLO's `maximum`).
+fn max_nan<T: Float>(a: T, b: T) -> T {
+    if a._is_nan() || b._is_nan() {
+        T::_NAN
+    } else if b > a {
+        b
+    } else {
+        a
+    }
+}
+
+/// The smaller, NaN if either is.
+fn min_nan<T: Float>(a: T, b: T) -> T {
+    if a._is_nan() || b._is_nan() {
+        T::_NAN
+    } else if b < a {
+        b
+    } else {
+        a
+    }
+}
+
+pub(crate) fn reverse_any<T: Copy>(a: NdArray<T>, axes: &[usize]) -> NdArray<T> {
+    let mut v = a.view();
+    for &axis in axes {
+        assert!(axis < a.ndim(), "reverse: axis {axis} is out of range for {:?}", a.shape());
+        v = v.flip(axis).expect("checked");
+    }
+    v.to_owned()
+}
+
+/// An index into `n` rows from a real value: rounded down, then clamped to `0..n` (as StableHLO's
+/// gather clamps), NaN to 0.
+pub(crate) fn clamp_index(i: f64, n: usize) -> usize {
+    if i.is_nan() {
+        0
+    } else {
+        i.floor().clamp(0.0, (n - 1) as f64) as usize
+    }
+}
+
+/// Rows of `table` (along its first axis) at `indices` (any shape): the result is
+/// `[indices..., table's other axes...]`.
+pub(crate) fn take_any<T: Copy>(table: &NdArray<T>, indices: impl Iterator<Item = f64>, index_shape: &[usize]) -> NdArray<T> {
+    let (&n, rest) = table.shape().split_first().expect("take: the table needs an axis");
+    assert!(n > 0, "take: the table is empty");
+    let row: usize = rest.iter().product();
+    let data = table.as_slice();
+    let mut out = Vec::with_capacity(index_shape.iter().product::<usize>() * row);
+    for i in indices {
+        let k = clamp_index(i, n);
+        out.extend_from_slice(&data[k * row..(k + 1) * row]);
+    }
+    NdArray::from_vec(out, &[index_shape, rest].concat()).expect("valid shape")
 }
 
 /// `dot_general` as one matrix product of the permuted operands: `[free, contracted] ·
@@ -385,9 +463,24 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     fn concatenate(parts: &[Self], axis: usize) -> Self {
         concatenate_any(parts, axis)
     }
+    fn prod_axes(self, axes: &[usize]) -> Self {
+        reduce_axes_with(self, axes, T::_ONE, |p, x| p * x)
+    }
+    fn reverse(self, axes: &[usize]) -> Self {
+        reverse_any(self, axes)
+    }
 }
 
 impl<T: Float + Default> RealArrayMath for NdArray<T> {
+    fn max_axes(self, axes: &[usize]) -> Self {
+        reduce_axes_with(self, axes, T::_NEG_INFINITY, max_nan)
+    }
+    fn min_axes(self, axes: &[usize]) -> Self {
+        reduce_axes_with(self, axes, T::_INFINITY, min_nan)
+    }
+    fn take(self, indices: Self) -> Self {
+        take_any(&self, indices.as_slice().iter().map(|i| i.to_f64().unwrap_or(f64::NAN)), indices.shape())
+    }
     fn rfft(self) -> (Self, Self) {
         let mut shape = NdArray::shape(&self).to_vec();
         let n = *shape.last().expect("rfft: needs an axis");
@@ -483,6 +576,12 @@ impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
     }
     fn concatenate(parts: &[Self], axis: usize) -> Self {
         concatenate_any(parts, axis)
+    }
+    fn prod_axes(self, axes: &[usize]) -> Self {
+        reduce_axes_with(self, axes, Complex::one(), |p, x| p * x)
+    }
+    fn reverse(self, axes: &[usize]) -> Self {
+        reverse_any(self, axes)
     }
 }
 

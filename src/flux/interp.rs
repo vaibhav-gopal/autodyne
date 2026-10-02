@@ -1,7 +1,7 @@
 //! The reference interpreter: each node evaluated by the eager [`ArrayMath`] implementation on
 //! `NdArray<f32>`, so a traced function and the same function run on arrays agree by construction.
 
-use super::graph::{Cmp, Graph, Op, Part};
+use super::graph::{Cmp, Graph, Op, Part, Reduction};
 use crate::signal::{ArrayMath, NdArray, RealArrayMath};
 use crate::units::{Elementwise, RealValued};
 
@@ -60,6 +60,10 @@ impl Graph {
                 Op::Max(a, b) => Value::Real(r(a).maximum(r(b))),
                 Op::Compare(Cmp::Lt, a, b) => Value::Mask(r(a).less(r(b))),
                 Op::Compare(Cmp::Gt, a, b) => Value::Mask(r(a).greater(r(b))),
+                Op::Compare(Cmp::Eq, a, b) => {
+                    let (x, y) = (r(a), r(b));
+                    Value::Mask(NdArray::from_vec(x.as_slice().iter().zip(y.as_slice()).map(|(p, q)| p == q).collect(), x.shape()).expect("same shape"))
+                }
                 Op::Select(c, a, b) => Value::Real(NdArray::select(values[c as usize].mask(), r(a), r(b))),
                 Op::Broadcast(a, ref dims) => match &values[a as usize] {
                     Value::Real(x) => Value::Real(crate::signal::broadcast_in_dim(x, &node.shape, dims)),
@@ -76,6 +80,12 @@ impl Graph {
                 Op::Irfft { re, im, n } => Value::Real(NdArray::irfft(r(re), r(im), n)),
                 Op::Slice { a, ref start, ref limit, ref stride } => Value::Real(r(a).slice(start, limit, stride)),
                 Op::Pad { a, ref low, ref high, ref interior } => Value::Real(r(a).pad(low, high, interior)),
+                Op::Reduce(a, ref axes, Reduction::Max) => Value::Real(r(a).max_axes(axes)),
+                Op::Reduce(a, ref axes, Reduction::Min) => Value::Real(r(a).min_axes(axes)),
+                Op::Reduce(a, ref axes, Reduction::Prod) => Value::Real(r(a).prod_axes(axes)),
+                Op::Reverse(a, ref axes) => Value::Real(r(a).reverse(axes)),
+                Op::Take { table, indices } => Value::Real(r(table).take(r(indices))),
+                Op::ScatterAdd { indices, updates } => Value::Real(scatter_add(&node.shape, &r(indices), &r(updates))),
                 Op::Concat(ref parts, axis) => Value::Real(NdArray::concatenate(&parts.iter().map(|&p| r(p)).collect::<Vec<_>>(), axis)),
             };
             values.push(value);
@@ -88,4 +98,17 @@ impl Graph {
             })
             .collect()
     }
+}
+
+/// Zeros of `shape` with each row of `updates` added at its index's row (rounded down, clamped).
+fn scatter_add(shape: &[usize], indices: &NdArray<f32>, updates: &NdArray<f32>) -> NdArray<f32> {
+    let row: usize = shape[1..].iter().product();
+    let mut out = vec![0.0f32; shape.iter().product()];
+    if row > 0 {
+        for (&i, u) in indices.as_slice().iter().zip(updates.as_slice().chunks(row)) {
+            let k = crate::signal::clamp_index(i as f64, shape[0]);
+            out[k * row..(k + 1) * row].iter_mut().zip(u).for_each(|(o, v)| *o += v);
+        }
+    }
+    NdArray::from_vec(out, shape).expect("valid shape")
 }
