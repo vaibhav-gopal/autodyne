@@ -62,6 +62,47 @@ impl<T: Float> Complex<T> {
         let d = self.norm_sqr();
         Self::new(self.re / d, -self.im / d)
     }
+    /// Principal square root (non-negative real part; on the branch cut, the sign of `im` picks the
+    /// side, as in NumPy).
+    pub fn sqrt(self) -> Self {
+        let r = self.norm();
+        let half = T::_lit(0.5);
+        let re = ((r + self.re) * half)._sqrt();
+        let im = ((r - self.re) * half)._sqrt();
+        let negative = self.im.to_f64().is_some_and(f64::is_sign_negative);
+        Self::new(re, if negative { -im } else { im })
+    }
+    /// Principal natural logarithm: `ln|z| + i arg z`.
+    pub fn ln(self) -> Self {
+        Self::new(self.norm()._ln(), self.arg())
+    }
+    /// `self` raised to a real power (principal branch); `0^e` is 0 for `e > 0`.
+    pub fn powf(self, e: T) -> Self {
+        if self.re == T::_ZERO && self.im == T::_ZERO {
+            return if e == T::_ZERO { Self::one() } else { Self::zero() };
+        }
+        (self.ln() * e).exp()
+    }
+    /// `self` raised to an integer power, by repeated squaring.
+    pub fn powi(self, n: i32) -> Self {
+        let mut base = if n < 0 { self.recip() } else { self };
+        let mut e = n.unsigned_abs();
+        let mut acc = Self::one();
+        while e > 0 {
+            if e & 1 == 1 {
+                acc *= base;
+            }
+            base = base * base;
+            e >>= 1;
+        }
+        acc
+    }
+    /// Principal arc sine: `-i ln(i z + sqrt(1 - z²))`.
+    pub fn asin(self) -> Self {
+        let i = Self::i();
+        let root = (Self::one() - self * self).sqrt();
+        -(i * (i * self + root).ln())
+    }
 }
 
 impl<T: Float> From<T> for Complex<T> {

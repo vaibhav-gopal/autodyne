@@ -6,16 +6,27 @@
 //!
 //! [`MultiBiquad`] runs one biquad per channel, several channels at a time. [`OnePole`] is written
 //! over [`Real`], so it can also be traced and differentiated.
+//!
+//! Designing filters as `scipy.signal` does (Butterworth, Chebyshev, elliptic, Bessel, windowed and
+//! equiripple FIR) is in `design`; applying designed coefficients to n-d data along an axis
+//! (`lfilter`, `sosfilt`, `filtfilt`, `sosfiltfilt`) is here. Both need the `faer` feature (on by
+//! default).
 
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
 
+#[cfg(feature = "faer")]
+mod apply;
 mod crossover;
+#[cfg(feature = "faer")]
+pub mod design;
 mod eq;
 mod ladder;
 mod one_pole;
 mod svf;
 
+#[cfg(feature = "faer")]
+pub use apply::*;
 pub use crossover::*;
 pub use eq::*;
 pub use ladder::*;

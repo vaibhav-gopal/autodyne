@@ -15,8 +15,9 @@
 //!   capability tiers, sources, streams, n-d arrays), [`channels`] (multichannel buffers).
 //! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`spectral`],
 //!   [`iq`], [`gain`], [`delay`], [`dynamics`], [`envelope`], [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
-//! - Maths: [`linalg`] (matrix products, solves, least squares, eigen / SVD, polynomials; feature
-//!   `faer`, on by default).
+//! - Maths: [`linalg`] (matrix products, solves, least squares, eigen / SVD, polynomials) and
+//!   [`systems`] (LTI systems: transfer functions, zeros-poles-gain, state space, responses,
+//!   discretization); feature `faer`, on by default.
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
 //! - Instruments: [`synth`] (MIDI, voices, polyphony), [`sampler`] (multisampled playback), [`control`] (LFOs, modulation matrix, transport).
 //! - Differentiable programs: `flux` (feature `flux`) traces code written over [`units::Real`],
@@ -52,6 +53,8 @@ pub mod params;
 pub mod dynamic;
 #[cfg(feature = "faer")]
 pub mod linalg;
+#[cfg(feature = "faer")]
+pub mod systems;
 pub mod dlpack;
 pub mod interop;
 #[cfg(feature = "flux")]

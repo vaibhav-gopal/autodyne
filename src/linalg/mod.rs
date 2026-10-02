@@ -23,7 +23,9 @@ use thiserror::Error;
 use crate::signal::{NdArray, NdView};
 use crate::units::*;
 
+mod expm;
 mod poly;
+pub use expm::expm;
 pub use poly::*;
 
 /// Element types linear algebra works on: `f32` and `f64`.

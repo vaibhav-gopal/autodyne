@@ -8,8 +8,10 @@ use crate::units::*;
 
 mod real;
 mod vocoder;
+mod windows;
 pub use real::*;
 pub use vocoder::*;
+pub use windows::*;
 
 /// Naive O(n^2) discrete Fourier transform. Exact by definition, so it is the reference the FFT is tested
 /// against. Allocates the output.
