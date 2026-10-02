@@ -9,6 +9,7 @@ publish = false
 repository = "https://github.com/vaibhav-gopal/autodyne"
 
 [dependencies]
+faer = { version = "0.24.4", default-features = false, features = ["std", "linalg", "rayon"], optional = true }
 libloading = { version = "0.8", optional = true }
 ndarray = { version = "0.17.2", default-features = false, features = ["std"], optional = true }
 realfft = { version = "3.5.0", optional = true }
@@ -24,12 +25,15 @@ rtrb = "0.4.0"
 
 [features]
 # rustfft: the FFT backend (AVX / SSE / NEON mixed-radix kernels); without it, a portable radix-2
-default = ["rustfft"]
+default = ["rustfft", "faer"]
 ndarray = ["dep:ndarray"]
 # flux: trace, differentiate and emit StableHLO; IREE / XLA run as external tools, or PJRT plugins
 # loaded at run time (libloading)
 flux = ["dep:libloading"]
 rustfft = ["dep:rustfft", "dep:realfft"]
+# faer: linear algebra (solve, least squares, eigenvalues, SVD) and fast matrix products; also what
+# LTI systems and filter design build on
+faer = ["dep:faer"]
 realfft = ["dep:realfft"]
 
 [[bench]]

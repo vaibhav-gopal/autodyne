@@ -191,7 +191,7 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
         for (&i, &j) in ca.iter().zip(cb) {
             assert!(i < sa.len() && j < sb.len() && sa[i] == sb[j], "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}");
         }
-        // [free, contracted] · [contracted, free] as one matrix product, accumulated in f64
+        // [free, contracted] · [contracted, free] as one matrix product
         let fa: Vec<usize> = (0..sa.len()).filter(|x| !ca.contains(x)).collect();
         let fb: Vec<usize> = (0..sb.len()).filter(|x| !cb.contains(x)).collect();
         let a = self.view().permute(&[fa.as_slice(), ca].concat()).expect("a permutation").to_vec();
@@ -199,6 +199,12 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
         let m: usize = fa.iter().map(|&x| sa[x]).product();
         let k: usize = ca.iter().map(|&x| sa[x]).product();
         let n: usize = fb.iter().map(|&x| sb[x]).product();
+        let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
+        #[cfg(feature = "faer")]
+        if let Some(out) = crate::linalg::gemm_any(&a, &b, m, k, n) {
+            return NdArray::from_vec(out, &shape).expect("valid shape");
+        }
+        // without faer: the plain triple loop, accumulated in f64
         let mut out = Vec::with_capacity(m * n);
         for i in 0..m {
             for j in 0..n {
@@ -206,7 +212,6 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
                 out.push(T::_lit(sum));
             }
         }
-        let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
 
@@ -217,8 +222,9 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
         let m = n / 2 + 1;
         let rows = self.len() / n;
         let (mut re, mut im) = (Vec::with_capacity(rows * m), Vec::with_capacity(rows * m));
+        let mut fft = RealFft::<f64>::new(n);
         for row in self.as_slice().chunks(n) {
-            for z in rfft_row(row) {
+            for z in rfft_row(&mut fft, row) {
                 re.push(T::_lit(z.re));
                 im.push(T::_lit(z.im));
             }
@@ -233,53 +239,29 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
         let m = n / 2 + 1;
         assert!(n >= 1 && shape.last() == Some(&m), "irfft: {n} samples need {m} bins, got {shape:?}");
         let mut out = Vec::with_capacity(re.len() / m * n);
+        let mut fft = RealFft::<f64>::new(n);
         for (r, i) in re.as_slice().chunks(m).zip(im.as_slice().chunks(m)) {
-            out.extend(irfft_row(r, i, n).into_iter().map(T::_lit));
+            out.extend(irfft_row(&mut fft, r, i).into_iter().map(T::_lit));
         }
         *shape.last_mut().unwrap() = n;
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
 }
 
-/// Bins 0..=n/2 of a real signal's DFT, in f64 (the FFT for power-of-two lengths, the DFT by
-/// definition otherwise).
-fn rfft_row<T: Float>(x: &[T]) -> Vec<Complex<f64>> {
-    let n = x.len();
+/// Bins 0..=n/2 of a real signal's DFT, computed in f64.
+fn rfft_row<T: Float>(fft: &mut RealFft<f64>, x: &[T]) -> Vec<Complex<f64>> {
     let x: Vec<f64> = x.iter().map(|v| v.to_f64().unwrap()).collect();
-    if n >= 2 && n.is_power_of_two() {
-        let mut out = vec![Complex::new(0.0, 0.0); n / 2 + 1];
-        RealFft::<f64>::new(n).forward(&x, &mut out);
-        return out;
-    }
-    (0..n / 2 + 1)
-        .map(|k| {
-            x.iter().enumerate().fold(Complex::new(0.0, 0.0), |acc, (t, &v)| {
-                let phase = -std::f64::consts::TAU * ((k * t) % n) as f64 / n as f64;
-                acc + Complex::new(v * phase.cos(), v * phase.sin())
-            })
-        })
-        .collect()
+    let mut out = vec![Complex::new(0.0, 0.0); fft.spectrum_len()];
+    fft.forward(&x, &mut out);
+    out
 }
 
 /// `n` samples from bins 0..=n/2, scaled by 1/n, in f64; imaginary parts of bins 0 and n/2 ignored.
-fn irfft_row<T: Float>(re: &[T], im: &[T], n: usize) -> Vec<f64> {
+fn irfft_row<T: Float>(fft: &mut RealFft<f64>, re: &[T], im: &[T]) -> Vec<f64> {
     let spectrum: Vec<Complex<f64>> = re.iter().zip(im).map(|(r, i)| Complex::new(r.to_f64().unwrap(), i.to_f64().unwrap())).collect();
-    if n >= 2 && n.is_power_of_two() {
-        let mut out = vec![0.0f64; n];
-        RealFft::<f64>::new(n).inverse(&spectrum, &mut out);
-        return out;
-    }
-    (0..n)
-        .map(|t| {
-            let mut sum = spectrum[0].re;
-            for (k, z) in spectrum.iter().enumerate().skip(1) {
-                let phase = std::f64::consts::TAU * ((k * t) % n) as f64 / n as f64;
-                let term = z.re * phase.cos() - z.im * phase.sin();
-                sum += if n.is_multiple_of(2) && k == n / 2 { term } else { 2.0 * term };
-            }
-            sum / n as f64
-        })
-        .collect()
+    let mut out = vec![0.0f64; fft.len()];
+    fft.inverse(&spectrum, &mut out);
+    out
 }
 
 #[cfg(test)]

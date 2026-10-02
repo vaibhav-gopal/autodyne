@@ -1,43 +1,53 @@
 use super::Fft;
 use crate::units::*;
 
-/// FFT of real signals, about twice as fast as a complex FFT of the same length.
+/// FFT of real signals (any length >= 1), about twice as fast as a complex FFT of the same length.
 ///
 /// Only bins `0..=N/2` are produced: the rest mirror them (`X[N-k] = conj(X[k])`). With the default
-/// `rustfft` feature, `f32` / `f64` run on [realfft](https://docs.rs/realfft)'s kernels; otherwise a
-/// real N-point signal is packed into an N/2-point complex signal (even samples as real parts, odd
-/// samples as imaginary parts), transformed with a half-size complex FFT, and untangled with one
-/// twiddle per bin. Allocates only in `new`.
+/// `rustfft` feature, `f32` / `f64` run on [realfft](https://docs.rs/realfft)'s kernels. Otherwise an
+/// even-length signal is packed into an N/2-point complex signal (even samples as real parts, odd
+/// samples as imaginary parts), transformed with a half-size complex FFT and untangled with one
+/// twiddle per bin; an odd-length signal goes through a full-length complex FFT. Allocates only in
+/// `new`.
 #[derive(Debug, Clone)]
 pub struct RealFft<T: Float> {
     len: usize,
-    /// the portable path: half-size complex FFT, untangling twiddles, scratch
-    half: Option<Fft<T>>,
-    /// e^(-i 2 pi k / len) for k in 0..len/2
-    twiddles: Vec<Complex<T>>,
-    scratch: Vec<Complex<T>>,
+    kernel: RealKernel<T>,
+}
+
+#[derive(Debug, Clone)]
+enum RealKernel<T: Float> {
+    /// even lengths: the half-size complex FFT, e^(-i 2 pi k / len) for k in 0..len/2, scratch
+    Half { half: Fft<T>, twiddles: Vec<Complex<T>>, scratch: Vec<Complex<T>> },
+    /// odd lengths: a full-length complex FFT and its buffer
+    Full { fft: Fft<T>, scratch: Vec<Complex<T>> },
     #[cfg(feature = "rustfft")]
-    fast: Option<fast::Plan>,
+    Fast(fast::Plan),
 }
 
 impl<T: Float> RealFft<T> {
-    /// Panics unless `len` is a power of two and at least 2.
+    /// Panics if `len` is 0.
     pub fn new(len: usize) -> Self {
-        assert!(len >= 2 && len.is_power_of_two(), "real FFT length must be a power of two >= 2, got {len}");
+        assert!(len >= 1, "real FFT length must be at least 1");
         #[cfg(feature = "rustfft")]
         if let Some(plan) = fast::Plan::new::<T>(len) {
-            return Self { len, half: None, twiddles: Vec::new(), scratch: Vec::new(), fast: Some(plan) };
+            return Self { len, kernel: RealKernel::Fast(plan) };
         }
-        let half_len = len / 2;
-        let twiddles = (0..half_len).map(|k| Complex::cis(T::_lit(-std::f64::consts::TAU * k as f64 / len as f64))).collect();
-        Self {
-            len,
-            half: Some(Fft::new(half_len)),
-            twiddles,
-            scratch: vec![Complex::zero(); half_len],
-            #[cfg(feature = "rustfft")]
-            fast: None,
-        }
+        Self::new_portable(len)
+    }
+
+    /// The portable kernels whatever features are enabled (the reference the fast backend is tested
+    /// against). Panics if `len` is 0.
+    pub fn new_portable(len: usize) -> Self {
+        assert!(len >= 1, "real FFT length must be at least 1");
+        let kernel = if len.is_multiple_of(2) {
+            let half_len = len / 2;
+            let twiddles = (0..half_len).map(|k| Complex::cis(T::_lit(-std::f64::consts::TAU * k as f64 / len as f64))).collect();
+            RealKernel::Half { half: Fft::new_portable(half_len), twiddles, scratch: vec![Complex::zero(); half_len] }
+        } else {
+            RealKernel::Full { fft: Fft::new_portable(len), scratch: vec![Complex::zero(); len] }
+        };
+        Self { len, kernel }
     }
     /// Length of the real signal.
     pub fn len(&self) -> usize {
@@ -55,58 +65,81 @@ impl<T: Float> RealFft<T> {
     pub fn forward(&mut self, input: &[T], out: &mut [Complex<T>]) {
         assert_eq!(input.len(), self.len, "input length must match the FFT length");
         assert_eq!(out.len(), self.spectrum_len(), "output must hold len / 2 + 1 bins");
-        #[cfg(feature = "rustfft")]
-        if let Some(plan) = &mut self.fast {
-            plan.forward(input, out);
-            return;
-        }
-        let m = self.len / 2;
-        for (z, [even, odd]) in self.scratch.iter_mut().zip(input.as_chunks::<2>().0) {
-            *z = Complex::new(*even, *odd);
-        }
-        self.half.as_mut().expect("portable path").forward(&mut self.scratch);
-        let half = T::_lit(0.5);
-        // bins 0 and N/2: the even and odd sums are the real and imaginary parts of the first bin
-        let z0 = self.scratch[0];
-        out[0] = Complex::new(z0.re + z0.im, T::_ZERO);
-        out[m] = Complex::new(z0.re - z0.im, T::_ZERO);
-        let minus_i_half = Complex::new(T::_ZERO, -half);
-        for (k, o) in out[..m].iter_mut().enumerate().skip(1) {
-            let (z, zc) = (self.scratch[k], self.scratch[m - k].conj());
-            // spectra of the even and odd samples, then the length-N butterfly
-            let even = (z + zc) * half;
-            let odd = (z - zc) * minus_i_half;
-            *o = even + self.twiddles[k] * odd;
+        match &mut self.kernel {
+            #[cfg(feature = "rustfft")]
+            RealKernel::Fast(plan) => plan.forward(input, out),
+            RealKernel::Full { fft, scratch } => {
+                fft.forward_real(input, scratch);
+                out.copy_from_slice(&scratch[..out.len()]);
+            }
+            RealKernel::Half { half, twiddles, scratch } => {
+                let m = self.len / 2;
+                for (z, [even, odd]) in scratch.iter_mut().zip(input.as_chunks::<2>().0) {
+                    *z = Complex::new(*even, *odd);
+                }
+                half.forward(scratch);
+                let h = T::_lit(0.5);
+                // bins 0 and N/2: the even and odd sums are the real and imaginary parts of the first bin
+                let z0 = scratch[0];
+                out[0] = Complex::new(z0.re + z0.im, T::_ZERO);
+                out[m] = Complex::new(z0.re - z0.im, T::_ZERO);
+                let minus_i_half = Complex::new(T::_ZERO, -h);
+                for (k, o) in out[..m].iter_mut().enumerate().skip(1) {
+                    let (z, zc) = (scratch[k], scratch[m - k].conj());
+                    // spectra of the even and odd samples, then the length-N butterfly
+                    let even = (z + zc) * h;
+                    let odd = (z - zc) * minus_i_half;
+                    *o = even + twiddles[k] * odd;
+                }
+            }
         }
     }
 
     /// Signal from its spectrum (bins 0..=len/2) into `out`, scaled so `inverse(forward(x)) == x`.
-    /// The imaginary parts of bins 0 and len/2 are ignored (they are zero for real signals).
-    /// Panics on wrong lengths.
+    /// The imaginary parts of bin 0 (and of bin len/2 for even lengths) are ignored (they are zero
+    /// for real signals). Panics on wrong lengths.
     pub fn inverse(&mut self, spectrum: &[Complex<T>], out: &mut [T]) {
         assert_eq!(spectrum.len(), self.spectrum_len(), "spectrum must hold len / 2 + 1 bins");
         assert_eq!(out.len(), self.len, "output length must match the FFT length");
-        #[cfg(feature = "rustfft")]
-        if let Some(plan) = &mut self.fast {
-            plan.inverse(spectrum, out);
-            let scale = T::_lit(1.0 / self.len as f64);
-            out.iter_mut().for_each(|x| *x = *x * scale);
-            return;
-        }
-        let m = self.len / 2;
-        let half = T::_lit(0.5);
-        for (k, z) in self.scratch.iter_mut().enumerate() {
-            let a = spectrum[k];
-            let b = spectrum[m - k].conj();
-            let even = (a + b) * half;
-            let odd = (a - b) * half * self.twiddles[k].conj();
-            // repack: even samples as real parts, odd samples as imaginary parts
-            *z = even + Complex::i() * odd;
-        }
-        self.half.as_mut().expect("portable path").inverse(&mut self.scratch);
-        for ([even, odd], z) in out.as_chunks_mut::<2>().0.iter_mut().zip(&self.scratch) {
-            *even = z.re;
-            *odd = z.im;
+        let n = self.len;
+        match &mut self.kernel {
+            #[cfg(feature = "rustfft")]
+            RealKernel::Fast(plan) => {
+                plan.inverse(spectrum, out, n.is_multiple_of(2));
+                let scale = T::_lit(1.0 / n as f64);
+                out.iter_mut().for_each(|x| *x = *x * scale);
+            }
+            RealKernel::Full { fft, scratch } => {
+                // the full Hermitian spectrum, then a complex inverse
+                scratch[0] = Complex::new(spectrum[0].re, T::_ZERO);
+                for k in 1..spectrum.len() {
+                    scratch[k] = spectrum[k];
+                    scratch[n - k] = spectrum[k].conj();
+                }
+                fft.inverse(scratch);
+                for (o, z) in out.iter_mut().zip(scratch.iter()) {
+                    *o = z.re;
+                }
+            }
+            RealKernel::Half { half, twiddles, scratch } => {
+                let m = n / 2;
+                let h = T::_lit(0.5);
+                // bins 0 and N/2 are real; their imaginary parts are ignored
+                let bin = |k: usize| if k == 0 || k == m { Complex::new(spectrum[k].re, T::_ZERO) } else { spectrum[k] };
+                for (k, z) in scratch.iter_mut().enumerate() {
+                    let a = bin(k);
+                    let b = bin(m - k).conj();
+                    let even = (a + b) * h;
+                    let odd = (a - b) * h * twiddles[k].conj();
+                    // repack: even samples as real parts, odd samples as imaginary parts
+                    *z = even + Complex::i() * odd;
+                }
+                half.inverse(scratch);
+                for ([even, odd], z) in out.as_chunks_mut::<2>().0.iter_mut().zip(scratch.iter()) {
+                    *even = z.re;
+                    *odd = z.im;
+                }
+            }
         }
     }
 }
@@ -178,8 +211,9 @@ mod fast {
             }
         }
 
-        /// Unscaled inverse; the imaginary parts of the first and last bins are taken as zero.
-        pub(super) fn inverse<T: Float>(&mut self, spectrum: &[Complex<T>], out: &mut [T]) {
+        /// Unscaled inverse; the imaginary part of the first bin (and of the last one when `even`,
+        /// where it is the Nyquist bin) is taken as zero.
+        pub(super) fn inverse<T: Float>(&mut self, spectrum: &[Complex<T>], out: &mut [T], even: bool) {
             macro_rules! go {
                 ($F:ty, $plan:expr, $buf:expr, $scratch:expr) => {{
                     assert_eq!(TypeId::of::<T>(), TypeId::of::<$F>(), "FFT plan used with another element type");
@@ -190,7 +224,9 @@ mod fast {
                     $buf.copy_from_slice(spectrum);
                     let last = $buf.len() - 1;
                     $buf[0].im = 0.0;
-                    $buf[last].im = 0.0;
+                    if even {
+                        $buf[last].im = 0.0;
+                    }
                     $plan.process_with_scratch($buf, out, $scratch).expect("buffer lengths come from the plan");
                 }};
             }
@@ -208,30 +244,47 @@ mod tests {
 
     #[test]
     fn matches_the_complex_fft() {
-        for len in [2, 4, 8, 64, 1_024] {
+        for len in [1, 2, 3, 4, 5, 8, 9, 64, 100, 127, 1_000, 1_024] {
             let x: Vec<f64> = Noise::new(len as u64).take(len).collect();
             let mut full = vec![Complex::zero(); len];
             Fft::new(len).forward_real(&x, &mut full);
-            let mut rfft = RealFft::new(len);
-            let mut half = vec![Complex::zero(); rfft.spectrum_len()];
-            rfft.forward(&x, &mut half);
-            for (k, (a, b)) in half.iter().zip(&full).enumerate() {
-                assert!((*a - *b).norm() < 1e-9 * len as f64, "len {len} bin {k}: {a:?} vs {b:?}");
+            for mut rfft in [RealFft::new(len), RealFft::new_portable(len)] {
+                let mut half = vec![Complex::zero(); rfft.spectrum_len()];
+                rfft.forward(&x, &mut half);
+                for (k, (a, b)) in half.iter().zip(&full).enumerate() {
+                    assert!((*a - *b).norm() < 1e-9 * len as f64, "len {len} bin {k}: {a:?} vs {b:?}");
+                }
             }
         }
     }
 
     #[test]
     fn inverse_roundtrip() {
-        for len in [2, 16, 4_096] {
+        for len in [1, 2, 3, 7, 16, 100, 999, 4_096] {
             let x: Vec<f64> = Noise::new(7).take(len).collect();
-            let mut rfft = RealFft::new(len);
+            for mut rfft in [RealFft::new(len), RealFft::new_portable(len)] {
+                let mut spectrum = vec![Complex::zero(); rfft.spectrum_len()];
+                rfft.forward(&x, &mut spectrum);
+                let mut back = vec![0.0; len];
+                rfft.inverse(&spectrum, &mut back);
+                let err = x.iter().zip(&back).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+                assert!(err < 1e-12 * len as f64, "len {len}: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn odd_lengths_keep_the_last_bins_imaginary_part() {
+        // for odd N the last bin is not the Nyquist bin: its imaginary part matters
+        let len = 7;
+        let x: Vec<f64> = Noise::new(3).take(len).collect();
+        for mut rfft in [RealFft::new(len), RealFft::new_portable(len)] {
             let mut spectrum = vec![Complex::zero(); rfft.spectrum_len()];
             rfft.forward(&x, &mut spectrum);
+            assert!(spectrum[3].im.abs() > 1e-3);
             let mut back = vec![0.0; len];
             rfft.inverse(&spectrum, &mut back);
-            let err = x.iter().zip(&back).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
-            assert!(err < 1e-12, "len {len}: {err}");
+            assert!(x.iter().zip(&back).all(|(a, b)| (a - b).abs() < 1e-12));
         }
     }
 }

@@ -319,15 +319,15 @@ fn lowpass(py: Python<'_>, x: &Bound<'_, PyAny>, cutoff: f64, sample_rate: f64, 
     })
 }
 
-/// Real FFT along the last axis (power-of-two length), like `numpy.fft.rfft(x)`.
+/// Real FFT along the last axis (any length), like `numpy.fft.rfft(x)`.
 #[pyfunction]
 fn rfft(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
     let input = input(x)?;
     with_float_input!(input, T, view => {
         let last = view.ndim().checked_sub(1).ok_or_else(|| PyValueError::new_err("rfft needs at least one axis"))?;
         let n = view.shape()[last];
-        if !n.is_power_of_two() || n < 2 {
-            return Err(PyValueError::new_err(format!("rfft needs a power-of-two length >= 2, got {n}")));
+        if n == 0 {
+            return Err(PyValueError::new_err("rfft needs a non-empty last axis"));
         }
         let mut fft = RealFft::<T>::new(n);
         let mut shape = view.shape().to_vec();

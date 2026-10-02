@@ -74,9 +74,9 @@ pub struct SpectrumAnalyzer<T: Float> {
 
 impl<T: Float> SpectrumAnalyzer<T> {
     /// Hann window, a hop of a quarter frame, 300 ms release, peaks falling 20 dB/s, floor -140 dB.
-    /// Panics unless `fft_len` is a power of two >= 16.
+    /// Panics unless `fft_len` >= 16 (any length; powers of two are fastest).
     pub fn new(fft_len: usize, sample_rate: T) -> Self {
-        assert!(fft_len >= 16 && fft_len.is_power_of_two(), "fft_len must be a power of two >= 16, got {fft_len}");
+        assert!(fft_len >= 16, "fft_len must be at least 16, got {fft_len}");
         let bins = fft_len / 2 + 1;
         let floor_db = T::_lit(-140.0);
         let mut a = Self {

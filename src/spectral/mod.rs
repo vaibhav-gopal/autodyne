@@ -1,5 +1,5 @@
-//! Spectral processing: a reference DFT, a radix-2 FFT, [`RealFft`] for real signals (about twice
-//! as fast), and the phase vocoder: [`PitchShifter`] (real time) and [`time_stretch`].
+//! Spectral processing: a reference DFT, FFTs of any length ([`Fft`]; [`RealFft`] for real signals,
+//! about twice as fast), and the phase vocoder: [`PitchShifter`] (real time) and [`time_stretch`].
 //!
 //! Sign convention: forward `X[k] = sum_n x[n] e^(-i 2 pi k n / N)`; inverse divides by N,
 //! so `inverse(forward(x)) == x`.
@@ -12,7 +12,7 @@ pub use real::*;
 pub use vocoder::*;
 
 /// Naive O(n^2) discrete Fourier transform. Exact by definition, so it is the reference the FFT is tested
-/// against; also usable for any length (the FFT needs a power of two). Allocates the output.
+/// against. Allocates the output.
 pub fn dft<T: Float>(input: &[Complex<T>]) -> Vec<Complex<T>> {
     let n = input.len();
     (0..n)
@@ -32,38 +32,71 @@ pub fn bin_frequency<T: Float>(bin: usize, fft_len: usize, sample_rate: T) -> T 
     T::_lit(bin as f64) * sample_rate / T::_lit(fft_len as f64)
 }
 
-/// FFT of a fixed power-of-two length, planned once so transforms run in place without allocating.
+/// FFT of a fixed length (any length >= 1), planned once so transforms run in place without
+/// allocating.
 ///
 /// With the default `rustfft` feature, `f32` / `f64` transforms run on
-/// [rustfft](https://docs.rs/rustfft)'s kernels (mixed radix, AVX / SSE / NEON chosen at runtime);
-/// otherwise (or for other element types) on a portable iterative radix-2 Cooley-Tukey kernel.
+/// [rustfft](https://docs.rs/rustfft)'s kernels (mixed radix, Rader and Bluestein for awkward
+/// lengths; AVX / SSE / NEON chosen at runtime). Otherwise (or for other element types) a portable
+/// path: an iterative radix-2 Cooley-Tukey kernel for powers of two, and Bluestein's algorithm (the
+/// transform as a chirp convolution, done with a power-of-two FFT) for every other length.
 /// Twiddle factors, tables and scratch space are made in `new`.
 #[derive(Debug, Clone)]
 pub struct Fft<T: Float> {
     len: usize,
-    /// e^(-i 2 pi k / len) for k in 0..len/2, computed in f64 for accuracy (radix-2 kernel only)
-    twiddles: Vec<Complex<T>>,
-    /// bit_reverse[i] = i with its log2(len) low bits reversed (radix-2 kernel only)
-    bit_reverse: Vec<usize>,
+    kernel: Kernel<T>,
+}
+
+#[derive(Debug, Clone)]
+enum Kernel<T: Float> {
+    /// e^(-i 2 pi k / len) for k in 0..len/2 (computed in f64), and each index with its log2(len)
+    /// low bits reversed
+    Radix2 { twiddles: Vec<Complex<T>>, bit_reverse: Vec<usize> },
+    /// chirp[k] = e^(-i pi k^2 / len); `filter` is the FFT of the conjugate chirp laid out for a
+    /// circular convolution of length `inner.len()` (a power of two >= 2 len - 1)
+    Bluestein { chirp: Vec<Complex<T>>, filter: Vec<Complex<T>>, inner: Box<Fft<T>>, scratch: Vec<Complex<T>> },
     #[cfg(feature = "rustfft")]
-    fast: Option<fast::Plan>,
+    Fast(fast::Plan),
 }
 
 impl<T: Float> Fft<T> {
-    /// Panics unless `len` is a power of two (1 included).
+    /// Panics if `len` is 0.
     pub fn new(len: usize) -> Self {
-        assert!(len.is_power_of_two(), "FFT length must be a power of two, got {len}");
+        assert!(len >= 1, "FFT length must be at least 1");
         #[cfg(feature = "rustfft")]
         if let Some(plan) = fast::Plan::new::<T>(len) {
-            return Self { len, twiddles: Vec::new(), bit_reverse: Vec::new(), fast: Some(plan) };
+            return Self { len, kernel: Kernel::Fast(plan) };
         }
-        Self::new_radix2(len)
+        Self::new_portable(len)
     }
 
-    /// The portable radix-2 kernel, whatever features are enabled (the reference the fast backend
-    /// is tested against).
+    /// The portable kernels whatever features are enabled (radix-2 for powers of two, Bluestein
+    /// otherwise): the reference the fast backend is tested against. Panics if `len` is 0.
+    pub fn new_portable(len: usize) -> Self {
+        assert!(len >= 1, "FFT length must be at least 1");
+        if len.is_power_of_two() {
+            return Self::new_radix2(len);
+        }
+        let inner = Fft::new_radix2((2 * len - 1).next_power_of_two());
+        let m = inner.len;
+        // reduce k^2 modulo 2 len so the angle stays small and accurate for large k
+        let chirp: Vec<Complex<T>> = (0..len)
+            .map(|k| Complex::cis(T::_lit(-std::f64::consts::PI * ((k as u128 * k as u128) % (2 * len as u128)) as f64 / len as f64)))
+            .collect();
+        let mut filter = vec![Complex::zero(); m];
+        filter[0] = chirp[0].conj();
+        for k in 1..len {
+            filter[k] = chirp[k].conj();
+            filter[m - k] = chirp[k].conj();
+        }
+        let mut inner = Box::new(inner);
+        inner.forward(&mut filter);
+        Self { len, kernel: Kernel::Bluestein { chirp, filter, inner, scratch: vec![Complex::zero(); m] } }
+    }
+
+    /// The portable radix-2 kernel alone. Panics unless `len` is a power of two (1 included).
     pub fn new_radix2(len: usize) -> Self {
-        assert!(len.is_power_of_two(), "FFT length must be a power of two, got {len}");
+        assert!(len.is_power_of_two(), "radix-2 FFT length must be a power of two, got {len}");
         let bits = len.trailing_zeros();
         let twiddles = (0..len / 2)
             .map(|k| Complex::cis(T::_lit(-std::f64::consts::TAU * k as f64 / len as f64)))
@@ -71,13 +104,7 @@ impl<T: Float> Fft<T> {
         let bit_reverse = (0..len)
             .map(|i| if bits == 0 { 0 } else { i.reverse_bits() >> (usize::BITS - bits) })
             .collect();
-        Self {
-            len,
-            twiddles,
-            bit_reverse,
-            #[cfg(feature = "rustfft")]
-            fast: None,
-        }
+        Self { len, kernel: Kernel::Radix2 { twiddles, bit_reverse } }
     }
 
     pub fn len(&self) -> usize {
@@ -85,39 +112,32 @@ impl<T: Float> Fft<T> {
     }
 
     pub fn is_empty(&self) -> bool {
-        false // a power of two is never 0
+        false // the length is at least 1
     }
 
     /// Forward transform in place. Panics if `buf.len() != self.len()`.
     pub fn forward(&mut self, buf: &mut [Complex<T>]) {
         assert_eq!(buf.len(), self.len, "buffer length must match the FFT length");
-        #[cfg(feature = "rustfft")]
-        if let Some(plan) = &mut self.fast {
-            plan.run(buf, false);
-            return;
-        }
-        self.forward_radix2(buf);
-    }
-
-    fn forward_radix2(&self, buf: &mut [Complex<T>]) {
-        for (i, &j) in self.bit_reverse.iter().enumerate() {
-            if i < j {
-                buf.swap(i, j);
-            }
-        }
-        let mut size = 2;
-        while size <= self.len {
-            let half = size / 2;
-            let stride = self.len / size; // twiddle index step for this stage
-            for block in buf.chunks_exact_mut(size) {
-                let (lo, hi) = block.split_at_mut(half);
-                for (k, (a, b)) in lo.iter_mut().zip(hi.iter_mut()).enumerate() {
-                    let t = *b * self.twiddles[k * stride];
-                    *b = *a - t;
-                    *a += t;
+        match &mut self.kernel {
+            Kernel::Radix2 { twiddles, bit_reverse } => radix2(buf, twiddles, bit_reverse),
+            Kernel::Bluestein { chirp, filter, inner, scratch } => {
+                // X[k] = chirp[k] * sum_j (x[j] chirp[j]) conj(chirp[k - j]): a convolution
+                let n = chirp.len();
+                for (s, (x, c)) in scratch.iter_mut().zip(buf.iter().zip(chirp.iter())) {
+                    *s = *x * *c;
+                }
+                scratch[n..].iter_mut().for_each(|s| *s = Complex::zero());
+                inner.forward(scratch);
+                for (s, f) in scratch.iter_mut().zip(filter.iter()) {
+                    *s *= *f;
+                }
+                inner.inverse(scratch);
+                for (x, (s, c)) in buf.iter_mut().zip(scratch.iter().zip(chirp.iter())) {
+                    *x = *s * *c;
                 }
             }
-            size *= 2;
+            #[cfg(feature = "rustfft")]
+            Kernel::Fast(plan) => plan.run(buf, false),
         }
     }
 
@@ -126,14 +146,14 @@ impl<T: Float> Fft<T> {
         assert_eq!(buf.len(), self.len, "buffer length must match the FFT length");
         let scale = T::_lit(1.0 / self.len as f64);
         #[cfg(feature = "rustfft")]
-        if let Some(plan) = &mut self.fast {
+        if let Kernel::Fast(plan) = &mut self.kernel {
             plan.run(buf, true);
             buf.iter_mut().for_each(|z| *z *= scale);
             return;
         }
         // ifft(x) = conj(fft(conj(x))) / N
         buf.iter_mut().for_each(|z| *z = z.conj());
-        self.forward_radix2(buf);
+        self.forward(buf);
         buf.iter_mut().for_each(|z| *z = z.conj() * scale);
     }
 
@@ -146,6 +166,30 @@ impl<T: Float> Fft<T> {
             *o = Complex::from(x);
         }
         self.forward(out);
+    }
+}
+
+/// The iterative radix-2 transform of `buf` (a power-of-two length) in place.
+fn radix2<T: Float>(buf: &mut [Complex<T>], twiddles: &[Complex<T>], bit_reverse: &[usize]) {
+    let len = buf.len();
+    for (i, &j) in bit_reverse.iter().enumerate() {
+        if i < j {
+            buf.swap(i, j);
+        }
+    }
+    let mut size = 2;
+    while size <= len {
+        let half = size / 2;
+        let stride = len / size; // twiddle index step for this stage
+        for block in buf.chunks_exact_mut(size) {
+            let (lo, hi) = block.split_at_mut(half);
+            for (k, (a, b)) in lo.iter_mut().zip(hi.iter_mut()).enumerate() {
+                let t = *b * twiddles[k * stride];
+                *b = *a - t;
+                *a += t;
+            }
+        }
+        size *= 2;
     }
 }
 
@@ -235,16 +279,30 @@ mod tests {
 
     #[test]
     fn fft_matches_dft() {
-        for len in [1, 2, 4, 8, 16, 64, 256, 1024] {
+        for len in [1, 2, 3, 4, 5, 7, 8, 12, 16, 64, 100, 127, 256, 1000, 1024, 1031] {
             let input = noise_signal(len, len as u64);
+            let slow = dft(&input);
             let mut fast = input.clone();
             Fft::new(len).forward(&mut fast);
-            let slow = dft(&input);
-            let mut radix2 = input.clone();
-            Fft::new_radix2(len).forward(&mut radix2);
-            assert!(max_error(&radix2, &slow) < 1e-9 * len as f64, "radix-2 len {len}");
             let err = max_error(&fast, &slow);
             assert!(err < 1e-9 * len as f64, "len {len}: max error {err}");
+            let mut portable = input.clone();
+            Fft::new_portable(len).forward(&mut portable);
+            let err = max_error(&portable, &slow);
+            assert!(err < 1e-9 * len as f64, "portable len {len}: max error {err}");
+        }
+    }
+
+    #[test]
+    fn inverse_roundtrip_any_length() {
+        for len in [1, 3, 6, 100, 999] {
+            let input = noise_signal(len, 21);
+            for mut fft in [Fft::new(len), Fft::new_portable(len)] {
+                let mut buf = input.clone();
+                fft.forward(&mut buf);
+                fft.inverse(&mut buf);
+                assert!(max_error(&buf, &input) < 1e-12 * len as f64, "len {len}");
+            }
         }
     }
 
@@ -297,8 +355,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "power of two")]
-    fn rejects_non_power_of_two() {
-        Fft::<f64>::new(100);
+    #[should_panic(expected = "at least 1")]
+    fn rejects_length_zero() {
+        Fft::<f64>::new(0);
     }
 }
