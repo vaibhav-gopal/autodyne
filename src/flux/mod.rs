@@ -55,7 +55,7 @@ mod xla;
 pub use ad::vjp;
 pub use graph::{scalar, trace, vector, Cmp, Graph, Mask, Node, Op, Part, Tracer};
 pub use hlo::Program;
-pub use iree::Iree;
+pub use iree::{Iree, IreeTarget};
 pub use pjrt::Pjrt;
 pub use runtime::{Backend, Executable};
 pub use loss::{frames, multi_resolution_stft, stft_magnitude, Loss, StftResolution};

@@ -5,14 +5,16 @@
 //! iree-base-runtime`) in `AUTODYNE_IREE_DIR` or on `PATH`; XLA needs Python with `jax`
 //! (`AUTODYNE_XLA_PYTHON`, else `python3` / `python` on `PATH`); PJRT needs a plugin library in
 //! `AUTODYNE_PJRT_PLUGIN`. A missing backend is reported and skipped; with none, the tests pass
-//! without running.
+//! without running. `AUTODYNE_IREE_GPU` adds IREE on GPUs: a comma-separated list of `vulkan`,
+//! `cuda` or `rocm`, each with an optional architecture (`vulkan=ampere,cuda=sm_80`; the FFTs need
+//! one for Vulkan, and ROCm always does).
 
 #![cfg(feature = "flux")]
 
 use autodyne::distortion::Shape;
 use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
 use autodyne::flux::optim::{Adam, Optimizer};
-use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, Backend, Executable, Iree, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, Backend, Executable, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
 use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
 use autodyne::units::{Elementwise, RealValued};
 
@@ -22,7 +24,20 @@ const N: usize = 512;
 fn backends() -> Vec<Box<dyn Backend>> {
     let mut found: Vec<Box<dyn Backend>> = Vec::new();
     match Iree::find() {
-        Some(iree) => found.push(Box::new(iree)),
+        Some(iree) => {
+            for gpu in std::env::var("AUTODYNE_IREE_GPU").unwrap_or_default().split(',').map(str::trim).filter(|g| !g.is_empty()) {
+                let (api, arch) = gpu.split_once('=').map_or((gpu, None), |(a, b)| (a, Some(b.to_string())));
+                let target = match (api, arch) {
+                    ("vulkan", target) => IreeTarget::Vulkan { target },
+                    ("cuda", None) => IreeTarget::cuda(),
+                    ("cuda", Some(target)) => IreeTarget::Cuda { target },
+                    ("rocm", Some(target)) => IreeTarget::Rocm { target },
+                    _ => panic!("AUTODYNE_IREE_GPU: cannot use {gpu:?} (vulkan[=arch], cuda[=arch], rocm=chip)"),
+                };
+                found.push(Box::new(iree.clone().with_target(target)));
+            }
+            found.push(Box::new(iree));
+        }
         None => eprintln!("skipping IREE: tools not found (set AUTODYNE_IREE_DIR or put iree-compile / iree-run-module on PATH)"),
     }
     match std::env::var_os("AUTODYNE_PJRT_PLUGIN") {
@@ -379,7 +394,15 @@ fn fits_an_eq_and_drive_to_a_recording_with_the_stft_loss() {
     let truth = [3_000f32.ln(), 0.9, 2.0];
     let (target, _) = scan.run(&truth.map(scalar), &xs, &s0);
     for backend in backends() {
-        let exe = compile(&*backend, &scan.grad_program(len, &loss));
+        let program = scan.grad_program(len, &loss);
+        let exe = match backend.compile(&program) {
+            // IREE 3.11 cannot compile FFTs of 128 points or more for Vulkan
+            Err(e) if backend.name() == "iree-vulkan" && e.to_string().contains("fft") => {
+                eprintln!("skipping iree-vulkan: {}", e.to_string().lines().next().unwrap_or_default());
+                continue;
+            }
+            result => result.unwrap_or_else(|e| panic!("{}: {e}", backend.name())),
+        };
         let mut params = vec![scalar(1_000f32.ln()), scalar(0.3), scalar(1.0)];
         let mut adam = Adam::new(0.03);
         let mut losses = Vec::new();
@@ -394,4 +417,22 @@ fn fits_an_eq_and_drive_to_a_recording_with_the_stft_loss() {
         assert!((10.0 * g - 9.0).abs() < 0.5, "{}: gain {} dB", backend.name(), 10.0 * g);
         assert!((d - 2.0).abs() < 0.1, "{}: drive {d}", backend.name());
     }
+}
+#[test]
+fn iree_modules_are_saved_and_loaded() {
+    // ahead of time: compile to a .vmfb file, then load and run it without the program text
+    let Some(iree) = Iree::find() else {
+        eprintln!("skipping: IREE tools not found");
+        return;
+    };
+    let program = one_pole().forward_program(N);
+    let path = std::env::temp_dir().join(format!("autodyne-one-pole-{}.vmfb", std::process::id()));
+    iree.compile_to(&program, &path).unwrap();
+    let exe = iree.load(&path, &program.inputs, &program.outputs).unwrap();
+    let xs = noise(N, 9);
+    let out = exe.run(&[scalar(700.0), vector(&xs), scalar(0.0)]).unwrap();
+    assert_close("loaded module", &out[0], &vector(&concrete(700.0, &xs)), 1e-5);
+    assert!(exe.run(&[scalar(700.0), vector(&xs[..N - 1]), scalar(0.0)]).is_err(), "shapes are checked");
+    std::fs::remove_file(&path).unwrap();
+    assert!(iree.load(&path, &program.inputs, &program.outputs).is_err());
 }

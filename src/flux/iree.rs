@@ -2,9 +2,13 @@
 //!
 //! The tools are found at run time: in `AUTODYNE_IREE_DIR` if set, else on `PATH`
 //! (`pip install iree-base-compiler iree-base-runtime` provides both). Arrays cross as `.npy` files.
-//! Compiles for the host CPU (`llvm-cpu`); each run starts `iree-run-module` (tens of milliseconds).
+//! Each run starts `iree-run-module` (tens of milliseconds).
+//!
+//! An [`IreeTarget`] picks the hardware: the host CPU (the default), Vulkan, CUDA, ROCm or Metal.
+//! Compiled modules (`.vmfb`) can be saved with [`Iree::compile_to`] and run later, or elsewhere,
+//! with [`Iree::load`]: IREE's ahead-of-time deployment path.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::hlo::Program;
@@ -12,43 +16,142 @@ use super::runtime::{check_inputs, check_outputs, find_tool, npy, Backend, Execu
 use super::FluxError;
 use crate::signal::NdArray;
 
-/// The located IREE tools.
+/// The hardware IREE compiles for and runs on.
+#[derive(Clone, Debug, PartialEq, Eq, Default)]
+pub enum IreeTarget {
+    /// The host CPU (`llvm-cpu`, tuned for this machine; run multithreaded on `local-task`).
+    #[default]
+    Cpu,
+    /// Any Vulkan GPU (`vulkan-spirv`). `target` names the architecture (`"ampere"`, `"rdna3"`,
+    /// `"valhall4"`, ...) to use its features; `None` is IREE's portable baseline, which lacks the
+    /// 64-bit integers IREE's FFTs need (programs with FFTs need a named architecture). IREE 3.11
+    /// also fails to compile FFTs of 128 points or more for Vulkan.
+    Vulkan { target: Option<String> },
+    /// NVIDIA GPUs through CUDA. `target` is an architecture this IREE knows (`"sm_80"`,
+    /// `"ampere"`, ...); newer GPUs run it too, the driver compiling the embedded PTX for them.
+    Cuda { target: String },
+    /// AMD GPUs through ROCm / HIP; `target` is the chip (`"gfx1100"`, ...).
+    Rocm { target: String },
+    /// Apple GPUs (`metal-spirv`).
+    Metal,
+    /// Anything else: `iree-compile` flags (after `--iree-input-type=stablehlo`) and the
+    /// `iree-run-module` device.
+    Custom { flags: Vec<String>, device: String },
+}
+
+impl IreeTarget {
+    /// Vulkan with IREE's portable baseline.
+    pub fn vulkan() -> Self {
+        IreeTarget::Vulkan { target: None }
+    }
+    /// CUDA for `sm_80` (Ampere) PTX, which every later NVIDIA GPU also runs.
+    pub fn cuda() -> Self {
+        IreeTarget::Cuda { target: "sm_80".into() }
+    }
+
+    fn flags(&self) -> Vec<String> {
+        let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
+        match self {
+            IreeTarget::Cpu => s(&["--iree-hal-target-device=local", "--iree-hal-local-target-device-backends=llvm-cpu", "--iree-llvmcpu-target-cpu=host"]),
+            IreeTarget::Vulkan { target } => {
+                let mut f = s(&["--iree-hal-target-device=vulkan"]);
+                f.extend(target.iter().map(|t| format!("--iree-vulkan-target={t}")));
+                f
+            }
+            IreeTarget::Cuda { target } => vec!["--iree-hal-target-device=cuda".into(), format!("--iree-cuda-target={target}")],
+            IreeTarget::Rocm { target } => vec!["--iree-hal-target-device=hip".into(), format!("--iree-rocm-target={target}")],
+            IreeTarget::Metal => s(&["--iree-hal-target-device=metal"]),
+            IreeTarget::Custom { flags, .. } => flags.clone(),
+        }
+    }
+
+    /// `iree-run-module` flags for this target's driver.
+    fn run_flags(&self) -> Vec<String> {
+        match self {
+            // stream-ordered allocations crash loops on some drivers (seen with IREE 3.11 on a
+            // GeForce RTX 5070 Ti); synchronous allocation costs little
+            IreeTarget::Cuda { .. } => vec!["--cuda_async_allocations=false".into()],
+            _ => Vec::new(),
+        }
+    }
+
+    /// The runtime device (`iree-run-module --device=`).
+    fn device(&self) -> &str {
+        match self {
+            IreeTarget::Cpu => "local-task",
+            IreeTarget::Vulkan { .. } => "vulkan",
+            IreeTarget::Cuda { .. } => "cuda",
+            IreeTarget::Rocm { .. } => "hip",
+            IreeTarget::Metal => "metal",
+            IreeTarget::Custom { device, .. } => device,
+        }
+    }
+}
+
+/// The located IREE tools, and the target they compile for.
 #[derive(Clone, Debug)]
 pub struct Iree {
     compiler: PathBuf,
     runner: PathBuf,
+    target: IreeTarget,
 }
 
 impl Iree {
-    /// Finds `iree-compile` and `iree-run-module` in `AUTODYNE_IREE_DIR`, else on `PATH`.
+    /// Finds `iree-compile` and `iree-run-module` in `AUTODYNE_IREE_DIR`, else on `PATH`; targets
+    /// the host CPU.
     pub fn find() -> Option<Iree> {
         let dir = std::env::var_os("AUTODYNE_IREE_DIR").map(PathBuf::from);
-        Some(Iree { compiler: find_tool(dir.clone(), "iree-compile")?, runner: find_tool(dir, "iree-run-module")? })
+        Some(Iree { compiler: find_tool(dir.clone(), "iree-compile")?, runner: find_tool(dir, "iree-run-module")?, target: IreeTarget::Cpu })
+    }
+
+    /// The same tools for another target.
+    pub fn with_target(self, target: IreeTarget) -> Iree {
+        Iree { target, ..self }
+    }
+
+    pub fn target(&self) -> &IreeTarget {
+        &self.target
+    }
+
+    /// Compiles `program` into an IREE module file (`.vmfb`) for this target, to run later with
+    /// [`load`](Self::load) (here, or on another machine with the IREE runtime).
+    pub fn compile_to(&self, program: &Program, vmfb: &Path) -> Result<(), FluxError> {
+        let dir = TempDir::new()?;
+        let source = dir.path.join("module.mlir");
+        std::fs::write(&source, &program.text)?;
+        let mut cmd = Command::new(&self.compiler);
+        cmd.arg(&source).arg("--iree-input-type=stablehlo").args(self.target.flags()).arg("-o").arg(vmfb);
+        run(cmd, "iree-compile")
+    }
+
+    /// A module saved by [`compile_to`](Self::compile_to), for a program with these input and
+    /// output shapes (the [`Program`]'s `inputs` and `outputs`), run on this target's device.
+    pub fn load(&self, vmfb: &Path, inputs: &[Vec<usize>], outputs: &[Vec<usize>]) -> Result<Box<dyn Executable>, FluxError> {
+        if !vmfb.is_file() {
+            return Err(FluxError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("no module at {}", vmfb.display()))));
+        }
+        let program = Program { text: String::new(), inputs: inputs.to_vec(), outputs: outputs.to_vec() };
+        Ok(Box::new(Module { runner: self.runner.clone(), target: self.target.clone(), vmfb: vmfb.to_path_buf(), dir: TempDir::new()?, program }))
     }
 }
 
 impl Backend for Iree {
     fn name(&self) -> &'static str {
-        "iree"
+        match self.target {
+            IreeTarget::Cpu => "iree",
+            IreeTarget::Vulkan { .. } => "iree-vulkan",
+            IreeTarget::Cuda { .. } => "iree-cuda",
+            IreeTarget::Rocm { .. } => "iree-rocm",
+            IreeTarget::Metal => "iree-metal",
+            IreeTarget::Custom { .. } => "iree-custom",
+        }
     }
 
     fn compile(&self, program: &Program) -> Result<Box<dyn Executable>, FluxError> {
         let dir = TempDir::new()?;
-        let source = dir.path.join("module.mlir");
         let vmfb = dir.path.join("module.vmfb");
-        std::fs::write(&source, &program.text)?;
-        let mut cmd = Command::new(&self.compiler);
-        cmd.arg(&source)
-            .args([
-                "--iree-input-type=stablehlo",
-                "--iree-hal-target-device=local",
-                "--iree-hal-local-target-device-backends=llvm-cpu",
-                "--iree-llvmcpu-target-cpu=host",
-                "-o",
-            ])
-            .arg(&vmfb);
-        run(cmd, "iree-compile")?;
-        Ok(Box::new(Module { runner: self.runner.clone(), vmfb, dir, program: program.clone() }))
+        self.compile_to(program, &vmfb)?;
+        Ok(Box::new(Module { runner: self.runner.clone(), target: self.target.clone(), vmfb, dir, program: program.clone() }))
     }
 }
 
@@ -56,7 +159,9 @@ impl Backend for Iree {
 #[derive(Debug)]
 struct Module {
     runner: PathBuf,
+    target: IreeTarget,
     vmfb: PathBuf,
+    /// scratch space for the arrays (and the module, when compiled here)
     dir: TempDir,
     program: Program,
 }
@@ -68,7 +173,7 @@ impl Executable for Module {
         let outs: Vec<PathBuf> = self.program.outputs.iter().map(|_| self.dir.file("out", "npy")).collect();
         let _cleanup = Scratch(ins.iter().chain(&outs).cloned().collect());
         let mut cmd = Command::new(&self.runner);
-        cmd.arg("--device=local-task").arg(flag("--module=", &self.vmfb)).arg("--function=main");
+        cmd.arg(format!("--device={}", self.target.device())).args(self.target.run_flags()).arg(flag("--module=", &self.vmfb)).arg("--function=main");
         for (x, path) in inputs.iter().zip(&ins) {
             npy::save(path, x)?;
             cmd.arg(flag("--input=@", path));
@@ -94,6 +199,8 @@ fn run(mut cmd: Command, tool: &'static str) -> Result<(), FluxError> {
     if out.status.success() {
         Ok(())
     } else {
-        Err(FluxError::Tool { tool, message: String::from_utf8_lossy(&out.stderr).trim().to_string() })
+        // some failures are reported on stdout only
+        let message = [&out.stderr, &out.stdout].map(|b| String::from_utf8_lossy(b).trim().to_string()).into_iter().filter(|m| !m.is_empty()).collect::<Vec<_>>().join("\n");
+        Err(FluxError::Tool { tool, message: format!("{message} ({})", out.status) })
     }
 }
