@@ -407,7 +407,7 @@ mod tests {
     /// Frequency of the strongest FFT bin once the voice has settled.
     fn peak_hz(voice: &mut SynthVoice<f64>) -> f64 {
         let out = render(voice, 16_384);
-        let fft = Fft::new(8_192);
+        let mut fft = Fft::new(8_192);
         let mut spectrum = vec![Complex::zero(); 8_192];
         fft.forward_real(&out[8_192..], &mut spectrum);
         bin_frequency(spectrum[..4_096].argmax_magnitude().unwrap(), 8_192, FS)
@@ -460,7 +460,7 @@ mod tests {
     fn spectrum(voice: &mut SynthVoice<f64>) -> Vec<f64> {
         render(voice, 9_600); // settle past the envelope attack
         let out = render(voice, 32_768);
-        let fft = Fft::new(32_768);
+        let mut fft = Fft::new(32_768);
         let mut z = vec![Complex::zero(); 32_768];
         fft.forward_real(&out, &mut z);
         z[..16_384].iter().map(|c| c.norm_sqr().sqrt()).collect()

@@ -587,6 +587,16 @@ impl<'a, T> NdView<'a, T> {
                     let o = op.wrapping_offset(at[0]);
                     *o = reducer.run(*o, ip.wrapping_offset(at[1]), n, step[1]);
                 }
+            } else if step[0] == 1 && step[1] == 1 {
+                // both runs contiguous (e.g. column sums of a row-major matrix): plain slices, which
+                // the compiler vectorizes
+                unsafe {
+                    let out = std::slice::from_raw_parts_mut(op.wrapping_offset(at[0]), n);
+                    let input = std::slice::from_raw_parts(ip.wrapping_offset(at[1]), n);
+                    for (o, x) in out.iter_mut().zip(input) {
+                        *o = reducer.element(*o, x);
+                    }
+                }
             } else {
                 for k in 0..n as isize {
                     unsafe {

@@ -49,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Where is the energy? Transform a 4096-sample window (after the filter settles) and find the peak.
-    let fft = Fft::new(4096);
+    let mut fft = Fft::new(4096);
     let mut spectrum = vec![Complex::zero(); fft.len()];
     fft.forward_real(&filtered[SAMPLE_RATE as usize..][..fft.len()], &mut spectrum);
     let peak = spectrum[..fft.len() / 2].argmax_magnitude().unwrap(); // positive frequencies only

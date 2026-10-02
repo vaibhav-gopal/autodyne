@@ -19,23 +19,22 @@ def _numpy(result):
 
 def sum(x, axis=None):
     """Sum of every element, or along ``axis`` (pairwise, so accurate for long arrays)."""
-    result = _native.sum(x, axis)
-    return result if axis is None else _numpy(result)
+    return _native.sum(x, axis)
 
 
 def axpb(x, a, b):
     """``a * x + b`` in a single pass, without temporaries."""
-    return _numpy(_native.axpb(x, a, b))
+    return _native.axpb(x, a, b)
 
 
 def lowpass(x, cutoff, sample_rate, axis=-1):
     """2nd-order Butterworth low-pass along ``axis``, one filter per lane."""
-    return _numpy(_native.lowpass(x, cutoff, sample_rate, axis))
+    return _native.lowpass(x, cutoff, sample_rate, axis)
 
 
 def rfft(x):
     """Real FFT along the last axis (power-of-two length)."""
-    return _numpy(_native.rfft(x))
+    return _native.rfft(x)
 
 
 _DTYPES = {"float32": "f32", "float64": "f64", "int8": "i8", "int16": "i16", "int32": "i32", "int64": "i64",

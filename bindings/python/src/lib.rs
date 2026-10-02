@@ -17,6 +17,8 @@ use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
+use numpy::ndarray::{ArrayD, IxDyn, ShapeBuilder};
+use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 
 const VERSIONED: &CStr = c"dltensor_versioned";
 const USED_VERSIONED: &CStr = c"used_dltensor_versioned";
@@ -97,25 +99,6 @@ struct Array {
     axes: Option<Vec<usize>>,
 }
 
-impl Array {
-    fn wrap<T: DynElement>(py: Python<'_>, array: NdArray<T>) -> PyResult<Py<PyAny>> {
-        let shape = array.shape().to_vec();
-        Ok(Py::new(py, Array { inner: Some(DynArray::from_array(array)), shape, dtype: T::DTYPE, axes: None })?.into_any())
-    }
-    /// A result computed on an input permuted by `order` (its memory order): exported with the
-    /// inverse permutation, so it has the input's shape and the input's memory layout.
-    fn wrap_in_order<T: DynElement>(py: Python<'_>, array: NdArray<T>, order: &[usize]) -> PyResult<Py<PyAny>> {
-        let mut inverse = vec![0; order.len()];
-        for (i, &a) in order.iter().enumerate() {
-            inverse[a] = i;
-        }
-        let shape: Vec<usize> = inverse.iter().map(|&i| array.shape()[i]).collect();
-        let identity = inverse.iter().enumerate().all(|(i, &a)| i == a);
-        let axes = (!identity).then_some(inverse);
-        Ok(Py::new(py, Array { inner: Some(DynArray::from_array(array)), shape, dtype: T::DTYPE, axes })?.into_any())
-    }
-}
-
 #[pymethods]
 impl Array {
     #[getter]
@@ -182,10 +165,12 @@ macro_rules! float_dispatch {
     ($tensor:expr, $T:ident => $body:expr) => {
         match $tensor.dtype() {
             DType::F32 => {
+                #[allow(dead_code)]
                 type $T = f32;
                 $body
             }
             DType::F64 => {
+                #[allow(dead_code)]
                 type $T = f64;
                 $body
             }
@@ -198,32 +183,123 @@ fn typed<T: DynElement>(tensor: &DlpackTensor) -> PyResult<NdView<'_, T>> {
     tensor.typed::<T>().map_err(value_error)
 }
 
-/// Sum of every element (a float), or along `axis` (an Array). Pairwise, so accurate.
+/// A float input: a NumPy array read through NumPy's C API (a type check, no Python call), or
+/// anything else through DLPack. Both are zero-copy views.
+enum Input<'py> {
+    F32(PyReadonlyArrayDyn<'py, f32>),
+    F64(PyReadonlyArrayDyn<'py, f64>),
+    Dlpack(DlpackTensor),
+}
+
+fn input<'py>(x: &Bound<'py, PyAny>) -> PyResult<Input<'py>> {
+    if let Ok(a) = x.cast::<PyArrayDyn<f32>>() {
+        if let Ok(r) = a.try_readonly() {
+            return Ok(Input::F32(r));
+        }
+    }
+    if let Ok(a) = x.cast::<PyArrayDyn<f64>>() {
+        if let Ok(r) = a.try_readonly() {
+            return Ok(Input::F64(r));
+        }
+    }
+    Ok(Input::Dlpack(import(x)?))
+}
+
+/// Runs `$body` with `$T` = f32 / f64 and `$view` the input's typed view.
+macro_rules! with_float_input {
+    ($input:expr, $T:ident, $view:ident => $body:expr) => {
+        match &$input {
+            Input::F32(a) => {
+                #[allow(dead_code)]
+                type $T = f32;
+                let $view: NdView<'_, f32> = NdView::try_from(a.as_array()).map_err(value_error)?;
+                $body
+            }
+            Input::F64(a) => {
+                #[allow(dead_code)]
+                type $T = f64;
+                let $view: NdView<'_, f64> = NdView::try_from(a.as_array()).map_err(value_error)?;
+                $body
+            }
+            Input::Dlpack(tensor) => float_dispatch!(tensor, $T => {
+                let $view = typed::<$T>(tensor)?;
+                $body
+            }),
+        }
+    };
+}
+
+/// A NumPy array that owns `data` (no copy), with `shape`, row-major, or exported through the
+/// inverse of `order` (a result computed in an input's memory order goes back with its strides).
+fn numpy_out<T: numpy::Element>(py: Python<'_>, data: Vec<T>, shape: &[usize], order: Option<&[usize]>) -> PyResult<Py<PyAny>> {
+    let array = match order {
+        None => ArrayD::from_shape_vec(IxDyn(shape), data),
+        Some(order) => {
+            let n = shape.len();
+            let mut row_major = vec![0usize; n];
+            let mut acc = 1;
+            for i in (0..n).rev() {
+                row_major[i] = acc;
+                acc *= shape[i];
+            }
+            let mut inverse = vec![0; n];
+            for (i, &a) in order.iter().enumerate() {
+                inverse[a] = i;
+            }
+            let exported: Vec<usize> = inverse.iter().map(|&i| shape[i]).collect();
+            let strides: Vec<usize> = inverse.iter().map(|&i| row_major[i]).collect();
+            ArrayD::from_shape_vec(IxDyn(&exported).strides(IxDyn(&strides)), data)
+        }
+    }
+    .map_err(value_error)?;
+    Ok(PyArray::from_owned_array(py, array).into_any().unbind())
+}
+
+fn numpy_array<T: numpy::Element>(py: Python<'_>, array: NdArray<T>) -> PyResult<Py<PyAny>> {
+    let shape = array.shape().to_vec();
+    numpy_out(py, array.into_vec(), &shape, None)
+}
+
+/// Complex results: autodyne's and num-complex's `Complex` are both `repr(C) { re, im }`.
+fn numpy_complex<T: Float>(py: Python<'_>, array: NdArray<Complex<T>>) -> PyResult<Py<PyAny>>
+where
+    num_complex::Complex<T>: numpy::Element,
+{
+    let shape = array.shape().to_vec();
+    let mut data = std::mem::ManuallyDrop::new(array.into_vec());
+    // SAFETY: identical layout (repr(C) { re: T, im: T }), so the allocation is reused as is
+    let data: Vec<num_complex::Complex<T>> = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast(), data.len(), data.capacity()) };
+    numpy_out(py, data, &shape, None)
+}
+
+/// Sum of every element (a float), or along `axis` (an array). Pairwise, so accurate.
 #[pyfunction]
 #[pyo3(signature = (x, axis=None))]
 fn sum(py: Python<'_>, x: &Bound<'_, PyAny>, axis: Option<isize>) -> PyResult<Py<PyAny>> {
-    let tensor = import(x)?;
-    float_dispatch!(tensor, T => {
-        let view = typed::<T>(&tensor)?;
-        match axis {
-            None => Ok(view.sum().to_f64().unwrap_or(f64::NAN).into_pyobject(py)?.into_any().unbind()),
-            Some(axis) => Array::wrap(py, view.sum_axis(axis_index(axis, view.ndim())?).map_err(value_error)?),
-        }
+    let input = input(x)?;
+    with_float_input!(input, T, view => match axis {
+        None => Ok(view.sum().to_f64().unwrap_or(f64::NAN).into_pyobject(py)?.into_any().unbind()),
+        Some(axis) => numpy_array(py, view.sum_axis(axis_index(axis, view.ndim())?).map_err(value_error)?),
     })
 }
 
-/// `a * x + b` in one pass (no temporaries).
+/// `a * x + b` in one pass (no temporaries), in the input's memory order.
 #[pyfunction]
 fn axpb(py: Python<'_>, x: &Bound<'_, PyAny>, a: f64, b: f64) -> PyResult<Py<PyAny>> {
-    let tensor = import(x)?;
-    float_dispatch!(tensor, T => {
-        let view = typed::<T>(&tensor)?;
+    let input = input(x)?;
+    with_float_input!(input, T, view => {
         let (a, b) = (T::_lit(a), T::_lit(b));
+        let n = view.ndim();
+        if view.is_contiguous() {
+            let out = Zip::from(view).map_collect(|&v| a * v + b);
+            return numpy_array(py, out);
+        }
         // compute in the input's memory order (sequential reads and writes), like NumPy's order='K'
         let order = view.memory_order();
-        let order = &order[..view.ndim()];
+        let order = &order[..n];
         let out = Zip::from(view.permute(order).map_err(value_error)?).map_collect(|&v| a * v + b);
-        Array::wrap_in_order(py, out, order)
+        let shape = out.shape().to_vec();
+        numpy_out(py, out.into_vec(), &shape, Some(order))
     })
 }
 
@@ -232,24 +308,22 @@ fn axpb(py: Python<'_>, x: &Bound<'_, PyAny>, a: f64, b: f64) -> PyResult<Py<PyA
 #[pyfunction]
 #[pyo3(signature = (x, cutoff, sample_rate, axis=-1))]
 fn lowpass(py: Python<'_>, x: &Bound<'_, PyAny>, cutoff: f64, sample_rate: f64, axis: isize) -> PyResult<Py<PyAny>> {
-    let tensor = import(x)?;
-    float_dispatch!(tensor, T => {
-        let view = typed::<T>(&tensor)?;
+    let input = input(x)?;
+    with_float_input!(input, T, view => {
         let axis = axis_index(axis, view.ndim())?;
         let mut out = view.to_owned();
         let lanes = out.lanes(axis).map_err(value_error)?.len();
         let mut filters: Vec<Biquad<T>> = (0..lanes).map(|_| Biquad::lowpass(T::_lit(cutoff), T::_lit(sample_rate), T::_lit(BUTTERWORTH_Q))).collect();
         out.process_lanes(axis, &mut filters).map_err(value_error)?;
-        Array::wrap(py, out)
+        numpy_array(py, out)
     })
 }
 
 /// Real FFT along the last axis (power-of-two length), like `numpy.fft.rfft(x)`.
 #[pyfunction]
 fn rfft(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
-    let tensor = import(x)?;
-    float_dispatch!(tensor, T => {
-        let view = typed::<T>(&tensor)?;
+    let input = input(x)?;
+    with_float_input!(input, T, view => {
         let last = view.ndim().checked_sub(1).ok_or_else(|| PyValueError::new_err("rfft needs at least one axis"))?;
         let n = view.shape()[last];
         if !n.is_power_of_two() || n < 2 {
@@ -273,10 +347,9 @@ fn rfft(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
             let bins = output.as_mut_slice().expect("a fresh array's last-axis lanes are contiguous");
             fft.forward(samples, bins);
         }
-        Array::wrap(py, out)
+        numpy_complex(py, out)
     })
 }
-
 /// Wraps a runtime-typed result.
 fn wrap_dyn(py: Python<'_>, array: DynArray) -> PyResult<Py<PyAny>> {
     let (shape, dtype) = (array.shape().to_vec(), array.dtype());

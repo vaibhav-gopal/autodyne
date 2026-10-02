@@ -11,7 +11,9 @@ name = "_autodyne"
 crate-type = ["cdylib"]
 
 [dependencies]
-autodyne = { path = "../.." }
+num-complex = "0.4"
+autodyne = { path = "../..", features = ["ndarray"] }
+numpy = "0.29"
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
 
 # A workspace of its own: building it needs a Python toolchain, which the core crate's builds don't.

@@ -58,7 +58,7 @@ def test_rfft_matches_numpy():
 
 
 def test_arrays_export_once():
-    a = autodyne._autodyne.axpb(np.ones(3), 1.0, 0.0)
+    a = autodyne._autodyne.binary("add", np.ones(3), np.ones(3))
     np.from_dlpack(a)
     with pytest.raises(BufferError):
         np.from_dlpack(a)

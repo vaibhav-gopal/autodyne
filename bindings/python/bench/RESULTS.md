@@ -6,25 +6,25 @@ Python 3.12.14, NumPy 2.5.3, SciPy 1.18.1. autodyne times are end to end
 
 | Axis | Case | NumPy / SciPy | autodyne | Speedup |
 |---|---|---:|---:|---:|
-| fused a*x+b | float32, n=1,000 | 1.6 µs | 1.3 µs | 1.22x |
-| fused a*x+b | float32, n=100,000 | 14.5 µs | 7.1 µs | 2.04x |
-| fused a*x+b | float32, n=10,000,000 | 13,226.0 µs | 6,725.2 µs | 1.97x |
-| fused a*x+b | float64, n=1,000 | 1.5 µs | 1.4 µs | 1.08x |
-| fused a*x+b | float64, n=100,000 | 28.0 µs | 14.7 µs | 1.90x |
-| fused a*x+b | float64, n=10,000,000 | 27,250.7 µs | 13,850.7 µs | 1.97x |
-| strided a*x+b | transposed 2000x2000 f64 | 10,681.8 µs | 5,313.9 µs | 2.01x |
-| strided a*x+b | every other column, 2000x1000 | 5,615.5 µs | 3,366.4 µs | 1.67x |
-| strided a*x+b | reversed rows | 11,735.9 µs | 5,486.9 µs | 2.14x |
-| sum | float32, n=10,000,000 | 1,600.3 µs | 1,169.5 µs | 1.37x |
-| sum | float64, n=10,000,000 | 6,183.3 µs | 1,512.6 µs | 4.09x |
-| sum | axis 0 of 2000x2000 f64 | 977.8 µs | 1,042.9 µs | 0.94x |
-| sum | axis 1 of 2000x2000 f64 | 2,893.1 µs | 489.2 µs | 5.91x |
-| sum | transposed 2000x2000 f64, axis 1 | 866.3 µs | 966.3 µs | 0.90x |
-| mixed dtypes | int16 2000x2000 + float32 row | 3,555.6 µs | 2,448.3 µs | 1.45x |
-| mixed dtypes | float64 + float64, same shape | 5,633.4 µs | 5,930.5 µs | 0.95x |
-| small calls | sum of 64 f64 | 1.1 µs | 0.5 µs | 2.10x |
-| small calls | a*x+b on 64 f64 | 1.0 µs | 1.2 µs | 0.84x |
-| IIR (scipy sosfilt) | 16 x 480,000 f32, along contiguous time | 39,936.3 µs | 31,792.1 µs | 1.26x |
-| IIR (scipy sosfilt) | 480,000 x 16 f32, along strided time | 47,475.7 µs | 44,668.1 µs | 1.06x |
-| FFT (numpy.fft) | rfft, 256 x 4096 f64 | 3,596.3 µs | 4,388.7 µs | 0.82x |
-| FFT (numpy.fft) | rfft, 4096 x 64 f64 | 3,092.0 µs | 3,476.3 µs | 0.89x |
+| fused a*x+b | float32, n=1,000 | 1.6 µs | 0.7 µs | 2.40x |
+| fused a*x+b | float32, n=100,000 | 14.2 µs | 6.2 µs | 2.28x |
+| fused a*x+b | float32, n=10,000,000 | 12,959.9 µs | 6,530.5 µs | 1.98x |
+| fused a*x+b | float64, n=1,000 | 1.5 µs | 0.8 µs | 1.91x |
+| fused a*x+b | float64, n=100,000 | 27.5 µs | 13.5 µs | 2.04x |
+| fused a*x+b | float64, n=10,000,000 | 27,860.9 µs | 13,569.1 µs | 2.05x |
+| strided a*x+b | transposed 2000x2000 f64 | 10,368.0 µs | 5,188.7 µs | 2.00x |
+| strided a*x+b | every other column, 2000x1000 | 5,523.5 µs | 3,273.2 µs | 1.69x |
+| strided a*x+b | reversed rows | 11,512.6 µs | 5,612.7 µs | 2.05x |
+| sum | float32, n=10,000,000 | 1,544.8 µs | 1,138.4 µs | 1.36x |
+| sum | float64, n=10,000,000 | 5,170.0 µs | 1,500.9 µs | 3.44x |
+| sum | axis 0 of 2000x2000 f64 | 963.4 µs | 1,017.9 µs | 0.95x |
+| sum | axis 1 of 2000x2000 f64 | 3,338.4 µs | 512.1 µs | 6.52x |
+| sum | transposed 2000x2000 f64, axis 1 | 916.4 µs | 1,006.1 µs | 0.91x |
+| mixed dtypes | int16 2000x2000 + float32 row | 3,516.4 µs | 2,554.5 µs | 1.38x |
+| mixed dtypes | float64 + float64, same shape | 5,728.6 µs | 5,896.8 µs | 0.97x |
+| small calls | sum of 64 f64 | 1.1 µs | 0.3 µs | 3.28x |
+| small calls | a*x+b on 64 f64 | 1.0 µs | 0.6 µs | 1.56x |
+| IIR (scipy sosfilt) | 16 x 480,000 f32, along contiguous time | 39,840.9 µs | 31,044.2 µs | 1.28x |
+| IIR (scipy sosfilt) | 480,000 x 16 f32, along strided time | 47,372.5 µs | 45,877.1 µs | 1.03x |
+| FFT (numpy.fft) | rfft, 256 x 4096 f64 | 3,489.4 µs | 2,448.8 µs | 1.42x |
+| FFT (numpy.fft) | rfft, 4096 x 64 f64 | 3,045.1 µs | 2,205.8 µs | 1.38x |

@@ -155,7 +155,7 @@ fn analysis_and_in_place_transforms_do_not_allocate() {
 
 #[test]
 fn spectral_iq_and_resampling_do_not_allocate() {
-    let fft = Fft::<f64>::new(1_024);
+    let mut fft = Fft::<f64>::new(1_024);
     let mut buf = vec![Complex::new(1.0, 0.0); 1_024];
     assert_no_alloc("Fft forward + inverse", || {
         fft.forward(&mut buf);

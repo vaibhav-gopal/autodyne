@@ -32,21 +32,37 @@ pub fn bin_frequency<T: Float>(bin: usize, fft_len: usize, sample_rate: T) -> T 
     T::_lit(bin as f64) * sample_rate / T::_lit(fft_len as f64)
 }
 
-/// Iterative radix-2 Cooley-Tukey FFT of a fixed power-of-two length.
-/// Twiddle factors and the bit-reversal table are computed once in `new`, so transforms run
-/// in place without allocating.
+/// FFT of a fixed power-of-two length, planned once so transforms run in place without allocating.
+///
+/// With the default `rustfft` feature, `f32` / `f64` transforms run on
+/// [rustfft](https://docs.rs/rustfft)'s kernels (mixed radix, AVX / SSE / NEON chosen at runtime);
+/// otherwise (or for other element types) on a portable iterative radix-2 Cooley-Tukey kernel.
+/// Twiddle factors, tables and scratch space are made in `new`.
 #[derive(Debug, Clone)]
 pub struct Fft<T: Float> {
     len: usize,
-    /// e^(-i 2 pi k / len) for k in 0..len/2, computed in f64 for accuracy
+    /// e^(-i 2 pi k / len) for k in 0..len/2, computed in f64 for accuracy (radix-2 kernel only)
     twiddles: Vec<Complex<T>>,
-    /// bit_reverse[i] = i with its log2(len) low bits reversed
+    /// bit_reverse[i] = i with its log2(len) low bits reversed (radix-2 kernel only)
     bit_reverse: Vec<usize>,
+    #[cfg(feature = "rustfft")]
+    fast: Option<fast::Plan>,
 }
 
 impl<T: Float> Fft<T> {
     /// Panics unless `len` is a power of two (1 included).
     pub fn new(len: usize) -> Self {
+        assert!(len.is_power_of_two(), "FFT length must be a power of two, got {len}");
+        #[cfg(feature = "rustfft")]
+        if let Some(plan) = fast::Plan::new::<T>(len) {
+            return Self { len, twiddles: Vec::new(), bit_reverse: Vec::new(), fast: Some(plan) };
+        }
+        Self::new_radix2(len)
+    }
+
+    /// The portable radix-2 kernel, whatever features are enabled (the reference the fast backend
+    /// is tested against).
+    pub fn new_radix2(len: usize) -> Self {
         assert!(len.is_power_of_two(), "FFT length must be a power of two, got {len}");
         let bits = len.trailing_zeros();
         let twiddles = (0..len / 2)
@@ -55,7 +71,13 @@ impl<T: Float> Fft<T> {
         let bit_reverse = (0..len)
             .map(|i| if bits == 0 { 0 } else { i.reverse_bits() >> (usize::BITS - bits) })
             .collect();
-        Self { len, twiddles, bit_reverse }
+        Self {
+            len,
+            twiddles,
+            bit_reverse,
+            #[cfg(feature = "rustfft")]
+            fast: None,
+        }
     }
 
     pub fn len(&self) -> usize {
@@ -67,8 +89,17 @@ impl<T: Float> Fft<T> {
     }
 
     /// Forward transform in place. Panics if `buf.len() != self.len()`.
-    pub fn forward(&self, buf: &mut [Complex<T>]) {
+    pub fn forward(&mut self, buf: &mut [Complex<T>]) {
         assert_eq!(buf.len(), self.len, "buffer length must match the FFT length");
+        #[cfg(feature = "rustfft")]
+        if let Some(plan) = &mut self.fast {
+            plan.run(buf, false);
+            return;
+        }
+        self.forward_radix2(buf);
+    }
+
+    fn forward_radix2(&self, buf: &mut [Complex<T>]) {
         for (i, &j) in self.bit_reverse.iter().enumerate() {
             if i < j {
                 buf.swap(i, j);
@@ -91,17 +122,24 @@ impl<T: Float> Fft<T> {
     }
 
     /// Inverse transform in place (scaled by 1/len). Panics if `buf.len() != self.len()`.
-    pub fn inverse(&self, buf: &mut [Complex<T>]) {
+    pub fn inverse(&mut self, buf: &mut [Complex<T>]) {
+        assert_eq!(buf.len(), self.len, "buffer length must match the FFT length");
+        let scale = T::_lit(1.0 / self.len as f64);
+        #[cfg(feature = "rustfft")]
+        if let Some(plan) = &mut self.fast {
+            plan.run(buf, true);
+            buf.iter_mut().for_each(|z| *z *= scale);
+            return;
+        }
         // ifft(x) = conj(fft(conj(x))) / N
         buf.iter_mut().for_each(|z| *z = z.conj());
-        self.forward(buf);
-        let scale = T::_lit(1.0 / self.len as f64);
+        self.forward_radix2(buf);
         buf.iter_mut().for_each(|z| *z = z.conj() * scale);
     }
 
     /// Transforms a real signal: copies `input` into `out` as complex values, then transforms `out`.
     /// Panics unless both lengths equal `self.len()`.
-    pub fn forward_real(&self, input: &[T], out: &mut [Complex<T>]) {
+    pub fn forward_real(&mut self, input: &[T], out: &mut [Complex<T>]) {
         assert_eq!(input.len(), self.len, "input length must match the FFT length");
         assert_eq!(out.len(), self.len, "output length must match the FFT length");
         for (o, &x) in out.iter_mut().zip(input) {
@@ -111,6 +149,73 @@ impl<T: Float> Fft<T> {
     }
 }
 
+#[cfg(feature = "rustfft")]
+mod fast {
+    use std::any::TypeId;
+    use std::sync::Arc;
+
+    use rustfft::num_complex::Complex as Rc;
+    use rustfft::FftPlanner;
+
+    use crate::units::*;
+
+    /// A rustfft plan with its scratch space, for `f32` or `f64`.
+    #[derive(Clone)]
+    pub(super) enum Plan {
+        F32 { forward: Arc<dyn rustfft::Fft<f32>>, inverse: Arc<dyn rustfft::Fft<f32>>, scratch: Vec<Rc<f32>> },
+        F64 { forward: Arc<dyn rustfft::Fft<f64>>, inverse: Arc<dyn rustfft::Fft<f64>>, scratch: Vec<Rc<f64>> },
+    }
+
+    impl std::fmt::Debug for Plan {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(match self {
+                Plan::F32 { .. } => "rustfft plan (f32)",
+                Plan::F64 { .. } => "rustfft plan (f64)",
+            })
+        }
+    }
+
+    macro_rules! plan {
+        ($V:ident, $F:ty, $len:expr) => {{
+            let mut planner = FftPlanner::<$F>::new();
+            let (forward, inverse) = (planner.plan_fft_forward($len), planner.plan_fft_inverse($len));
+            let scratch = vec![Rc::new(0.0, 0.0); forward.get_inplace_scratch_len().max(inverse.get_inplace_scratch_len())];
+            Some(Plan::$V { forward, inverse, scratch })
+        }};
+    }
+
+    impl Plan {
+        /// A plan for element type `T`, if rustfft supports it.
+        pub(super) fn new<T: Float>(len: usize) -> Option<Self> {
+            let t = TypeId::of::<T>();
+            if t == TypeId::of::<f32>() {
+                plan!(F32, f32, len)
+            } else if t == TypeId::of::<f64>() {
+                plan!(F64, f64, len)
+            } else {
+                None
+            }
+        }
+
+        /// Transforms `buf` (unscaled in both directions), without allocating.
+        pub(super) fn run<T: Float>(&mut self, buf: &mut [Complex<T>], inverse: bool) {
+            macro_rules! go {
+                ($F:ty, $fwd:expr, $inv:expr, $scratch:expr) => {{
+                    // a plan's variant matches the element type it was made for
+                    assert_eq!(TypeId::of::<T>(), TypeId::of::<$F>(), "FFT plan used with another element type");
+                    // SAFETY: T is $F (checked above), and autodyne's and num-complex's Complex are
+                    // both repr(C) { re, im }, so the slices have the same layout
+                    let buf = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<Rc<$F>>(), buf.len()) };
+                    if inverse { $inv.process_with_scratch(buf, $scratch) } else { $fwd.process_with_scratch(buf, $scratch) }
+                }};
+            }
+            match self {
+                Plan::F32 { forward, inverse: inv, scratch } => go!(f32, forward, inv, scratch),
+                Plan::F64 { forward, inverse: inv, scratch } => go!(f64, forward, inv, scratch),
+            }
+        }
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -135,6 +240,9 @@ mod tests {
             let mut fast = input.clone();
             Fft::new(len).forward(&mut fast);
             let slow = dft(&input);
+            let mut radix2 = input.clone();
+            Fft::new_radix2(len).forward(&mut radix2);
+            assert!(max_error(&radix2, &slow) < 1e-9 * len as f64, "radix-2 len {len}");
             let err = max_error(&fast, &slow);
             assert!(err < 1e-9 * len as f64, "len {len}: max error {err}");
         }
@@ -142,7 +250,7 @@ mod tests {
 
     #[test]
     fn inverse_roundtrip() {
-        let fft = Fft::new(512);
+        let mut fft = Fft::new(512);
         let input = noise_signal(512, 3);
         let mut buf = input.clone();
         fft.forward(&mut buf);

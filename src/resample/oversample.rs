@@ -93,7 +93,7 @@ mod tests {
 
     /// Energy outside the true harmonics, relative to the harmonics, in dB.
     fn alias_db(signal: &[f64]) -> f64 {
-        let fft = Fft::new(N);
+        let mut fft = Fft::new(N);
         let mut spectrum = vec![crate::units::Complex::zero(); N];
         fft.forward_real(&signal[..N], &mut spectrum);
         let (mut harmonic, mut alias) = (0.0, 0.0);

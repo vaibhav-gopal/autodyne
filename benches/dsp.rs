@@ -76,7 +76,7 @@ fn filters(c: &mut Criterion) {
 fn fft(c: &mut Criterion) {
     let mut g = c.benchmark_group("fft");
     for len in [256, 1024, 4096] {
-        let fft = Fft::<f32>::new(len);
+        let mut fft = Fft::<f32>::new(len);
         let input: Vec<Complex<f32>> = Noise::<f32>::new(2).take(len).map(Complex::from).collect();
         let mut buf = input.clone();
         g.throughput(Throughput::Elements(len as u64));
@@ -200,7 +200,7 @@ fn reverb(c: &mut Criterion) {
     let mut rfft = RealFft::<f32>::new(4_096);
     let mut spectrum = vec![Complex::zero(); rfft.spectrum_len()];
     g.bench_function("real 4096", |b| b.iter(|| rfft.forward(black_box(&real), &mut spectrum)));
-    let fft = Fft::<f32>::new(4_096);
+    let mut fft = Fft::<f32>::new(4_096);
     let mut full = vec![Complex::zero(); 4_096];
     g.bench_function("complex 4096 (real input)", |b| b.iter(|| fft.forward_real(black_box(&real), &mut full)));
     g.finish();

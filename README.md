@@ -25,7 +25,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `units` | number traits (`Float`, `Integer`, `Trig`, casts, ...), `Complex<T>`, and reflection: `DType` (runtime element type) and `Reflection` |
 | `osc` | band-limited `Oscillator` (saw / pulse with PolyBLEP, triangle, sine), `Sine`, `Phasor` (complex oscillator), `Noise` (seeded), `Impulse`, and `WavetableOsc` (mip-mapped `Wavetable`s built from single-cycle frames or harmonics, alias-free to below -80 dB, smooth morphing across frames) |
 | `filter` | `convolve`, `Fir` + windowed-sinc `design_lowpass`, `Biquad` (low/high/band-pass, notch, all-pass, peaking, low/high shelf), `MultiBiquad` (one per channel, 4 channels in lockstep: ~3.8x faster on 8 channels), `ParametricEq` (up to 8 bands: bells, shelves, 12-48 dB/oct cuts, notch, band-pass; its curve for drawing), `LinkwitzRiley` and `Crossover` (2-4 bands that sum flat), and two filters built for modulation: `Svf` (zero-delay-feedback state-variable filter, stable under per-sample cutoff changes, six simultaneous responses) and `Ladder` (4-pole Moog-style, zero-delay feedback, self-oscillates at the cutoff, level-compensated drive); `magnitude_at` for analytic responses |
-| `spectral` | radix-2 `Fft` (forward, inverse, real input), `RealFft` (real signals, ~1.7x faster), a reference `dft`, and a phase vocoder with identity phase locking: `PitchShifter` (real time, fixed latency) and `time_stretch` (offline, any factor 0.1-10) |
+| `spectral` | `Fft` (forward, inverse, real input) and `RealFft` (real signals) on `rustfft` / `realfft` kernels (AVX / SSE / NEON, default feature `rustfft`; a portable radix-2 otherwise), planned with their scratch so transforms never allocate, a reference `dft`, and a phase vocoder with identity phase locking: `PitchShifter` (real time, fixed latency) and `time_stretch` (offline, any factor 0.1-10) |
 | `iq` | `IqModulator` / `IqDemodulator`, `envelope` (AM), `phase` (PM), `FmModulator` / `FmDiscriminator` |
 | `gain` | `db_to_gain` / `gain_to_db`, `SmoothedValue` (click-free parameter ramps), smoothed `Gain` |
 | `delay` | `DelayLine` (integer and interpolated reads), `Echo` (feedback delay with smoothed parameters) |
@@ -96,11 +96,12 @@ results agree), single-threaded, end to end: autodyne's times include crossing i
 results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULTS.md). On a Ryzen 9 7900:
 
 - fused `a * x + b`: ~2x faster than NumPy's two passes with a temporary, on contiguous, transposed, strided or
-  reversed inputs (results keep the input's memory order, as NumPy's do)
-- sums: 1.3x (f32) to 3.7x (f64) faster, row sums 6.8x; column sums on par
+  reversed inputs (results keep the input's memory order, as NumPy's do); 1.6-2.4x on small arrays (64-1,000 elements),
+  where NumPy arrays cross through NumPy's C API rather than a Python-level DLPack call
+- sums: 1.4x (f32) to 3.4x (f64) faster, row sums 6.5x; column sums on par (both at memory bandwidth)
 - mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 1.45x faster
 - IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
-- FFT vs `numpy.fft` (pocketfft): 0.82-0.87x, the one remaining gap (radix-2 today)
+- FFT vs `numpy.fft` (pocketfft): 1.4x faster (`rustfft` / `realfft` kernels behind autodyne's `Fft` / `RealFft`)
 ### Plugins
 `plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
 the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):
