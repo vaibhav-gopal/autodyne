@@ -92,12 +92,27 @@ struct Array {
     inner: Option<DynArray>,
     shape: Vec<usize>,
     dtype: DType,
+    /// export the stored array through this axis permutation (results computed in an input's
+    /// memory order go back with that input's strides, as NumPy's do)
+    axes: Option<Vec<usize>>,
 }
 
 impl Array {
     fn wrap<T: DynElement>(py: Python<'_>, array: NdArray<T>) -> PyResult<Py<PyAny>> {
         let shape = array.shape().to_vec();
-        Ok(Py::new(py, Array { inner: Some(DynArray::from_array(array)), shape, dtype: T::DTYPE })?.into_any())
+        Ok(Py::new(py, Array { inner: Some(DynArray::from_array(array)), shape, dtype: T::DTYPE, axes: None })?.into_any())
+    }
+    /// A result computed on an input permuted by `order` (its memory order): exported with the
+    /// inverse permutation, so it has the input's shape and the input's memory layout.
+    fn wrap_in_order<T: DynElement>(py: Python<'_>, array: NdArray<T>, order: &[usize]) -> PyResult<Py<PyAny>> {
+        let mut inverse = vec![0; order.len()];
+        for (i, &a) in order.iter().enumerate() {
+            inverse[a] = i;
+        }
+        let shape: Vec<usize> = inverse.iter().map(|&i| array.shape()[i]).collect();
+        let identity = inverse.iter().enumerate().all(|(i, &a)| i == a);
+        let axes = (!identity).then_some(inverse);
+        Ok(Py::new(py, Array { inner: Some(DynArray::from_array(array)), shape, dtype: T::DTYPE, axes })?.into_any())
     }
 }
 
@@ -130,7 +145,11 @@ impl Array {
         // SAFETY: the capsule takes the exported tensor; its destructor deletes it unless a consumer
         // renamed (took) it first
         let capsule = unsafe {
-            if max_version.is_some_and(|(major, _)| major >= 1) {
+            if let Some(axes) = &self.axes {
+                // permuted strides need a versioned consumer (legacy ones get a contiguous export
+                // below only when no permutation is needed)
+                ffi::PyCapsule_New(array.into_dlpack_permuted(axes).cast::<c_void>(), VERSIONED.as_ptr(), Some(drop_versioned_capsule))
+            } else if max_version.is_some_and(|(major, _)| major >= 1) {
                 ffi::PyCapsule_New(array.into_dlpack().cast::<c_void>(), VERSIONED.as_ptr(), Some(drop_versioned_capsule))
             } else {
                 ffi::PyCapsule_New(array.into_dlpack_legacy().cast::<c_void>(), LEGACY.as_ptr(), Some(drop_legacy_capsule))
@@ -200,8 +219,11 @@ fn axpb(py: Python<'_>, x: &Bound<'_, PyAny>, a: f64, b: f64) -> PyResult<Py<PyA
     float_dispatch!(tensor, T => {
         let view = typed::<T>(&tensor)?;
         let (a, b) = (T::_lit(a), T::_lit(b));
-        let out = Zip::from(view).map_collect(|&v| a * v + b);
-        Array::wrap(py, out)
+        // compute in the input's memory order (sequential reads and writes), like NumPy's order='K'
+        let order = view.memory_order();
+        let order = &order[..view.ndim()];
+        let out = Zip::from(view.permute(order).map_err(value_error)?).map_collect(|&v| a * v + b);
+        Array::wrap_in_order(py, out, order)
     })
 }
 
@@ -258,7 +280,7 @@ fn rfft(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Wraps a runtime-typed result.
 fn wrap_dyn(py: Python<'_>, array: DynArray) -> PyResult<Py<PyAny>> {
     let (shape, dtype) = (array.shape().to_vec(), array.dtype());
-    Ok(Py::new(py, Array { inner: Some(array), shape, dtype })?.into_any())
+    Ok(Py::new(py, Array { inner: Some(array), shape, dtype, axes: None })?.into_any())
 }
 
 /// `x op y` for any two numeric dtypes, broadcast, with autodyne's promotion: NumPy's table with

@@ -231,6 +231,9 @@ fn nd(c: &mut Criterion) {
     g.bench_function("Zip, row broadcast: out = x * row", |b| b.iter(|| {
         Zip::from(out.view_mut()).and(x.view()).unwrap().and_broadcast(row.view()).unwrap().for_each(|o, &a, &r| *o = a * r);
     }));
+    let x64 = NdArray::<f64>::from_fn(&[2_000, 2_000], |i| (i[0] + i[1]) as f64).unwrap();
+    g.bench_function("map (allocating), f64 2000x2000", |b| b.iter(|| black_box(x64.view().map(|&v| 2.0 * v + 0.5))));
+    g.bench_function("map (allocating), f64 2000x2000 transposed", |b| b.iter(|| black_box(x64.view().transpose().map(|&v| 2.0 * v + 0.5))));
     g.bench_function("sum (pairwise)", |b| b.iter(|| black_box(x.view().sum())));
     g.bench_function("sum, transposed view", |b| b.iter(|| black_box(x.view().transpose().sum())));
     g.bench_function("sum_axis(0) (column sums)", |b| b.iter(|| black_box(x.sum_axis(0).unwrap())));

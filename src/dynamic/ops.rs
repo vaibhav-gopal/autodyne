@@ -2,9 +2,9 @@
 //! [`DynArray`], whose element types are only known at runtime.
 //!
 //! Each operation picks its result type once (see [`result_type`]), then runs typed code:
-//! operands already of that type are read in place (zero-copy, the typed [`Zip`] path); operands of
-//! another type are converted 256 elements at a time through a stack buffer, so no operand is ever
-//! copied whole.
+//! operands already of that type are read in place (zero-copy, the typed [`Zip`] path); with mixed
+//! types the first operand is converted into the result and the second combined into it, in two
+//! stride-planned passes, so no operand is ever copied.
 //!
 //! # Promotion
 //! [`Promotion::Standard`] (the default) follows NumPy's table for mixing two arrays, with two
@@ -25,7 +25,7 @@
 //! Integer `+ - *` wrap on overflow, as in NumPy.
 
 use super::{DynArray, DynElement, DynError, DynView};
-use crate::signal::{broadcast_shapes, Iter, NdArray, NdView, Zip};
+use crate::signal::{broadcast_shapes, NdArray, NdView, Zip};
 use crate::units::*;
 
 /// How two operand types combine (see the [module docs](self)).
@@ -236,37 +236,55 @@ fn float_function_type(d: DType) -> Result<DType, DynError> {
 // CONVERSIONS =====================================================================================
 
 /// A value in a domain where every element type converts exactly, to compare before and after a
-/// conversion.
+/// conversion (64-bit integers keep their own variant, so no wider arithmetic is needed).
 #[derive(Debug, Clone, Copy)]
 enum Exact {
-    Int(i128),
+    Int(i64),
+    UInt(u64),
     Float(f64),
     Complex(f64, f64),
 }
 
+/// 2^63 and 2^64 as floats: the first values beyond `i64` / `u64`.
+const TWO_63: f64 = 9_223_372_036_854_775_808.0;
+const TWO_64: f64 = 18_446_744_073_709_551_616.0;
+
 impl PartialEq for Exact {
     fn eq(&self, other: &Exact) -> bool {
-        fn as_complex(e: Exact) -> (f64, f64, Option<i128>) {
-            match e {
-                Exact::Int(v) => (v as f64, 0.0, Some(v)),
-                Exact::Float(x) => (x, 0.0, None),
-                Exact::Complex(re, im) => (re, im, None),
-            }
-        }
         let same = |x: f64, y: f64| x == y || (x.is_nan() && y.is_nan());
+        // an integer equals a float only if the float is exactly that integer
+        let int_float = |a: i64, x: f64| x.fract() == 0.0 && (-TWO_63..TWO_63).contains(&x) && x as i64 == a;
+        let uint_float = |a: u64, x: f64| x.fract() == 0.0 && (0.0..TWO_64).contains(&x) && x as u64 == a;
         match (*self, *other) {
             (Exact::Int(a), Exact::Int(b)) => a == b,
-            // an integer equals a float only if the float is that exact integer
-            (Exact::Int(a), Exact::Float(x)) | (Exact::Float(x), Exact::Int(a)) => x.fract() == 0.0 && x.abs() < 1.7e38 && x as i128 == a,
-            (Exact::Int(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::Int(a)) => im == 0.0 && re.fract() == 0.0 && re.abs() < 1.7e38 && re as i128 == a,
-            (x, y) => {
-                let ((xr, xi, _), (yr, yi, _)) = (as_complex(x), as_complex(y));
-                same(xr, yr) && same(xi, yi)
-            }
+            (Exact::UInt(a), Exact::UInt(b)) => a == b,
+            (Exact::Int(a), Exact::UInt(b)) | (Exact::UInt(b), Exact::Int(a)) => a >= 0 && a as u64 == b,
+            (Exact::Int(a), Exact::Float(x)) | (Exact::Float(x), Exact::Int(a)) => int_float(a, x),
+            (Exact::UInt(a), Exact::Float(x)) | (Exact::Float(x), Exact::UInt(a)) => uint_float(a, x),
+            (Exact::Int(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::Int(a)) => im == 0.0 && int_float(a, re),
+            (Exact::UInt(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::UInt(a)) => im == 0.0 && uint_float(a, re),
+            (Exact::Float(x), Exact::Float(y)) => same(x, y),
+            (Exact::Float(x), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::Float(x)) => im == 0.0 && same(x, re),
+            (Exact::Complex(a, b), Exact::Complex(c, d)) => same(a, c) && same(b, d),
         }
     }
 }
 
+/// Whether every value of `from` converts exactly to `to` (so a checked conversion can skip the
+/// check): widening integers, integers that fit the float's mantissa, wider floats.
+fn lossless(from: DType, to: DType) -> bool {
+    if from == to {
+        return true;
+    }
+    let mantissa = |d: DType| if bits(d) == 32 { 24 } else { 53 };
+    match (kind(from), kind(to)) {
+        (Kind::Int, Kind::Int) | (Kind::UInt, Kind::UInt) => bits(from) <= bits(to),
+        (Kind::UInt, Kind::Int) => bits(from) < bits(to),
+        (Kind::Int | Kind::UInt, Kind::Float | Kind::Complex) => bits(from) <= mantissa(to),
+        (Kind::Float, Kind::Float | Kind::Complex) | (Kind::Complex, Kind::Complex) => bits(from) <= bits(to),
+        _ => false,
+    }
+}
 /// Element types as seen by the conversion and arithmetic code.
 trait Num: DynElement {
     fn exact(self) -> Exact;
@@ -285,16 +303,19 @@ trait Num: DynElement {
 }
 
 macro_rules! int_num {
-    ($($T:ty),+) => {$(
+    ($($T:ty => $V:ident as $W:ty),+) => {$(
         impl Num for $T {
             #[inline]
             fn exact(self) -> Exact {
-                Exact::Int(self as i128)
+                Exact::$V(self as $W)
             }
             #[inline]
             fn saturating(e: Exact) -> Self {
                 match e {
-                    Exact::Int(v) => v.clamp(<$T>::MIN as i128, <$T>::MAX as i128) as $T,
+                    Exact::Int(v) => {
+                        if v < <$T>::MIN as i64 { <$T>::MIN } else if (v as i128) > (<$T>::MAX as i128) { <$T>::MAX } else { v as $T }
+                    }
+                    Exact::UInt(v) => if (v as u128) > (<$T>::MAX as u128) { <$T>::MAX } else { v as $T },
                     Exact::Float(x) | Exact::Complex(x, _) => x as $T,
                 }
             }
@@ -302,6 +323,7 @@ macro_rules! int_num {
             fn wrapping(e: Exact) -> Self {
                 match e {
                     Exact::Int(v) => v as $T,
+                    Exact::UInt(v) => v as $T,
                     Exact::Float(x) | Exact::Complex(x, _) => x as $T,
                 }
             }
@@ -337,7 +359,7 @@ macro_rules! int_num {
     )+};
 }
 
-int_num!(i8, i16, i32, i64, u8, u16, u32, u64);
+int_num!(i8 => Int as i64, i16 => Int as i64, i32 => Int as i64, i64 => Int as i64, u8 => UInt as u64, u16 => UInt as u64, u32 => UInt as u64, u64 => UInt as u64);
 
 macro_rules! float_num {
     ($($T:ty),+) => {$(
@@ -350,6 +372,7 @@ macro_rules! float_num {
             fn saturating(e: Exact) -> Self {
                 match e {
                     Exact::Int(v) => v as $T,
+                    Exact::UInt(v) => v as $T,
                     Exact::Float(x) | Exact::Complex(x, _) => x as $T,
                 }
             }
@@ -402,6 +425,7 @@ macro_rules! complex_num {
             fn saturating(e: Exact) -> Self {
                 match e {
                     Exact::Int(v) => Complex::new(v as $F, 0.0),
+                    Exact::UInt(v) => Complex::new(v as $F, 0.0),
                     Exact::Float(x) => Complex::new(x as $F, 0.0),
                     Exact::Complex(re, im) => Complex::new(re as $F, im as $F),
                 }
@@ -442,19 +466,6 @@ macro_rules! complex_num {
 
 complex_num!(f32, f64);
 
-#[inline]
-fn convert<S: Num, R: Num>(s: S, mode: CastMode, to: DType) -> Result<R, DynError> {
-    let e = s.exact();
-    match mode {
-        CastMode::Saturating => Ok(R::saturating(e)),
-        CastMode::Wrapping => Ok(R::wrapping(e)),
-        CastMode::Checked => {
-            let r = R::saturating(e);
-            if r.exact() == e { Ok(r) } else { Err(DynError::Inexact { from: S::DTYPE, to }) }
-        }
-    }
-}
-
 /// Runs `$body` with `$T` bound to the Rust type of a runtime dtype (every dtype but `I24`).
 macro_rules! with_num {
     ($dtype:expr, $T:ident => $body:expr) => {
@@ -476,93 +487,7 @@ macro_rules! with_num {
     };
 }
 
-/// Elements staged per conversion step.
-const CHUNK: usize = 256;
-
-/// Reads a view (broadcast to a shape) in row-major order, of whatever element type it has.
-enum Reader<'a> {
-    F32(Iter<'a, f32>),
-    F64(Iter<'a, f64>),
-    I8(Iter<'a, i8>),
-    I16(Iter<'a, i16>),
-    I32(Iter<'a, i32>),
-    I64(Iter<'a, i64>),
-    U8(Iter<'a, u8>),
-    U16(Iter<'a, u16>),
-    U32(Iter<'a, u32>),
-    U64(Iter<'a, u64>),
-    ComplexF32(Iter<'a, Complex<f32>>),
-    ComplexF64(Iter<'a, Complex<f64>>),
-}
-
-macro_rules! reader_variants {
-    ($self:expr, $it:ident => $body:expr) => {
-        match $self {
-            Reader::F32($it) => $body,
-            Reader::F64($it) => $body,
-            Reader::I8($it) => $body,
-            Reader::I16($it) => $body,
-            Reader::I32($it) => $body,
-            Reader::I64($it) => $body,
-            Reader::U8($it) => $body,
-            Reader::U16($it) => $body,
-            Reader::U32($it) => $body,
-            Reader::U64($it) => $body,
-            Reader::ComplexF32($it) => $body,
-            Reader::ComplexF64($it) => $body,
-        }
-    };
-}
-
-impl<'a> Reader<'a> {
-    fn new(view: &DynView<'a>, shape: &[usize]) -> Result<Self, DynError> {
-        macro_rules! open {
-            ($V:ident, $T:ty) => {
-                Reader::$V(view.typed::<$T>()?.broadcast_to(shape)?.iter_all())
-            };
-        }
-        Ok(match view.dtype() {
-            DType::F32 => open!(F32, f32),
-            DType::F64 => open!(F64, f64),
-            DType::I8 => open!(I8, i8),
-            DType::I16 => open!(I16, i16),
-            DType::I32 => open!(I32, i32),
-            DType::I64 => open!(I64, i64),
-            DType::U8 => open!(U8, u8),
-            DType::U16 => open!(U16, u16),
-            DType::U32 => open!(U32, u32),
-            DType::U64 => open!(U64, u64),
-            DType::ComplexF32 => open!(ComplexF32, Complex<f32>),
-            DType::ComplexF64 => open!(ComplexF64, Complex<f64>),
-            DType::I24 => return Err(DynError::Unsupported(DType::I24)),
-        })
-    }
-    /// The next `out.len()` elements, converted.
-    fn fill<R: Num>(&mut self, out: &mut [R], mode: CastMode) -> Result<(), DynError> {
-        reader_variants!(self, it => {
-            for o in out.iter_mut() {
-                *o = convert(*it.next().expect("the reader covers the output shape"), mode, R::DTYPE)?;
-            }
-            Ok(())
-        })
-    }
-}
-
 // BINARY ==========================================================================================
-
-fn apply<R: Num>(op: BinaryOp, out: &mut [R], a: &[R], b: &[R]) {
-    let f: fn(R, R) -> R = match op {
-        BinaryOp::Add => R::add,
-        BinaryOp::Sub => R::sub,
-        BinaryOp::Mul => R::mul,
-        BinaryOp::Div => R::div,
-        BinaryOp::Min => |x, y| R::min_of(x, y).expect("ordered type"),
-        BinaryOp::Max => |x, y| R::max_of(x, y).expect("ordered type"),
-    };
-    for ((o, &x), &y) in out.iter_mut().zip(a).zip(b) {
-        *o = f(x, y);
-    }
-}
 
 /// Both operands already of the result type: zero-copy, in memory order.
 fn binary_same<R: Num>(a: NdView<'_, R>, b: NdView<'_, R>, shape: &[usize], op: BinaryOp) -> Result<NdArray<R>, DynError> {
@@ -577,16 +502,87 @@ fn binary_same<R: Num>(a: NdView<'_, R>, b: NdView<'_, R>, shape: &[usize], op: 
     })
 }
 
-/// Mixed types: convert both operands chunk by chunk into the result type.
-fn binary_chunked<R: Num>(a: &DynView<'_>, b: &DynView<'_>, shape: &[usize], op: BinaryOp, mode: CastMode) -> Result<NdArray<R>, DynError> {
-    let mut out = NdArray::<R>::zeros(shape)?;
-    let (mut ra, mut rb) = (Reader::new(a, shape)?, Reader::new(b, shape)?);
-    let (mut xa, mut xb) = ([R::default(); CHUNK], [R::default(); CHUNK]);
-    for chunk in out.as_mut_slice().chunks_mut(CHUNK) {
-        let n = chunk.len();
-        ra.fill(&mut xa[..n], mode)?;
-        rb.fill(&mut xb[..n], mode)?;
-        apply(op, chunk, &xa[..n], &xb[..n]);
+/// `out = convert(src)`, with `src` broadcast to `out`'s shape: one planned pass, no copy of `src`.
+fn convert_into<S: Num, R: Num>(out: &mut NdArray<R>, src: NdView<'_, S>, mode: CastMode) -> Result<(), DynError> {
+    let src = src.broadcast_to(out.shape())?;
+    let mode = if mode == CastMode::Checked && lossless(S::DTYPE, R::DTYPE) { CastMode::Saturating } else { mode };
+    let mut failed = false;
+    match mode {
+        CastMode::Saturating => Zip::from(out.view_mut()).and(src)?.for_each(|o, &s| *o = R::saturating(s.exact())),
+        CastMode::Wrapping => Zip::from(out.view_mut()).and(src)?.for_each(|o, &s| *o = R::wrapping(s.exact())),
+        CastMode::Checked => Zip::from(out.view_mut()).and(src)?.for_each(|o, &s| {
+            let e = s.exact();
+            *o = R::saturating(e);
+            failed |= o.exact() != e;
+        }),
+    }
+    if failed { Err(DynError::Inexact { from: S::DTYPE, to: R::DTYPE }) } else { Ok(()) }
+}
+
+/// `out = convert(src)` for a source of any runtime type.
+fn convert_dyn_into<R: Num>(out: &mut NdArray<R>, src: &DynView<'_>, mode: CastMode) -> Result<(), DynError> {
+    with_num!(src.dtype(), S => convert_into::<S, R>(out, src.typed::<S>()?, mode))
+}
+
+/// `out = op(out, convert(src))`, with `src` broadcast to `out`'s shape.
+fn combine_into<U: Num, R: Num>(out: &mut NdArray<R>, src: NdView<'_, U>, op: BinaryOp, mode: CastMode) -> Result<(), DynError> {
+    let src = src.broadcast_to(out.shape())?;
+    let f: fn(R, R) -> R = match op {
+        BinaryOp::Add => R::add,
+        BinaryOp::Sub => R::sub,
+        BinaryOp::Mul => R::mul,
+        BinaryOp::Div => R::div,
+        BinaryOp::Min => |x, y| R::min_of(x, y).expect("ordered type"),
+        BinaryOp::Max => |x, y| R::max_of(x, y).expect("ordered type"),
+    };
+    let mut failed = false;
+    let checked = mode == CastMode::Checked && !lossless(U::DTYPE, R::DTYPE);
+    Zip::from(out.view_mut()).and(src)?.for_each(|o, &u| {
+        let e = u.exact();
+        let y = R::saturating(e);
+        if checked {
+            failed |= y.exact() != e;
+        }
+        *o = f(*o, y);
+    });
+    if failed { Err(DynError::Inexact { from: U::DTYPE, to: R::DTYPE }) } else { Ok(()) }
+}
+
+/// `out = out op src` (or `src op out` when `reversed`), `src` already of the result type: the
+/// operation is chosen once, so the loop inlines it.
+fn combine_same<R: Num>(out: &mut NdArray<R>, src: NdView<'_, R>, op: BinaryOp, reversed: bool) -> Result<(), DynError> {
+    let src = src.broadcast_to(out.shape())?;
+    let zip = Zip::from(out.view_mut()).and(src)?;
+    macro_rules! run {
+        ($f:expr) => {
+            if reversed { zip.for_each(|o, &s| *o = $f(s, *o)) } else { zip.for_each(|o, &s| *o = $f(*o, s)) }
+        };
+    }
+    match op {
+        BinaryOp::Add => run!(R::add),
+        BinaryOp::Sub => run!(R::sub),
+        BinaryOp::Mul => run!(R::mul),
+        BinaryOp::Div => run!(R::div),
+        BinaryOp::Min => run!(|x, y| R::min_of(x, y).expect("ordered type")),
+        BinaryOp::Max => run!(|x, y| R::max_of(x, y).expect("ordered type")),
+    }
+    Ok(())
+}
+
+/// Mixed types: convert one operand into the result, then combine the other into it. Two planned
+/// passes (contiguous inner loops wherever the layouts allow); neither operand is copied. An operand
+/// already of the result type is the one combined, on the typed path.
+fn binary_mixed<R: Num>(a: &DynView<'_>, b: &DynView<'_>, shape: &[usize], op: BinaryOp, mode: CastMode) -> Result<NdArray<R>, DynError> {
+    let mut out = NdArray::<R>::full(shape, R::default())?;
+    if b.dtype() == R::DTYPE {
+        convert_dyn_into(&mut out, a, mode)?;
+        combine_same(&mut out, b.typed::<R>()?, op, false)?;
+    } else if a.dtype() == R::DTYPE {
+        convert_dyn_into(&mut out, b, mode)?;
+        combine_same(&mut out, a.typed::<R>()?, op, true)?;
+    } else {
+        convert_dyn_into(&mut out, a, mode)?;
+        with_num!(b.dtype(), U => combine_into::<U, R>(&mut out, b.typed::<U>()?, op, mode))?;
     }
     Ok(out)
 }
@@ -603,7 +599,7 @@ fn binary_as(a: &DynView<'_>, b: &DynView<'_>, op: BinaryOp, result: DType, mode
                 return Ok(R::wrap(binary_same(va, vb, shape, op)?));
             }
         }
-        Ok(R::wrap(binary_chunked::<R>(a, b, shape, op, mode)?))
+        Ok(R::wrap(binary_mixed::<R>(a, b, shape, op, mode)?))
     })
 }
 
@@ -644,7 +640,7 @@ impl<'a> DynView<'a> {
             },
         };
         let e = match value {
-            Scalar::Int(v) => Exact::Int(v as i128),
+            Scalar::Int(v) => Exact::Int(v),
             Scalar::Float(x) => Exact::Float(x),
             Scalar::Complex(re, im) => Exact::Complex(re, im),
         };
@@ -745,10 +741,7 @@ impl<'a> DynView<'a> {
         let shape: Vec<usize> = self.shape().to_vec();
         with_num!(dtype, R => {
             let mut out = NdArray::<R>::zeros(&shape)?;
-            let mut reader = Reader::new(self, &shape)?;
-            for chunk in out.as_mut_slice().chunks_mut(CHUNK) {
-                reader.fill(chunk, mode)?;
-            }
+            convert_dyn_into(&mut out, self, mode)?;
             Ok(R::wrap(out))
         })
     }
@@ -772,12 +765,9 @@ fn float_function<R: Num + Float>(view: &DynView<'_>, op: UnaryOp) -> Result<NdA
     }
     let shape: Vec<usize> = view.shape().to_vec();
     let mut out = NdArray::<R>::zeros(&shape)?;
-    let mut reader = Reader::new(view, &shape)?;
-    for chunk in out.as_mut_slice().chunks_mut(CHUNK) {
-        // small integers convert exactly into the float type chosen for them
-        reader.fill(chunk, CastMode::Saturating)?;
-        chunk.iter_mut().for_each(|x| *x = f(*x));
-    }
+    // integers convert exactly into the float type chosen for them (16 bits into f32, wider into f64)
+    convert_dyn_into(&mut out, view, CastMode::Saturating)?;
+    out.map_inplace(|x| *x = f(*x));
     Ok(out)
 }
 

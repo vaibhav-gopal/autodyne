@@ -11,6 +11,7 @@
 //! (the write side of broadcasting) is a reduction with an explicit rule: [`NdView::fold_into`],
 //! [`NdView::sum_into`] and friends write into a smaller array whose shape broadcasts to the input.
 
+use std::mem::MaybeUninit;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Sub, SubAssign};
 
 use super::ndarray::{Layout, NdArray, NdError, NdView, NdViewMut, MAX_DIMS};
@@ -26,7 +27,13 @@ struct Plan<const N: usize> {
     ndim: usize,
     dims: [usize; MAX_DIMS],
     strides: [[isize; MAX_DIMS]; N],
+    /// walk the last two axes in TILE x TILE blocks (an operand runs fastest along the other one)
+    tiled: bool,
 }
+
+/// Side of the blocks used when operands disagree on their fastest axis (a transpose): 64 x 64
+/// elements keep every touched line in L1 cache.
+const TILE: usize = 64;
 
 /// Orders the axes by the stride of operand `driver` (largest outer, so the inner loop has the
 /// smallest), drops length-1 axes, and merges neighbours that every operand walks as one run.
@@ -47,7 +54,7 @@ fn plan<const N: usize>(shape: &[usize], strides: &[[isize; MAX_DIMS]; N], drive
             j -= 1;
         }
     }
-    let mut p = Plan { ndim: 0, dims: [1; MAX_DIMS], strides: [[0; MAX_DIMS]; N] };
+    let mut p = Plan { ndim: 0, dims: [1; MAX_DIMS], strides: [[0; MAX_DIMS]; N], tiled: false };
     for &a in &axes[..n] {
         let d = shape[a];
         if p.ndim > 0 {
@@ -71,21 +78,24 @@ fn plan<const N: usize>(shape: &[usize], strides: &[[isize; MAX_DIMS]; N], drive
         // a single element: one loop of length 1
         p.ndim = 1;
     }
+    if p.ndim >= 2 {
+        let (outer, inner) = (p.ndim - 2, p.ndim - 1);
+        // an operand that steps faster along the outer axis than the inner one is read across
+        // lines: block both axes so those lines are reused while they are still in cache
+        let crosses = p.strides.iter().any(|s| s[outer] != 0 && s[outer].unsigned_abs() < s[inner].unsigned_abs());
+        p.tiled = crosses && p.dims[outer] > TILE && p.dims[inner] > TILE;
+    }
     p
 }
 
-/// Runs the plan: `body(offsets, length, inner_strides)` for each inner run, where `offsets` are the
-/// operands' element offsets at the run's start.
+/// Calls `f` with the operands' offsets at every index of the axes `0..axes` (row-major).
 #[inline]
-fn execute<const N: usize>(p: &Plan<N>, mut body: impl FnMut([isize; N], usize, [isize; N])) {
-    let inner = p.ndim - 1;
-    let inner_strides: [isize; N] = std::array::from_fn(|k| p.strides[k][inner]);
+fn walk<const N: usize>(p: &Plan<N>, axes: usize, mut f: impl FnMut([isize; N])) {
     let mut index = [0usize; MAX_DIMS];
     let mut offsets = [0isize; N];
     loop {
-        body(offsets, p.dims[inner], inner_strides);
-        // odometer over the outer axes
-        let mut axis = inner;
+        f(offsets);
+        let mut axis = axes;
         loop {
             if axis == 0 {
                 return;
@@ -106,6 +116,35 @@ fn execute<const N: usize>(p: &Plan<N>, mut body: impl FnMut([isize; N], usize, 
     }
 }
 
+/// Runs the plan: `body(offsets, length, inner_strides)` for each inner run, where `offsets` are the
+/// operands' element offsets at the run's start. Tiled plans give shorter runs, block by block.
+#[inline]
+fn execute<const N: usize>(p: &Plan<N>, mut body: impl FnMut([isize; N], usize, [isize; N])) {
+    let inner = p.ndim - 1;
+    let inner_strides: [isize; N] = std::array::from_fn(|k| p.strides[k][inner]);
+    if !p.tiled {
+        walk(p, inner, |at| body(at, p.dims[inner], inner_strides));
+        return;
+    }
+    let outer = inner - 1;
+    let (n_outer, n_inner) = (p.dims[outer], p.dims[inner]);
+    walk(p, outer, |base| {
+        let mut o0 = 0;
+        while o0 < n_outer {
+            let o1 = (o0 + TILE).min(n_outer);
+            let mut i0 = 0;
+            while i0 < n_inner {
+                let len = TILE.min(n_inner - i0);
+                for o in o0..o1 {
+                    let at: [isize; N] = std::array::from_fn(|k| base[k] + o as isize * p.strides[k][outer] + i0 as isize * p.strides[k][inner]);
+                    body(at, len, inner_strides);
+                }
+                i0 += len;
+            }
+            o0 = o1;
+        }
+    });
+}
 // ZIP =============================================================================================
 
 mod sealed {
@@ -253,12 +292,24 @@ macro_rules! zip_arity {
                 self.for_each(|$($p),+| acc = Some(f(acc.take().expect("set"), $($p),+)));
                 acc.expect("set")
             }
-            /// Collects `f` of every index into a new array of the zip's shape (allocates).
-            pub fn map_collect<R: Copy + Default>(self, mut f: impl FnMut($($P::Item),+) -> R) -> NdArray<R> {
-                let mut out = NdArray::<R>::zeros(self.shape()).expect("the zip's shape is valid");
+            /// Collects `f` of every index into a new array of the zip's shape (allocates; the new
+            /// memory is written once, never zero-filled first).
+            pub fn map_collect<R: Copy>(self, mut f: impl FnMut($($P::Item),+) -> R) -> NdArray<R> {
+                let len: usize = self.shape().iter().product();
+                let mut data: Vec<MaybeUninit<R>> = Vec::with_capacity(len);
+                // SAFETY: MaybeUninit elements need no initialization
+                unsafe { data.set_len(len) };
+                let mut out = NdArray::from_vec(data, self.shape()).expect("the zip's shape is valid");
                 let zip = Zip { producers: (out.view_mut(), $(self.producers.$i,)+), shape: self.shape, ndim: self.ndim };
-                zip.for_each_first(|o, $($p),+| *o = f($($p),+));
-                out
+                zip.for_each_first(|o, $($p),+| {
+                    o.write(f($($p),+));
+                });
+                // every index was written exactly once (the zip visits each index once)
+                let shape = out.layout.shape;
+                let mut data = std::mem::ManuallyDrop::new(out.into_vec());
+                // SAFETY: all `len` elements are initialized; MaybeUninit<R> has R's layout
+                let data = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast::<R>(), data.len(), data.capacity()) };
+                NdArray::from_vec(data, &shape[..self.ndim]).expect("the zip's shape is valid")
             }
             zip_arity!(@and $N; $($P $p $i),+ ; $($Q)?);
         }
@@ -734,6 +785,29 @@ mod tests {
         // a broadcast operand blocks merging where its stride is 0
         let p = plan(&[4, 5], &[[5, 1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0]], 0);
         assert_eq!(p.ndim, 2);
+        assert!(!p.tiled, "a broadcast row is not a transpose");
+        // a large transpose against a contiguous output is walked in blocks
+        let p = plan(&[500, 400], &[[400, 1, 0, 0, 0, 0, 0, 0], [1, 500, 0, 0, 0, 0, 0, 0]], 0);
+        assert!(p.tiled);
+    }
+
+    #[test]
+    fn tiled_walks_visit_every_index_once() {
+        // odd sizes, not multiples of the tile, through a transposed operand
+        let a = counting(&[3, 130, 70]);
+        let t = a.view().permute(&[0, 2, 1]).unwrap();
+        let mut out = NdArray::<f64>::zeros(t.shape()).unwrap();
+        let mut visits = NdArray::<u32>::zeros(t.shape()).unwrap();
+        Zip::from(out.view_mut()).and(t).unwrap().and(visits.view_mut()).unwrap().for_each(|o, &x, n| {
+            *o = x;
+            *n += 1;
+        });
+        assert!(visits.as_slice().iter().all(|&n| n == 1));
+        assert_eq!(out.as_slice(), &t.to_vec()[..]);
+        // and a reduction through the same blocks
+        let col_sums = t.sum_axis(1).unwrap();
+        let reference: Vec<f64> = (0..3).flat_map(|b| (0..130).map(move |j| (0..70).map(|i| (b * 9_100 + j * 70 + i) as f64).sum())).collect();
+        assert_eq!(col_sums.as_slice(), &reference[..]);
     }
 
     #[test]

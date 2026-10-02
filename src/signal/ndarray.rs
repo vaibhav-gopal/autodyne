@@ -733,6 +733,25 @@ macro_rules! view_common {
             pub fn is_contiguous(&self) -> bool {
                 self.layout.is_standard()
             }
+            /// The axes ordered from the largest stride to the smallest (stable): permuting a dense
+            /// view by this order makes it row-major contiguous, so computing in that order reads
+            /// memory sequentially (NumPy's `order='K'`).
+            pub fn memory_order(&self) -> [usize; MAX_DIMS] {
+                let n = self.ndim();
+                let s = self.strides();
+                let mut axes = [0; MAX_DIMS];
+                for (i, a) in axes[..n].iter_mut().enumerate() {
+                    *a = i;
+                }
+                for i in 1..n {
+                    let mut j = i;
+                    while j > 0 && s[axes[j - 1]].unsigned_abs() < s[axes[j]].unsigned_abs() {
+                        axes.swap(j - 1, j);
+                        j -= 1;
+                    }
+                }
+                axes
+            }
             /// Address of the element at index `[0, 0, ...]` (for FFI; other elements are at
             /// `strides`-weighted element offsets from it). Dangling for empty views.
             pub fn as_ptr(&self) -> *const T {

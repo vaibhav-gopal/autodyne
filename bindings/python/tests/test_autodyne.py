@@ -26,6 +26,13 @@ def test_results_are_numpy_arrays_that_own_the_memory():
     np.testing.assert_allclose(y, 2.0 * x + 1.5)
 
 
+def test_results_keep_the_input_memory_order():
+    m = np.arange(12.0).reshape(3, 4)
+    y = autodyne.axpb(m.T, 2.0, 1.0)
+    np.testing.assert_allclose(y, 2.0 * m.T + 1.0)
+    assert y.flags.f_contiguous and not y.flags.c_contiguous, "like NumPy, a transposed input gives a transposed result"
+
+
 def test_inputs_are_read_in_place():
     x = np.arange(12.0).reshape(3, 4)
     # a reversed, strided view: no copy is made, and the values match

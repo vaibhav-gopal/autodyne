@@ -194,15 +194,24 @@ unsafe extern "C" fn delete_legacy<S>(m: *mut DLManagedTensor) {
     }
 }
 
-fn tensor_for<T: DynElement, S: Storage<Elem = T>>(array: &NdArray<T, S>) -> (DLTensor, [i64; MAX_DIMS], [i64; MAX_DIMS]) {
-    let mut shape = [0i64; MAX_DIMS];
-    let mut strides = [0i64; MAX_DIMS];
+/// The tensor header for `array` seen through `axes` (exported axis k is the array's axis
+/// `axes[k]`; `None` keeps the order).
+fn tensor_for<T: DynElement, S: Storage<Elem = T>>(array: &NdArray<T, S>, axes: Option<&[usize]>) -> (DLTensor, [i64; MAX_DIMS], [i64; MAX_DIMS]) {
+    let mut own_shape = [0i64; MAX_DIMS];
+    let mut own_strides = [0i64; MAX_DIMS];
     let n = array.ndim();
     let mut acc = 1i64;
     for i in (0..n).rev() {
-        shape[i] = array.shape()[i] as i64;
-        strides[i] = acc;
-        acc *= shape[i];
+        own_shape[i] = array.shape()[i] as i64;
+        own_strides[i] = acc;
+        acc *= own_shape[i];
+    }
+    let (mut shape, mut strides) = (own_shape, own_strides);
+    if let Some(axes) = axes {
+        for (k, &a) in axes.iter().enumerate() {
+            shape[k] = own_shape[a];
+            strides[k] = own_strides[a];
+        }
     }
     let tensor = DLTensor {
         // set once the storage has reached its final place (see into_dlpack)
@@ -222,7 +231,7 @@ impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
     /// it and must call its deleter (which frees the storage) exactly once. Storage that can't be
     /// written in place (shared `Arc` arrays) is flagged read-only. Axis labels are not carried.
     pub fn into_dlpack(self) -> *mut DLManagedTensorVersioned {
-        let (tensor, shape, strides) = tensor_for(&self);
+        let (tensor, shape, strides) = tensor_for(&self, None);
         let flags = if S::WRITABLE { 0 } else { DLPACK_FLAG_READ_ONLY };
         let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
         let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
@@ -239,11 +248,35 @@ impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
     }
 }
 
+impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
+    /// [`into_dlpack`](Self::into_dlpack) of the array seen through an axis permutation (exported
+    /// axis k is axis `axes[k]`), still without copying: e.g. a result computed in an input's memory
+    /// order goes back with that input's strides, as NumPy's `order='K'` results do. Panics unless
+    /// `axes` is a permutation of the array's axes.
+    pub fn into_dlpack_permuted(self, axes: &[usize]) -> *mut DLManagedTensorVersioned {
+        let n = self.ndim();
+        let mut seen = [false; MAX_DIMS];
+        assert!(axes.len() == n && axes.iter().all(|&a| a < n && !std::mem::replace(&mut seen[a], true)), "axes must be a permutation");
+        let (tensor, shape, strides) = tensor_for(&self, Some(axes));
+        let flags = if S::WRITABLE { 0 } else { DLPACK_FLAG_READ_ONLY };
+        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
+        let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
+        // SAFETY: as in `into_dlpack`
+        unsafe {
+            (*block).managed.dl_tensor.data = (*block).storage.as_raw_ptr().cast();
+            (*block).managed.dl_tensor.shape = (*block).shape.as_mut_ptr();
+            (*block).managed.dl_tensor.strides = (*block).strides.as_mut_ptr();
+            (*block).managed.manager_ctx = block.cast();
+        }
+        block.cast()
+    }
+}
+
 impl<T: DynElement, S: StorageMut<Elem = T> + 'static> NdArray<T, S> {
     /// The pre-1.0 `DLManagedTensor`, for consumers that don't speak DLPack 1.x. It has no read-only
     /// flag, so only writable storage can be exported this way.
     pub fn into_dlpack_legacy(self) -> *mut DLManagedTensor {
-        let (tensor, shape, strides) = tensor_for(&self);
+        let (tensor, shape, strides) = tensor_for(&self, None);
         let managed = DLManagedTensor { dl_tensor: tensor, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_legacy::<S>) };
         let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
         // SAFETY: as in `into_dlpack`
@@ -261,6 +294,10 @@ impl DynArray {
     /// [`NdArray::into_dlpack`] for whatever element type the array holds.
     pub fn into_dlpack(self) -> *mut DLManagedTensorVersioned {
         crate::dyn_match!(self, a => a.into_dlpack())
+    }
+    /// [`NdArray::into_dlpack_permuted`] for whatever element type the array holds.
+    pub fn into_dlpack_permuted(self, axes: &[usize]) -> *mut DLManagedTensorVersioned {
+        crate::dyn_match!(self, a => a.into_dlpack_permuted(axes))
     }
     /// [`NdArray::into_dlpack_legacy`] for whatever element type the array holds.
     pub fn into_dlpack_legacy(self) -> *mut DLManagedTensor {
@@ -609,6 +646,18 @@ mod tests {
         assert_eq!(tensor.dtype(), DType::ComplexF64);
         tensor.typed_mut::<Complex<f64>>().unwrap().fill(Complex::new(0.0, 1.0));
         assert_eq!(tensor.typed::<Complex<f64>>().unwrap().to_vec(), [Complex::new(0.0, 1.0); 3]);
+    }
+
+    #[test]
+    fn permuted_exports_carry_the_strides() {
+        // a [2, 3] result exported as its transpose: shape [3, 2], strides [1, 3], same memory
+        let a = NdArray::from_vec(vec![0.0f64, 1.0, 2.0, 3.0, 4.0, 5.0], &[2, 3]).unwrap();
+        let address = a.as_slice().as_ptr();
+        let tensor = unsafe { DlpackTensor::from_raw(a.into_dlpack_permuted(&[1, 0])) }.unwrap();
+        assert_eq!((tensor.shape(), tensor.strides()), (&[3, 2][..], &[1, 3][..]));
+        let view = tensor.typed::<f64>().unwrap();
+        assert_eq!(view.to_vec(), [0.0, 3.0, 1.0, 4.0, 2.0, 5.0]);
+        assert_eq!(view.as_ptr(), address);
     }
 
     #[test]

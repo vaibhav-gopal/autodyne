@@ -90,6 +90,17 @@ uv venv .venv && uv pip install --python .venv maturin numpy scipy pytest
 VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release --uv   # (Scripts\ on Windows)
 .venv/bin/python -m pytest tests
 ```
+### Benchmarks against NumPy / SciPy
+`bindings/python/bench/compare.py` runs the same work in NumPy / SciPy and autodyne on the same arrays (checking the
+results agree), single-threaded, end to end: autodyne's times include crossing into Rust and back through DLPack. Latest
+results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULTS.md). On a Ryzen 9 7900:
+
+- fused `a * x + b`: ~2x faster than NumPy's two passes with a temporary, on contiguous, transposed, strided or
+  reversed inputs (results keep the input's memory order, as NumPy's do)
+- sums: 1.3x (f32) to 3.7x (f64) faster, row sums 6.8x; column sums on par
+- mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 1.45x faster
+- IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
+- FFT vs `numpy.fft` (pocketfft): 0.82-0.87x, the one remaining gap (radix-2 today)
 ### Plugins
 `plugins/` turns autodyne processors into CLAP and VST3 plugins with [nice-plug](https://codeberg.org/RustAudio/nice-plug),
 the community-maintained continuation of NIH-plug (ISC, with MIT-licensed VST3 bindings):
