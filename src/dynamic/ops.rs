@@ -6,29 +6,30 @@
 //! types the first operand is converted into the result and the second combined into it, in two
 //! stride-planned passes, so no operand is ever copied.
 //!
-//! # Promotion
-//! [`Promotion::Standard`] (the default) follows NumPy's table for mixing two arrays, with two
-//! differences that make silent information loss impossible:
-//! - every converted value is checked: a value that doesn't convert exactly (an integer beyond 2^53
-//!   going to `f64`, a `u64` beyond `i64::MAX` going to `i64`) is an [`DynError::Inexact`] error
-//!   (cast explicitly to accept the loss);
-//! - a signed integer meeting `u64` gives `i64` (checked), not NumPy's `f64`: integer arithmetic
-//!   stays integer.
-//!
-//! In NumPy's table, the wider type of the same kind wins; signed meets unsigned in the smallest
-//! signed type holding both (`i8 + u8 -> i16`); integers of up to 16 bits keep `f32` as `f32`, wider
-//! ones make it `f64`; complex follows its real precision. Integer division gives `f64`.
-//!
-//! [`Promotion::KeepFloat`] (opt-in, as in PyTorch / JAX) lets a float keep its width when it meets
-//! an integer (`i32 + f32 -> f32`), rounding integers beyond its precision instead of checking.
-//!
-//! Integer `+ - *` wrap on overflow, as in NumPy.
+//! How operand types combine is described on [`Promotion`].
 
 use super::{DynArray, DynElement, DynError, DynView};
 use crate::signal::{broadcast_shapes, NdArray, NdView, Zip};
 use crate::units::*;
 
-/// How two operand types combine (see the [module docs](self)).
+/// How two operand types combine.
+///
+/// [`Promotion::Standard`] (the default) follows NumPy's table for mixing two arrays, with two
+/// differences that make silent information loss impossible:
+/// - every converted value is checked: a value that doesn't convert exactly (an integer beyond 2^53
+///   going to `f64`, a `u64` beyond `i64::MAX` going to `i64`) is an [`DynError::Inexact`] error
+///   (cast explicitly to accept the loss);
+/// - a signed integer meeting `u64` gives `i64` (checked), not NumPy's `f64`: integer arithmetic
+///   stays integer.
+///
+/// In NumPy's table, the wider type of the same kind wins; signed meets unsigned in the smallest
+/// signed type holding both (`i8 + u8 -> i16`); integers of up to 16 bits keep `f32` as `f32`, wider
+/// ones make it `f64`; complex follows its real precision. Integer division gives `f64`.
+///
+/// [`Promotion::KeepFloat`] (opt-in, as in PyTorch / JAX) lets a float keep its width when it meets
+/// an integer (`i32 + f32 -> f32`), rounding integers beyond its precision instead of checking.
+///
+/// Integer `+ - *` wrap on overflow, as in NumPy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Promotion {
     /// NumPy's table, every conversion checked, `i* + u64 -> i64`.
@@ -613,8 +614,8 @@ fn mode_of(policy: Promotion) -> CastMode {
 // VIEW API ========================================================================================
 
 impl<'a> DynView<'a> {
-    /// `self op other`, broadcast to their common shape, in the type `policy` picks (see the
-    /// [module docs](self)). Errors on shapes that don't broadcast, conversions that would lose
+    /// `self op other`, broadcast to their common shape, in the type `policy` picks (see
+    /// [`Promotion`]). Errors on shapes that don't broadcast, conversions that would lose
     /// information (`Standard`), `Min`/`Max` of complex numbers, and unaligned memory.
     pub fn binary(&self, other: &DynView<'_>, op: BinaryOp, policy: Promotion) -> Result<DynArray, DynError> {
         let result = result_type(self.dtype(), other.dtype(), op, policy)?;
