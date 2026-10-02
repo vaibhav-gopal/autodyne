@@ -308,6 +308,7 @@ impl DynArray {
     }
 }
 
+mod math;
 mod ops;
 pub use ops::*;
 

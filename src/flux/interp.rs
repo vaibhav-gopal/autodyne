@@ -2,8 +2,8 @@
 //! `NdArray<f32>`, so a traced function and the same function run on arrays agree by construction.
 
 use super::graph::{Cmp, Graph, Op, Part};
-use crate::signal::{ArrayMath, NdArray};
-use crate::units::Elementwise;
+use crate::signal::{ArrayMath, NdArray, RealArrayMath};
+use crate::units::{Elementwise, RealValued};
 
 /// A node's value.
 #[derive(Clone)]

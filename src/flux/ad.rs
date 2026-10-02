@@ -2,8 +2,8 @@
 //! same trace as the forward pass, so it is evaluated, emitted and compiled like any other code.
 
 use super::graph::{self, Id, Mask, Op, Part, Tracer};
-use crate::signal::{ArrayMath, NdArray};
-use crate::units::Elementwise;
+use crate::signal::{ArrayMath, NdArray, RealArrayMath};
+use crate::units::{Elementwise, RealValued};
 
 /// Vector-Jacobian product inside a trace.
 ///

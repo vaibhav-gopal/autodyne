@@ -7,8 +7,8 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 use std::sync::Arc;
 
 use crate::signal::{NdArray, MAX_DIMS};
-use crate::signal::ArrayMath;
-use crate::units::Elementwise;
+use crate::signal::{ArrayMath, RealArrayMath};
+use crate::units::{Elementwise, RealValued};
 
 /// Index of a node in its [`Graph`].
 pub(crate) type Id = u32;
@@ -201,7 +201,7 @@ pub struct Tracer {
     trace: u32,
 }
 
-/// A traced array of booleans (the result of a comparison), consumed by [`Elementwise::select`].
+/// A traced array of booleans (the result of a comparison), consumed by [`RealValued::select`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Mask {
     pub(crate) id: Id,
@@ -429,6 +429,10 @@ impl ArrayMath for Tracer {
         Tracer::new(Op::Dot { a: self.check(), b: rhs.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
     }
 
+}
+
+/// Real FFTs record nodes; the spectrum is two real arrays (real and imaginary parts).
+impl RealArrayMath for Tracer {
     fn rfft(self) -> (Tracer, Tracer) {
         let mut shape = self.shape();
         let n = *shape.last().expect("rfft: needs an axis");
@@ -485,7 +489,6 @@ impl Neg for Tracer {
 }
 
 impl Elementwise for Tracer {
-    type Mask = Mask;
     fn lit(v: f64) -> Self {
         Tracer::new(Op::Const(v), Vec::new())
     }
@@ -507,11 +510,15 @@ impl Elementwise for Tracer {
     fn sqrt(self) -> Self {
         self.unary(Op::Sqrt)
     }
-    fn abs(self) -> Self {
-        self.unary(Op::Abs)
-    }
     fn powf(self, e: Self) -> Self {
         self.binary(e, Op::Pow)
+    }
+}
+
+impl RealValued for Tracer {
+    type Mask = Mask;
+    fn abs(self) -> Self {
+        self.unary(Op::Abs)
     }
     fn minimum(self, other: Self) -> Self {
         self.binary(other, Op::Min)

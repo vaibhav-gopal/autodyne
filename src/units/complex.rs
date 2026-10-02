@@ -97,6 +97,20 @@ impl<T: Float> Complex<T> {
         }
         acc
     }
+    /// `sin(a + ib) = sin a cosh b + i cos a sinh b`.
+    pub fn sin(self) -> Self {
+        Self::new(self.re._sin() * hyp(self.im, f64::cosh), self.re._cos() * hyp(self.im, f64::sinh))
+    }
+    /// `cos(a + ib) = cos a cosh b - i sin a sinh b`.
+    pub fn cos(self) -> Self {
+        Self::new(self.re._cos() * hyp(self.im, f64::cosh), -(self.re._sin() * hyp(self.im, f64::sinh)))
+    }
+    /// `tanh(a + ib) = (sinh 2a + i sin 2b) / (cosh 2a + cos 2b)`.
+    pub fn tanh(self) -> Self {
+        let (a, b) = (self.re + self.re, self.im + self.im);
+        let d = hyp(a, f64::cosh) + b._cos();
+        Self::new(hyp(a, f64::sinh) / d, b._sin() / d)
+    }
     /// Principal arc sine: `-i ln(i z + sqrt(1 - z²))`.
     pub fn asin(self) -> Self {
         let i = Self::i();
@@ -186,6 +200,11 @@ impl_complex_assign!(MulAssign, mul_assign, *, Complex<T>);
 impl_complex_assign!(DivAssign, div_assign, /, Complex<T>);
 impl_complex_assign!(MulAssign, mul_assign, *, T);
 impl_complex_assign!(DivAssign, div_assign, /, T);
+
+/// A hyperbolic function of a real value, through f64 (exact for f32 and f64).
+fn hyp<T: Float>(x: T, f: fn(f64) -> f64) -> T {
+    T::_lit(f(x.to_f64().unwrap_or(f64::NAN)))
+}
 
 #[cfg(test)]
 mod tests {

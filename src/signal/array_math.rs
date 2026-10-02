@@ -1,26 +1,29 @@
 //! [`ArrayMath`]: array operations written once and run either eagerly on [`NdArray`]s or traced
 //! (`flux::Tracer`), like NumPy and JAX's `jax.numpy` sharing one API.
 
+use std::ops::{Add, Mul};
+
 use super::nd_ops::{broadcast_shapes, Zip};
 use super::ndarray::NdArray;
-use crate::spectral::RealFft;
+use crate::spectral::{Fft, RealFft};
 use crate::units::*;
 
-/// Array maths on top of [`Elementwise`]: shapes, broadcasting, reductions, tensor products and real
-/// FFTs.
+/// Array maths on top of [`Elementwise`]: shapes, broadcasting, reductions and tensor products.
+/// [`RealArrayMath`] adds ordering and real FFTs; [`ComplexArrayMath`] complex FFTs.
 ///
-/// Implemented eagerly by `NdArray<f32>` / `NdArray<f64>` (every call computes a new array) and by
-/// `flux::Tracer` (every call records a node), so one generic function serves both: run it on
-/// arrays, or trace it to differentiate it and compile it with XLA or IREE.
+/// Implemented eagerly by `NdArray<f32 / f64 / Complex>` (every call computes a new array), by the
+/// runtime-typed `DynArray`, and by `flux::Tracer` (every call records a node), so one generic
+/// function serves all: run it on arrays, or trace it to differentiate it and compile it with XLA
+/// or IREE.
 ///
 /// Arithmetic operators and the [`Elementwise`] functions broadcast NumPy-style. Values are taken
 /// by value; `clone()` one to use it twice (free for tracers).
 ///
 /// ```
-/// use autodyne::signal::{ArrayMath, NdArray};
+/// use autodyne::signal::{NdArray, RealArrayMath};
 ///
 /// /// Filters each row of `x` by a per-bin gain, in the frequency domain.
-/// fn spectral_gain<A: ArrayMath>(x: A, gain: A) -> A {
+/// fn spectral_gain<A: RealArrayMath>(x: A, gain: A) -> A {
 ///     let n = *x.shape().last().unwrap();
 ///     let (re, im) = x.rfft();
 ///     A::irfft(re * gain.clone(), im * gain, n)
@@ -49,11 +52,6 @@ pub trait ArrayMath: Elementwise {
     /// Contracts axes `ca` of `self` with axes `cb` of `rhs` (pairwise). The result has the
     /// remaining axes of `self`, then those of `rhs`.
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self;
-    /// The real FFT along the last axis: `(real parts, imaginary parts)`, `n / 2 + 1` bins each.
-    fn rfft(self) -> (Self, Self);
-    /// The inverse of [`rfft`](Self::rfft): `n` samples along the last axis from `n / 2 + 1` bins,
-    /// scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
-    fn irfft(re: Self, im: Self, n: usize) -> Self;
 
     /// Sum of every element (a scalar).
     fn sum_all(self) -> Self {
@@ -72,6 +70,25 @@ pub trait ArrayMath: Elementwise {
         assert!(n >= 1 && !rhs.shape().is_empty(), "dot: both operands need an axis");
         self.dot_general(rhs, &[n - 1], &[0])
     }
+}
+
+/// Real arrays: [`ArrayMath`] with ordering ([`RealValued`]) and real FFTs.
+pub trait RealArrayMath: ArrayMath + RealValued {
+    /// The real FFT along the last axis: `(real parts, imaginary parts)`, `n / 2 + 1` bins each.
+    fn rfft(self) -> (Self, Self);
+    /// The inverse of [`rfft`](Self::rfft): `n` samples along the last axis from `n / 2 + 1` bins,
+    /// scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
+    fn irfft(re: Self, im: Self, n: usize) -> Self;
+}
+
+/// Complex arrays: [`ArrayMath`] with complex FFTs along the last axis.
+pub trait ComplexArrayMath: ArrayMath {
+    /// The DFT along the last axis.
+    fn fft(self) -> Self;
+    /// The inverse DFT along the last axis (scaled by `1 / n`).
+    fn ifft(self) -> Self;
+    /// The complex conjugate.
+    fn conj(self) -> Self;
 }
 
 /// Broadcasts both operands to their common shape (panics, naming the shapes, if they can't).
@@ -98,8 +115,89 @@ pub(crate) fn broadcast_in_dim<T: Copy>(a: &NdArray<T>, shape: &[usize], dims: &
     a.view().reshape(&placed).expect("same element count").broadcast_to(shape).expect("checked").to_owned()
 }
 
+// shape operations for any element type (used by every implementation)
+
+pub(crate) fn broadcast_to_any<T: Copy>(a: NdArray<T>, shape: &[usize]) -> NdArray<T> {
+    if a.shape() == shape {
+        return a;
+    }
+    a.view().broadcast_to(shape).unwrap_or_else(|_| panic!("cannot broadcast {:?} to {shape:?}", a.shape())).to_owned()
+}
+
+pub(crate) fn reshape_any<T>(a: NdArray<T>, shape: &[usize]) -> NdArray<T> {
+    let from = a.shape().to_vec();
+    a.reshape(shape).unwrap_or_else(|_| panic!("reshape: {from:?} to {shape:?} changes the element count"))
+}
+
+pub(crate) fn transpose_any<T: Copy>(a: NdArray<T>, perm: &[usize]) -> NdArray<T> {
+    a.view().permute(perm).unwrap_or_else(|_| panic!("transpose: {perm:?} is not a permutation of {:?}", a.shape())).to_owned()
+}
+
+/// Sums over `axes` by plain accumulation, for element types without a pairwise kernel.
+pub(crate) fn sum_axes_any<T: Copy + Default + Add<Output = T>>(a: NdArray<T>, axes: &[usize]) -> NdArray<T> {
+    sum_axes_with(a, axes, |s, x| s + x)
+}
+
+/// `select` for any element type: `if_true` where `mask` holds, else `if_false` (broadcast).
+pub(crate) fn select_any<T: Copy>(mask: &NdArray<bool>, if_true: &NdArray<T>, if_false: &NdArray<T>) -> NdArray<T> {
+    let (s, n) = broadcast_shapes(if_true.shape(), if_false.shape()).expect("operands broadcast");
+    let (shape, n) = broadcast_shapes(&s[..n], mask.shape()).expect("the mask broadcasts");
+    let shape = &shape[..n];
+    let m = mask.view().broadcast_to(shape).expect("broadcasts");
+    let (a, b) = (if_true.view().broadcast_to(shape).expect("broadcasts"), if_false.view().broadcast_to(shape).expect("broadcasts"));
+    Zip::from(m).and(a).expect("same shape").and(b).expect("same shape").map_collect(|&m, &x, &y| if m { x } else { y })
+}
+
+/// Sums over `axes` with an explicit addition (wrapping for integers).
+pub(crate) fn sum_axes_with<T: Copy + Default>(a: NdArray<T>, axes: &[usize], add: impl Fn(T, T) -> T) -> NdArray<T> {
+    let shape = a.shape().to_vec();
+    assert!(axes.iter().all(|&x| x < shape.len()), "sum_axes: axis out of range for {shape:?}");
+    let reduced: Vec<usize> = shape.iter().enumerate().filter(|(i, _)| !axes.contains(i)).map(|(_, &n)| n).collect();
+    // move the summed axes last, then add up each run
+    let kept: Vec<usize> = (0..shape.len()).filter(|i| !axes.contains(i)).collect();
+    let perm: Vec<usize> = kept.iter().copied().chain(axes.iter().copied().filter(|x| *x < shape.len())).collect();
+    let moved = a.view().permute(&perm).expect("a permutation").to_vec();
+    let run: usize = axes.iter().map(|&x| shape[x]).product();
+    let out: Vec<T> = if run == 0 {
+        vec![T::default(); reduced.iter().product()]
+    } else {
+        moved.chunks(run).map(|c| c.iter().fold(T::default(), |s, &x| add(s, x))).collect()
+    };
+    NdArray::from_vec(out, &reduced).expect("valid shape")
+}
+
+/// `dot_general` as one matrix product of the permuted operands: `[free, contracted] ·
+/// [contracted, free]`. Returns the operands as matrices and the output shape.
+#[allow(clippy::type_complexity)]
+pub(crate) fn dot_operands<T: Copy>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize], cb: &[usize]) -> (Vec<T>, Vec<T>, usize, usize, usize, Vec<usize>) {
+    let (sa, sb) = (a.shape(), b.shape());
+    assert_eq!(ca.len(), cb.len(), "dot_general: pair each contracted axis");
+    for (&i, &j) in ca.iter().zip(cb) {
+        assert!(i < sa.len() && j < sb.len() && sa[i] == sb[j], "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}");
+    }
+    let fa: Vec<usize> = (0..sa.len()).filter(|x| !ca.contains(x)).collect();
+    let fb: Vec<usize> = (0..sb.len()).filter(|x| !cb.contains(x)).collect();
+    let am = a.view().permute(&[fa.as_slice(), ca].concat()).expect("a permutation").to_vec();
+    let bm = b.view().permute(&[cb, fb.as_slice()].concat()).expect("a permutation").to_vec();
+    let m: usize = fa.iter().map(|&x| sa[x]).product();
+    let k: usize = ca.iter().map(|&x| sa[x]).product();
+    let n: usize = fb.iter().map(|&x| sb[x]).product();
+    let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
+    (am, bm, m, k, n, shape)
+}
+
+/// The triple-loop matrix product.
+pub(crate) fn matmul_naive<T: Copy + Default + Add<Output = T> + Mul<Output = T>>(a: &[T], b: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
+    let mut out = Vec::with_capacity(m * n);
+    for i in 0..m {
+        for j in 0..n {
+            out.push((0..k).fold(T::default(), |s, p| s + a[i * k + p] * b[p * n + j]));
+        }
+    }
+    out
+}
+
 impl<T: Float + Default> Elementwise for NdArray<T> {
-    type Mask = NdArray<bool>;
     fn lit(v: f64) -> Self {
         NdArray::from_vec(vec![T::_lit(v)], &[]).expect("a scalar")
     }
@@ -121,11 +219,15 @@ impl<T: Float + Default> Elementwise for NdArray<T> {
     fn sqrt(self) -> Self {
         self.map(|&x| x.sqrt())
     }
-    fn abs(self) -> Self {
-        self.map(|&x| x.abs())
-    }
     fn powf(self, e: Self) -> Self {
         zip_with(&self, &e, |x, y| x.powf(y))
+    }
+}
+
+impl<T: Float + Default> RealValued for NdArray<T> {
+    type Mask = NdArray<bool>;
+    fn abs(self) -> Self {
+        self.map(|&x| x.abs())
     }
     fn minimum(self, other: Self) -> Self {
         zip_with(&self, &other, |x, y| x.minimum(y))
@@ -140,12 +242,7 @@ impl<T: Float + Default> Elementwise for NdArray<T> {
         zip_with(&self, &other, |x, y| x > y)
     }
     fn select(mask: NdArray<bool>, if_true: Self, if_false: Self) -> Self {
-        let (s, n) = broadcast_shapes(if_true.shape(), if_false.shape()).expect("operands broadcast");
-        let (shape, n) = broadcast_shapes(&s[..n], mask.shape()).expect("the mask broadcasts");
-        let shape = &shape[..n];
-        let m = mask.view().broadcast_to(shape).expect("broadcasts");
-        let (a, b) = (if_true.view().broadcast_to(shape).expect("broadcasts"), if_false.view().broadcast_to(shape).expect("broadcasts"));
-        Zip::from(m).and(a).expect("same shape").and(b).expect("same shape").map_collect(|&m, &x, &y| if m { x } else { y })
+        select_any(&mask, &if_true, &if_false)
     }
 }
 
@@ -153,31 +250,23 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     fn shape(&self) -> Vec<usize> {
         NdArray::shape(self).to_vec()
     }
-
     fn broadcast_to(self, shape: &[usize]) -> Self {
-        if NdArray::shape(&self) == shape {
-            return self;
-        }
-        self.view().broadcast_to(shape).unwrap_or_else(|_| panic!("cannot broadcast {:?} to {shape:?}", NdArray::shape(&self))).to_owned()
+        broadcast_to_any(self, shape)
     }
-
     fn broadcast_in_dim(self, shape: &[usize], dims: &[usize]) -> Self {
         broadcast_in_dim(&self, shape, dims)
     }
-
     fn reshape(self, shape: &[usize]) -> Self {
-        let from = NdArray::shape(&self).to_vec();
-        NdArray::reshape(self, shape).unwrap_or_else(|_| panic!("reshape: {from:?} to {shape:?} changes the element count"))
+        reshape_any(self, shape)
     }
-
     fn transpose(self, perm: &[usize]) -> Self {
-        self.view().permute(perm).unwrap_or_else(|_| panic!("transpose: {perm:?} is not a permutation of {:?}", NdArray::shape(&self))).to_owned()
+        transpose_any(self, perm)
     }
 
     fn sum_axes(self, axes: &[usize]) -> Self {
+        // pairwise summation through sum_into: keep the summed axes at length 1, then drop them
         let shape = NdArray::shape(&self).to_vec();
         assert!(axes.iter().all(|&a| a < shape.len()), "sum_axes: axis out of range for {shape:?}");
-        // keep the summed axes at length 1, then drop them
         let kept: Vec<usize> = shape.iter().enumerate().map(|(i, &n)| if axes.contains(&i) { 1 } else { n }).collect();
         let mut out = NdArray::<T>::zeros(&kept).expect("valid shape");
         self.view().sum_into(&mut out.view_mut()).expect("broadcasts to the input");
@@ -186,35 +275,16 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     }
 
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self {
-        let (sa, sb) = (NdArray::shape(&self).to_vec(), NdArray::shape(&rhs).to_vec());
-        assert_eq!(ca.len(), cb.len(), "dot_general: pair each contracted axis");
-        for (&i, &j) in ca.iter().zip(cb) {
-            assert!(i < sa.len() && j < sb.len() && sa[i] == sb[j], "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}");
-        }
-        // [free, contracted] · [contracted, free] as one matrix product
-        let fa: Vec<usize> = (0..sa.len()).filter(|x| !ca.contains(x)).collect();
-        let fb: Vec<usize> = (0..sb.len()).filter(|x| !cb.contains(x)).collect();
-        let a = self.view().permute(&[fa.as_slice(), ca].concat()).expect("a permutation").to_vec();
-        let b = rhs.view().permute(&[cb, fb.as_slice()].concat()).expect("a permutation").to_vec();
-        let m: usize = fa.iter().map(|&x| sa[x]).product();
-        let k: usize = ca.iter().map(|&x| sa[x]).product();
-        let n: usize = fb.iter().map(|&x| sb[x]).product();
-        let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
+        let (a, b, m, k, n, shape) = dot_operands(&self, &rhs, ca, cb);
         #[cfg(feature = "faer")]
         if let Some(out) = crate::linalg::gemm_any(&a, &b, m, k, n) {
             return NdArray::from_vec(out, &shape).expect("valid shape");
         }
-        // without faer: the plain triple loop, accumulated in f64
-        let mut out = Vec::with_capacity(m * n);
-        for i in 0..m {
-            for j in 0..n {
-                let sum: f64 = (0..k).map(|p| a[i * k + p].to_f64().unwrap() * b[p * n + j].to_f64().unwrap()).sum();
-                out.push(T::_lit(sum));
-            }
-        }
-        NdArray::from_vec(out, &shape).expect("valid shape")
+        NdArray::from_vec(matmul_naive(&a, &b, m, k, n), &shape).expect("valid shape")
     }
+}
 
+impl<T: Float + Default> RealArrayMath for NdArray<T> {
     fn rfft(self) -> (Self, Self) {
         let mut shape = NdArray::shape(&self).to_vec();
         let n = *shape.last().expect("rfft: needs an axis");
@@ -248,6 +318,91 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     }
 }
 
+impl<T: Float + Default> Elementwise for NdArray<Complex<T>> {
+    fn lit(v: f64) -> Self {
+        NdArray::from_vec(vec![Complex::new(T::_lit(v), T::_ZERO)], &[]).expect("a scalar")
+    }
+    fn exp(self) -> Self {
+        self.map(|&z| z.exp())
+    }
+    fn ln(self) -> Self {
+        self.map(|&z| z.ln())
+    }
+    fn sin(self) -> Self {
+        self.map(|&z| z.sin())
+    }
+    fn cos(self) -> Self {
+        self.map(|&z| z.cos())
+    }
+    fn tanh(self) -> Self {
+        self.map(|&z| z.tanh())
+    }
+    fn sqrt(self) -> Self {
+        self.map(|&z| z.sqrt())
+    }
+    fn powf(self, e: Self) -> Self {
+        zip_with(&self, &e, Elementwise::powf)
+    }
+}
+
+impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
+    fn shape(&self) -> Vec<usize> {
+        NdArray::shape(self).to_vec()
+    }
+    fn broadcast_to(self, shape: &[usize]) -> Self {
+        broadcast_to_any(self, shape)
+    }
+    fn broadcast_in_dim(self, shape: &[usize], dims: &[usize]) -> Self {
+        broadcast_in_dim(&self, shape, dims)
+    }
+    fn reshape(self, shape: &[usize]) -> Self {
+        reshape_any(self, shape)
+    }
+    fn transpose(self, perm: &[usize]) -> Self {
+        transpose_any(self, perm)
+    }
+    fn sum_axes(self, axes: &[usize]) -> Self {
+        sum_axes_any(self, axes)
+    }
+    fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self {
+        let (a, b, m, k, n, shape) = dot_operands(&self, &rhs, ca, cb);
+        NdArray::from_vec(matmul_naive(&a, &b, m, k, n), &shape).expect("valid shape")
+    }
+}
+
+impl<T: Float + Default> ComplexArrayMath for NdArray<Complex<T>> {
+    fn fft(self) -> Self {
+        complex_fft(self, false)
+    }
+    fn ifft(self) -> Self {
+        complex_fft(self, true)
+    }
+    fn conj(self) -> Self {
+        self.map(|z| z.conj())
+    }
+}
+
+/// The DFT (or its inverse) of every row along the last axis, in f64.
+fn complex_fft<T: Float + Default>(a: NdArray<Complex<T>>, inverse: bool) -> NdArray<Complex<T>> {
+    let n = *a.shape().last().expect("fft: needs an axis");
+    assert!(n >= 1, "fft: empty axis");
+    let mut fft = Fft::<f64>::new(n);
+    let mut row = vec![Complex::zero(); n];
+    let mut out = Vec::with_capacity(a.len());
+    for chunk in a.as_slice().chunks(n) {
+        for (r, z) in row.iter_mut().zip(chunk) {
+            *r = Complex::new(z.re.to_f64().unwrap_or(f64::NAN), z.im.to_f64().unwrap_or(f64::NAN));
+        }
+        if inverse {
+            fft.inverse(&mut row);
+        } else {
+            fft.forward(&mut row);
+        }
+        out.extend(row.iter().map(|z| Complex::new(T::_lit(z.re), T::_lit(z.im))));
+    }
+    NdArray::from_vec(out, a.shape()).expect("same shape")
+}
+
 /// Bins 0..=n/2 of a real signal's DFT, computed in f64.
 fn rfft_row<T: Float>(fft: &mut RealFft<f64>, x: &[T]) -> Vec<Complex<f64>> {
     let x: Vec<f64> = x.iter().map(|v| v.to_f64().unwrap()).collect();
@@ -263,7 +418,6 @@ fn irfft_row<T: Float>(fft: &mut RealFft<f64>, re: &[T], im: &[T]) -> Vec<f64> {
     fft.inverse(&spectrum, &mut out);
     out
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,5 +460,25 @@ mod tests {
             let back = NdArray::irfft(re, im, n);
             assert!(back.as_slice().iter().zip(x.as_slice()).all(|(a, b)| (a - b).abs() < 1e-12), "n = {n}");
         }
+    }
+
+    #[test]
+    fn complex_arrays() {
+        let z = NdArray::from_vec(vec![Complex::new(1.0f64, 0.0), Complex::new(0.0, 1.0), Complex::new(-1.0, 0.0), Complex::new(0.0, -1.0)], &[1, 4]).unwrap();
+        // the DFT of e^(iπn/2) is 4 at bin 1
+        let f = z.clone().fft();
+        assert!((f.as_slice()[1] - Complex::new(4.0, 0.0)).norm() < 1e-12);
+        assert!(f.as_slice().iter().enumerate().all(|(k, v)| k == 1 || v.norm() < 1e-12));
+        let back = f.ifft();
+        assert!(back.as_slice().iter().zip(z.as_slice()).all(|(a, b)| (*a - *b).norm() < 1e-12));
+        let s = z.clone().sum_all();
+        assert!(s.as_slice()[0].norm() < 1e-12);
+        let w = z.clone() * z.clone().conj(); // |z|² = 1
+        assert!(w.as_slice().iter().all(|v| (*v - Complex::new(1.0, 0.0)).norm() < 1e-12));
+        let e = NdArray::from_vec(vec![Complex::new(0.0, std::f64::consts::PI)], &[]).unwrap().exp();
+        assert!((e.as_slice()[0] - Complex::new(-1.0, 0.0)).norm() < 1e-12);
+        let m = NdArray::from_vec(vec![Complex::new(0.0, 1.0); 4], &[2, 2]).unwrap();
+        let p = m.clone().dot(m);
+        assert!(p.as_slice().iter().all(|v| (*v - Complex::new(-2.0, 0.0)).norm() < 1e-12));
     }
 }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::filter::OnePole;
-use crate::signal::{ArrayMath, NdArray};
-use crate::units::Elementwise;
+use crate::signal::{ArrayMath, NdArray, RealArrayMath};
+use crate::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
 

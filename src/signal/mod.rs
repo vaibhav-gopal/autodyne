@@ -50,9 +50,8 @@ mod stream;
 mod transform;
 
 pub use analysis::*;
-pub use array_math::ArrayMath;
-#[cfg(feature = "flux")]
-pub(crate) use array_math::broadcast_in_dim;
+pub use array_math::{ArrayMath, ComplexArrayMath, RealArrayMath};
+pub(crate) use array_math::{broadcast_in_dim, broadcast_to_any, dot_operands, reshape_any, select_any, sum_axes_with, transpose_any};
 pub use complex::*;
 pub use container::*;
 pub use nd_axis::{concatenate, stack};

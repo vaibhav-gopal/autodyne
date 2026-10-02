@@ -11,8 +11,8 @@
 
 use autodyne::filter::OnePole;
 use autodyne::flux::{scalar, trace, vector, Backend, Executable, Iree, Pjrt, Program, Scan, Tracer, Xla};
-use autodyne::signal::{ArrayMath, NdArray};
-use autodyne::units::Elementwise;
+use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
+use autodyne::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
 const N: usize = 512;
@@ -222,8 +222,8 @@ fn shaped_scans_match_the_interpreter() {
 }
 
 /// One generic function: a spectral gain, then a dense layer, then a soft clip. Written once over
-/// `ArrayMath`, run eagerly on `NdArray` and traced for the backends.
-fn model<A: ArrayMath>(x: A, gain: A, w: A) -> A {
+/// `RealArrayMath`, run eagerly on `NdArray` and traced for the backends.
+fn model<A: RealArrayMath>(x: A, gain: A, w: A) -> A {
     let n = *x.shape().last().unwrap();
     let (re, im) = x.rfft();
     let y = A::irfft(re * gain.clone(), im * gain, n).dot(w);
