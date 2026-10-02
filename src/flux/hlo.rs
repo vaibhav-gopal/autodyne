@@ -126,6 +126,7 @@ impl Writer {
                 Op::Tanh(a) => unary("tanh", a),
                 Op::Sqrt(a) => unary("sqrt", a),
                 Op::Abs(a) => unary("abs", a),
+                Op::Floor(a) => unary("floor", a),
                 Op::Compare(c, a, b) => {
                     let dir = match c {
                         Cmp::Lt => "LT",

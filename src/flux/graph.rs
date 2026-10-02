@@ -51,6 +51,8 @@ pub enum Op {
     Tanh(Id),
     Sqrt(Id),
     Abs(Id),
+    /// Rounds down; its derivative is zero.
+    Floor(Id),
     Pow(Id, Id),
     Min(Id, Id),
     Max(Id, Id),
@@ -82,7 +84,7 @@ impl Op {
     pub fn operands(&self) -> impl Iterator<Item = Id> {
         let (a, b, c) = match *self {
             Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
-            Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) => (Some(a), None, None),
+            Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) | Op::Floor(a) => (Some(a), None, None),
             Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) => (Some(a), None, None),
             Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
                 (Some(a), Some(b), None)
@@ -109,6 +111,7 @@ impl Op {
             Op::Tanh(a) => Op::Tanh(f(a)),
             Op::Sqrt(a) => Op::Sqrt(f(a)),
             Op::Abs(a) => Op::Abs(f(a)),
+            Op::Floor(a) => Op::Floor(f(a)),
             Op::Pow(a, b) => Op::Pow(f(a), f(b)),
             Op::Min(a, b) => Op::Min(f(a), f(b)),
             Op::Max(a, b) => Op::Max(f(a), f(b)),
@@ -531,6 +534,9 @@ impl RealValued for Tracer {
     }
     fn greater(self, other: Self) -> Mask {
         self.compare(other, Cmp::Gt)
+    }
+    fn floor(self) -> Self {
+        self.unary(Op::Floor)
     }
     fn select(mask: Mask, if_true: Self, if_false: Self) -> Self {
         assert_eq!(mask.trace, current_trace(), "flux: mask used outside the trace that created it");

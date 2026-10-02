@@ -244,6 +244,9 @@ impl<T: Float + Default> RealValued for NdArray<T> {
     fn select(mask: NdArray<bool>, if_true: Self, if_false: Self) -> Self {
         select_any(&mask, &if_true, &if_false)
     }
+    fn floor(self) -> Self {
+        self.map(|&x| x.floor())
+    }
 }
 
 impl<T: Float + Default> ArrayMath for NdArray<T> {

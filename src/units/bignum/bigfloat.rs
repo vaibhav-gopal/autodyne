@@ -802,6 +802,17 @@ impl RealValued for BigFloat {
     fn select(mask: bool, if_true: Self, if_false: Self) -> Self {
         if mask { if_true } else { if_false }
     }
+    fn floor(self) -> Self {
+        if !self.is_finite() || self.is_zero() || self.exp >= 0 {
+            return self;
+        }
+        // drop the fraction bits; negative values with a fraction go one further down
+        let drop = (-self.exp) as usize;
+        let int = &self.mant >> drop;
+        let had_fraction = (0..drop as u64).any(|i| self.mant.bit(i));
+        let int = if self.neg && had_fraction { int + BigInt::one() } else { int };
+        BigFloat::round(self.neg, int, 0, self.prec, false)
+    }
 }
 
 #[cfg(test)]

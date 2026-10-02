@@ -54,6 +54,7 @@ impl Graph {
                 Op::Tanh(a) => Value::Real(r(a).tanh()),
                 Op::Sqrt(a) => Value::Real(r(a).sqrt()),
                 Op::Abs(a) => Value::Real(r(a).abs()),
+                Op::Floor(a) => Value::Real(r(a).floor()),
                 Op::Pow(a, b) => Value::Real(r(a).powf(r(b))),
                 Op::Min(a, b) => Value::Real(r(a).minimum(r(b))),
                 Op::Max(a, b) => Value::Real(r(a).maximum(r(b))),

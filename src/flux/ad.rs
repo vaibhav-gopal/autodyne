@@ -61,7 +61,8 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
         let id = id as Id;
         let shape_of = |i: Id| graph::node(i).shape;
         match graph::node(id).op {
-            Op::Input(_) | Op::Const(_) | Op::Literal(_) | Op::Compare(..) => {}
+            // constants, comparisons and floor carry no gradient
+            Op::Input(_) | Op::Const(_) | Op::Literal(_) | Op::Compare(..) | Op::Floor(_) => {}
             Op::Add(a, b) => {
                 acc(&mut adj, a, g);
                 acc(&mut adj, b, g);

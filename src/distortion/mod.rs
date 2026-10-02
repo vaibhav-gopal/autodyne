@@ -27,26 +27,26 @@ pub enum Shape {
 }
 
 impl Shape {
+    /// The shape at `x`, over [`Real`]: branch-free (comparisons select between the pieces), so it
+    /// also traces and differentiates in `flux`.
     #[inline]
-    pub fn apply<T: Float>(self, x: T) -> T {
-        let one = T::_ONE;
+    pub fn apply<T: Real>(self, x: T) -> T {
+        let one = T::lit(1.0);
         match self {
             Shape::Tanh => {
                 // tanh(x) = 1 - 2 / (e^(2x) + 1): saturates cleanly to +-1 even when e^(2x) overflows
-                one - T::_lit(2.0) / ((x + x)._exp() + one)
+                one - T::lit(2.0) / ((x + x).exp() + one)
             }
             Shape::SoftClip => {
-                if x._abs() >= one {
-                    x._signum()
-                } else {
-                    T::_lit(1.5) * x - T::_lit(0.5) * x * x * x
-                }
+                let sign = T::select(x.less(T::lit(0.0)), -one, one);
+                let cubic = T::lit(1.5) * x - T::lit(0.5) * x * x * x;
+                T::select(x.abs().less(one), cubic, sign)
             }
-            Shape::HardClip => x._clamp(-one, one),
+            Shape::HardClip => x.clip(-one, one),
             Shape::Fold => {
                 // a triangle wave of the input: rises to 1, falls back through -1, ...
-                let t = (x + one) / T::_lit(4.0);
-                one - T::_lit(4.0) * (t - t._floor() - T::_lit(0.5))._abs()
+                let t = (x + one) / T::lit(4.0);
+                one - T::lit(4.0) * (t - t.floor() - T::lit(0.5)).abs()
             }
         }
     }

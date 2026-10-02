@@ -25,6 +25,14 @@ pub trait Elementwise: Clone + Add<Output = Self> + Sub<Output = Self> + Mul<Out
     fn sqrt(self) -> Self;
     /// `self` raised to the power `e`.
     fn powf(self, e: Self) -> Self;
+    /// `sin / cos` (numbers override it with their native tangent).
+    fn tan(self) -> Self {
+        self.clone().sin() / self.cos()
+    }
+    /// Base-10 logarithm.
+    fn log10(self) -> Self {
+        self.ln() / Self::lit(std::f64::consts::LN_10)
+    }
 }
 
 /// [`Elementwise`] values that are real numbers: they can be compared, and so selected between, and
@@ -47,6 +55,12 @@ pub trait RealValued: Elementwise {
     fn greater(self, other: Self) -> Self::Mask;
     /// `if mask { if_true } else { if_false }`, without branching on a traced value.
     fn select(mask: Self::Mask, if_true: Self, if_false: Self) -> Self;
+    /// The largest integer not above `self` (its derivative is zero where defined).
+    fn floor(self) -> Self;
+    /// `self` limited to `[lo, hi]` (NumPy's `clip`).
+    fn clip(self, lo: Self, hi: Self) -> Self {
+        self.maximum(lo).minimum(hi)
+    }
 }
 
 /// [`RealValued`] arithmetic on values that are `Copy`: single numbers (`f32`, `f64`) and
@@ -93,6 +107,14 @@ macro_rules! impl_elementwise {
             fn powf(self, e: Self) -> Self {
                 $T::powf(self, e)
             }
+            #[inline(always)]
+            fn tan(self) -> Self {
+                $T::tan(self)
+            }
+            #[inline(always)]
+            fn log10(self) -> Self {
+                $T::log10(self)
+            }
         }
 
         impl RealValued for $T {
@@ -120,6 +142,10 @@ macro_rules! impl_elementwise {
             #[inline(always)]
             fn select(mask: bool, if_true: Self, if_false: Self) -> Self {
                 if mask { if_true } else { if_false }
+            }
+            #[inline(always)]
+            fn floor(self) -> Self {
+                $T::floor(self)
             }
         }
     )+};

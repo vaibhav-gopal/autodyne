@@ -29,6 +29,56 @@ pub struct SvfOutputs<T> {
     pub high: T,
 }
 
+/// The coefficients of a [`Svf`] for a cutoff and Q, over [`Real`] (so they also trace and
+/// differentiate in `flux`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SvfCoeffs<T> {
+    /// 1 / Q
+    pub k: T,
+    pub a1: T,
+    pub a2: T,
+    pub a3: T,
+}
+
+impl<T: Real> SvfCoeffs<T> {
+    /// The cutoff is kept within 1 Hz .. 0.49 x sample rate, Q at least 0.01.
+    pub fn new(cutoff: T, q: T, sample_rate: T) -> Self {
+        let one = T::lit(1.0);
+        let cutoff = cutoff.clip(one, T::lit(0.49) * sample_rate);
+        let q = q.maximum(T::lit(0.01));
+        let g = (T::lit(std::f64::consts::PI) * cutoff / sample_rate).tan();
+        let k = one / q;
+        let a1 = one / (one + g * (g + k));
+        let a2 = g * a1;
+        Self { k, a1, a2, a3: g * a2 }
+    }
+    /// One step from the two integrator states: `(next states, outputs)`.
+    #[inline(always)]
+    pub fn tick(&self, state: [T; 2], x: T) -> ([T; 2], SvfOutputs<T>) {
+        let [ic1, ic2] = state;
+        let v3 = x - ic2;
+        let v1 = self.a1 * ic1 + self.a2 * v3;
+        let v2 = ic2 + self.a2 * ic1 + self.a3 * v3;
+        let two = T::lit(2.0);
+        ([two * v1 - ic1, two * v2 - ic2], SvfOutputs { low: v2, band: v1, high: x - self.k * v1 - v2 })
+    }
+}
+
+impl SvfMode {
+    /// The response of this mode from one step's outputs (`k` = 1 / Q).
+    #[inline(always)]
+    pub fn output<T: Real>(self, o: SvfOutputs<T>, k: T) -> T {
+        match self {
+            SvfMode::Lowpass => o.low,
+            SvfMode::Bandpass => k * o.band,
+            SvfMode::Highpass => o.high,
+            SvfMode::Notch => o.low + o.high,
+            SvfMode::Peak => o.low - o.high,
+            SvfMode::Allpass => o.low + o.high - k * o.band,
+        }
+    }
+}
+
 /// Second-order state-variable filter (Andrew Simper's trapezoidal / TPT form).
 ///
 /// Built for modulation: the cutoff costs one `tan` to change, and the filter stays stable and
@@ -41,10 +91,7 @@ pub struct Svf<T: Float> {
     cutoff: T,
     q: T,
     sample_rate: T,
-    k: T,
-    a1: T,
-    a2: T,
-    a3: T,
+    coeffs: SvfCoeffs<T>,
     ic1: T,
     ic2: T,
 }
@@ -56,10 +103,7 @@ impl<T: Float> Svf<T> {
             cutoff,
             q,
             sample_rate,
-            k: T::_ONE,
-            a1: T::_ZERO,
-            a2: T::_ZERO,
-            a3: T::_ZERO,
+            coeffs: SvfCoeffs { k: T::_ONE, a1: T::_ZERO, a2: T::_ZERO, a3: T::_ZERO },
             ic1: T::_ZERO,
             ic2: T::_ZERO,
         };
@@ -94,11 +138,7 @@ impl<T: Float> Svf<T> {
     pub fn set_cutoff_and_q(&mut self, hz: T, q: T) {
         self.cutoff = hz._max(T::_ONE)._min(T::_lit(0.49) * self.sample_rate);
         self.q = q._max(T::_lit(0.01));
-        let g = (T::_PI * self.cutoff / self.sample_rate)._tan();
-        self.k = T::_ONE / self.q;
-        self.a1 = T::_ONE / (T::_ONE + g * (g + self.k));
-        self.a2 = g * self.a1;
-        self.a3 = g * self.a2;
+        self.coeffs = SvfCoeffs::new(self.cutoff, self.q, self.sample_rate);
     }
     pub fn cutoff(&self) -> T {
         self.cutoff
@@ -117,27 +157,20 @@ impl<T: Float> Svf<T> {
     /// One sample in, all three core outputs out.
     #[inline]
     pub fn tick(&mut self, x: T) -> SvfOutputs<T> {
-        let v3 = x - self.ic2;
-        let v1 = self.a1 * self.ic1 + self.a2 * v3;
-        let v2 = self.ic2 + self.a2 * self.ic1 + self.a3 * v3;
-        let two = T::_lit(2.0);
-        self.ic1 = two * v1 - self.ic1;
-        self.ic2 = two * v2 - self.ic2;
-        SvfOutputs { low: v2, band: v1, high: x - self.k * v1 - v2 }
+        let ([ic1, ic2], o) = self.coeffs.tick([self.ic1, self.ic2], x);
+        (self.ic1, self.ic2) = (ic1, ic2);
+        o
+    }
+    /// The coefficients (for driving the same filter from generic or traced code).
+    pub fn coeffs(&self) -> SvfCoeffs<T> {
+        self.coeffs
     }
 
     /// One sample through the selected mode.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let o = self.tick(x);
-        match self.mode {
-            SvfMode::Lowpass => o.low,
-            SvfMode::Bandpass => self.k * o.band,
-            SvfMode::Highpass => o.high,
-            SvfMode::Notch => o.low + o.high,
-            SvfMode::Peak => o.low - o.high,
-            SvfMode::Allpass => o.low + o.high - self.k * o.band,
-        }
+        self.mode.output(o, self.coeffs.k)
     }
 
     /// Filters `block` in place.
@@ -154,11 +187,12 @@ impl<T: Float> Svf<T> {
     /// frequency).
     pub fn magnitude_at(&self, frequency: T) -> T {
         let w = (T::_PI * frequency / self.sample_rate)._tan() / (T::_PI * self.cutoff / self.sample_rate)._tan();
-        let (re, im) = (T::_ONE - w * w, self.k * w); // denominator s^2 + k s + 1 at s = jw
+        let k = self.coeffs.k;
+        let (re, im) = (T::_ONE - w * w, k * w); // denominator s^2 + k s + 1 at s = jw
         let den = re._hypot(im);
         let num = match self.mode {
             SvfMode::Lowpass => T::_ONE,
-            SvfMode::Bandpass => self.k * w,
+            SvfMode::Bandpass => k * w,
             SvfMode::Highpass => w * w,
             SvfMode::Notch => (T::_ONE - w * w)._abs(),
             SvfMode::Peak => T::_ONE + w * w,

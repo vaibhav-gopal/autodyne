@@ -7,6 +7,57 @@ use crate::units::*;
 /// a few percent of linear up to about half of it, so full-scale input is only gently compressed.
 const HEADROOM: f64 = 2.0;
 
+/// The settings of a [`Ladder`] step, over [`Real`] (so it also traces and differentiates in
+/// `flux`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LadderCoeffs<T> {
+    /// tan(pi fc / fs)
+    pub g: T,
+    /// 0..1
+    pub resonance: T,
+    pub drive: T,
+    pub compensate: bool,
+}
+
+impl<T: Real> LadderCoeffs<T> {
+    /// Cutoff kept within 1 Hz .. 0.49 x sample rate, resonance within 0..1, drive at least 0.01.
+    pub fn new(cutoff: T, resonance: T, drive: T, compensate: bool, sample_rate: T) -> Self {
+        let cutoff = cutoff.clip(T::lit(1.0), T::lit(0.49) * sample_rate);
+        Self {
+            g: (T::lit(std::f64::consts::PI) * cutoff / sample_rate).tan(),
+            resonance: resonance.clip(T::lit(0.0), T::lit(1.0)),
+            drive: drive.maximum(T::lit(0.01)),
+            compensate,
+        }
+    }
+    /// One step from the four stage states: `(next states, output)`.
+    #[inline(always)]
+    pub fn tick(&self, stages: [T; 4], x: T) -> ([T; 4], T) {
+        let one = T::lit(1.0);
+        let k = T::lit(4.0) * self.resonance;
+        let gg = self.g / (one + self.g); // one stage's gain on its input
+        let carry = one / (one + self.g); // and on its state
+        // the 4th stage's output is gg^4 * u + sigma, where sigma collects the stored states;
+        // feedback u = x - k * y4 then solves in closed form (the zero-delay feedback loop)
+        let s = &stages;
+        let sigma = carry * (gg * gg * gg * s[0] + gg * gg * s[1] + gg * s[2] + s[3]);
+        let gain_in = if self.compensate { one + k } else { one };
+        let gg4 = gg * gg * gg * gg;
+        let u = (x * gain_in - k * sigma) / (one + k * gg4);
+        let h = T::lit(HEADROOM);
+        let mut y = h * Shape::Tanh.apply(self.drive * u / h) / self.drive;
+        let mut next = stages;
+        for state in &mut next {
+            // trapezoidal one-pole low-pass
+            let v = (y - *state) * gg;
+            let lp = v + *state;
+            *state = lp + v;
+            y = lp;
+        }
+        (next, y)
+    }
+}
+
 /// Four trapezoidal one-pole low-passes in a resonant feedback loop: the classic 24 dB/octave
 /// synthesizer filter.
 ///
@@ -83,28 +134,15 @@ impl<T: Float> Ladder<T> {
         self.stages = [T::_ZERO; 4];
     }
 
+    /// The step's settings (for driving the same filter from generic or traced code).
+    pub fn coeffs(&self) -> LadderCoeffs<T> {
+        LadderCoeffs { g: self.g, resonance: self.resonance, drive: self.drive, compensate: self.compensate }
+    }
+
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
-        let one = T::_ONE;
-        let k = T::_lit(4.0) * self.resonance;
-        let gg = self.g / (one + self.g); // one stage's gain on its input
-        let carry = one / (one + self.g); // and on its state
-        // the 4th stage's output is gg^4 * u + sigma, where sigma collects the stored states;
-        // feedback u = x - k * y4 then solves in closed form (the zero-delay feedback loop)
-        let s = &self.stages;
-        let sigma = carry * (gg * gg * gg * s[0] + gg * gg * s[1] + gg * s[2] + s[3]);
-        let gain_in = if self.compensate { one + k } else { one };
-        let gg4 = gg * gg * gg * gg;
-        let u = (x * gain_in - k * sigma) / (one + k * gg4);
-        let h = T::_lit(HEADROOM);
-        let mut y = h * Shape::Tanh.apply(self.drive * u / h) / self.drive;
-        for state in &mut self.stages {
-            // trapezoidal one-pole low-pass
-            let v = (y - *state) * gg;
-            let lp = v + *state;
-            *state = lp + v;
-            y = lp;
-        }
+        let (stages, y) = self.coeffs().tick(self.stages, x);
+        self.stages = stages;
         y
     }
 

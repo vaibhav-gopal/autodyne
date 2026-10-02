@@ -177,7 +177,7 @@ pub const BUTTERWORTH_Q: f64 = std::f64::consts::FRAC_1_SQRT_2;
 /// Normalized biquad coefficients (a0 = 1):
 /// H(z) = (b0 + b1 z^-1 + b2 z^-2) / (1 + a1 z^-1 + a2 z^-2)
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct BiquadCoeffs<T: Float> {
+pub struct BiquadCoeffs<T> {
     pub b0: T,
     pub b1: T,
     pub b2: T,
@@ -185,87 +185,122 @@ pub struct BiquadCoeffs<T: Float> {
     pub a2: T,
 }
 
-impl<T: Float> BiquadCoeffs<T> {
-    /// Shared RBJ-cookbook setup: returns (cos w0, alpha).
-    fn rbj(frequency: T, sample_rate: T, q: T) -> (T, T) {
-        assert!(frequency > T::_ZERO && frequency < sample_rate / T::_lit(2.0), "frequency must be between 0 and Nyquist");
-        assert!(q > T::_ZERO, "Q must be positive");
-        let (sin_w, cos_w) = (T::_TAU * frequency / sample_rate)._sin_cos();
-        (cos_w, sin_w / (T::_lit(2.0) * q))
+/// The cookbook designs and the filter step, over [`Real`]: unchecked, so they also trace
+/// (`flux`), where the frequency, Q and gain can be differentiated.
+impl<T: Real> BiquadCoeffs<T> {
+    /// RBJ-cookbook setup: (cos w0, alpha).
+    fn rbj_real(frequency: T, sample_rate: T, q: T) -> (T, T) {
+        let w = T::lit(std::f64::consts::TAU) * frequency / sample_rate;
+        (w.cos(), w.sin() / (T::lit(2.0) * q))
     }
     fn normalized(b0: T, b1: T, b2: T, a0: T, a1: T, a2: T) -> Self {
         Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 }
     }
+    /// The cookbook response `kind` (no range checks: see the checked constructors).
+    pub fn design(kind: BiquadKind, frequency: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        let (cos_w, alpha) = Self::rbj_real(frequency, sample_rate, q);
+        let (one, two) = (T::lit(1.0), T::lit(2.0));
+        // the cookbook's A = 10^(dB/40): the square root of the linear gain
+        let shelf_amplitude = |db: T| crate::gain::db_to_gain(db).sqrt();
+        match kind {
+            BiquadKind::Lowpass => {
+                let b = (one - cos_w) / two;
+                Self::normalized(b, one - cos_w, b, one + alpha, -(two * cos_w), one - alpha)
+            }
+            BiquadKind::Highpass => {
+                let b = (one + cos_w) / two;
+                Self::normalized(b, -(one + cos_w), b, one + alpha, -(two * cos_w), one - alpha)
+            }
+            BiquadKind::Bandpass => Self::normalized(alpha, T::lit(0.0), -alpha, one + alpha, -(two * cos_w), one - alpha),
+            BiquadKind::Notch => {
+                let b1 = -(two * cos_w);
+                Self::normalized(one, b1, one, one + alpha, b1, one - alpha)
+            }
+            BiquadKind::Allpass => {
+                let a1 = -(two * cos_w);
+                Self::normalized(one - alpha, a1, one + alpha, one + alpha, a1, one - alpha)
+            }
+            BiquadKind::Peaking => {
+                let a = shelf_amplitude(gain_db);
+                let a1 = -(two * cos_w);
+                Self::normalized(one + alpha * a, a1, one - alpha * a, one + alpha / a, a1, one - alpha / a)
+            }
+            BiquadKind::LowShelf => {
+                let a = shelf_amplitude(gain_db);
+                let (ap1, am1) = (a + one, a - one);
+                let k = two * a.sqrt() * alpha;
+                Self::normalized(
+                    a * (ap1 - am1 * cos_w + k),
+                    two * a * (am1 - ap1 * cos_w),
+                    a * (ap1 - am1 * cos_w - k),
+                    ap1 + am1 * cos_w + k,
+                    -(two * (am1 + ap1 * cos_w)),
+                    ap1 + am1 * cos_w - k,
+                )
+            }
+            BiquadKind::HighShelf => {
+                let a = shelf_amplitude(gain_db);
+                let (ap1, am1) = (a + one, a - one);
+                let k = two * a.sqrt() * alpha;
+                Self::normalized(
+                    a * (ap1 + am1 * cos_w + k),
+                    -(two * a * (am1 + ap1 * cos_w)),
+                    a * (ap1 + am1 * cos_w - k),
+                    ap1 - am1 * cos_w + k,
+                    two * (am1 - ap1 * cos_w),
+                    ap1 - am1 * cos_w - k,
+                )
+            }
+        }
+    }
+    /// One step (transposed direct form II) from `state`: returns `(next state, output)`.
+    #[inline(always)]
+    pub fn tick(&self, state: [T; 2], x: T) -> ([T; 2], T) {
+        let y = self.b0 * x + state[0];
+        ([self.b1 * x - self.a1 * y + state[1], self.b2 * x - self.a2 * y], y)
+    }
+}
+
+impl<T: Float> BiquadCoeffs<T> {
+    /// The cookbook response `kind`, checking that the frequency is between 0 and Nyquist and Q is
+    /// positive.
+    fn checked(kind: BiquadKind, frequency: T, sample_rate: T, q: T, gain_db: T) -> Self {
+        assert!(frequency > T::_ZERO && frequency < sample_rate / T::_lit(2.0), "frequency must be between 0 and Nyquist");
+        assert!(q > T::_ZERO, "Q must be positive");
+        Self::design(kind, frequency, sample_rate, q, gain_db)
+    }
     /// -3 dB at `cutoff` when q = BUTTERWORTH_Q.
     pub fn lowpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(cutoff, sample_rate, q);
-        let b = (T::_ONE - cos_w) / T::_lit(2.0);
-        Self::normalized(b, T::_ONE - cos_w, b, T::_ONE + alpha, T::_lit(-2.0) * cos_w, T::_ONE - alpha)
+        Self::checked(BiquadKind::Lowpass, cutoff, sample_rate, q, T::_ZERO)
     }
     pub fn highpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(cutoff, sample_rate, q);
-        let b = (T::_ONE + cos_w) / T::_lit(2.0);
-        Self::normalized(b, -(T::_ONE + cos_w), b, T::_ONE + alpha, T::_lit(-2.0) * cos_w, T::_ONE - alpha)
+        Self::checked(BiquadKind::Highpass, cutoff, sample_rate, q, T::_ZERO)
     }
     /// Unity gain at `center`; higher q = narrower band.
     pub fn bandpass(center: T, sample_rate: T, q: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(center, sample_rate, q);
-        Self::normalized(alpha, T::_ZERO, -alpha, T::_ONE + alpha, T::_lit(-2.0) * cos_w, T::_ONE - alpha)
+        Self::checked(BiquadKind::Bandpass, center, sample_rate, q, T::_ZERO)
     }
     /// Zero gain at `center`; higher q = narrower notch.
     pub fn notch(center: T, sample_rate: T, q: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(center, sample_rate, q);
-        let b1 = T::_lit(-2.0) * cos_w;
-        Self::normalized(T::_ONE, b1, T::_ONE, T::_ONE + alpha, b1, T::_ONE - alpha)
+        Self::checked(BiquadKind::Notch, center, sample_rate, q, T::_ZERO)
     }
     /// Unity gain at every frequency; only the phase changes (by 180 degrees at `center`).
     /// Building block for phasers and phase-alignment.
     pub fn allpass(center: T, sample_rate: T, q: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(center, sample_rate, q);
-        let a1 = T::_lit(-2.0) * cos_w;
-        Self::normalized(T::_ONE - alpha, a1, T::_ONE + alpha, T::_ONE + alpha, a1, T::_ONE - alpha)
+        Self::checked(BiquadKind::Allpass, center, sample_rate, q, T::_ZERO)
     }
     /// Boosts or cuts by `gain_db` around `center` (a bell), unity far away; higher q = narrower bell.
     pub fn peaking(center: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(center, sample_rate, q);
-        let a = Self::shelf_amplitude(gain_db);
-        let a1 = T::_lit(-2.0) * cos_w;
-        Self::normalized(T::_ONE + alpha * a, a1, T::_ONE - alpha * a, T::_ONE + alpha / a, a1, T::_ONE - alpha / a)
+        Self::checked(BiquadKind::Peaking, center, sample_rate, q, gain_db)
     }
     /// Boosts or cuts everything below `corner` by `gain_db`; q = BUTTERWORTH_Q gives the steepest
     /// slope without overshoot (cookbook shelf slope S = 1).
     pub fn low_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(corner, sample_rate, q);
-        let a = Self::shelf_amplitude(gain_db);
-        let (ap1, am1, two) = (a + T::_ONE, a - T::_ONE, T::_lit(2.0));
-        let k = two * a._sqrt() * alpha;
-        Self::normalized(
-            a * (ap1 - am1 * cos_w + k),
-            two * a * (am1 - ap1 * cos_w),
-            a * (ap1 - am1 * cos_w - k),
-            ap1 + am1 * cos_w + k,
-            -two * (am1 + ap1 * cos_w),
-            ap1 + am1 * cos_w - k,
-        )
+        Self::checked(BiquadKind::LowShelf, corner, sample_rate, q, gain_db)
     }
     /// Boosts or cuts everything above `corner` by `gain_db`; see `low_shelf` for q.
     pub fn high_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        let (cos_w, alpha) = Self::rbj(corner, sample_rate, q);
-        let a = Self::shelf_amplitude(gain_db);
-        let (ap1, am1, two) = (a + T::_ONE, a - T::_ONE, T::_lit(2.0));
-        let k = two * a._sqrt() * alpha;
-        Self::normalized(
-            a * (ap1 + am1 * cos_w + k),
-            -two * a * (am1 + ap1 * cos_w),
-            a * (ap1 + am1 * cos_w - k),
-            ap1 - am1 * cos_w + k,
-            two * (am1 - ap1 * cos_w),
-            ap1 - am1 * cos_w - k,
-        )
-    }
-    /// The cookbook's A = 10^(dB/40): the square root of the linear gain, split between numerator and denominator.
-    fn shelf_amplitude(gain_db: T) -> T {
-        crate::gain::db_to_gain(gain_db)._sqrt()
+        Self::checked(BiquadKind::HighShelf, corner, sample_rate, q, gain_db)
     }
     /// Gain at `frequency` (1.0 = unchanged).
     pub fn magnitude_at(&self, frequency: T, sample_rate: T) -> T {
@@ -391,10 +426,8 @@ impl<T: Float> Biquad<T> {
     }
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
-        let c = &self.coeffs;
-        let y = c.b0 * x + self.s1;
-        self.s1 = c.b1 * x - c.a1 * y + self.s2;
-        self.s2 = c.b2 * x - c.a2 * y;
+        let ([s1, s2], y) = self.coeffs.tick([self.s1, self.s2], x);
+        (self.s1, self.s2) = (s1, s2);
         y
     }
     /// Filters `block` in place.

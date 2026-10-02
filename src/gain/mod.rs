@@ -6,13 +6,13 @@
 use crate::units::*;
 
 /// Decibels to linear amplitude: 0 dB -> 1.0, +6.02 dB -> 2.0, -20 dB -> 0.1.
-pub fn db_to_gain<T: Float>(db: T) -> T {
-    T::_lit(10.0)._pow(db / T::_lit(20.0))
+pub fn db_to_gain<T: Real>(db: T) -> T {
+    T::lit(10.0).powf(db / T::lit(20.0))
 }
 
 /// Linear amplitude to decibels; 0.0 gives negative infinity.
-pub fn gain_to_db<T: Float>(gain: T) -> T {
-    T::_lit(20.0) * gain._log10()
+pub fn gain_to_db<T: Real>(gain: T) -> T {
+    T::lit(20.0) * gain.log10()
 }
 
 /// A value that moves linearly to each new target over a fixed number of samples

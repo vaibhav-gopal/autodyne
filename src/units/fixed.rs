@@ -288,6 +288,10 @@ impl<I: FixedStorage, const FRAC: u32> RealValued for Fixed<I, FRAC> {
     fn select(mask: bool, if_true: Self, if_false: Self) -> Self {
         if mask { if_true } else { if_false }
     }
+    fn floor(self) -> Self {
+        // clear the fraction bits (arithmetic shift rounds toward negative infinity)
+        Fixed(I::fixed_saturate((self.raw() >> FRAC) << FRAC))
+    }
 }
 
 #[cfg(test)]

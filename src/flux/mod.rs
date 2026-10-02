@@ -41,6 +41,7 @@ mod graph;
 mod hlo;
 mod interp;
 mod iree;
+pub mod optim;
 mod pjrt;
 mod runtime;
 mod scan;
@@ -68,5 +69,7 @@ pub enum FluxError {
     Shape(String),
 }
 
+#[cfg(test)]
+mod processors;
 #[cfg(test)]
 mod tests;

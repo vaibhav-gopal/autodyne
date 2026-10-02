@@ -226,6 +226,15 @@ impl RealValued for DynArray {
             _ => unreachable!("both were cast to one type"),
         }
     }
+    /// Integers are already whole; floats round down.
+    fn floor(self) -> Self {
+        match self {
+            DynArray::F32(a) => DynArray::F32(a.floor()),
+            DynArray::F64(a) => DynArray::F64(a.floor()),
+            DynArray::ComplexF32(_) | DynArray::ComplexF64(_) => panic!("complex values have no floor"),
+            ints => ints,
+        }
+    }
 }
 
 /// Integer arrays as `i64` (signed) or `u64` (unsigned), for wrapping sums and products.
