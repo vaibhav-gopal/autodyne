@@ -3,10 +3,9 @@
 //! emission; a scan is a `stablehlo.while` loop that slices one step per iteration out of the
 //! signal's first axis.
 
-use std::collections::HashMap;
 use std::fmt::Write;
 
-use super::graph::{Cmp, FluxFloat, Graph, Op, Part, Reduction};
+use super::graph::{Cmp, FluxFloat, Graph, Kind, Op, Reduction};
 use super::loss::Loss;
 use super::scan::Scan;
 use crate::units::DType;
@@ -20,6 +19,57 @@ pub struct Program {
     pub inputs: Vec<Vec<usize>>,
     pub outputs: Vec<Vec<usize>>,
     pub dtype: DType,
+}
+
+/// How a program is written: its precision, and limits a backend needs.
+///
+/// ```
+/// use autodyne::flux::{trace, Emit};
+/// use autodyne::signal::RealArrayMath;
+///
+/// let g = trace(&[&[4, 2048]], |v| vec![v[0].rfft().0]);
+/// // FFTs of at most 64 points, as IREE's Vulkan backend needs: 2048 = 64 x 32
+/// let program = g.program_with(&Emit::f32().max_fft(64));
+/// assert!(program.text.contains("length = [64]") && !program.text.contains("length = [2048]"));
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Emit {
+    /// `DType::F32` or `DType::F64`.
+    pub dtype: DType,
+    /// FFTs longer than this are built from shorter ones (a four-step decomposition), for backends
+    /// that cannot compile long FFTs; `None` emits every FFT as one operation.
+    pub max_fft: Option<usize>,
+}
+
+impl Default for Emit {
+    fn default() -> Self {
+        Emit::f32()
+    }
+}
+
+impl Emit {
+    pub fn f32() -> Self {
+        Emit { dtype: DType::F32, max_fft: None }
+    }
+    pub fn f64() -> Self {
+        Emit { dtype: DType::F64, max_fft: None }
+    }
+    /// Computing in `T`.
+    pub fn of<T: FluxFloat>() -> Self {
+        Emit { dtype: T::DTYPE, max_fft: None }
+    }
+    /// FFTs of at most `n` points (at least 2).
+    pub fn max_fft(self, n: usize) -> Self {
+        assert!(n >= 2, "Emit::max_fft: at least 2 points");
+        Emit { max_fft: Some(n), ..self }
+    }
+    /// With the limits `backend` needs (see [`Backend::max_fft`](super::Backend::max_fft)).
+    pub fn for_backend(self, backend: &dyn super::Backend) -> Self {
+        match backend.max_fft() {
+            Some(n) => self.max_fft(self.max_fft.map_or(n, |m| m.min(n))),
+            None => self,
+        }
+    }
 }
 
 const INDEX: &str = "tensor<i32>";
@@ -56,12 +106,131 @@ struct Writer {
     next: usize,
     depth: usize,
     dtype: DType,
+    max_fft: Option<usize>,
 }
 
 impl Writer {
-    fn new(dtype: DType) -> Self {
+    fn new(emit: &Emit) -> Self {
+        let dtype = emit.dtype;
         assert!(matches!(dtype, DType::F32 | DType::F64), "flux: programs are f32 or f64, not {dtype:?}");
-        Writer { out: String::new(), next: 0, depth: 1, dtype }
+        Writer { out: String::new(), next: 0, depth: 1, dtype, max_fft: emit.max_fft }
+    }
+
+    /// A real constant array (bit-exact hex).
+    fn literal(&mut self, data: &[f64], shape: &[usize]) -> String {
+        let mut hex = String::with_capacity(2 + 16 * data.len());
+        hex.push_str("0x");
+        for &v in data {
+            let bytes = if self.dtype == DType::F64 { v.to_le_bytes().to_vec() } else { (v as f32).to_le_bytes().to_vec() };
+            for b in bytes {
+                write!(hex, "{b:02X}").unwrap();
+            }
+        }
+        let t = self.real(shape);
+        self.emit(&format!("stablehlo.constant dense<\"{hex}\"> : {t}"))
+    }
+
+    /// `v` with its last two axes swapped.
+    fn swap_last(&mut self, v: &str, shape: &[usize], complex: bool) -> String {
+        let r = shape.len();
+        let mut perm: Vec<usize> = (0..r).collect();
+        perm.swap(r - 2, r - 1);
+        let mut to = shape.to_vec();
+        to.swap(r - 2, r - 1);
+        let (a, b) = if complex { (self.complex(shape), self.complex(&to)) } else { (self.real(shape), self.real(&to)) };
+        self.emit(&format!("stablehlo.transpose {v}, dims = [{}] : ({a}) -> {b}", list(&perm)))
+    }
+
+    /// The split of an `n`-point FFT for the length limit: `(n1, n2)`, `n1` the largest factor
+    /// within the limit; `None` when `n` fits (or has no such factor, and is emitted whole).
+    fn fft_split(&self, n: usize) -> Option<(usize, usize)> {
+        let max = self.max_fft.filter(|&m| n > m)?;
+        (2..=max.min(n - 1)).rev().find(|d| n.is_multiple_of(*d)).map(|d| (d, n / d))
+    }
+
+    /// The complex FFT (or its inverse, scaled by 1/n) of `z` along the last axis of `shape`. When
+    /// it is too long: `n = n1 n2` points as n2 transforms of n1 points, twiddles, then n1 of n2.
+    fn fft(&mut self, z: &str, shape: &[usize], inverse: bool) -> String {
+        let n = *shape.last().expect("an axis");
+        let ct = self.complex(shape);
+        let Some((n1, n2)) = self.fft_split(n) else {
+            let kind = if inverse { "IFFT" } else { "FFT" };
+            return self.emit(&format!("stablehlo.fft {z}, type = {kind}, length = [{n}] : ({ct}) -> {ct}"));
+        };
+        let lead = &shape[..shape.len() - 1];
+        let r = lead.len();
+        // x[t1 n2 + t2] as [.., t1, t2], then the n1-point transforms along t1
+        let grid = [lead, &[n1, n2]].concat();
+        let gt = self.complex(&grid);
+        let a = self.emit(&format!("stablehlo.reshape {z} : ({ct}) -> {gt}"));
+        let a = self.swap_last(&a, &grid, true);
+        let rows = [lead, &[n2, n1]].concat();
+        let a = self.fft(&a, &rows, inverse);
+        // twiddles exp(∓2πi t2 k1 / n), from real constants (some backends lack complex ones)
+        let sign = if inverse { 1.0 } else { -1.0 };
+        let angles: Vec<f64> = (0..n2).flat_map(|t2| (0..n1).map(move |k1| sign * std::f64::consts::TAU * (t2 * k1) as f64 / n as f64)).collect();
+        let cos = self.literal(&angles.iter().map(|a| a.cos()).collect::<Vec<_>>(), &[n2, n1]);
+        let sin = self.literal(&angles.iter().map(|a| a.sin()).collect::<Vec<_>>(), &[n2, n1]);
+        let tt = self.complex(&[n2, n1]);
+        let twiddle = self.emit(&format!("stablehlo.complex {cos}, {sin} : {tt}"));
+        let rt = self.complex(&rows);
+        let twiddle = if r == 0 { twiddle } else { self.emit(&format!("stablehlo.broadcast_in_dim {twiddle}, dims = [{}, {}] : ({tt}) -> {rt}", r, r + 1)) };
+        let a = self.emit(&format!("stablehlo.multiply {a}, {twiddle} : {rt}"));
+        // the n2-point transforms along t2, then X[k1 + n1 k2] in order
+        let a = self.swap_last(&a, &rows, true);
+        let a = self.fft(&a, &grid, inverse);
+        let a = self.swap_last(&a, &grid, true);
+        self.emit(&format!("stablehlo.reshape {a} : ({rt}) -> {ct}"))
+    }
+
+    /// The real FFT of `x` along the last axis of `shape`: `n / 2 + 1` complex bins.
+    fn rfft(&mut self, x: &str, shape: &[usize]) -> String {
+        let n = *shape.last().expect("an axis");
+        let bins = [&shape[..shape.len() - 1], &[n / 2 + 1]].concat();
+        let (rt, bt) = (self.real(shape), self.complex(&bins));
+        if self.fft_split(n).is_none() {
+            return self.emit(&format!("stablehlo.fft {x}, type = RFFT, length = [{n}] : ({rt}) -> {bt}"));
+        }
+        let zeros = self.splat(0.0, shape);
+        let ct = self.complex(shape);
+        let z = self.emit(&format!("stablehlo.complex {x}, {zeros} : {ct}"));
+        let spectrum = self.fft(&z, shape, false);
+        let limit: Vec<usize> = bins.clone();
+        let line = format!("\"stablehlo.slice\"({spectrum}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({ct}) -> {bt}", i64s(&vec![0; shape.len()]), i64s(&limit), i64s(&vec![1; shape.len()]));
+        self.emit(&line)
+    }
+
+    /// The inverse real FFT of `z` (`n / 2 + 1` bins along the last axis of `bins`) to `n` samples.
+    fn irfft(&mut self, z: &str, bins: &[usize], n: usize) -> String {
+        let r = bins.len();
+        let m = n / 2 + 1;
+        let out_shape = [&bins[..r - 1], &[n]].concat();
+        let (bt, ot) = (self.complex(bins), self.real(&out_shape));
+        if self.fft_split(n).is_none() {
+            return self.emit(&format!("stablehlo.fft {z}, type = IRFFT, length = [{n}] : ({bt}) -> {ot}"));
+        }
+        // the whole Hermitian spectrum: bins 0..m (the imaginary parts of 0 and n/2 ignored), then
+        // conj of bins n - m .. 1
+        let rt = self.real(bins);
+        let re = self.emit(&format!("stablehlo.real {z} : ({bt}) -> {rt}"));
+        let im = self.emit(&format!("stablehlo.imag {z} : ({bt}) -> {rt}"));
+        let keep: Vec<f64> = (0..m).map(|k| if k == 0 || (n.is_multiple_of(2) && k == n / 2) { 0.0 } else { 1.0 }).collect();
+        let keep = self.literal(&keep, &[m]);
+        let keep = if r == 1 { keep } else { self.emit(&format!("stablehlo.broadcast_in_dim {keep}, dims = [{}] : ({}) -> {rt}", r - 1, self.real(&[m]))) };
+        let im = self.emit(&format!("stablehlo.multiply {im}, {keep} : {rt}"));
+        let neg = self.emit(&format!("stablehlo.negate {im} : {rt}"));
+        let head = self.emit(&format!("stablehlo.complex {re}, {im} : {bt}"));
+        let conj = self.emit(&format!("stablehlo.complex {re}, {neg} : {bt}"));
+        let tail_shape = [&bins[..r - 1], &[n - m]].concat();
+        let tt = self.complex(&tail_shape);
+        let (mut start, mut limit) = (vec![0; r], bins.to_vec());
+        (start[r - 1], limit[r - 1]) = (1, n - m + 1);
+        let tail = self.emit(&format!("\"stablehlo.slice\"({conj}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({bt}) -> {tt}", i64s(&start), i64s(&limit), i64s(&vec![1; r])));
+        let tail = self.emit(&format!("stablehlo.reverse {tail}, dims = [{}] : {tt}", r - 1));
+        let ct = self.complex(&out_shape);
+        let full = self.emit(&format!("\"stablehlo.concatenate\"({head}, {tail}) {{dimension = {} : i64}} : ({bt}, {tt}) -> {ct}", r - 1));
+        let samples = self.fft(&full, &out_shape, true);
+        self.emit(&format!("stablehlo.real {samples} : ({ct}) -> {ot}"))
     }
 
     fn elem(&self) -> &'static str {
@@ -108,6 +277,17 @@ impl Writer {
         self.emit(&format!("stablehlo.constant dense<{hex}> : {t}"))
     }
 
+    /// A scalar zero of a real or complex kind.
+    fn zero(&mut self, kind: Kind) -> String {
+        match kind {
+            Kind::Complex => {
+                let t = self.complex(&[]);
+                self.emit(&format!("stablehlo.constant dense<(0.000000e+00,0.000000e+00)> : {t}"))
+            }
+            _ => self.splat(0.0, &[]),
+        }
+    }
+
     fn index(&mut self, v: i32) -> String {
         self.emit(&format!("stablehlo.constant dense<{v}> : {INDEX}"))
     }
@@ -116,18 +296,22 @@ impl Writer {
     fn graph(&mut self, g: &Graph, args: &[String]) -> Vec<String> {
         assert_eq!(args.len(), g.inputs.len());
         let mut names: Vec<String> = Vec::with_capacity(g.nodes.len());
-        // complex spectra by operand, so the real and imaginary parts share one FFT
-        let mut spectra: HashMap<u32, String> = HashMap::new();
-        let mut complex_spectra: HashMap<(u32, u32, bool), String> = HashMap::new();
         let elem = self.elem();
-        let scalar = self.real(&[]);
+        let complex = format!("complex<{elem}>");
+        let of_kind = |kind: Kind| match kind {
+            Kind::Real => elem.to_string(),
+            Kind::Complex => complex.clone(),
+            Kind::Mask => "i1".to_string(),
+        };
         for node in &g.nodes {
             let n = |i: u32| names[i as usize].clone();
             let t = |i: u32| {
                 let node = &g.nodes[i as usize];
-                ty(&node.shape, if node.mask { "i1" } else { elem })
+                ty(&node.shape, &of_kind(node.kind))
             };
-            let out = ty(&node.shape, if node.mask { "i1" } else { elem });
+            let out = ty(&node.shape, &of_kind(node.kind));
+            // the element type as a scalar (reduction and padding values)
+            let scalar = ty(&[], &of_kind(node.kind));
             let unary = |name: &str, a: u32| format!("stablehlo.{name} {} : {out}", n(a));
             let binary = |name: &str, a: u32, b: u32| format!("stablehlo.{name} {}, {} : {out}", n(a), n(b));
             let rhs = match node.op {
@@ -161,7 +345,7 @@ impl Writer {
                 Op::Cos(a) => unary("cosine", a),
                 Op::Tanh(a) => unary("tanh", a),
                 Op::Sqrt(a) => unary("sqrt", a),
-                Op::Abs(a) => unary("abs", a),
+                Op::Abs(a) => format!("\"stablehlo.abs\"({}) : ({}) -> {out}", n(a), t(a)),
                 Op::Floor(a) => unary("floor", a),
                 Op::Compare(c, a, b) => {
                     let dir = match c {
@@ -176,32 +360,43 @@ impl Writer {
                 Op::Reshape(a) => format!("stablehlo.reshape {} : ({}) -> {out}", n(a), t(a)),
                 Op::Transpose(a, ref perm) => format!("stablehlo.transpose {}, dims = [{}] : ({}) -> {out}", n(a), list(perm), t(a)),
                 Op::Sum(a, ref axes) => {
-                    let zero = self.splat(0.0, &[]);
+                    let zero = self.zero(node.kind);
                     format!("stablehlo.reduce({} init: {zero}) applies stablehlo.add across dimensions = [{}] : ({}, {scalar}) -> {out}", n(a), list(axes), t(a))
                 }
                 Op::Dot { a, b, ref ca, ref cb } => {
                     // full precision: GPUs would otherwise multiply f32 in TF32 (10-bit mantissas)
                     format!("stablehlo.dot_general {}, {}, contracting_dims = [{}] x [{}], precision = [HIGHEST, HIGHEST] : ({}, {}) -> {out}", n(a), n(b), list(ca), list(cb), t(a), t(b))
                 }
-                Op::Rfft(a, part) => {
-                    let from = &g.nodes[a as usize].shape;
-                    let spectrum = self.complex(&node.shape);
-                    let c = match spectra.get(&a) {
-                        Some(c) => c.clone(),
-                        None => {
-                            let len = from.last().unwrap();
-                            let c = self.emit(&format!("stablehlo.fft {}, type = RFFT, length = [{len}] : ({}) -> {spectrum}", n(a), t(a)));
-                            spectra.insert(a, c.clone());
-                            c
-                        }
-                    };
-                    let op = if part == Part::Re { "real" } else { "imag" };
-                    format!("stablehlo.{op} {c} : ({spectrum}) -> {out}")
+                Op::Rfft(a) => {
+                    let name = self.rfft(&n(a), &g.nodes[a as usize].shape);
+                    names.push(name);
+                    continue;
                 }
-                Op::Irfft { re, im, n: len } => {
-                    let spectrum = self.complex(&g.nodes[re as usize].shape);
-                    let c = self.emit(&format!("stablehlo.complex {}, {} : {spectrum}", n(re), n(im)));
-                    format!("stablehlo.fft {c}, type = IRFFT, length = [{len}] : ({spectrum}) -> {out}")
+                Op::Irfft(a, len) => {
+                    let name = self.irfft(&n(a), &g.nodes[a as usize].shape, len);
+                    names.push(name);
+                    continue;
+                }
+                Op::Fft(a, inverse) => {
+                    let name = self.fft(&n(a), &node.shape, inverse);
+                    names.push(name);
+                    continue;
+                }
+                Op::Complex(a, b) => format!("stablehlo.complex {}, {} : {out}", n(a), n(b)),
+                Op::Re(a) => format!("stablehlo.real {} : ({}) -> {out}", n(a), t(a)),
+                Op::Im(a) => format!("stablehlo.imag {} : ({}) -> {out}", n(a), t(a)),
+                // `complex(x, 0)` rather than a conversion: IREE mishandles converting a constant inside
+                // a loop, and its Vulkan backend has no complex constants
+                Op::ToComplex(a) => {
+                    let zeros = self.splat(0.0, &node.shape);
+                    format!("stablehlo.complex {}, {zeros} : {out}", n(a))
+                }
+                Op::Conj(a) => {
+                    let parts = ty(&node.shape, elem);
+                    let re = self.emit(&format!("stablehlo.real {} : ({out}) -> {parts}", n(a)));
+                    let im = self.emit(&format!("stablehlo.imag {} : ({out}) -> {parts}", n(a)));
+                    let negated = self.emit(&format!("stablehlo.negate {im} : {parts}"));
+                    format!("stablehlo.complex {re}, {negated} : {out}")
                 }
                 // generic syntax for these three: it parses the same across StableHLO versions
                 Op::Slice { a, ref start, ref limit, ref stride } => format!(
@@ -213,7 +408,7 @@ impl Writer {
                     t(a)
                 ),
                 Op::Pad { a, ref low, ref high, ref interior } => {
-                    let zero = self.splat(0.0, &[]);
+                    let zero = self.zero(node.kind);
                     format!(
                         "\"stablehlo.pad\"({}, {zero}) {{edge_padding_low = {}, edge_padding_high = {}, interior_padding = {}}} : ({}, {scalar}) -> {out}",
                         n(a),
@@ -223,22 +418,7 @@ impl Writer {
                         t(a)
                     )
                 }
-                Op::Fft { re, im, inverse, part } => {
-                    let spectrum = self.complex(&node.shape);
-                    let c = match complex_spectra.get(&(re, im, inverse)) {
-                        Some(c) => c.clone(),
-                        None => {
-                            let z = self.emit(&format!("stablehlo.complex {}, {} : {spectrum}", n(re), n(im)));
-                            let kind = if inverse { "IFFT" } else { "FFT" };
-                            let len = node.shape.last().unwrap();
-                            let c = self.emit(&format!("stablehlo.fft {z}, type = {kind}, length = [{len}] : ({spectrum}) -> {spectrum}"));
-                            complex_spectra.insert((re, im, inverse), c.clone());
-                            c
-                        }
-                    };
-                    let op = if part == Part::Re { "real" } else { "imag" };
-                    format!("stablehlo.{op} {c} : ({spectrum}) -> {out}")
-                }
+
                 Op::Reduce(a, ref axes, r) => {
                     let (init, op) = match r {
                         Reduction::Max => (f64::NEG_INFINITY, "maximum"),
@@ -398,8 +578,13 @@ impl Graph {
 
     /// This graph as a program computing in `T` (`f32` or `f64`).
     pub fn program_as<T: FluxFloat>(&self) -> Program {
-        assert!(self.outputs.iter().all(|&o| !self.nodes[o as usize].mask), "Graph::program: outputs must be real, not masks");
-        let mut w = Writer::new(T::DTYPE);
+        self.program_with(&Emit::of::<T>())
+    }
+
+    /// This graph as a program, written as `emit` says.
+    pub fn program_with(&self, emit: &Emit) -> Program {
+        assert!(self.outputs.iter().all(|&o| self.nodes[o as usize].kind == Kind::Real), "Graph::program: outputs must be real (not masks or complex values)");
+        let mut w = Writer::new(emit);
         let args: Vec<String> = self.inputs.iter().map(|_| w.fresh()).collect();
         let outs = w.graph(self, &args);
         let params: Vec<(String, Vec<usize>)> = args.into_iter().zip(self.inputs.iter().cloned()).collect();
@@ -426,10 +611,15 @@ impl Scan {
 
     /// [`forward_program`](Self::forward_program) computing in `T` (`f32` or `f64`).
     pub fn forward_program_as<T: FluxFloat>(&self, len: usize) -> Program {
+        self.forward_program_with(len, &Emit::of::<T>())
+    }
+
+    /// [`forward_program`](Self::forward_program) written as `emit` says.
+    pub fn forward_program_with(&self, len: usize, emit: &Emit) -> Program {
         check_len(len);
         let (p, s) = (self.params.len(), self.states.len());
         let (xs_shape, ys_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
-        let mut w = Writer::new(T::DTYPE);
+        let mut w = Writer::new(emit);
         let params: Vec<String> = (0..p).map(|_| w.fresh()).collect();
         let xs = w.fresh();
         let s0: Vec<String> = (0..s).map(|_| w.fresh()).collect();
@@ -469,12 +659,20 @@ impl Scan {
 
     /// [`grad_program`](Self::grad_program) computing in `T` (`f32` or `f64`).
     pub fn grad_program_as<T: FluxFloat>(&self, len: usize, loss: &Loss) -> Program {
+        self.grad_program_with(len, loss, &Emit::of::<T>())
+    }
+
+    /// [`grad_program`](Self::grad_program) written as `emit` says.
+    pub fn grad_program_with(&self, len: usize, loss: &Loss, emit: &Emit) -> Program {
         check_len(len);
         let (p, s) = (self.params.len(), self.states.len());
         let (xs_shape, ys_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
         assert_eq!(loss.output_shape(), ys_shape.as_slice(), "Scan::grad_program: the loss scores outputs of another shape");
-        let saved_shapes: Vec<Vec<usize>> = self.states.iter().map(|sh| stacked(len, sh)).collect();
-        let mut w = Writer::new(T::DTYPE);
+        // per step: the state it starts from, then the residuals (when not checkpointed)
+        let (forward, reverse) = self.passes();
+        let saved_shapes: Vec<Vec<usize>> = self.states.iter().chain(self.residual_shapes()).map(|sh| stacked(len, sh)).collect();
+        let k = saved_shapes.len();
+        let mut w = Writer::new(emit);
         let params: Vec<String> = (0..p).map(|_| w.fresh()).collect();
         let xs = w.fresh();
         let aux: Vec<String> = loss.aux_shapes().iter().map(|_| w.fresh()).collect();
@@ -494,9 +692,10 @@ impl Scan {
             let (params, xs, ys) = (&c[..p], &c[p], &c[p + 1]);
             let (state, saved) = (&c[p + 2..p + 2 + s], &c[p + 2 + s..]);
             let x = w.step_of(xs, i, &xs_shape);
-            let saved: Vec<String> = saved.iter().zip(state).zip(&saved_shapes).map(|((v, st), sh)| w.store(v, st, i, sh)).collect();
             let args: Vec<String> = params.iter().chain(state).cloned().chain([x]).collect();
-            let out = w.graph(&self.step, &args);
+            let out = w.graph(forward, &args);
+            let values = state.iter().chain(&out[s + 1..]);
+            let saved: Vec<String> = saved.iter().zip(values).zip(&saved_shapes).map(|((v, st), sh)| w.store(v, st, i, sh)).collect();
             let ys = w.store(ys, &out[s], i, &ys_shape);
             params.iter().cloned().chain([xs.clone(), ys]).chain(out[..s].iter().cloned()).chain(saved).collect()
         });
@@ -517,15 +716,16 @@ impl Scan {
             init.push((z, w.real(sh)));
         }
         let bwd = w.for_loop(len, &init, |w, j, c| {
-            let (params, xs, dys, saved) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..p + 2 + s]);
-            let (d_state, d_params, d_xs) = (&c[p + 2 + s..p + 2 + 2 * s], &c[p + 2 + 2 * s..p + 2 + 2 * s + p], &c[p + 2 + 2 * s + p]);
+            let (params, xs, dys, saved) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..p + 2 + k]);
+            let (d_state, d_params, d_xs) = (&c[p + 2 + k..p + 2 + k + s], &c[p + 2 + k + s..p + 2 + k + s + p], &c[p + 2 + k + s + p]);
             let last = w.index(len as i32 - 1);
             let i = w.emit(&format!("stablehlo.subtract {last}, {j} : {INDEX}"));
             let x = w.step_of(xs, &i, &xs_shape);
             let dy = w.step_of(dys, &i, &ys_shape);
-            let state: Vec<String> = saved.iter().zip(&saved_shapes).map(|(v, sh)| w.step_of(v, &i, sh)).collect();
-            let args: Vec<String> = params.iter().chain(&state).cloned().chain([x]).chain(d_state.iter().cloned()).chain([dy]).collect();
-            let out = w.graph(&self.step_vjp, &args);
+            let at_step: Vec<String> = saved.iter().zip(&saved_shapes).map(|(v, sh)| w.step_of(v, &i, sh)).collect();
+            let (state, residuals) = at_step.split_at(s);
+            let args: Vec<String> = params.iter().chain(state).cloned().chain([x]).chain(residuals.iter().cloned()).chain(d_state.iter().cloned()).chain([dy]).collect();
+            let out = w.graph(reverse, &args);
             let d_params: Vec<String> = d_params
                 .iter()
                 .zip(&out[..p])
@@ -541,9 +741,9 @@ impl Scan {
         signature.extend(aux.into_iter().zip(loss.aux_shapes().iter().cloned()));
         signature.extend(s0.into_iter().zip(self.states.iter().cloned()));
         let mut results = vec![(value, Vec::new())];
-        results.extend(bwd[p + 2 + 2 * s..p + 2 + 2 * s + p].iter().cloned().zip(self.params.iter().cloned()));
-        results.extend(bwd[p + 2 + s..p + 2 + 2 * s].iter().cloned().zip(self.states.iter().cloned()));
-        results.push((bwd[p + 2 + 2 * s + p].clone(), xs_shape));
+        results.extend(bwd[p + 2 + k + s..p + 2 + k + s + p].iter().cloned().zip(self.params.iter().cloned()));
+        results.extend(bwd[p + 2 + k..p + 2 + k + s].iter().cloned().zip(self.states.iter().cloned()));
+        results.push((bwd[p + 2 + k + s + p].clone(), xs_shape));
         w.function(&signature, &results)
     }
 

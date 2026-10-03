@@ -56,8 +56,8 @@ mod scan;
 mod xla;
 
 pub use ad::{jvp, vjp};
-pub use graph::{scalar, trace, vector, Cmp, FluxFloat, Graph, Mask, Node, Op, Part, Reduction, Tracer};
-pub use hlo::Program;
+pub use graph::{scalar, trace, vector, Cmp, FluxFloat, Graph, Kind, Mask, Node, Op, Reduction, Tracer};
+pub use hlo::{Emit, Program};
 pub use iree::{Iree, IreeTarget};
 pub use pjrt::{Pjrt, PjrtOption};
 pub use runtime::{Backend, DeviceArray, Executable, ExecutableExt, HostArray, HostRef};

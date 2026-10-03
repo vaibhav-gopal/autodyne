@@ -87,11 +87,9 @@ pub fn convolve<A: RealArrayMath>(x: A, kernel: A) -> A {
         product.sum_axes(&[axis])
     } else {
         let size = out.next_power_of_two();
-        let (xr, xi) = x.pad(&vec![0; xs.len()], &last(&xs, size - n), &vec![0; xs.len()]).rfft();
-        let (hr, hi) = kernel.pad(&vec![0; hs.len()], &last(&hs, size - k), &vec![0; hs.len()]).rfft();
-        let re = xr.clone() * hr.clone() - xi.clone() * hi.clone();
-        let im = xr * hi + xi * hr;
-        let y = A::irfft(re, im, size);
+        let spectrum = x.pad(&vec![0; xs.len()], &last(&xs, size - n), &vec![0; xs.len()]).rfft_complex();
+        let response = kernel.pad(&vec![0; hs.len()], &last(&hs, size - k), &vec![0; hs.len()]).rfft_complex();
+        let y = A::irfft_complex(spectrum * response, size);
         let axis = y.shape().len() - 1;
         y.slice_axis(axis, 0, out)
     }

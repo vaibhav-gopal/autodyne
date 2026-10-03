@@ -132,26 +132,30 @@ Plain Rust, no DSL. Code is written once over two traits and runs eagerly or tra
   `signal::frames` are written over them;
 - on `flux::Tracer` the same code records a graph, which flux differentiates in reverse mode (`vjp`; the backward pass
   is more graph, so derivatives nest) and forward mode (`jvp`), evaluates in `f32` or `f64`, and emits as textual
-  StableHLO.
+  StableHLO. Spectra are complex values in the graph (`rfft_complex`, `irfft_complex`, complex products and FFTs),
+  so they stay one array from one FFT to the next.
 
 The audio processors' sample steps are generic, so biquads (every cookbook response), the SVF, the ladder, the
 waveshapers, the envelope follower and the compressor trace and differentiate unchanged. A `Scan` runs a step over
 whole signals, with gradients for the parameters, the initial state and the input signal, under any `Loss`: mean
-squared error, the multi-resolution STFT loss usual for audio, or a traced function. `flux::optim` has SGD and Adam.
+squared error, the multi-resolution STFT loss usual for audio, or a traced function. The gradient saves each step's
+intermediate values (or, `checkpointed(true)`, only its state, recomputing the step on the way back). `flux::optim`
+has SGD and Adam.
 Fitting a peaking EQ into a tanh drive to a target recording from its spectrogram alone recovers 3000 Hz / 9 dB /
 drive 2 to within 1% on every backend.
 
 Backends, all found at run time (nothing is linked at build time, and the real-time path never touches a trace):
 
 - IREE: `iree-compile` / `iree-run-module`, for the CPU, Vulkan, CUDA, ROCm or Metal; modules can be saved (`.vmfb`)
-  and loaded elsewhere
+  and loaded elsewhere. Backends state their limits and programs are written for them (`Emit::for_backend`): on
+  Vulkan, long FFTs are built from 64-point ones
 - PJRT: a plugin library (XLA CPU, CUDA, ...) loaded in-process through the PJRT C API, no Python; arrays can stay
   on the device between runs (`upload` / `run_resident` / `download`). The test suite passes on XLA's CUDA plugin
 - XLA through JAX in a long-lived Python process, for platforms without a plugin (Windows)
 
-Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 15-35%
-sooner and run at 0.84-1.05x JAX's speed: on par for scans, behind on spectral models, as flux carries complex
-spectra as pairs of real arrays. From Python, `autodyne.flux` traces functions written with NumPy-style operators on
+Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 20-40%
+sooner and run at 0.96-1.24x JAX's speed: on par for a one-pole's gradient, ahead on spectral models and on an EQ
+chain's STFT-loss gradient. From Python, `autodyne.flux` traces functions written with NumPy-style operators on
 tracers, with the same scans, losses, processors and backends.
 
 ```sh

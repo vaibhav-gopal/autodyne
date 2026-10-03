@@ -37,6 +37,8 @@ value_and_grad = _flux.value_and_grad
 where = _flux.where
 concatenate = _flux.concatenate
 irfft = _flux.irfft
+irfft_complex = _flux.irfft_complex
+complex = _flux.complex
 fft = _flux.fft
 convolve = _flux.convolve
 frames = _flux.frames
@@ -51,7 +53,7 @@ envelope = _flux.envelope
 compressor = _flux.compressor
 
 __all__ = ["Tracer", "Mask", "Graph", "Loss", "Scan", "Program", "Backend", "Executable", "Adam", "trace", "value_and_grad",
-           "where", "concatenate", "irfft", "fft", "convolve", "frames", "stft_magnitude", "multi_resolution_stft",
+           "where", "concatenate", "irfft", "irfft_complex", "complex", "fft", "convolve", "frames", "stft_magnitude", "multi_resolution_stft",
            "one_pole", "biquad", "svf", "ladder", "shape", "envelope", "compressor"]
 
 

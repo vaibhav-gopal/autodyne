@@ -1,8 +1,8 @@
 //! Reverse-mode differentiation as a graph transformation: the backward pass is recorded into the
 //! same trace as the forward pass, so it is evaluated, emitted and compiled like any other code.
 
-use super::graph::{self, Cmp, Id, Mask, Op, Part, Reduction, Tracer};
-use crate::signal::{ArrayMath, NdArray, RealArrayMath};
+use super::graph::{self, Cmp, Id, Kind, Mask, Op, Reduction, Tracer};
+use crate::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
 use crate::units::{Elementwise, RealValued};
 
 /// Vector-Jacobian product inside a trace.
@@ -43,6 +43,14 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
     let mut acc = |adj: &mut Vec<Option<Tracer>>, id: Id, g: Tracer| {
         if live[id as usize] {
             debug_assert_eq!(g.shape(), graph::node(id).shape, "vjp: cotangent shape");
+            // a complex node's cotangent is complex (∂/∂re + i ∂/∂im); a real node's is real
+            let g = match graph::node(id).kind {
+                Kind::Complex => g.to_complex(),
+                _ => {
+                    debug_assert!(!g.is_complex(), "vjp: complex cotangent for a real value");
+                    g
+                }
+            };
             let slot = &mut adj[id as usize];
             *slot = Some(match *slot {
                 Some(prev) => prev + g,
@@ -71,26 +79,29 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 acc(&mut adj, a, g);
                 acc(&mut adj, b, -g);
             }
+            // complex values pull back through conjugates: z = a b gives ā = ḡ conj(b), and an
+            // analytic f gives ā = ḡ conj(f'(a)) (conj does nothing to real values)
             Op::Mul(a, b) => {
-                acc(&mut adj, a, g * t(b));
-                acc(&mut adj, b, g * t(a));
+                acc(&mut adj, a, g * t(b).conj());
+                acc(&mut adj, b, g * t(a).conj());
             }
             Op::Div(a, b) => {
                 // y = a / b: da = g / b, db = -g y / b
-                let gb = g / t(b);
+                let gb = g / t(b).conj();
                 acc(&mut adj, a, gb);
-                acc(&mut adj, b, -(gb * t(id)));
+                acc(&mut adj, b, -(gb * t(id).conj()));
             }
             Op::Neg(a) => acc(&mut adj, a, -g),
-            Op::Exp(a) => acc(&mut adj, a, g * t(id)),
-            Op::Log(a) => acc(&mut adj, a, g / t(a)),
-            Op::Sin(a) => acc(&mut adj, a, g * t(a).cos()),
-            Op::Cos(a) => acc(&mut adj, a, -(g * t(a).sin())),
+            Op::Exp(a) => acc(&mut adj, a, g * t(id).conj()),
+            Op::Log(a) => acc(&mut adj, a, g / t(a).conj()),
+            Op::Sin(a) => acc(&mut adj, a, g * t(a).cos().conj()),
+            Op::Cos(a) => acc(&mut adj, a, -(g * t(a).sin().conj())),
             Op::Tanh(a) => {
                 let y = t(id);
-                acc(&mut adj, a, g * (Tracer::lit(1.0) - y * y));
+                acc(&mut adj, a, g * (Tracer::lit(1.0) - y * y).conj());
             }
-            Op::Sqrt(a) => acc(&mut adj, a, Tracer::lit(0.5) * g / t(id)),
+            Op::Sqrt(a) => acc(&mut adj, a, Tracer::lit(0.5) * g / t(id).conj()),
+            Op::Abs(a) if t(a).is_complex() => acc(&mut adj, a, (g / t(id)).to_complex() * t(a)),
             Op::Abs(a) => {
                 let negative = t(a).less(zero());
                 acc(&mut adj, a, Tracer::select(negative, -g, g));
@@ -138,7 +149,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 if live[a as usize] {
                     // g [fa, fb] · b over fb -> [fa, b's contracted axes ascending], then a's order
                     let g_fb: Vec<usize> = (fa.len()..fa.len() + fb.len()).collect();
-                    let r = g.dot_general(t(b), &g_fb, &fb);
+                    let r = g.dot_general(t(b).conj(), &g_fb, &fb);
                     let mut src = fa.clone();
                     let mut cb_sorted = cb.clone();
                     cb_sorted.sort_unstable();
@@ -148,7 +159,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 if live[b as usize] {
                     // a · g over fa -> [a's contracted axes ascending, fb], then b's order
                     let g_fa: Vec<usize> = (0..fa.len()).collect();
-                    let r = t(a).dot_general(g, &fa, &g_fa);
+                    let r = t(a).conj().dot_general(g, &fa, &g_fa);
                     let mut ca_sorted = ca.clone();
                     ca_sorted.sort_unstable();
                     let mut src: Vec<usize> = ca_sorted.iter().map(|i| cb[ca.iter().position(|x| x == i).unwrap()]).collect();
@@ -156,24 +167,32 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                     acc(&mut adj, b, r.transpose(&order(&src)));
                 }
             }
-            Op::Rfft(a, part) => {
+            Op::Rfft(a) => {
                 // transpose of the real DFT: n * irfft(w * cotangent), with w = 1 on bins 0 and n/2
                 // (they appear once in the full spectrum) and 1/2 on the others (twice)
                 let n = *shape_of(a).last().unwrap();
                 let w = Tracer::constant(&weights(n, 1.0, 0.5));
-                let (re, im) = match part {
-                    Part::Re => (g * w, zero().broadcast_to(&g.shape())),
-                    Part::Im => (zero().broadcast_to(&g.shape()), g * w),
-                };
-                acc(&mut adj, a, Tracer::lit(n as f64) * Tracer::irfft(re, im, n));
+                acc(&mut adj, a, Tracer::lit(n as f64) * Tracer::irfft_complex(g * w, n));
             }
-            Op::Irfft { re, im, n } => {
+            Op::Irfft(a, n) => {
                 // transpose of the inverse: (s / n) * rfft(cotangent), s = 1 on bins 0 and n/2, else 2
-                let (gr, gi) = g.rfft();
                 let s = Tracer::constant(&weights(n, 1.0 / n as f64, 2.0 / n as f64));
-                acc(&mut adj, re, gr * s);
-                acc(&mut adj, im, gi * s);
+                acc(&mut adj, a, g.rfft_complex() * s);
             }
+            // a complex-linear map pulls back by its conjugate transpose: n · ifft for the DFT,
+            // fft / n for the inverse
+            Op::Fft(a, inverse) => {
+                let n = *shape_of(a).last().unwrap() as f64;
+                acc(&mut adj, a, if inverse { g.fft() * Tracer::lit(1.0 / n) } else { g.ifft() * Tracer::lit(n) });
+            }
+            Op::Complex(a, b) => {
+                acc(&mut adj, a, g.re());
+                acc(&mut adj, b, g.im());
+            }
+            Op::Re(a) => acc(&mut adj, a, g.to_complex()),
+            Op::Im(a) => acc(&mut adj, a, Tracer::complex(zero().broadcast_to(&g.shape()), g)),
+            Op::Conj(a) => acc(&mut adj, a, g.conj()),
+            Op::ToComplex(a) => acc(&mut adj, a, g.re()),
             Op::Slice { a, start, stride, .. } => {
                 // scatter back: zeros around and between the kept elements
                 let (from, to) = (shape_of(a), shape_of(id));
@@ -191,18 +210,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 let stride: Vec<usize> = interior.iter().map(|k| k + 1).collect();
                 acc(&mut adj, a, g.slice(&low, &limit, &stride));
             }
-            Op::Fft { re, im, inverse, part } => {
-                // a complex-linear map pulls back by its conjugate transpose: n · ifft for the DFT,
-                // fft / n for the inverse
-                let (gr, gi) = match part {
-                    Part::Re => (g, zero().broadcast_to(&g.shape())),
-                    Part::Im => (zero().broadcast_to(&g.shape()), g),
-                };
-                let n = *shape_of(re).last().unwrap() as f64;
-                let ((dr, di), scale) = if inverse { (Tracer::fft_parts(gr, gi), 1.0 / n) } else { (Tracer::ifft_parts(gr, gi), n) };
-                acc(&mut adj, re, dr * Tracer::lit(scale));
-                acc(&mut adj, im, di * Tracer::lit(scale));
-            }
+
             Op::Reduce(a, axes, r) => {
                 let from = shape_of(a);
                 let kept: Vec<usize> = (0..from.len()).filter(|x| !axes.contains(x)).collect();
@@ -259,7 +267,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
 pub fn jvp(outputs: &[Tracer], wrt: &[Tracer], tangents: &[Tracer]) -> Vec<Tracer> {
     assert_eq!(wrt.len(), tangents.len(), "jvp: one tangent per input");
     // stand-in cotangents: their values never matter, only that the pullback is linear in them
-    let u: Vec<Tracer> = outputs.iter().map(|o| Tracer::zeros(&o.shape())).collect();
+    let u: Vec<Tracer> = outputs.iter().map(|o| if o.is_complex() { Tracer::zeros(&o.shape()).to_complex() } else { Tracer::zeros(&o.shape()) }).collect();
     let pulled = vjp(outputs, &u, wrt);
     let mut inner = Tracer::lit(0.0);
     for ((p, t), w) in pulled.iter().zip(tangents).zip(wrt) {

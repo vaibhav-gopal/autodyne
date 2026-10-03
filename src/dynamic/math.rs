@@ -386,49 +386,59 @@ impl RealArrayMath for DynArray {
         };
         dyn_match!(self, a => DynArray::from_array(take_any(&a, at.as_slice().iter().copied(), &shape)))
     }
+    type Complex = DynArray;
     /// Real arrays only (complex arrays have no real FFT; use `fft`).
-    fn rfft(self) -> (Self, Self) {
+    fn rfft_complex(self) -> Self {
         match FloatArray::from(self.to_float()) {
-            FloatArray::F32(a) => {
-                let (re, im) = a.rfft();
-                (DynArray::F32(re), DynArray::F32(im))
-            }
-            FloatArray::F64(a) => {
-                let (re, im) = a.rfft();
-                (DynArray::F64(re), DynArray::F64(im))
-            }
+            FloatArray::F32(a) => DynArray::ComplexF32(a.rfft_complex()),
+            FloatArray::F64(a) => DynArray::ComplexF64(a.rfft_complex()),
             _ => panic!("rfft needs real values"),
         }
     }
-    fn irfft(re: Self, im: Self, n: usize) -> Self {
+    fn irfft_complex(spectrum: Self, n: usize) -> Self {
+        match RealArrayMath::to_complex(spectrum) {
+            DynArray::ComplexF32(z) => DynArray::F32(NdArray::irfft_complex(z, n)),
+            DynArray::ComplexF64(z) => DynArray::F64(NdArray::irfft_complex(z, n)),
+            _ => unreachable!("made complex"),
+        }
+    }
+    /// Complex at the matching precision (complex arrays are returned as they are).
+    fn to_complex(self) -> Self {
+        match self {
+            z @ (DynArray::ComplexF32(_) | DynArray::ComplexF64(_)) => z,
+            real => match FloatArray::from(real.to_float()) {
+                FloatArray::F32(a) => DynArray::ComplexF32(a.to_complex()),
+                FloatArray::F64(a) => DynArray::ComplexF64(a.to_complex()),
+                _ => unreachable!("real"),
+            },
+        }
+    }
+    /// The parts in their common float type.
+    fn complex(re: Self, im: Self) -> Self {
         let target = float_type(binary(re.clone(), im.clone(), BinaryOp::Add).dtype());
         match (FloatArray::from(re.cast(target).expect("converts")), FloatArray::from(im.cast(target).expect("converts"))) {
-            (FloatArray::F32(r), FloatArray::F32(i)) => DynArray::F32(NdArray::irfft(r, i, n)),
-            (FloatArray::F64(r), FloatArray::F64(i)) => DynArray::F64(NdArray::irfft(r, i, n)),
-            _ => panic!("irfft needs real parts"),
+            (FloatArray::F32(r), FloatArray::F32(i)) => DynArray::ComplexF32(NdArray::complex(r, i)),
+            (FloatArray::F64(r), FloatArray::F64(i)) => DynArray::ComplexF64(NdArray::complex(r, i)),
+            _ => panic!("complex needs real parts"),
         }
     }
-    fn fft_parts(re: Self, im: Self) -> (Self, Self) {
-        fft_parts_dyn(re, im, false)
-    }
-    fn ifft_parts(re: Self, im: Self) -> (Self, Self) {
-        fft_parts_dyn(re, im, true)
-    }
-}
-
-/// Complex FFTs of real and imaginary parts, in their common float type.
-fn fft_parts_dyn(re: DynArray, im: DynArray, inverse: bool) -> (DynArray, DynArray) {
-    let target = float_type(binary(re.clone(), im.clone(), BinaryOp::Add).dtype());
-    match (FloatArray::from(re.cast(target).expect("converts")), FloatArray::from(im.cast(target).expect("converts"))) {
-        (FloatArray::F32(r), FloatArray::F32(i)) => {
-            let (a, b) = if inverse { NdArray::ifft_parts(r, i) } else { NdArray::fft_parts(r, i) };
-            (DynArray::F32(a), DynArray::F32(b))
+    fn real_part(z: Self) -> Self {
+        match z {
+            DynArray::ComplexF32(c) => DynArray::F32(NdArray::real_part(c)),
+            DynArray::ComplexF64(c) => DynArray::F64(NdArray::real_part(c)),
+            real => real,
         }
-        (FloatArray::F64(r), FloatArray::F64(i)) => {
-            let (a, b) = if inverse { NdArray::ifft_parts(r, i) } else { NdArray::fft_parts(r, i) };
-            (DynArray::F64(a), DynArray::F64(b))
+    }
+    fn imag_part(z: Self) -> Self {
+        match z {
+            DynArray::ComplexF32(c) => DynArray::F32(NdArray::imag_part(c)),
+            DynArray::ComplexF64(c) => DynArray::F64(NdArray::imag_part(c)),
+            real => {
+                let zero = DynArray::from_array(NdArray::<f64>::array(&[0.0], &[])).cast(float_type(real.dtype())).expect("converts");
+                let shape = DynArray::shape(&real).to_vec();
+                zero.broadcast_to(&shape)
+            }
         }
-        _ => panic!("fft_parts needs real parts"),
     }
 }
 

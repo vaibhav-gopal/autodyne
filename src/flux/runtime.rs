@@ -16,6 +16,11 @@ pub trait Backend {
     fn name(&self) -> &'static str;
     /// Compiles `program`.
     fn compile(&self, program: &Program) -> Result<Box<dyn Executable>, FluxError>;
+    /// The longest FFT this backend compiles, if limited: write programs for it with
+    /// [`Emit::for_backend`](super::Emit::for_backend), which builds longer FFTs from shorter ones.
+    fn max_fft(&self) -> Option<usize> {
+        None
+    }
 }
 
 /// A host array going into a program: `f32` or `f64` (the program's element type).

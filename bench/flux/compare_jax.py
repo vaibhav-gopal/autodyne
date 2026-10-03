@@ -122,6 +122,8 @@ MODELS = {
     "one_pole_grad": ("one-pole MSE gradient, 48k samples", one_pole_grad),
     "eq_drive_stft_grad": ("EQ + drive, multi-resolution STFT loss gradient, 2048 samples", eq_drive_stft_grad),
     "spectral_model_grad": ("rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", spectral_model_grad),
+    "one_pole_grad_checkpointed": ("one-pole MSE gradient, 48k samples, checkpointed", one_pole_grad),
+    "eq_drive_stft_grad_checkpointed": ("EQ + drive, multi-resolution STFT loss gradient, 2048 samples, checkpointed", eq_drive_stft_grad),
 }
 
 
@@ -184,7 +186,8 @@ def main():
         flux_out = run_flux()
         flux_run = median_time(run_flux, args.repeats)
 
-        # JAX: trace, lower and compile the same model
+        # JAX: trace, lower and compile the same model (without its compilation cache)
+        jax.clear_caches()
         t = time.perf_counter()
         compiled = jax.jit(model).lower(*on_device).compile()
         jax_compile = time.perf_counter() - t
@@ -216,15 +219,14 @@ def main():
         out.append(f"| {title} | {fmt(build)} | {fmt(fc)} | {fmt(jc)} | {fmt(fr)} | {fmt(jr)} | {jr / fr:.2f}x | {agree:.1e} |")
     out += [
         "",
-        "Where flux differs:",
+        "Notes:",
         "",
-        "- Its graphs hold real arrays, so a complex spectrum travels as separate real and imaginary arrays,",
-        "  with more elementwise work and memory traffic than JAX's complex arrays. That is the gap on the",
-        "  spectral model.",
-        "- Its scan gradients save only each step's starting state and recompute the step in the reverse loop",
-        "  (checkpointing, which uses less memory), while JAX saves every step's intermediate values.",
-        "- It compiles sooner: its programs come straight from the trace, while `jax.jit` traces Python and",
-        "  lowers it first. Both compiles include XLA's own.",
+        "- Spectra stay complex from one FFT to the next in both (flux graphs have complex values).",
+        "- Scan gradients save each step's intermediate values by default, as JAX does; the \"checkpointed\" rows",
+        "  recompute each step in the reverse loop instead (`Scan::checkpointed(true)`), which keeps only the state",
+        "  per step: less memory, more arithmetic. It costs little when the step is small (the one-pole).",
+        "- flux compiles sooner: its programs come straight from the trace, while `jax.jit` traces Python and lowers",
+        "  it first. Both compiles include XLA's own; JAX's compilation cache is cleared before each.",
     ]
     text = "\n".join(out) + "\n"
     if args.results:

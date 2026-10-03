@@ -15,8 +15,8 @@
 use autodyne::distortion::Shape;
 use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
 use autodyne::flux::optim::{Adam, Optimizer};
-use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, Backend, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
-use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
+use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, vjp, Backend, Emit, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
 use autodyne::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
@@ -145,6 +145,9 @@ fn every_primitive_matches_the_interpreter() {
             b.take(Tracer::lit(3.5)),
             Tracer::fft_parts(a, g).0,
             Tracer::ifft_parts(g, a).1,
+            (Tracer::complex(a, g).exp() * g.to_complex().conj() / Tracer::complex(g, a + Tracer::lit(2.0))).abs(),
+            Tracer::irfft_complex(a.rfft_complex() * Tracer::complex(b.slice_axis(0, 0, 5), b.slice_axis(0, 3, 8)), 8),
+            Tracer::complex(a, g).fft().dot(m.to_complex()).re(),
         ]
     });
     let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, k as u32 + 1)).collect();
@@ -169,6 +172,8 @@ fn gradients_of_array_programs_match_the_interpreter() {
         let loss = (y * y).sum_all() + x.transpose(&[1, 0]).sum_axes(&[0]).mean_all() + (framed * framed).slice(&[1, 0, 0], &[4, 3, 6], &[2, 1, 2]).sum_all();
         let rows = Tracer::constant(&NdArray::from_vec(vec![0.0, 3.5, 3.0, 9.0, 1.2, 0.0], &[2, 3]).unwrap());
         let loss = loss + x.take(rows).max_axes(&[2]).sum_all() + w.reverse(&[0]).min_axes(&[1]).prod_axes(&[0]) * g.take(Tracer::lit(2.0));
+        let z = Tracer::irfft_complex(x.rfft_complex() * Tracer::complex(g, g.sin()), 8);
+        let loss = loss + (z * z).sum_all() + (Tracer::complex(x, x.cos()).ifft().conj() * x).abs().sum_all();
         let (fr, fi) = Tracer::fft_parts(x, x.reverse(&[1]));
         let (ir, ii) = Tracer::ifft_parts(fr * fi, fi);
         let loss = loss + (ir * ir + ii).sum_all();
@@ -408,16 +413,19 @@ fn fits_an_eq_and_drive_to_a_recording_with_the_stft_loss() {
     let truth = [3_000f32.ln(), 0.9, 2.0];
     let (target, _) = scan.run(&truth.map(scalar), &xs, &s0);
     for backend in backends() {
-        let program = scan.grad_program(len, &loss);
-        let exe = match backend.compile(&program) {
-            // IREE 3.11 cannot compile FFTs of 128 points or more for Vulkan
-            Err(e) if backend.name() == "iree-vulkan" && e.to_string().contains("fft") => {
-                eprintln!("skipping iree-vulkan: {}", e.to_string().lines().next().unwrap_or_default());
-                continue;
-            }
-            result => result.unwrap_or_else(|e| panic!("{}: {e}", backend.name())),
-        };
+        // with the backend's limits: IREE's Vulkan backend gets its long FFTs built from short ones
+        let exe = compile(&*backend, &scan.grad_program_with(len, &loss, &Emit::f32().for_backend(&*backend)));
         let mut params = vec![scalar(1_000f32.ln()), scalar(0.3), scalar(1.0)];
+        if matches!(backend.name(), "iree-vulkan" | "iree-cuda" | "iree-rocm" | "iree-metal") {
+            // IREE drives a scan from the host on GPUs (seconds per gradient here): check one
+            let out = exe.run(&[params.clone(), vec![xs.clone(), target.clone()], s0.to_vec()].concat()).unwrap();
+            let want = scan.grad(&params, &xs, &s0, &loss, std::slice::from_ref(&target));
+            assert!((out[0].as_slice()[0] - want.loss).abs() < 1e-3 * want.loss, "{}: loss", backend.name());
+            for (k, (g, w)) in out[1..4].iter().zip(&want.params).enumerate() {
+                assert_close(&format!("{} d param {k}", backend.name()), g, w, 1e-2);
+            }
+            continue;
+        }
         let mut adam = Adam::new(0.03);
         let mut losses = Vec::new();
         for _ in 0..300 {
@@ -519,5 +527,37 @@ fn double_precision_programs_run_on_every_backend() {
         assert!((out[1].as_slice()[0] - interpreted.params[0].as_slice()[0]).abs() < 1e-9 * (1.0 + interpreted.params[0].as_slice()[0].abs()), "{name} gradient");
         let resident = grad.upload(&p).unwrap();
         assert_eq!(resident.dtype(), autodyne::units::DType::F64);
+    }
+}
+#[test]
+fn long_ffts_built_from_short_ones_match_the_interpreter() {
+    // 8-point FFTs at most: 16 = 8 x 2, 64 = 8 x 8, 256 = 8 x 32 (32 = 8 x 4), and, where FFTs of
+    // any length compile (not IREE: powers of two only), 12 = 6 x 2, 30 = 6 x 5 and 11 (prime, whole)
+    for n in [16usize, 64, 256, 12, 30, 11] {
+        let m = n / 2 + 1;
+        let graph = trace(&[&[3, n], &[3, m]], |v| {
+            let z = Tracer::complex(v[0], v[0].sin());
+            let spectrum = v[0].rfft_complex();
+            let shaped = Tracer::irfft_complex(spectrum * Tracer::complex(v[1], v[1].cos()), n);
+            let loss = (shaped * shaped).sum_all() + z.fft().abs().sum_all();
+            let mut out = vec![spectrum.re(), spectrum.im(), shaped, z.fft().re(), z.ifft().im()];
+            out.extend(vjp(&[loss], &[Tracer::lit(1.0)], v));
+            out
+        });
+        let program = graph.program_with(&Emit::f32().max_fft(8));
+        if n != 11 {
+            assert!(!program.text.contains(&format!("length = [{n}]")), "n = {n} still has a whole FFT");
+        }
+        let inputs = [random(&[3, n], n as u32), random(&[3, m], n as u32 + 1)];
+        let want = graph.eval(&inputs);
+        for backend in backends() {
+            if !n.is_power_of_two() && backend.name().starts_with("iree") {
+                continue;
+            }
+            let got = compile(&*backend, &program).run(&inputs).unwrap();
+            for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+                assert_close(&format!("{} n {n} output {k}", backend.name()), g, w, 2e-4);
+            }
+        }
     }
 }

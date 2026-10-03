@@ -96,7 +96,13 @@ fn main() {
     let build_ms = start.elapsed().as_secs_f64() * 1e3;
     let g = scan.loss_grad(&[scalar(1_000.0)], &xs, &targets, &[scalar(0.0)]);
     let outputs = vec![scalar(g.loss), g.params[0].clone(), g.state[0].clone(), g.input.clone()];
-    cases.push(Case { name: "one_pole_grad", program, inputs: vec![scalar(1_000.0), xs.clone(), targets, scalar(0.0)], outputs, build_ms });
+    let inputs = vec![scalar(1_000.0), xs.clone(), targets, scalar(0.0)];
+    cases.push(Case { name: "one_pole_grad", program, inputs: inputs.clone(), outputs: outputs.clone(), build_ms });
+    // the same gradient recomputing each step instead of saving residuals
+    let start = Instant::now();
+    let program = one_pole().checkpointed(true).loss_grad_program(n);
+    let build_ms = start.elapsed().as_secs_f64() * 1e3;
+    cases.push(Case { name: "one_pole_grad_checkpointed", program, inputs, outputs, build_ms });
 
     // 3. peaking EQ into tanh drive, multi-resolution STFT loss gradient
     let n = 2_048;
@@ -119,15 +125,18 @@ fn main() {
     outputs.extend(g.state);
     outputs.push(g.input);
     let inputs = [params.to_vec(), vec![xs, target], s0.to_vec()].concat();
-    cases.push(Case { name: "eq_drive_stft_grad", program, inputs, outputs, build_ms });
+    cases.push(Case { name: "eq_drive_stft_grad", program, inputs: inputs.clone(), outputs: outputs.clone(), build_ms });
+    let start = Instant::now();
+    let program = chain.clone().checkpointed(true).grad_program(n, &loss);
+    let build_ms = start.elapsed().as_secs_f64() * 1e3;
+    cases.push(Case { name: "eq_drive_stft_grad_checkpointed", program, inputs, outputs, build_ms });
 
     // 4. a batch through rfft -> per-bin gain -> irfft -> dense -> tanh; gradient of the energy
     let (batch, len, width) = (256usize, 1_024usize, 64usize);
     let start = Instant::now();
     let model = trace(&[&[batch, len], &[len / 2 + 1], &[len, width]], |v| {
         let (x, gain, w) = (v[0], v[1], v[2]);
-        let (re, im) = x.rfft();
-        let y = Tracer::irfft(re * gain, im * gain, len).dot(w).tanh();
+        let y = Tracer::irfft_complex(x.rfft_complex() * gain, len).dot(w).tanh();
         let loss = (y * y).mean_all();
         let d = vjp(&[loss], &[Tracer::lit(1.0)], &[gain, w]);
         vec![loss, d[0], d[1]]

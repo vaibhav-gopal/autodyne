@@ -1,6 +1,6 @@
 use super::*;
 use crate::filter::OnePole;
-use crate::signal::{ArrayMath, NdArray, RealArrayMath};
+use crate::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
 use crate::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
@@ -286,6 +286,51 @@ fn complex_fft_forward_round_trip_and_gradients() {
 }
 
 #[test]
+fn complex_values_differentiate() {
+    // real inputs, complex intermediates, real outputs: every complex rule against differences
+    check_gradient(&[&[4], &[4]], 1e-2, 2e-3, |v| {
+        let z = Tracer::complex(v[0], v[1]);
+        let w = Tracer::complex(v[1] * Tracer::lit(0.5), v[0].sin());
+        let q = (z * w).exp() / (w + Tracer::lit(2.0)) + z.conj() * z.sqrt();
+        q.abs() + q.re() * q.im() + (z * w.conj()).tanh().re()
+    });
+    // complex dot products and complex FFTs, forward and inverse
+    check_gradient(&[&[2, 3], &[3, 4]], 1e-2, 2e-3, |v| {
+        let a = Tracer::complex(v[0], v[0].cos());
+        let b = v[1].to_complex() * Tracer::complex(Tracer::lit(0.3), Tracer::lit(-0.7));
+        let p = a.dot(b);
+        (p.fft() * p.conj().ifft()).re() + p.abs()
+    });
+    // a spectral gain through complex spectra, as XLA keeps them
+    check_gradient(&[&[2, 8], &[5]], 1e-2, 2e-3, |v| Tracer::irfft_complex(v[0].rfft_complex() * v[1], 8));
+}
+
+#[test]
+fn complex_spectra_match_the_pair_form_and_forward_mode_crosses_them() {
+    let (x, g) = (random(&[3, 16], 7), random(&[9], 8));
+    let both = trace(&[&[3, 16], &[9]], |v| {
+        let (re, im) = v[0].rfft();
+        vec![Tracer::irfft(re * v[1], im * v[1], 16), Tracer::irfft_complex(v[0].rfft_complex() * v[1], 16)]
+    })
+    .eval(&[x.clone(), g.clone()]);
+    assert!(close(both[0].as_slice(), both[1].as_slice(), 1e-6));
+    // ⟨J v, w⟩ = ⟨v, Jᵀ w⟩ through complex nodes
+    let f = |v: &[Tracer]| vec![(Tracer::irfft_complex(v[0].rfft_complex() * v[1].to_complex().exp(), 16)).tanh()];
+    let (v0, v1, w0) = (random(&[3, 16], 9), random(&[9], 10), random(&[3, 16], 11));
+    let jv = trace(&[&[3, 16], &[9]], |v| jvp(&f(v), v, &[Tracer::constant(&v0), Tracer::constant(&v1)])).eval(&[x.clone(), g.clone()]);
+    let jtw = trace(&[&[3, 16], &[9]], |v| vjp(&f(v), &[Tracer::constant(&w0)], v)).eval(&[x, g]);
+    let dot = |a: &NdArray<f32>, b: &NdArray<f32>| a.as_slice().iter().zip(b.as_slice()).map(|(p, q)| *p as f64 * *q as f64).sum::<f64>();
+    let (left, right) = (dot(&jv[0], &w0), dot(&v0, &jtw[0]) + dot(&v1, &jtw[1]));
+    assert!((left - right).abs() < 1e-4 * (1.0 + left.abs()), "{left} vs {right}");
+}
+
+#[test]
+#[should_panic(expected = "outputs must be real")]
+fn complex_outputs_are_refused() {
+    trace(&[&[4]], |v| vec![v[0].rfft_complex()]).eval(&[random(&[4], 1)]);
+}
+
+#[test]
 fn fft_gradients() {
     for n in [8usize, 7] {
         check_gradient(&[&[2, n]], 0.1, 1e-3, |v| v[0].rfft().0);
@@ -406,6 +451,26 @@ fn state_space_gradient_matches_finite_differences() {
         let got = g.state[0].as_slice()[i];
         assert!((got - fd).abs() < 2e-3 * (1.0 + fd.abs()), "state[{i}]: {got} vs {fd}");
     }
+}
+
+#[test]
+fn saved_residuals_and_checkpointing_give_the_same_gradients() {
+    // a nonlinear chain with a mask (soft clipping) and the linear state space model
+    let chain = Scan::trace(&[&[], &[]], &[&[]], &[], |p, s, x| {
+        let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(FS)).tick(s[0], x);
+        let driven = y * p[1];
+        (vec![s], Tracer::select(driven.abs().less(Tracer::lit(1.0)), driven - driven * driven * driven / Tracer::lit(3.0), driven.tanh()))
+    });
+    let xs = vector(&noise(256, 31).iter().map(|v| 2.0 * v).collect::<Vec<_>>());
+    let targets = random(&[256], 32);
+    let saved = chain.loss_grad(&[scalar(900.0), scalar(1.7)], &xs, &targets, &[scalar(0.0)]);
+    let recomputed = chain.clone().checkpointed(true).loss_grad(&[scalar(900.0), scalar(1.7)], &xs, &targets, &[scalar(0.0)]);
+    assert!(!chain.residual_shapes().is_empty() && chain.clone().checkpointed(true).residual_shapes().is_empty());
+    assert_eq!(saved, recomputed);
+    let ss = state_space();
+    let params = [arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]), arr(&[1.0, 0.5], &[2]), arr(&[0.3, -0.7], &[2])];
+    let (xs, targets, s0) = (random(&[64], 33), random(&[64], 34), [arr(&[0.1, -0.2], &[2])]);
+    assert_eq!(ss.loss_grad(&params, &xs, &targets, &s0), ss.clone().checkpointed(true).loss_grad(&params, &xs, &targets, &s0));
 }
 
 #[test]

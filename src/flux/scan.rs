@@ -43,8 +43,16 @@ pub struct Scan {
     /// inputs: params, state, x; outputs: state', y
     pub(crate) step: Graph,
     /// inputs: params, state, x, cotangents of state' and of y; outputs: cotangents of params,
-    /// state and x
+    /// state and x (recomputing the step: the checkpointed gradient)
     pub(crate) step_vjp: Graph,
+    /// inputs: params, state, x; outputs: state', y, residuals
+    pub(crate) step_fwd: Graph,
+    /// inputs: params, state, x, residuals, cotangents of state' and of y; outputs as `step_vjp`
+    pub(crate) step_bwd: Graph,
+    /// the residuals' shapes (each saved for every step)
+    pub(crate) residuals: Vec<Vec<usize>>,
+    /// recompute each step in the reverse pass instead of saving residuals
+    pub(crate) checkpointed: bool,
 }
 
 /// A loss and its gradient, from [`Scan::grad`] / [`Scan::loss_grad`].
@@ -91,6 +99,7 @@ impl Scan {
             let out = step.call(&v[..p + s + 1]);
             vjp(&out, &v[p + s + 1..], &v[..p + s + 1])
         });
+        let (step_fwd, step_bwd, residuals) = split(&step, &shapes[..p + s + 1], p, s);
         Scan {
             params: params.iter().map(|x| x.to_vec()).collect(),
             states: states.iter().map(|x| x.to_vec()).collect(),
@@ -98,7 +107,29 @@ impl Scan {
             output,
             step,
             step_vjp,
+            step_fwd,
+            step_bwd,
+            residuals,
+            checkpointed: false,
         }
+    }
+
+    /// Whether gradients recompute each step in the reverse pass (`true`: only the state is saved
+    /// per step, the least memory) or save the step's intermediate values (`false`, the default:
+    /// no recomputation, more memory per step; see [`residual_shapes`](Self::residual_shapes)).
+    pub fn checkpointed(mut self, checkpointed: bool) -> Scan {
+        self.checkpointed = checkpointed;
+        self
+    }
+
+    /// The values saved for each step for the gradient besides the state (none when checkpointed).
+    pub fn residual_shapes(&self) -> &[Vec<usize>] {
+        if self.checkpointed { &[] } else { &self.residuals }
+    }
+
+    /// The step returning the residuals too, and the reverse step reading them.
+    pub(crate) fn passes(&self) -> (&Graph, &Graph) {
+        if self.checkpointed { (&self.step, &self.step_vjp) } else { (&self.step_fwd, &self.step_bwd) }
     }
     pub fn param_shapes(&self) -> &[Vec<usize>] {
         &self.params
@@ -136,18 +167,22 @@ impl Scan {
         (NdArray::from_vec(ys, &[&[len], self.output.as_slice()].concat()).expect("output shape"), state)
     }
 
-    /// The outputs, and the state each step starts from.
+    /// The outputs, and for each step the state it starts from followed by its residuals.
     fn forward<T: FluxFloat>(&self, params: &[NdArray<T>], inputs: &[NdArray<T>], s0: &[NdArray<T>]) -> (NdArray<T>, Vec<Vec<NdArray<T>>>) {
         let s = self.states.len();
+        let (forward, _) = self.passes();
         let mut saved = Vec::with_capacity(inputs.len());
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(inputs.len() * self.output.iter().product::<usize>());
         for x in inputs {
             let args: Vec<NdArray<T>> = params.iter().chain(&state).cloned().chain([x.clone()]).collect();
-            let mut out = self.step.eval(&args);
+            let mut out = forward.eval(&args);
+            let residuals = out.split_off(s + 1);
             ys.extend_from_slice(out[s].as_slice());
             out.truncate(s);
-            saved.push(std::mem::replace(&mut state, out));
+            let mut step = std::mem::replace(&mut state, out);
+            step.extend(residuals);
+            saved.push(step);
         }
         (NdArray::from_vec(ys, &[&[inputs.len()], self.output.as_slice()].concat()).expect("output shape"), saved)
     }
@@ -160,9 +195,12 @@ impl Scan {
         let mut d_params: Vec<NdArray<T>> = self.params.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
         let mut d_state: Vec<NdArray<T>> = self.states.iter().map(|sh| NdArray::zeros(sh).expect("shape")).collect();
         let mut d_xs = vec![NdArray::zeros(&self.sample).expect("shape"); inputs.len()];
+        let (_, reverse) = self.passes();
         for i in (0..inputs.len()).rev() {
-            let args: Vec<NdArray<T>> = params.iter().chain(&saved[i]).cloned().chain([inputs[i].clone()]).chain(d_state).chain([dys[i].clone()]).collect();
-            let mut out = self.step_vjp.eval(&args);
+            let (state, residuals) = saved[i].split_at(s);
+            let args: Vec<NdArray<T>> =
+                params.iter().chain(state).cloned().chain([inputs[i].clone()]).chain(residuals.iter().cloned()).chain(d_state).chain([dys[i].clone()]).collect();
+            let mut out = reverse.eval(&args);
             d_xs[i] = out.pop().expect("d x");
             for (d, g) in d_params.iter_mut().zip(&out[..p]) {
                 d.as_mut_slice().iter_mut().zip(g.as_slice()).for_each(|(d, &g)| *d = *d + g);
@@ -240,3 +278,113 @@ fn steps<'a, T: FluxFloat>(stacked: &'a NdArray<T>, shape: &'a [usize]) -> impl 
     stacked.as_slice().chunks(size.max(1)).take(stacked.shape()[0]).map(move |c| NdArray::from_vec(c[..size].to_vec(), shape).expect("step shape"))
 }
 
+
+/// Splits the step's vector-Jacobian product into a forward step that also returns the residuals
+/// (the intermediate values the reverse step reads that change from step to step) and a reverse
+/// step that takes them instead of recomputing the step. Values that depend on the parameters
+/// alone (filter coefficients, say) are recomputed in the reverse step, where a compiler hoists
+/// them out of the loop; masks are recomputed from their operands; a complex residual is saved as
+/// its real and imaginary parts.
+fn split(step: &Graph, primal: &[&[usize]], p: usize, s: usize) -> (Graph, Graph, Vec<Vec<usize>>) {
+    use super::graph::{replay, trace_unpruned, Kind, Op};
+    use super::graph::Id;
+    let n = p + s + 1;
+    let out_shapes = step.output_shapes();
+    let shapes: Vec<&[usize]> = primal.iter().copied().chain(out_shapes.iter().map(Vec::as_slice)).collect();
+    let outs = std::cell::RefCell::new(Vec::new());
+    let raw = trace_unpruned(&shapes, |v| {
+        let out = step.call(&v[..n]);
+        *outs.borrow_mut() = out.iter().map(|t| t.id).collect::<Vec<Id>>();
+        vjp(&out, &v[n..], &v[..n])
+    });
+    let outs = outs.into_inner();
+    let nodes = &raw.nodes;
+
+    // tainted: depends on the cotangents (the reverse step proper); varying: on the state or x
+    let mut tainted = vec![false; nodes.len()];
+    let mut varying = vec![false; nodes.len()];
+    for (i, node) in nodes.iter().enumerate() {
+        (tainted[i], varying[i]) = match node.op {
+            Op::Input(k) => (k as usize >= n, (p..n).contains(&(k as usize))),
+            ref op => op.operands().fold((false, false), |(t, v), a| (t || tainted[a as usize], v || varying[a as usize])),
+        };
+    }
+    // what the reverse step reads from the forward computation: saved, or recomputed there
+    let mut residual = vec![false; nodes.len()];
+    let mut recompute = vec![false; nodes.len()];
+    let mut work: Vec<Id> = (0..nodes.len()).filter(|&i| tainted[i]).flat_map(|i| nodes[i].op.operands().collect::<Vec<_>>()).collect();
+    work.extend(raw.outputs.iter().copied());
+    while let Some(a) = work.pop() {
+        let a = a as usize;
+        if tainted[a] || residual[a] || recompute[a] || matches!(nodes[a].op, Op::Input(_)) {
+            continue;
+        }
+        if varying[a] && nodes[a].kind != Kind::Mask {
+            residual[a] = true;
+        } else {
+            recompute[a] = true;
+            work.extend(nodes[a].op.operands());
+        }
+    }
+    let saved: Vec<usize> = (0..nodes.len()).filter(|&i| residual[i]).collect();
+    let mut residual_shapes = Vec::new();
+    for &i in &saved {
+        let copies = if nodes[i].kind == Kind::Complex { 2 } else { 1 };
+        residual_shapes.extend(std::iter::repeat_n(nodes[i].shape.clone(), copies));
+    }
+
+    let forward = trace(primal, |v| {
+        let mut env: Vec<Id> = vec![Id::MAX; nodes.len()];
+        for (i, node) in nodes.iter().enumerate() {
+            env[i] = match node.op {
+                Op::Input(k) if (k as usize) < n => v[k as usize].id,
+                Op::Input(_) => continue,
+                _ if tainted[i] => continue,
+                _ => replay(node, |a| env[a as usize]).id,
+            };
+        }
+        let mut result: Vec<Tracer> = outs.iter().map(|&o| Tracer::node(env[o as usize])).collect();
+        for &i in &saved {
+            let t = Tracer::node(env[i]);
+            if t.is_complex() {
+                result.extend([t.re(), t.im()]);
+            } else {
+                result.push(t);
+            }
+        }
+        result
+    });
+
+    let bwd_shapes: Vec<&[usize]> = primal.iter().copied().chain(residual_shapes.iter().map(Vec::as_slice)).chain(out_shapes.iter().map(Vec::as_slice)).collect();
+    let reverse = trace(&bwd_shapes, |v| {
+        let mut env: Vec<Id> = vec![Id::MAX; nodes.len()];
+        let mut next = n;
+        for &i in &saved {
+            env[i] = if nodes[i].kind == Kind::Complex {
+                next += 2;
+                Tracer::complex(v[next - 2], v[next - 1]).id
+            } else {
+                next += 1;
+                v[next - 1].id
+            };
+        }
+        for (i, node) in nodes.iter().enumerate() {
+            if env[i] != Id::MAX {
+                continue;
+            }
+            env[i] = match node.op {
+                Op::Input(k) if (k as usize) < n => v[k as usize].id,
+                Op::Input(k) => v[next + k as usize - n].id,
+                _ if tainted[i] || recompute[i] => replay(node, |a| {
+                    let id = env[a as usize];
+                    assert!(id != Id::MAX, "Scan: the reverse step reads a value it was not given");
+                    id
+                })
+                .id,
+                _ => continue,
+            };
+        }
+        raw.outputs.iter().map(|&o| Tracer::node(env[o as usize])).collect()
+    });
+    (forward, reverse, residual_shapes)
+}

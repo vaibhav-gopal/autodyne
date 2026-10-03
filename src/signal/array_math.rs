@@ -93,18 +93,49 @@ pub trait ArrayMath: Elementwise {
     }
 }
 
-/// Real arrays: [`ArrayMath`] with ordering ([`RealValued`]) and real FFTs.
+/// Real arrays: [`ArrayMath`] with ordering ([`RealValued`]), real FFTs and their complex
+/// counterpart type.
+///
+/// Spectra are values of [`Complex`](Self::Complex) (`NdArray<Complex<T>>` for `NdArray<T>`; the
+/// same type for `DynArray` and `flux::Tracer`), so a spectral computation stays complex from one
+/// FFT to the next: `A::irfft_complex(x.rfft_complex() * gain.to_complex(), n)`. The `(real,
+/// imaginary)` pair methods are built on these.
 pub trait RealArrayMath: ArrayMath + RealValued {
+    /// Complex arrays of the same precision.
+    type Complex: ComplexArrayMath;
+    /// The real FFT along the last axis: `n` samples become `n / 2 + 1` complex bins.
+    fn rfft_complex(self) -> Self::Complex;
+    /// The inverse of [`rfft_complex`](Self::rfft_complex): `n` samples along the last axis from
+    /// `n / 2 + 1` bins, scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
+    fn irfft_complex(spectrum: Self::Complex, n: usize) -> Self;
+    /// `self + 0i`.
+    fn to_complex(self) -> Self::Complex;
+    /// `re + i·im`.
+    fn complex(re: Self, im: Self) -> Self::Complex;
+    fn real_part(z: Self::Complex) -> Self;
+    fn imag_part(z: Self::Complex) -> Self;
+
     /// The real FFT along the last axis: `(real parts, imaginary parts)`, `n / 2 + 1` bins each.
-    fn rfft(self) -> (Self, Self);
+    fn rfft(self) -> (Self, Self) {
+        let z = self.rfft_complex();
+        (Self::real_part(z.clone()), Self::imag_part(z))
+    }
     /// The inverse of [`rfft`](Self::rfft): `n` samples along the last axis from `n / 2 + 1` bins,
     /// scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
-    fn irfft(re: Self, im: Self, n: usize) -> Self;
+    fn irfft(re: Self, im: Self, n: usize) -> Self {
+        Self::irfft_complex(Self::complex(re, im), n)
+    }
     /// The complex DFT along the last axis of `re + i·im` (same shapes), as `(real parts,
-    /// imaginary parts)`: complex FFTs for code (and traces) on real arrays.
-    fn fft_parts(re: Self, im: Self) -> (Self, Self);
+    /// imaginary parts)`.
+    fn fft_parts(re: Self, im: Self) -> (Self, Self) {
+        let z = Self::complex(re, im).fft();
+        (Self::real_part(z.clone()), Self::imag_part(z))
+    }
     /// The inverse of [`fft_parts`](Self::fft_parts) (scaled by `1 / n`).
-    fn ifft_parts(re: Self, im: Self) -> (Self, Self);
+    fn ifft_parts(re: Self, im: Self) -> (Self, Self) {
+        let z = Self::complex(re, im).ifft();
+        (Self::real_part(z.clone()), Self::imag_part(z))
+    }
     /// Maximum over `axes`, which are removed (NaN propagates; an empty axis gives -∞).
     fn max_axes(self, axes: &[usize]) -> Self;
     /// Minimum over `axes`, which are removed (NaN propagates; an empty axis gives +∞).
@@ -477,11 +508,18 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
 }
 
 impl<T: Float + Default> RealArrayMath for NdArray<T> {
-    fn fft_parts(re: Self, im: Self) -> (Self, Self) {
-        split_complex(complex_fft(join_complex(&re, &im), false))
+    type Complex = NdArray<Complex<T>>;
+    fn to_complex(self) -> NdArray<Complex<T>> {
+        self.map(|&x| Complex::new(x, T::_ZERO))
     }
-    fn ifft_parts(re: Self, im: Self) -> (Self, Self) {
-        split_complex(complex_fft(join_complex(&re, &im), true))
+    fn complex(re: Self, im: Self) -> NdArray<Complex<T>> {
+        join_complex(&re, &im)
+    }
+    fn real_part(z: NdArray<Complex<T>>) -> Self {
+        z.map(|c| c.re)
+    }
+    fn imag_part(z: NdArray<Complex<T>>) -> Self {
+        z.map(|c| c.im)
     }
     fn max_axes(self, axes: &[usize]) -> Self {
         reduce_axes_with(self, axes, T::_NEG_INFINITY, max_nan)
@@ -492,27 +530,23 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
     fn take(self, indices: Self) -> Self {
         take_any(&self, indices.as_slice().iter().map(|i| i.to_f64().unwrap_or(f64::NAN)), indices.shape())
     }
-    fn rfft(self) -> (Self, Self) {
+    fn rfft_complex(self) -> NdArray<Complex<T>> {
         let mut shape = NdArray::shape(&self).to_vec();
         let n = *shape.last().expect("rfft: needs an axis");
         assert!(n >= 1, "rfft: empty axis");
         let m = n / 2 + 1;
-        let rows = self.len() / n;
-        let (mut re, mut im) = (Vec::with_capacity(rows * m), Vec::with_capacity(rows * m));
+        let mut out = Vec::with_capacity(self.len() / n * m);
         let mut fft = RealFft::<f64>::new(n);
         for row in self.as_slice().chunks(n) {
-            for z in rfft_row(&mut fft, row) {
-                re.push(T::_lit(z.re));
-                im.push(T::_lit(z.im));
-            }
+            out.extend(rfft_row(&mut fft, row).into_iter().map(|z| Complex::new(T::_lit(z.re), T::_lit(z.im))));
         }
         *shape.last_mut().unwrap() = m;
-        (NdArray::from_vec(re, &shape).expect("valid shape"), NdArray::from_vec(im, &shape).expect("valid shape"))
+        NdArray::from_vec(out, &shape).expect("valid shape")
     }
 
-    fn irfft(re: Self, im: Self, n: usize) -> Self {
+    fn irfft_complex(spectrum: NdArray<Complex<T>>, n: usize) -> Self {
+        let (re, im) = split_complex(spectrum);
         let mut shape = NdArray::shape(&re).to_vec();
-        assert_eq!(shape.as_slice(), NdArray::shape(&im), "irfft: real and imaginary parts differ in shape");
         let m = n / 2 + 1;
         assert!(n >= 1 && shape.last() == Some(&m), "irfft: {n} samples need {m} bins, got {shape:?}");
         let mut out = Vec::with_capacity(re.len() / m * n);

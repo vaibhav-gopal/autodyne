@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use autodyne::distortion::Shape;
 use autodyne::dynamics::{envelope_step, time_coeff, CompressorCurve};
 use autodyne::filter::{BiquadCoeffs, BiquadKind, LadderCoeffs, OnePole, SvfCoeffs, SvfMode};
-use autodyne::flux::{self as fx, Backend, Executable, ExecutableExt, FluxFloat, Graph, Iree, IreeTarget, Loss, Mask, Pjrt, PjrtOption, Program, Scan, StftResolution, Tracer, Xla};
-use autodyne::signal::{ArrayMath, NdArray, NdView, RealArrayMath};
+use autodyne::flux::{self as fx, Backend, Emit, Executable, ExecutableExt, FluxFloat, Graph, Iree, IreeTarget, Loss, Mask, Pjrt, PjrtOption, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::signal::{ArrayMath, ComplexArrayMath, NdArray, NdView, RealArrayMath};
 use autodyne::units::*;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
@@ -205,6 +205,33 @@ impl PyTracer {
     fn dot(&self, o: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(PyTracer(self.0.dot(tr(o)?)))
     }
+    /// Whether the values are complex (spectra).
+    #[getter]
+    fn is_complex(&self) -> bool {
+        self.0.is_complex()
+    }
+    /// The real part.
+    #[getter]
+    fn real(&self) -> Self {
+        PyTracer(self.0.re())
+    }
+    /// The imaginary part.
+    #[getter]
+    fn imag(&self) -> Self {
+        PyTracer(self.0.im())
+    }
+    fn conj(&self) -> Self {
+        PyTracer(self.0.conj())
+    }
+    /// The real FFT along the last axis as complex values (`n / 2 + 1` bins).
+    fn rfft_complex(&self) -> Self {
+        PyTracer(self.0.rfft_complex())
+    }
+    /// The complex FFT along the last axis (a real tracer is promoted).
+    #[pyo3(signature = (inverse=false))]
+    fn fft(&self, inverse: bool) -> Self {
+        PyTracer(if inverse { self.0.ifft() } else { self.0.fft() })
+    }
     /// The real FFT along the last axis: `(real parts, imaginary parts)`.
     fn rfft(&self) -> (Self, Self) {
         let (re, im) = self.0.rfft();
@@ -284,6 +311,18 @@ fn concatenate(parts: Vec<Bound<'_, PyAny>>, axis: usize) -> PyResult<PyTracer> 
 #[pyfunction]
 fn irfft(re: &Bound<'_, PyAny>, im: &Bound<'_, PyAny>, n: usize) -> PyResult<PyTracer> {
     Ok(PyTracer(Tracer::irfft(tr(re)?, tr(im)?, n)))
+}
+
+/// `n` real samples from complex bins (`n / 2 + 1` along the last axis).
+#[pyfunction]
+fn irfft_complex(spectrum: &Bound<'_, PyAny>, n: usize) -> PyResult<PyTracer> {
+    Ok(PyTracer(Tracer::irfft_complex(tr(spectrum)?, n)))
+}
+
+/// `re + i im`.
+#[pyfunction]
+fn complex(re: &Bound<'_, PyAny>, im: &Bound<'_, PyAny>) -> PyResult<PyTracer> {
+    Ok(PyTracer(Tracer::complex(tr(re)?, tr(im)?)))
 }
 
 /// The complex DFT along the last axis of `re + i im`: `(real parts, imaginary parts)`.
@@ -520,10 +559,11 @@ impl PyGraph {
             Batch::F64(a) => numpy_list(py, self.0.eval(&a)),
         }
     }
-    /// The StableHLO program, in `dtype` ("float32" or "float64").
-    #[pyo3(signature = (dtype="float32"))]
-    fn program(&self, dtype: &str) -> PyResult<PyProgram> {
-        Ok(PyProgram(if wide(dtype)? { self.0.program_as::<f64>() } else { self.0.program() }))
+    /// The StableHLO program, in `dtype` ("float32" or "float64"), with FFTs of at most `max_fft`
+    /// points if given (see `Backend.max_fft`).
+    #[pyo3(signature = (dtype="float32", max_fft=None))]
+    fn program(&self, dtype: &str, max_fft: Option<usize>) -> PyResult<PyProgram> {
+        Ok(PyProgram(self.0.program_with(&emit(dtype, max_fft)?)))
     }
     #[getter]
     fn input_shapes(&self) -> Vec<Vec<usize>> {
@@ -544,6 +584,15 @@ impl PyGraph {
             return Err(PyValueError::new_err(format!("the graph takes {} inputs, got {}", self.0.inputs().len(), inputs.len())));
         }
         Ok(())
+    }
+}
+
+fn emit(dtype: &str, max_fft: Option<usize>) -> PyResult<Emit> {
+    let e = if wide(dtype)? { Emit::f64() } else { Emit::f32() };
+    match max_fft {
+        Some(n) if n < 2 => Err(PyValueError::new_err("max_fft must be at least 2")),
+        Some(n) => Ok(e.max_fft(n)),
+        None => Ok(e),
     }
 }
 
@@ -758,15 +807,27 @@ impl PyScan {
     }
 
     /// The forward program over `len` steps: `(params..., xs, s0...) -> (ys, final state...)`.
-    #[pyo3(signature = (len, dtype="float32"))]
-    fn forward_program(&self, len: usize, dtype: &str) -> PyResult<PyProgram> {
-        Ok(PyProgram(if wide(dtype)? { self.0.forward_program_as::<f64>(len) } else { self.0.forward_program(len) }))
+    #[pyo3(signature = (len, dtype="float32", max_fft=None))]
+    fn forward_program(&self, len: usize, dtype: &str, max_fft: Option<usize>) -> PyResult<PyProgram> {
+        Ok(PyProgram(self.0.forward_program_with(len, &emit(dtype, max_fft)?)))
+    }
+
+    /// The same scan with gradients that recompute each step (`True`: the least memory) or save the
+    /// step's intermediate values (`False`, the default: faster).
+    fn checkpointed(&self, checkpointed: bool) -> Self {
+        PyScan(self.0.clone().checkpointed(checkpointed))
+    }
+
+    /// The shapes saved per step for gradients besides the state.
+    #[getter]
+    fn residual_shapes(&self) -> Vec<Vec<usize>> {
+        self.0.residual_shapes().to_vec()
     }
 
     /// The gradient program over `len` steps: `(params..., xs, aux..., s0...) -> (loss, d params...,
     /// d s0..., d xs)`; mean squared error against a target without `loss`.
-    #[pyo3(signature = (len, loss=None, dtype="float32"))]
-    fn grad_program(&self, len: usize, loss: Option<PyRef<'_, PyLoss>>, dtype: &str) -> PyResult<PyProgram> {
+    #[pyo3(signature = (len, loss=None, dtype="float32", max_fft=None))]
+    fn grad_program(&self, len: usize, loss: Option<PyRef<'_, PyLoss>>, dtype: &str, max_fft: Option<usize>) -> PyResult<PyProgram> {
         let mse;
         let loss = match &loss {
             Some(l) => &l.0,
@@ -775,7 +836,7 @@ impl PyScan {
                 &mse
             }
         };
-        Ok(PyProgram(if wide(dtype)? { self.0.grad_program_as::<f64>(len, loss) } else { self.0.grad_program(len, loss) }))
+        Ok(PyProgram(self.0.grad_program_with(len, loss, &emit(dtype, max_fft)?)))
     }
 }
 
@@ -861,6 +922,11 @@ impl PyBackend {
     fn name(&self) -> &'static str {
         self.0.name()
     }
+    /// The longest FFT this backend compiles, if limited: pass it as `max_fft` when writing programs.
+    #[getter]
+    fn max_fft(&self) -> Option<usize> {
+        self.0.max_fft()
+    }
     fn compile(&self, program: PyRef<'_, PyProgram>) -> PyResult<PyExecutable> {
         Ok(PyExecutable(self.0.compile(&program.0).map_err(value_error)?))
     }
@@ -898,6 +964,8 @@ pub(crate) fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(where_, &m)?,
         wrap_pyfunction!(concatenate, &m)?,
         wrap_pyfunction!(irfft, &m)?,
+        wrap_pyfunction!(irfft_complex, &m)?,
+        wrap_pyfunction!(complex, &m)?,
         wrap_pyfunction!(fft, &m)?,
         wrap_pyfunction!(convolve, &m)?,
         wrap_pyfunction!(frames, &m)?,

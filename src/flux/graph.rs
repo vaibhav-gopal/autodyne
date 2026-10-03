@@ -1,4 +1,4 @@
-//! The traced graph: a flat list of primitive operations on f32 arrays, and the `Tracer` handle that
+//! The traced graph: a flat list of primitive operations on arrays, and the `Tracer` handle that
 //! records into it.
 
 use std::cell::{Cell, RefCell};
@@ -73,11 +73,14 @@ pub enum Reduction {
     Prod,
 }
 
-/// Which half of a complex spectrum an [`Op::Rfft`] node holds.
+/// What a node's elements are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Part {
-    Re,
-    Im,
+pub enum Kind {
+    Real,
+    /// Complex numbers (spectra), carried as such so XLA keeps them in one array.
+    Complex,
+    /// Booleans (comparisons), consumed by `select`.
+    Mask,
 }
 
 /// A primitive operation. Operands are earlier nodes, so a graph is always in topological order.
@@ -125,20 +128,29 @@ pub enum Op {
     /// Contracts axes `ca` of the first operand with axes `cb` of the second (pairwise); the result
     /// has the first operand's other axes, then the second's (`stablehlo.dot_general`).
     Dot { a: Id, b: Id, ca: Vec<usize>, cb: Vec<usize> },
-    /// One part of the real FFT along the last axis: length `n` becomes `n / 2 + 1` bins.
-    Rfft(Id, Part),
-    /// The inverse real FFT along the last axis from real and imaginary parts (`n / 2 + 1` bins)
-    /// to `n` samples, scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
-    Irfft { re: Id, im: Id, n: usize },
+    /// The real FFT along the last axis: `n` real samples become `n / 2 + 1` complex bins.
+    Rfft(Id),
+    /// The inverse real FFT along the last axis: `n / 2 + 1` complex bins become `n` real samples,
+    /// scaled by `1 / n`. The imaginary parts of bins 0 and `n / 2` are ignored.
+    Irfft(Id, usize),
+    /// The complex DFT along the last axis, or its inverse (scaled by `1 / n`).
+    Fft(Id, bool),
+    /// `re + i im` from two real operands.
+    Complex(Id, Id),
+    /// The real part of a complex operand.
+    Re(Id),
+    /// The imaginary part of a complex operand.
+    Im(Id),
+    /// The complex conjugate.
+    Conj(Id),
+    /// A real operand as complex numbers.
+    ToComplex(Id),
     /// Indices `start..limit` by `stride` along each axis (`stablehlo.slice`).
     Slice { a: Id, start: Vec<usize>, limit: Vec<usize>, stride: Vec<usize> },
     /// Zero padding before, after and between the elements of each axis (`stablehlo.pad`).
     Pad { a: Id, low: Vec<usize>, high: Vec<usize>, interior: Vec<usize> },
     /// The operands joined along an axis (`stablehlo.concatenate`).
     Concat(Vec<Id>, usize),
-    /// One part of the complex DFT (or its inverse, scaled by `1 / n`) along the last axis of
-    /// `re + i·im`.
-    Fft { re: Id, im: Id, inverse: bool, part: Part },
     /// Max / min / product over `axes` (increasing), which are removed.
     Reduce(Id, Vec<usize>, Reduction),
     /// Reverses each of `axes`.
@@ -159,13 +171,14 @@ impl Op {
         let (a, b, c) = match *self {
             Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
             Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) | Op::Floor(a) => (Some(a), None, None),
-            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Rfft(a, _) | Op::Slice { a, .. } | Op::Pad { a, .. } | Op::Reduce(a, ..) | Op::Reverse(a, _) => {
+            Op::Rfft(a) | Op::Irfft(a, _) | Op::Fft(a, _) | Op::Re(a) | Op::Im(a) | Op::Conj(a) | Op::ToComplex(a) => (Some(a), None, None),
+            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Slice { a, .. } | Op::Pad { a, .. } | Op::Reduce(a, ..) | Op::Reverse(a, _) => {
                 (Some(a), None, None)
             }
             Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
                 (Some(a), Some(b), None)
             }
-            Op::Dot { a, b, .. } | Op::Irfft { re: a, im: b, .. } | Op::Take { table: a, indices: b } | Op::ScatterAdd { indices: a, updates: b } | Op::Fft { re: a, im: b, .. } => {
+            Op::Dot { a, b, .. } | Op::Complex(a, b) | Op::Take { table: a, indices: b } | Op::ScatterAdd { indices: a, updates: b } => {
                 (Some(a), Some(b), None)
             }
             Op::Select(c, a, b) => (Some(c), Some(a), Some(b)),
@@ -201,12 +214,17 @@ impl Op {
             Op::Transpose(a, perm) => Op::Transpose(f(a), perm),
             Op::Sum(a, axes) => Op::Sum(f(a), axes),
             Op::Dot { a, b, ca, cb } => Op::Dot { a: f(a), b: f(b), ca, cb },
-            Op::Rfft(a, part) => Op::Rfft(f(a), part),
-            Op::Irfft { re, im, n } => Op::Irfft { re: f(re), im: f(im), n },
+            Op::Rfft(a) => Op::Rfft(f(a)),
+            Op::Irfft(a, n) => Op::Irfft(f(a), n),
+            Op::Fft(a, inverse) => Op::Fft(f(a), inverse),
+            Op::Complex(a, b) => Op::Complex(f(a), f(b)),
+            Op::Re(a) => Op::Re(f(a)),
+            Op::Im(a) => Op::Im(f(a)),
+            Op::Conj(a) => Op::Conj(f(a)),
+            Op::ToComplex(a) => Op::ToComplex(f(a)),
             Op::Slice { a, start, limit, stride } => Op::Slice { a: f(a), start, limit, stride },
             Op::Pad { a, low, high, interior } => Op::Pad { a: f(a), low, high, interior },
             Op::Concat(parts, axis) => Op::Concat(parts.into_iter().map(f).collect(), axis),
-            Op::Fft { re, im, inverse, part } => Op::Fft { re: f(re), im: f(im), inverse, part },
             Op::Reduce(a, axes, r) => Op::Reduce(f(a), axes, r),
             Op::Reverse(a, axes) => Op::Reverse(f(a), axes),
             Op::Take { table, indices } => Op::Take { table: f(table), indices: f(indices) },
@@ -215,18 +233,18 @@ impl Op {
     }
 }
 
-/// A node: its operation, the shape of its value, and whether that value is a mask (booleans)
-/// rather than real numbers.
+/// A node: its operation, and the shape and kind of its value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
     pub op: Op,
     pub shape: Vec<usize>,
-    pub mask: bool,
+    pub kind: Kind,
 }
 
 /// A traced program: nodes in topological order, the inputs' shapes, and the output nodes.
 ///
-/// Built by [`trace`]. Values are f32 arrays of up to [`MAX_DIMS`] axes (shape `[]` is a scalar).
+/// Built by [`trace`]. Values are arrays of up to [`MAX_DIMS`] axes (shape `[]` is a scalar) of real
+/// numbers, complex numbers (spectra) or booleans (masks); inputs and outputs are real.
 #[derive(Clone, Debug, PartialEq, Default)]
 pub struct Graph {
     pub(crate) nodes: Vec<Node>,
@@ -261,7 +279,7 @@ impl Graph {
         for node in &self.nodes {
             let id = match node.op {
                 Op::Input(n) => args[n as usize].check(),
-                ref op => push(op.map(|i| ids[i as usize]), node.shape.clone(), node.mask),
+                ref op => push(op.map(|i| ids[i as usize]), node.shape.clone(), node.kind),
             };
             ids.push(id);
         }
@@ -273,7 +291,7 @@ impl Graph {
 impl fmt::Display for Graph {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for (i, n) in self.nodes.iter().enumerate() {
-            writeln!(f, "%{i}: {:?}{} = {:?}", n.shape, if n.mask { " mask" } else { "" }, n.op)?;
+            writeln!(f, "%{i}: {:?} {:?} = {:?}", n.shape, n.kind, n.op)?;
         }
         write!(f, "return {:?}", self.outputs)
     }
@@ -313,10 +331,17 @@ thread_local! {
 /// assert_eq!(g.eval(&[scalar(1.0), scalar(2.0)])[0].as_slice(), &[2.0f32.exp()]);
 /// ```
 pub fn trace(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> Graph {
+    let mut graph = trace_unpruned(inputs, f);
+    graph.prune();
+    graph
+}
+
+/// [`trace`] keeping every recorded node, so ids match what the closure saw.
+pub(crate) fn trace_unpruned(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> Graph {
     for s in inputs {
         assert!(s.len() <= MAX_DIMS, "flux::trace: at most {MAX_DIMS} axes");
     }
-    let nodes = (0..inputs.len()).map(|n| Node { op: Op::Input(n as u32), shape: inputs[n].to_vec(), mask: false }).collect();
+    let nodes = (0..inputs.len()).map(|n| Node { op: Op::Input(n as u32), shape: inputs[n].to_vec(), kind: Kind::Real }).collect();
     let graph = Graph { nodes, inputs: inputs.iter().map(|s| s.to_vec()).collect(), outputs: Vec::new() };
     let trace = NEXT_TRACE.with(|n| {
         let t = n.get();
@@ -344,8 +369,12 @@ pub fn trace(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> G
     let (_, mut graph) = GRAPH.with(|g| g.borrow_mut().take()).expect("flux::trace: graph missing");
     drop(reset);
     graph.outputs = outs.iter().map(|t| t.id).collect();
-    graph.prune();
     graph
+}
+
+/// Records `node` again in the current trace, its operands mapped by `map`.
+pub(crate) fn replay(node: &Node, map: impl Fn(Id) -> Id) -> Tracer {
+    Tracer { id: push(node.op.map(map), node.shape.clone(), node.kind), trace: current_trace() }
 }
 
 impl Graph {
@@ -408,11 +437,24 @@ pub(crate) fn len() -> usize {
     with_graph(|g| g.nodes.len())
 }
 
-fn push(op: Op, shape: Vec<usize>, mask: bool) -> Id {
+fn push(op: Op, shape: Vec<usize>, kind: Kind) -> Id {
     with_graph(|g| {
-        g.nodes.push(Node { op, shape, mask });
+        g.nodes.push(Node { op, shape, kind });
         (g.nodes.len() - 1) as Id
     })
+}
+
+/// The kind of value `op` makes, from its operands'.
+fn kind_of(op: &Op) -> Kind {
+    let of = |i: Id| with_graph(|g| g.nodes[i as usize].kind);
+    match *op {
+        Op::Input(_) | Op::Const(_) | Op::Literal(_) | Op::Abs(_) | Op::Re(_) | Op::Im(_) | Op::Irfft(..) => Kind::Real,
+        Op::Compare(..) => Kind::Mask,
+        Op::Rfft(_) | Op::ToComplex(_) | Op::Complex(..) => Kind::Complex,
+        Op::Select(_, a, _) | Op::Take { table: a, .. } | Op::ScatterAdd { updates: a, .. } => of(a),
+        Op::Concat(ref parts, _) => of(parts[0]),
+        ref op => of(op.operands().next().expect("an operand")),
+    }
 }
 
 /// NumPy broadcasting: the shape both operands stretch to, if any.
@@ -442,7 +484,50 @@ impl Tracer {
 
     fn new(op: Op, shape: Vec<usize>) -> Tracer {
         assert!(shape.len() <= MAX_DIMS, "flux: at most {MAX_DIMS} axes");
-        Tracer { id: push(op, shape, false), trace: current_trace() }
+        let kind = kind_of(&op);
+        Tracer { id: push(op, shape, kind), trace: current_trace() }
+    }
+
+    /// What the elements are: real or complex.
+    pub fn kind(&self) -> Kind {
+        let id = self.check();
+        with_graph(|g| g.nodes[id as usize].kind)
+    }
+
+    pub fn is_complex(&self) -> bool {
+        self.kind() == Kind::Complex
+    }
+
+    fn real_only(self, what: &str) -> Tracer {
+        assert!(!self.is_complex(), "flux: {what} needs real values, not complex ones");
+        self
+    }
+
+    /// `re + i im` (real operands, broadcast together).
+    pub fn complex(re: Tracer, im: Tracer) -> Tracer {
+        let (re, im) = (re.real_only("complex"), im.real_only("complex"));
+        let (a, b, shape) = re.align(im);
+        Tracer::new(Op::Complex(a.check(), b.check()), shape)
+    }
+
+    /// The real part (a real value is its own).
+    pub fn re(self) -> Tracer {
+        if self.is_complex() { self.unary(Op::Re) } else { self }
+    }
+
+    /// The imaginary part (zero for a real value).
+    pub fn im(self) -> Tracer {
+        if self.is_complex() { self.unary(Op::Im) } else { Tracer::zeros(&self.shape()) }
+    }
+
+    /// The value as complex numbers (a complex value is unchanged).
+    pub fn to_complex(self) -> Tracer {
+        if self.is_complex() { self } else { self.unary(Op::ToComplex) }
+    }
+
+    /// Both operands of one kind: a real one becomes complex beside a complex one.
+    fn promote(self, rhs: Tracer) -> (Tracer, Tracer) {
+        if self.is_complex() == rhs.is_complex() { (self, rhs) } else { (self.to_complex(), rhs.to_complex()) }
     }
 
     /// A constant array (of `f32` or `f64`).
@@ -467,15 +552,15 @@ impl Tracer {
         (self.broadcast_to(&shape), rhs.broadcast_to(&shape), shape)
     }
 
-    fn complex_fft(re: Tracer, im: Tracer, inverse: bool) -> (Tracer, Tracer) {
-        let shape = re.shape();
-        assert_eq!(shape, im.shape(), "fft: real and imaginary parts differ in shape");
+    fn complex_fft(self, inverse: bool) -> Tracer {
+        let z = self.to_complex();
+        let shape = z.shape();
         assert!(shape.last().is_some_and(|&n| n >= 1), "fft: needs a non-empty axis");
-        let (re, im) = (re.check(), im.check());
-        (Tracer::new(Op::Fft { re, im, inverse, part: Part::Re }, shape.clone()), Tracer::new(Op::Fft { re, im, inverse, part: Part::Im }, shape))
+        Tracer::new(Op::Fft(z.check(), inverse), shape)
     }
 
     fn reduce(self, axes: &[usize], r: Reduction) -> Tracer {
+        let _ = self.real_only("max / min / prod");
         let own = self.shape();
         let mut axes = axes.to_vec();
         axes.sort_unstable();
@@ -498,13 +583,19 @@ impl Tracer {
     }
 
     fn binary(self, rhs: Tracer, f: fn(Id, Id) -> Op) -> Tracer {
-        let (a, b, shape) = self.align(rhs);
+        let (a, b) = self.promote(rhs);
+        let (a, b, shape) = a.align(b);
         Tracer::new(f(a.check(), b.check()), shape)
     }
 
+    /// A binary operation defined for real values only.
+    fn real_binary(self, rhs: Tracer, f: fn(Id, Id) -> Op, what: &str) -> Tracer {
+        self.real_only(what).binary(rhs.real_only(what), f)
+    }
+
     pub(crate) fn compare(self, rhs: Tracer, c: Cmp) -> Mask {
-        let (a, b, shape) = self.align(rhs);
-        Mask { id: push(Op::Compare(c, a.check(), b.check()), shape, true), trace: self.trace }
+        let (a, b, shape) = self.real_only("comparison").align(rhs.real_only("comparison"));
+        Mask { id: push(Op::Compare(c, a.check(), b.check()), shape, Kind::Mask), trace: self.trace }
     }
 }
 
@@ -583,7 +674,8 @@ impl ArrayMath for Tracer {
         let distinct = |c: &[usize]| c.iter().enumerate().all(|(k, x)| !c[..k].contains(x));
         assert!(distinct(ca) && distinct(cb), "dot_general: an axis is contracted twice");
         let shape = (0..sa.len()).filter(|a| !ca.contains(a)).map(|a| sa[a]).chain((0..sb.len()).filter(|b| !cb.contains(b)).map(|b| sb[b])).collect();
-        Tracer::new(Op::Dot { a: self.check(), b: rhs.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
+        let (a, b) = self.promote(rhs);
+        Tracer::new(Op::Dot { a: a.check(), b: b.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
     }
 
     fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Tracer {
@@ -625,36 +717,45 @@ impl ArrayMath for Tracer {
         if parts.len() == 1 {
             return parts[0];
         }
-        Tracer::new(Op::Concat(parts.iter().map(|p| p.check()).collect(), axis), shape)
+        let complex = parts.iter().any(Tracer::is_complex);
+        Tracer::new(Op::Concat(parts.iter().map(|p| if complex { p.to_complex().check() } else { p.check() }).collect(), axis), shape)
     }
 }
 
-/// Real FFTs record nodes; the spectrum is two real arrays (real and imaginary parts).
+/// Spectra are complex tracers: one array, as XLA keeps them.
 impl RealArrayMath for Tracer {
-    fn rfft(self) -> (Tracer, Tracer) {
-        let mut shape = self.shape();
+    type Complex = Tracer;
+
+    fn rfft_complex(self) -> Tracer {
+        let mut shape = self.real_only("rfft").shape();
         let n = *shape.last().expect("rfft: needs an axis");
         assert!(n >= 1, "rfft: empty axis");
         *shape.last_mut().unwrap() = n / 2 + 1;
-        let id = self.check();
-        (Tracer::new(Op::Rfft(id, Part::Re), shape.clone()), Tracer::new(Op::Rfft(id, Part::Im), shape))
+        Tracer::new(Op::Rfft(self.check()), shape)
     }
 
-    fn irfft(re: Tracer, im: Tracer, n: usize) -> Tracer {
-        let (sr, si) = (re.shape(), im.shape());
-        assert_eq!(sr, si, "irfft: real and imaginary parts differ in shape");
-        assert!(n >= 1 && sr.last() == Some(&(n / 2 + 1)), "irfft: {n} samples need {} bins, got {sr:?}", n / 2 + 1);
-        let mut shape = sr;
+    fn irfft_complex(spectrum: Tracer, n: usize) -> Tracer {
+        let z = spectrum.to_complex();
+        let mut shape = z.shape();
+        assert!(n >= 1 && shape.last() == Some(&(n / 2 + 1)), "irfft: {n} samples need {} bins, got {shape:?}", n / 2 + 1);
         *shape.last_mut().unwrap() = n;
-        Tracer::new(Op::Irfft { re: re.check(), im: im.check(), n }, shape)
+        Tracer::new(Op::Irfft(z.check(), n), shape)
     }
 
-    fn fft_parts(re: Tracer, im: Tracer) -> (Tracer, Tracer) {
-        Tracer::complex_fft(re, im, false)
+    fn to_complex(self) -> Tracer {
+        Tracer::to_complex(self)
     }
 
-    fn ifft_parts(re: Tracer, im: Tracer) -> (Tracer, Tracer) {
-        Tracer::complex_fft(re, im, true)
+    fn complex(re: Tracer, im: Tracer) -> Tracer {
+        Tracer::complex(re, im)
+    }
+
+    fn real_part(z: Tracer) -> Tracer {
+        z.re()
+    }
+
+    fn imag_part(z: Tracer) -> Tracer {
+        z.im()
     }
 
     fn max_axes(self, axes: &[usize]) -> Tracer {
@@ -666,7 +767,7 @@ impl RealArrayMath for Tracer {
     }
 
     fn take(self, indices: Tracer) -> Tracer {
-        let (table, is) = (self.shape(), indices.shape());
+        let (table, is) = (self.real_only("take").shape(), indices.real_only("take").shape());
         assert!(!table.is_empty() && table[0] > 0, "take: the table needs a non-empty first axis");
         assert!(is.len() + table.len() - 1 <= MAX_DIMS, "flux: at most {MAX_DIMS} axes");
         Tracer::new(Op::Take { table: self.check(), indices: indices.check() }, [is.as_slice(), &table[1..]].concat())
@@ -685,7 +786,20 @@ impl Mask {
         }
         let offset = shape.len() - own.len();
         let dims = (offset..shape.len()).collect();
-        Mask { id: push(Op::Broadcast(self.id, dims), shape.to_vec(), true), trace: self.trace }
+        Mask { id: push(Op::Broadcast(self.id, dims), shape.to_vec(), Kind::Mask), trace: self.trace }
+    }
+}
+
+/// Complex FFTs record nodes on complex tracers (a real tracer is promoted).
+impl crate::signal::ComplexArrayMath for Tracer {
+    fn fft(self) -> Tracer {
+        self.complex_fft(false)
+    }
+    fn ifft(self) -> Tracer {
+        self.complex_fft(true)
+    }
+    fn conj(self) -> Tracer {
+        if self.is_complex() { self.unary(Op::Conj) } else { self }
     }
 }
 
@@ -732,7 +846,7 @@ impl Elementwise for Tracer {
         self.unary(Op::Sqrt)
     }
     fn powf(self, e: Self) -> Self {
-        self.binary(e, Op::Pow)
+        self.real_binary(e, Op::Pow, "powf")
     }
 }
 
@@ -742,10 +856,10 @@ impl RealValued for Tracer {
         self.unary(Op::Abs)
     }
     fn minimum(self, other: Self) -> Self {
-        self.binary(other, Op::Min)
+        self.real_binary(other, Op::Min, "minimum")
     }
     fn maximum(self, other: Self) -> Self {
-        self.binary(other, Op::Max)
+        self.real_binary(other, Op::Max, "maximum")
     }
     fn less(self, other: Self) -> Mask {
         self.compare(other, Cmp::Lt)
@@ -754,12 +868,13 @@ impl RealValued for Tracer {
         self.compare(other, Cmp::Gt)
     }
     fn floor(self) -> Self {
-        self.unary(Op::Floor)
+        self.real_only("floor").unary(Op::Floor)
     }
     fn select(mask: Mask, if_true: Self, if_false: Self) -> Self {
         assert_eq!(mask.trace, current_trace(), "flux: mask used outside the trace that created it");
         let ms = with_graph(|g| g.nodes[mask.id as usize].shape.clone());
-        let (a, b, shape) = if_true.align(if_false);
+        let (a, b) = if_true.promote(if_false);
+        let (a, b, shape) = a.align(b);
         let shape = broadcast_shapes(&shape, &ms).unwrap_or_else(|| panic!("flux: mask {ms:?} does not broadcast with {shape:?}"));
         let (a, b, m) = (a.broadcast_to(&shape), b.broadcast_to(&shape), mask.broadcast_to(&shape));
         Tracer::new(Op::Select(m.id, a.check(), b.check()), shape)

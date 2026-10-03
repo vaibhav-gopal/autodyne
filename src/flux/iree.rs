@@ -28,7 +28,8 @@ pub enum IreeTarget {
     /// Any Vulkan GPU (`vulkan-spirv`). `target` names the architecture (`"ampere"`, `"rdna3"`,
     /// `"valhall4"`, ...) to use its features; `None` is IREE's portable baseline, which lacks the
     /// 64-bit integers IREE's FFTs need (programs with FFTs need a named architecture). IREE 3.11
-    /// also fails to compile FFTs of 128 points or more for Vulkan.
+    /// also fails to compile FFTs of 128 points or more for Vulkan: emit programs for it with
+    /// `Emit::for_backend`, which builds them from shorter ones.
     Vulkan { target: Option<String> },
     /// NVIDIA GPUs through CUDA. `target` is an architecture this IREE knows (`"sm_80"`,
     /// `"ampere"`, ...); newer GPUs run it too, the driver compiling the embedded PTX for them.
@@ -153,6 +154,11 @@ impl Backend for Iree {
             IreeTarget::Metal => "iree-metal",
             IreeTarget::Custom { .. } => "iree-custom",
         }
+    }
+
+    /// IREE 3.11's Vulkan backend fails on FFTs of 128 points or more.
+    fn max_fft(&self) -> Option<usize> {
+        matches!(self.target, IreeTarget::Vulkan { .. }).then_some(64)
     }
 
     fn compile(&self, program: &Program) -> Result<Box<dyn Executable>, FluxError> {

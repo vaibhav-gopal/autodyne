@@ -91,3 +91,21 @@ def test_programs_and_a_backend():
     np.testing.assert_allclose(loss, want["loss"], rtol=1e-5)
     np.testing.assert_allclose(d_cutoff, want["params"][0], rtol=1e-4)
     np.testing.assert_allclose(d_xs, want["input"], rtol=1e-4, atol=1e-9)
+
+
+def test_complex_spectra_and_checkpointing():
+    n = 64
+    g = flux.value_and_grad(lambda x, gain: flux.irfft_complex(x.rfft_complex() * flux.complex(gain, gain * 0.5), n).sum() + x.fft().conj().real.sum(), [[3, n], [n // 2 + 1]])
+    x, gain = noise(3 * n, 8).reshape(3, n), noise(n // 2 + 1, 9)
+    value, dx, dgain = g(x, gain)
+    spectrum = np.fft.rfft(x, axis=-1)
+    want = np.fft.irfft(spectrum * (gain + 0.5j * gain), n=n, axis=-1).sum() + np.fft.fft(x, axis=-1).real.sum()
+    np.testing.assert_allclose(value, want, rtol=1e-10)
+    scan = flux.Scan([[]], [[]], [], lambda p, s, x: (lambda st, y: ([st], flux.shape("tanh", y * 2.0)))(*flux.one_pole(p[0], s[0], x)))
+    xs, target = noise(128, 10), noise(128, 11)
+    saved = scan.grad([900.0], xs, [0.0], [target])
+    recomputed = scan.checkpointed(True).grad([900.0], xs, [0.0], [target])
+    assert scan.residual_shapes and not scan.checkpointed(True).residual_shapes
+    np.testing.assert_allclose(saved["params"][0], recomputed["params"][0], rtol=1e-12)
+    program = flux.trace(lambda x: x.rfft()[0], [[4, 2048]]).program(max_fft=64)
+    assert "length = [2048]" not in program.text
