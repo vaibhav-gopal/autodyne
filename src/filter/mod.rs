@@ -68,6 +68,9 @@ fn magnitude_response<T: Float>(b: &[T], a: &[T], frequency: T, sample_rate: T) 
 /// any output is computed. Writing each sample just before reading it back as part of a wide vector
 /// load would stall on every sample (the CPU can't forward a narrow store into a wider load).
 /// Processing never allocates.
+/// Outputs a FIR computes together (see `Fir::process`).
+const FIR_TILE: usize = 16;
+
 #[derive(Debug, Clone)]
 pub struct Fir<T: Float> {
     taps: Vec<T>,
@@ -127,8 +130,22 @@ impl<T: Float> Fir<T> {
         for chunk in block.chunks_mut(FIR_CHUNK) {
             let m = chunk.len();
             self.buf[n - 1..n - 1 + m].copy_from_slice(chunk);
-            // output i uses inputs i ..= i + N-1 of the buffer: N-1 older samples then input i itself
-            for (i, y) in chunk.iter_mut().enumerate() {
+            // output i uses inputs i ..= i + N-1 of the buffer: N-1 older samples then input i itself.
+            // Tiles of FIR_TILE outputs: each tap times FIR_TILE consecutive inputs, accumulated
+            // per output (vector registers, no horizontal sums)
+            let tiles = m / FIR_TILE * FIR_TILE;
+            for (t, out) in chunk[..tiles].chunks_exact_mut(FIR_TILE).enumerate() {
+                let start = t * FIR_TILE;
+                let mut acc = [T::_ZERO; FIR_TILE];
+                for (k, &h) in self.reversed.iter().enumerate() {
+                    let x: &[T; FIR_TILE] = self.buf[start + k..start + k + FIR_TILE].try_into().expect("a tile");
+                    for (a, &x) in acc.iter_mut().zip(x) {
+                        *a = *a + h * x;
+                    }
+                }
+                out.copy_from_slice(&acc);
+            }
+            for (i, y) in chunk.iter_mut().enumerate().skip(tiles) {
                 *y = crate::simd::dot_kernel(&self.reversed, &self.buf[i..i + n]);
             }
             // the last N-1 inputs become the history for the next chunk
