@@ -15,8 +15,11 @@ def set_threads(n):
 
 
 def _float(a):
+    # dtype.char rather than comparing dtypes with types (several times faster, for small calls)
+    if type(a) is _np.ndarray and a.dtype.char in "fd":
+        return a
     a = _np.asarray(a)
-    return a if a.dtype in (_np.float32, _np.float64) else a.astype(_np.float64)
+    return a if a.dtype.char in "fd" else a.astype(_np.float64)
 
 
 def matmul(a, b):

@@ -106,9 +106,9 @@ results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULT
 - IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
 - FFT vs `numpy.fft` (pocketfft): 1.3-1.5x faster, 2x at prime lengths (`rustfft` / `realfft` kernels; any length)
 - `scipy.signal`: `sosfilt` 1.1x, `sosfiltfilt` 1.5x, `lfilter` on par (lanes filtered four at a time), `welch` 3x,
-  `stft` 1.1x, filter design ~100x (SciPy designs in Python); `remez` 0.4x
-- linear algebra (faer vs OpenBLAS, one thread): `solve` 1.2-1.6x, `eigvals` 1.1x; `matmul` 0.6-0.9x, `eigh` 0.8x, `svd`
-  0.6x
+  `stft` 1.1x, filter design ~100x (SciPy designs in Python), `remez` 1.07x
+- linear algebra (faer vs OpenBLAS, one thread): `solve` 1.1-2x, `matmul` 1.1x at 512 x 512 (0.9x at 64 x 64, where the
+  ~1 µs of crossing into Rust shows), `eigvals` 1.1x; `eigh` 0.85x, `svd` 0.6x (faer's algorithms at this size)
 ### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
 `bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
 on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, transposed, broadcast, reductions, FIR vs

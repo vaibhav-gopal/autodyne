@@ -92,10 +92,20 @@ fn linalg_error(e: linalg::LinalgError) -> PyErr {
     PyValueError::new_err(e.to_string())
 }
 
-/// Two float inputs of one dtype (the second converted to the first's).
-fn pair<'a, T: LinalgFloat + DynElementBridge>(b: &'a Bound<'a, PyAny>) -> PyResult<NdArray<T>> {
+/// Calls `f` with the second of two float inputs as a view of the first's dtype: read in place when
+/// it already has that dtype, else converted once.
+fn with_pair<T: LinalgFloat + DynElementBridge + 'static, R>(b: &Bound<'_, PyAny>, f: impl FnOnce(NdView<'_, T>) -> PyResult<R>) -> PyResult<R> {
     let held = input(b)?;
-    crate::with_float_input!(held, U, v => Ok(v.to_owned().map(|&x| T::_lit(x.to_f64().unwrap_or(f64::NAN)))))
+    crate::with_float_input!(held, U, v => {
+        if std::any::TypeId::of::<U>() == std::any::TypeId::of::<T>() {
+            // SAFETY: U and T are the same type, so the view is reinterpreted as itself
+            let same: NdView<'_, T> = unsafe { std::mem::transmute_copy(&v) };
+            f(same)
+        } else {
+            let converted = NdArray::from_vec(v.iter().map(|x| T::_lit(x.to_f64().unwrap_or(f64::NAN))).collect(), v.shape()).map_err(value_error)?;
+            f(converted.view())
+        }
+    })
 }
 
 /// Marker for the element types the linear algebra bindings use.
@@ -105,18 +115,12 @@ impl DynElementBridge for f64 {}
 
 #[pyfunction]
 fn matmul(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => {
-        let vb = pair::<T>(b)?;
-        numpy_array(py, linalg::matmul(va, vb.view()).map_err(linalg_error)?)
-    })
+    float_view!(a, T, va => with_pair::<T, _>(b, |vb| numpy_array(py, linalg::matmul(va, vb).map_err(linalg_error)?)))
 }
 
 #[pyfunction]
 fn solve(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => {
-        let vb = pair::<T>(b)?;
-        numpy_array(py, linalg::solve(va, vb.view()).map_err(linalg_error)?)
-    })
+    float_view!(a, T, va => with_pair::<T, _>(b, |vb| numpy_array(py, linalg::solve(va, vb).map_err(linalg_error)?)))
 }
 
 #[pyfunction]
@@ -132,12 +136,11 @@ fn det(a: &Bound<'_, PyAny>) -> PyResult<f64> {
 /// `(x, rank, singular values)`.
 #[pyfunction]
 fn lstsq(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => {
-        let vb = pair::<T>(b)?;
-        let r = linalg::lstsq(va, vb.view()).map_err(linalg_error)?;
+    float_view!(a, T, va => with_pair::<T, _>(b, |vb| {
+        let r = linalg::lstsq(va, vb).map_err(linalg_error)?;
         let s: Vec<f64> = r.singular_values.iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect();
         tuple(py, vec![numpy_array(py, r.solution)?, r.rank.into_pyobject(py)?.into_any().unbind(), vec_out(py, s)?])
-    })
+    }))
 }
 
 /// `(eigenvalues, eigenvectors)`, complex.

@@ -320,9 +320,7 @@ pub fn remez(
     let xgrid: Vec<f64> = grid.iter().map(|g| (2.0 * PI * g).cos()).collect();
     for _ in 0..maxiter {
         calc_parms(r, &ext, &grid, &d, &w, &mut ad, &mut x, &mut y);
-        for i in 0..gridsize {
-            e[i] = w[i] * (d[i] - interpolate(xgrid[i], r, &ad, &x, &y));
-        }
+        errors(&xgrid, &d, &w, r, &ad, &x, &y, &mut e);
         search(r, &mut ext, &e).map_err(|m| DesignError::Invalid(format!("remez failed to converge ({m}); try a wider transition band")))?;
         let errs: Vec<f64> = ext.iter().map(|&i| e[i].abs()).collect();
         let (lo, hi) = errs.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
@@ -391,6 +389,57 @@ fn calc_parms(r: usize, ext: &[usize], grid: &[f64], d: &[f64], w: &[f64], ad: &
 /// points, whose values lie on one polynomial of degree r - 1).
 fn compute_a(freq: f64, r: usize, ad: &[f64], x: &[f64], y: &[f64]) -> f64 {
     interpolate((2.0 * PI * freq).cos(), r, ad, x, y)
+}
+
+/// The weighted error `w (d - A)` at every grid point. The interpolation runs over blocks of grid
+/// points at once with no early exit, so it vectorizes and keeps several divisions in flight; a
+/// point within 1e-7 of an extremal frequency is redone by [`interpolate`], which returns that
+/// extremal's value as it should.
+#[allow(clippy::too_many_arguments)]
+fn errors(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], y: &[f64], e: &mut [f64]) {
+    #[cfg(target_arch = "x86_64")]
+    {
+        #[target_feature(enable = "avx2")]
+        #[allow(clippy::too_many_arguments)]
+        unsafe fn errors_avx2(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], y: &[f64], e: &mut [f64]) {
+            errors_kernel(xgrid, d, w, r, ad, x, y, e)
+        }
+        if crate::simd::avx2_available() {
+            // SAFETY: the CPU was just checked for AVX2, the only feature `errors_avx2` is compiled with
+            return unsafe { errors_avx2(xgrid, d, w, r, ad, x, y, e) };
+        }
+    }
+    errors_kernel(xgrid, d, w, r, ad, x, y, e)
+}
+
+/// The body of [`errors`], inlined into each instruction-set version.
+#[inline(always)]
+#[allow(clippy::too_many_arguments)]
+fn errors_kernel(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], y: &[f64], e: &mut [f64]) {
+    const LANES: usize = 8;
+    let (x, ad, y) = (&x[..=r], &ad[..=r], &y[..=r]);
+    let blocks = xgrid.len() / LANES;
+    for b in 0..blocks {
+        let at = b * LANES;
+        let xc: [f64; LANES] = xgrid[at..at + LANES].try_into().expect("a block");
+        let (mut numer, mut denom, mut near) = ([0.0; LANES], [0.0; LANES], [false; LANES]);
+        for ((&xi, &adi), &yi) in x.iter().zip(ad).zip(y) {
+            for l in 0..LANES {
+                let c = xc[l] - xi;
+                near[l] |= c.abs() < 1.0e-7;
+                let q = adi / c;
+                denom[l] += q;
+                numer[l] += q * yi;
+            }
+        }
+        for l in 0..LANES {
+            let a = if near[l] { interpolate(xc[l], r, ad, x, y) } else { numer[l] / denom[l] };
+            e[at + l] = w[at + l] * (d[at + l] - a);
+        }
+    }
+    for i in blocks * LANES..xgrid.len() {
+        e[i] = w[i] * (d[i] - interpolate(xgrid[i], r, ad, x, y));
+    }
 }
 
 /// [`compute_a`] at `xc = cos(2π f)`.
@@ -470,13 +519,24 @@ fn freq_sample(n: usize, a: &[f64], positive: bool) -> Vec<f64> {
     (0..n)
         .map(|i| {
             let x = 2.0 * PI * (i as f64 - m) / n as f64;
+            // cos(k x) and sin(k x) for k = 1, 2, ... by rotation: one sine and cosine per tap
+            // instead of one per term (rounding grows only linearly in k)
+            let (cx, sx) = (x.cos(), x.sin());
+            let terms = |top: usize, sine: bool| {
+                let (mut c, mut s, mut sum) = (1.0f64, 0.0f64, 0.0);
+                for &ak in &a[1..=top] {
+                    (c, s) = (c * cx - s * sx, s * cx + c * sx);
+                    sum += ak * if sine { s } else { c };
+                }
+                2.0 * sum
+            };
             let val = if positive {
                 let top = if n % 2 == 1 { m as usize } else { n / 2 - 1 };
-                a[0] + (1..=top).map(|k| 2.0 * a[k] * (x * k as f64).cos()).sum::<f64>()
+                a[0] + terms(top, false)
             } else if n % 2 == 1 {
-                (1..=m as usize).map(|k| 2.0 * a[k] * (x * k as f64).sin()).sum::<f64>()
+                terms(m as usize, true)
             } else {
-                a[n / 2] * (PI * (i as f64 - m)).sin() + (1..n / 2).map(|k| 2.0 * a[k] * (x * k as f64).sin()).sum::<f64>()
+                a[n / 2] * (PI * (i as f64 - m)).sin() + terms(n / 2 - 1, true)
             };
             if positive { val / n as f64 } else { -val / n as f64 }
         })
