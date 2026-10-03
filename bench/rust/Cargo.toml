@@ -7,10 +7,10 @@ license = "GPL-3.0-only"
 publish = false
 
 [dependencies]
-autodyne = { path = "../..", features = ["ndarray"] }
+autodyne = { path = "../..", features = ["ndarray", "flux"] }
 
 [dev-dependencies]
-burn = { version = "0.21", default-features = false, features = ["std", "flex", "wgpu", "ndarray"] }
+burn = { version = "0.21", default-features = false, features = ["std", "flex", "wgpu", "ndarray", "autodiff"] }
 criterion = "0.8"
 cubecl = { version = "0.10", features = ["wgpu"] }
 ndarray = "0.17"

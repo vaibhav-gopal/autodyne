@@ -162,9 +162,20 @@ pub fn solve<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdArr
     if rhs.nrows() != m.nrows() {
         return Err(LinalgError::Mismatch(a.shape().to_vec(), b.shape().to_vec()));
     }
+    let (m, transposed) = column_major(m);
     let lu = m.partial_piv_lu();
     check_nonsingular(lu.U())?;
-    Ok(to_array(lu.solve(rhs).as_ref(), b.shape()))
+    // aᵀ's factors solve a · x = b as well
+    let x = if transposed { lu.solve_transpose(rhs) } else { lu.solve(rhs) };
+    Ok(to_array(x.as_ref(), b.shape()))
+}
+
+/// `m`, or its transpose when that is column-major and `m` is not, and whether it was transposed.
+/// faer factors a column-major copy of its input: a row-major matrix (autodyne's own layout) read
+/// in place is its transpose in column-major order, copied in memory order, while copying it as
+/// is reads across the rows.
+fn column_major<T>(m: MatRef<'_, T>) -> (MatRef<'_, T>, bool) {
+    if m.col_stride() == 1 && m.row_stride() != 1 { (m.transpose(), true) } else { (m, false) }
 }
 
 /// Errors if the triangular factor `u` has a zero (or non-finite) pivot.
@@ -186,7 +197,8 @@ pub fn inv<T: LinalgFloat>(a: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> 
 
 /// The determinant of a square matrix.
 pub fn det<T: LinalgFloat>(a: NdView<'_, T>) -> Result<T, LinalgError> {
-    Ok(square(a)?.determinant())
+    // det(aᵀ) = det(a)
+    Ok(column_major(square(a)?).0.determinant())
 }
 
 /// A least-squares solution and what it found out about `a`.

@@ -6,42 +6,42 @@ Python 3.12.14, NumPy 2.5.3, SciPy 1.18.1. autodyne times are end to end
 
 | Axis | Case | NumPy / SciPy | autodyne | Speedup |
 |---|---|---:|---:|---:|
-| fused a*x+b | float32, n=1,000 | 1.6 µs | 0.7 µs | 2.31x |
-| fused a*x+b | float32, n=100,000 | 14.2 µs | 6.2 µs | 2.31x |
-| fused a*x+b | float32, n=10,000,000 | 12,062.1 µs | 6,121.9 µs | 1.97x |
-| fused a*x+b | float64, n=1,000 | 1.4 µs | 0.8 µs | 1.77x |
-| fused a*x+b | float64, n=100,000 | 26.7 µs | 14.1 µs | 1.90x |
-| fused a*x+b | float64, n=10,000,000 | 24,271.4 µs | 12,493.0 µs | 1.94x |
-| strided a*x+b | transposed 2000x2000 f64 | 10,027.5 µs | 4,910.3 µs | 2.04x |
-| strided a*x+b | every other column, 2000x1000 | 5,185.4 µs | 3,070.4 µs | 1.69x |
-| strided a*x+b | reversed rows | 10,863.1 µs | 5,185.5 µs | 2.09x |
-| sum | float32, n=10,000,000 | 1,596.8 µs | 597.6 µs | 2.67x |
-| sum | float64, n=10,000,000 | 4,615.3 µs | 1,351.7 µs | 3.41x |
-| sum | axis 0 of 2000x2000 f64 | 743.1 µs | 554.2 µs | 1.34x |
-| sum | axis 1 of 2000x2000 f64 | 2,411.1 µs | 388.7 µs | 6.20x |
-| sum | transposed 2000x2000 f64, axis 1 | 754.1 µs | 564.5 µs | 1.34x |
-| mixed dtypes | int16 2000x2000 + float32 row | 3,432.7 µs | 2,801.3 µs | 1.23x |
-| mixed dtypes | float64 + float64, same shape | 5,341.0 µs | 5,520.8 µs | 0.97x |
-| small calls | sum of 64 f64 | 1.0 µs | 0.3 µs | 3.12x |
-| small calls | a*x+b on 64 f64 | 1.0 µs | 0.7 µs | 1.48x |
-| IIR (scipy sosfilt) | 16 x 480,000 f32, along contiguous time | 39,093.0 µs | 30,840.3 µs | 1.27x |
-| IIR (scipy sosfilt) | 480,000 x 16 f32, along strided time | 46,073.2 µs | 42,773.2 µs | 1.08x |
-| FFT (numpy.fft) | rfft, 256 x 4096 f64 | 3,474.2 µs | 2,688.7 µs | 1.29x |
-| FFT (numpy.fft) | rfft, 4096 x 64 f64 | 2,950.7 µs | 2,251.8 µs | 1.31x |
-| FFT (numpy.fft) | complex fft, 64 x 1000 | 265.0 µs | 197.2 µs | 1.34x |
-| FFT (numpy.fft) | complex fft, 64 x 1031 | 1,825.5 µs | 886.9 µs | 2.06x |
-| FFT (numpy.fft) | complex fft, 64 x 4095 | 2,554.8 µs | 1,687.9 µs | 1.51x |
-| linalg (numpy) | matmul 64x64 | 7.6 µs | 8.6 µs | 0.88x |
-| linalg (numpy) | solve 64x64 | 61.3 µs | 30.7 µs | 2.00x |
-| linalg (numpy) | matmul 512x512 | 3,973.4 µs | 3,532.0 µs | 1.12x |
-| linalg (numpy) | solve 512x512 | 13,381.0 µs | 11,879.3 µs | 1.13x |
-| linalg (numpy) | eigvals 300x300 | 17,991.9 µs | 16,407.5 µs | 1.10x |
-| linalg (numpy) | svd 300x300 | 3,652.6 µs | 6,203.5 µs | 0.59x |
-| linalg (numpy) | eigh 300x300 | 5,196.0 µs | 6,113.1 µs | 0.85x |
-| filtering (scipy.signal) | sosfilt, 8th-order ellip, 16 x 48000 | 6,012.0 µs | 5,509.0 µs | 1.09x |
-| filtering (scipy.signal) | sosfiltfilt, 16 x 48000 | 13,771.9 µs | 9,496.1 µs | 1.45x |
-| filtering (scipy.signal) | lfilter, 4th-order, 16 x 48000 | 4,019.1 µs | 3,979.7 µs | 1.01x |
-| filter design (scipy.signal) | ellip(8) to sos | 626.1 µs | 6.2 µs | 100.20x |
-| filter design (scipy.signal) | remez, 101 taps | 167.7 µs | 156.7 µs | 1.07x |
-| spectral (scipy.signal) | welch, 16 x 48000, nperseg 1024 | 11,922.5 µs | 4,117.4 µs | 2.90x |
-| spectral (scipy.signal) | stft, 16 x 48000, nperseg 512 | 9,641.2 µs | 7,911.3 µs | 1.22x |
+| fused a*x+b | float32, n=1,000 | 1.6 µs | 0.7 µs | 2.33x |
+| fused a*x+b | float32, n=100,000 | 13.9 µs | 6.3 µs | 2.21x |
+| fused a*x+b | float32, n=10,000,000 | 11,971.4 µs | 5,991.1 µs | 2.00x |
+| fused a*x+b | float64, n=1,000 | 1.5 µs | 0.8 µs | 1.87x |
+| fused a*x+b | float64, n=100,000 | 25.6 µs | 13.8 µs | 1.85x |
+| fused a*x+b | float64, n=10,000,000 | 24,013.5 µs | 12,421.7 µs | 1.93x |
+| strided a*x+b | transposed 2000x2000 f64 | 9,504.0 µs | 4,787.9 µs | 1.99x |
+| strided a*x+b | every other column, 2000x1000 | 5,132.0 µs | 3,051.9 µs | 1.68x |
+| strided a*x+b | reversed rows | 10,640.4 µs | 4,912.9 µs | 2.17x |
+| sum | float32, n=10,000,000 | 1,604.7 µs | 600.1 µs | 2.67x |
+| sum | float64, n=10,000,000 | 4,518.7 µs | 1,296.5 µs | 3.49x |
+| sum | axis 0 of 2000x2000 f64 | 657.6 µs | 499.8 µs | 1.32x |
+| sum | axis 1 of 2000x2000 f64 | 1,839.7 µs | 364.9 µs | 5.04x |
+| sum | transposed 2000x2000 f64, axis 1 | 676.4 µs | 501.7 µs | 1.35x |
+| mixed dtypes | int16 2000x2000 + float32 row | 3,436.1 µs | 2,766.4 µs | 1.24x |
+| mixed dtypes | float64 + float64, same shape | 5,207.2 µs | 5,378.3 µs | 0.97x |
+| small calls | sum of 64 f64 | 1.1 µs | 0.3 µs | 3.17x |
+| small calls | a*x+b on 64 f64 | 1.0 µs | 0.7 µs | 1.44x |
+| IIR (scipy sosfilt) | 16 x 480,000 f32, along contiguous time | 38,862.7 µs | 30,721.9 µs | 1.26x |
+| IIR (scipy sosfilt) | 480,000 x 16 f32, along strided time | 44,754.6 µs | 39,803.9 µs | 1.12x |
+| FFT (numpy.fft) | rfft, 256 x 4096 f64 | 3,467.5 µs | 2,543.0 µs | 1.36x |
+| FFT (numpy.fft) | rfft, 4096 x 64 f64 | 2,960.8 µs | 2,243.8 µs | 1.32x |
+| FFT (numpy.fft) | complex fft, 64 x 1000 | 265.8 µs | 185.8 µs | 1.43x |
+| FFT (numpy.fft) | complex fft, 64 x 1031 | 1,840.1 µs | 905.7 µs | 2.03x |
+| FFT (numpy.fft) | complex fft, 64 x 4095 | 2,568.6 µs | 1,693.1 µs | 1.52x |
+| linalg (numpy) | matmul 64x64 | 7.7 µs | 8.6 µs | 0.90x |
+| linalg (numpy) | solve 64x64 | 61.7 µs | 31.5 µs | 1.96x |
+| linalg (numpy) | matmul 512x512 | 3,992.5 µs | 3,573.2 µs | 1.12x |
+| linalg (numpy) | solve 512x512 | 13,504.1 µs | 10,690.7 µs | 1.26x |
+| linalg (numpy) | eigvals 300x300 | 18,092.6 µs | 16,659.1 µs | 1.09x |
+| linalg (numpy) | svd 300x300 | 3,681.3 µs | 3,774.6 µs | 0.98x |
+| linalg (numpy) | eigh 300x300 | 4,959.5 µs | 5,891.9 µs | 0.84x |
+| filtering (scipy.signal) | sosfilt, 8th-order ellip, 16 x 48000 | 5,993.3 µs | 5,480.0 µs | 1.09x |
+| filtering (scipy.signal) | sosfiltfilt, 16 x 48000 | 13,822.2 µs | 9,797.6 µs | 1.41x |
+| filtering (scipy.signal) | lfilter, 4th-order, 16 x 48000 | 4,018.7 µs | 3,887.1 µs | 1.03x |
+| filter design (scipy.signal) | ellip(8) to sos | 642.4 µs | 6.2 µs | 102.88x |
+| filter design (scipy.signal) | remez, 101 taps | 162.0 µs | 152.6 µs | 1.06x |
+| spectral (scipy.signal) | welch, 16 x 48000, nperseg 1024 | 12,123.9 µs | 4,362.5 µs | 2.78x |
+| spectral (scipy.signal) | stft, 16 x 48000, nperseg 512 | 9,477.7 µs | 8,720.9 µs | 1.09x |

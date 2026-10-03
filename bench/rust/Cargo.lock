@@ -206,6 +206,7 @@ name = "autodyne"
 version = "0.1.0"
 dependencies = [
  "faer",
+ "libloading 0.8.9",
  "ndarray 0.17.2",
  "realfft",
  "rustfft",

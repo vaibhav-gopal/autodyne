@@ -157,7 +157,9 @@ Backends, all found at run time (nothing is linked at build time, and the real-t
 
 Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 20-40%
 sooner and run at 0.96-1.24x JAX's speed: on par for a one-pole's gradient, ahead on spectral models and on an EQ
-chain's STFT-loss gradient. From Python, `autodyne.flux` traces functions written with NumPy-style operators on
+chain's STFT-loss gradient. Against Burn's autodiff ([`BURN.md`](bench/flux/BURN.md), one core), which has no
+compiled loop and no FFT gradients: a one-pole's gradient over 48k samples runs in 0.5 ms against 3.55 s, a spectral
+model's (Burn through DFT matrices) 4x faster. From Python, `autodyne.flux` traces functions written with NumPy-style operators on
 tracers, with the same scans, losses, processors and backends.
 
 ```sh
