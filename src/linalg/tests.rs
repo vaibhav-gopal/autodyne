@@ -176,3 +176,130 @@ fn polynomial_roots_and_expansion() {
     assert_eq!(polymul(&[1.0, 1.0], &[1.0, -1.0]), vec![1.0, 0.0, -1.0]);
     assert_eq!(polyadd(&[1.0, 2.0, 3.0], &[1.0, 1.0]), vec![1.0, 3.0, 4.0]);
 }
+
+/// The largest difference relative to the largest value.
+fn spread(a: &[f64], b: &[f64]) -> f64 {
+    assert_eq!(a.len(), b.len());
+    let top = b.iter().fold(0.0f64, |m, v| m.max(v.abs())).max(f64::MIN_POSITIVE);
+    a.iter().zip(b).fold(0.0f64, |m, (x, y)| m.max((x - y).abs())) / top
+}
+
+#[test]
+fn values_only_paths_match_the_full_decompositions() {
+    for (k, &(m, n)) in [(1, 1), (2, 2), (3, 3), (4, 7), (7, 4), (17, 17), (60, 33), (33, 60), (150, 150)].iter().enumerate() {
+        let a = random(&[m, n], 100 + k as u64);
+        let s = svdvals(a.view()).unwrap();
+        let full = svd(a.view(), false).unwrap().s;
+        assert!(s.windows(2).all(|w| w[0] >= w[1]), "{m}x{n}: not descending");
+        assert!(spread(&s, &full) < 1e-13, "{m}x{n}: {}", spread(&s, &full));
+        if m == n {
+            let w = eigvalsh(a.view()).unwrap();
+            let (want, _) = eigh(a.view()).unwrap();
+            assert!(w.windows(2).all(|w| w[0] <= w[1]), "{n}: not ascending");
+            assert!(spread(&w, &want) < 1e-13, "{n}: {}", spread(&w, &want));
+        }
+    }
+    // f32 through the same path
+    let a = random(&[40, 40], 7);
+    let a32 = NdArray::from_vec(a.as_slice().iter().map(|&v| v as f32).collect(), &[40, 40]).unwrap();
+    let s32: Vec<f64> = svdvals(a32.view()).unwrap().into_iter().map(f64::from).collect();
+    assert!(spread(&s32, &svdvals(a.view()).unwrap()) < 1e-5);
+    let w32: Vec<f64> = eigvalsh(a32.view()).unwrap().into_iter().map(f64::from).collect();
+    assert!(spread(&w32, &eigvalsh(a.view()).unwrap()) < 1e-5);
+    // strided input: the transpose
+    assert!(spread(&svdvals(a.view().transpose()).unwrap(), &svdvals(a.view()).unwrap()) < 1e-14);
+    assert!(svdvals(NdArray::<f64>::zeros(&[0, 3]).unwrap().view()).unwrap().is_empty());
+    assert!(eigvalsh(NdArray::<f64>::zeros(&[0, 0]).unwrap().view()).unwrap().is_empty());
+}
+
+#[test]
+fn values_only_paths_on_hard_inputs() {
+    // diagonal (no off-diagonal work) and zero
+    let d = [3.0, -1e-200, 0.0, 7.5, -2.0];
+    let mut a = vec![0.0; 25];
+    for i in 0..5 {
+        a[i * 6] = d[i];
+    }
+    let a = arr(&a, &[5, 5]);
+    assert_eq!(svdvals(a.view()).unwrap(), vec![7.5, 3.0, 2.0, 1e-200, 0.0]);
+    assert_eq!(eigvalsh(a.view()).unwrap(), vec![-2.0, -1e-200, 0.0, 3.0, 7.5]);
+    assert_eq!(svdvals(NdArray::<f64>::zeros(&[4, 4]).unwrap().view()).unwrap(), vec![0.0; 4]);
+    // the identity (one repeated value), and a cluster
+    let mut eye = vec![0.0; 36];
+    (0..6).for_each(|i| eye[i * 7] = 1.0);
+    assert!(close(&svdvals(arr(&eye, &[6, 6]).view()).unwrap(), &[1.0; 6], 1e-15));
+    assert!(close(&eigvalsh(arr(&eye, &[6, 6]).view()).unwrap(), &[1.0; 6], 1e-15));
+    // tiny and huge scales: the same values, scaled (faer's own SVD loses the tiny ones: its
+    // reduction underflows without the scaling LAPACK applies first)
+    let a = random(&[30, 30], 9);
+    let base = svdvals(a.view()).unwrap();
+    let base_w = eigvalsh(a.view()).unwrap();
+    for scale in [1e-280, 1e-150, 1e150, 1e280] {
+        let scaled = NdArray::from_vec(a.as_slice().iter().map(|v| v * scale).collect(), &[30, 30]).unwrap();
+        let s: Vec<f64> = svdvals(scaled.view()).unwrap().iter().map(|v| v / scale).collect();
+        assert!(spread(&s, &base) < 1e-13, "{scale}: {}", spread(&s, &base));
+        let w: Vec<f64> = eigvalsh(scaled.view()).unwrap().iter().map(|v| v / scale).collect();
+        assert!(spread(&w, &base_w) < 1e-13, "{scale}: {}", spread(&w, &base_w));
+    }
+    // a strongly graded bidiagonal: dqds finds every singular value to high relative accuracy,
+    // so the product of them all matches |det| = product of the diagonal
+    let n = 12;
+    let mut diag: Vec<f64> = (0..n).map(|i| 10f64.powi(-(i as i32) * 5) * (1.0 + 0.1 * i as f64)).collect();
+    let off: Vec<f64> = (0..n - 1).map(|i| 10f64.powi(-(i as i32) * 5 - 2)).collect();
+    let det: f64 = diag.iter().map(|v| v.ln()).sum();
+    values::bidiagonal_singular_values(&mut diag, &off).unwrap();
+    let product: f64 = diag.iter().map(|v| v.ln()).sum();
+    assert!((product - det).abs() < 1e-12, "{product} vs {det}");
+    // the smallest is close to its diagonal entry (the off-diagonal coupling is tiny)
+    assert!((diag[n - 1] / (10f64.powi(-(n as i32 - 1) * 5) * 2.1) - 1.0).abs() < 1e-3, "{}", diag[n - 1]);
+    // 2 x 2: closed form
+    let mut two = [4.0, 3.0];
+    values::bidiagonal_singular_values(&mut two, &[2.0]).unwrap();
+    // the eigenvalues of BᵀB for B = [[4, 2], [0, 3]]
+    let gram = [[16.0, 8.0], [8.0, 13.0f64]];
+    let (tr, det) = (gram[0][0] + gram[1][1], gram[0][0] * gram[1][1] - gram[0][1] * gram[1][0]);
+    let disc = (tr * tr / 4.0 - det).sqrt();
+    assert!(close(&two, &[(tr / 2.0 + disc).sqrt(), (tr / 2.0 - disc).sqrt()], 1e-15));
+    // a Wilkinson matrix W21+ (pairs of nearly equal eigenvalues)
+    let n = 21;
+    let mut w = vec![0.0; n * n];
+    for i in 0..n {
+        w[i * n + i] = (10.0 - i as f64).abs();
+        if i + 1 < n {
+            w[i * n + i + 1] = 1.0;
+            w[(i + 1) * n + i] = 1.0;
+        }
+    }
+    let w = arr(&w, &[n, n]);
+    let (want, _) = eigh(w.view()).unwrap();
+    assert!(spread(&eigvalsh(w.view()).unwrap(), &want) < 1e-14);
+    assert!((eigvalsh(w.view()).unwrap()[n - 1] - 10.746194182903322).abs() < 1e-13);
+}
+#[test]
+fn values_only_paths_on_many_structures() {
+    let mut seed = 1000;
+    for m in [1, 2, 3, 5, 8, 13, 31, 64] {
+        for n in [1, 2, 4, 9, 31, 64] {
+            for kind in 0..4 {
+                seed += 1;
+                let mut a = random(&[m, n], seed);
+                let data = a.as_mut_slice();
+                match kind {
+                    // graded rows
+                    1 => (0..m).for_each(|i| (0..n).for_each(|j| data[i * n + j] *= 10f64.powi(-3 * i as i32))),
+                    // rank one
+                    2 => (0..m).for_each(|i| (0..n).for_each(|j| data[i * n + j] = (i as f64 + 1.0) * (j as f64 - 0.5))),
+                    // repeated columns
+                    3 => (0..m).for_each(|i| (1..n).for_each(|j| data[i * n + j] = data[i * n + j % 2])),
+                    _ => {}
+                }
+                let s = svdvals(a.view()).unwrap();
+                assert!(spread(&s, &svd(a.view(), false).unwrap().s) < 1e-13, "{m}x{n} kind {kind}");
+                if m == n {
+                    let (want, _) = eigh(a.view()).unwrap();
+                    assert!(spread(&eigvalsh(a.view()).unwrap(), &want) < 1e-13, "{n} kind {kind}");
+                }
+            }
+        }
+    }
+}

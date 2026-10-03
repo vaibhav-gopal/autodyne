@@ -108,7 +108,9 @@ results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULT
 - `scipy.signal`: `sosfilt` 1.1x, `sosfiltfilt` 1.5x, `lfilter` on par (lanes filtered four at a time), `welch` 3x,
   `stft` 1.1x, filter design ~100x (SciPy designs in Python), `remez` 1.07x
 - linear algebra (faer vs OpenBLAS, one thread): `solve` 1.1-2x, `matmul` 1.1x at 512 x 512 (0.9x at 64 x 64, where the
-  ~1 µs of crossing into Rust shows), `eigvals` 1.1x; `eigh` 0.85x, `svd` 0.6x (faer's algorithms at this size)
+  ~1 µs of crossing into Rust shows), `eigvals` 1.1x, `svdvals` and `eigvalsh` on par (faer's reductions, then
+  autodyne's own dqds and Pal-Walker-Kahan iterations, LAPACK's `dlasq1` / `dsterf`); `eigh` 0.85x, `svd` 0.9x;
+  `bench/linalg` adds PyTorch, JAX, faer, nalgebra and Burn on the same inputs
 ### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
 `bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
 on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, transposed, broadcast, reductions, FIR vs

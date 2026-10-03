@@ -25,6 +25,7 @@ use crate::units::*;
 
 mod expm;
 mod poly;
+mod values;
 pub use expm::expm;
 pub use poly::*;
 
@@ -288,8 +289,65 @@ pub fn eigh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(Vec<T>, NdArray<T>), Li
 
 /// The eigenvalues (ascending) of a symmetric matrix, without eigenvectors; only its lower
 /// triangle is read.
+///
+/// faer reduces the matrix to tridiagonal form; the eigenvalues of that come from the
+/// Pal-Walker-Kahan QL/QR iteration (LAPACK's `dsterf`), much faster than the divide and conquer
+/// faer's own values-only path uses.
 pub fn eigvalsh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError> {
-    square(a)?.self_adjoint_eigenvalues(Side::Lower).map_err(|_| LinalgError::NoConvergence)
+    use faer::linalg::evd::tridiag::{tridiag_in_place, tridiag_in_place_scratch};
+    let m = square(a)?;
+    let n = m.nrows();
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let par = faer::get_global_parallelism();
+    // scaled into range, as LAPACK's dsyev does: rmin = sqrt(safmin / eps), rmax = 1 / rmin
+    let rmin = (min_positive::<T>() / f64_of(T::_EPSILON)).sqrt();
+    let scale = scaling(m, true, rmin, 1.0 / rmin);
+    let k = of_f64::<T>(scale);
+    let mut trid = faer::Mat::<T>::from_fn(n, n, |i, j| if i >= j { m[(i, j)] * k } else { T::_ZERO });
+    if n > 1 {
+        let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(n, n);
+        let mut householder = faer::Mat::<T>::zeros(bs, n - 1);
+        let mut buf = faer::dyn_stack::MemBuffer::new(tridiag_in_place_scratch::<T>(n, par, Default::default()));
+        tridiag_in_place(trid.as_mut(), householder.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+    }
+    let mut diag: Vec<f64> = (0..n).map(|i| f64_of(trid[(i, i)])).collect();
+    let off: Vec<f64> = (0..n - 1).map(|i| f64_of(trid[(i + 1, i)])).collect();
+    values::tridiagonal_eigenvalues(&mut diag, &off).map_err(|_| LinalgError::NoConvergence)?;
+    Ok(diag.into_iter().map(|v| of_f64(v / scale)).collect())
+}
+
+/// A power of two bringing the largest magnitude of `m` (its lower triangle if `lower`) into
+/// `[lo, hi]`, so the reductions neither underflow nor overflow; exact both ways. 1 when it is
+/// in range already, or zero, or not finite.
+fn scaling<T: LinalgFloat>(m: MatRef<'_, T>, lower: bool, lo: f64, hi: f64) -> f64 {
+    let mut top = 0.0f64;
+    for j in 0..m.ncols() {
+        for i in if lower { j } else { 0 }..m.nrows() {
+            top = top.max(f64_of(m[(i, j)]).abs());
+        }
+    }
+    if top > 0.0 && top < lo {
+        (lo / top).log2().ceil().exp2()
+    } else if top > hi && top.is_finite() {
+        (-(top / hi).log2().ceil()).exp2()
+    } else {
+        1.0
+    }
+}
+
+/// The smallest positive normal value of `T`.
+fn min_positive<T: LinalgFloat>() -> f64 {
+    2f64.powi(T::_MIN_EXP - 1)
+}
+
+fn f64_of<T: LinalgFloat>(x: T) -> f64 {
+    x.to_f64().expect("f32 and f64 convert to f64")
+}
+
+fn of_f64<T: LinalgFloat>(x: f64) -> T {
+    T::from_f64(x).expect("f64 converts to f32 and f64")
 }
 
 /// A singular value decomposition `a = u · diag(s) · vt`.
@@ -312,8 +370,33 @@ pub fn svd<T: LinalgFloat>(a: NdView<'_, T>, full: bool) -> Result<Svd<T>, Linal
 }
 
 /// The singular values, largest first.
+///
+/// faer reduces the matrix to bidiagonal form; the singular values of that come from dqds
+/// (LAPACK's `dlasq1`), each to high relative accuracy and much faster than the divide and
+/// conquer faer's own values-only path uses.
 pub fn svdvals<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError> {
-    matrix(a)?.singular_values().map_err(|_| LinalgError::NoConvergence)
+    use faer::linalg::svd::bidiag::{bidiag_in_place, bidiag_in_place_scratch};
+    let m = matrix(a)?;
+    // the transpose has the same singular values; reduce the tall one
+    let m = if m.nrows() < m.ncols() { m.transpose() } else { m };
+    let (rows, n) = (m.nrows(), m.ncols());
+    if n == 0 {
+        return Ok(Vec::new());
+    }
+    let par = faer::get_global_parallelism();
+    // scaled into range, as LAPACK's dgesvd does: smlnum = sqrt(safmin) / eps, bignum = 1 / smlnum
+    let smlnum = min_positive::<T>().sqrt() / f64_of(T::_EPSILON);
+    let scale = scaling(m, false, smlnum, 1.0 / smlnum);
+    let k = of_f64::<T>(scale);
+    let mut bid = faer::Mat::<T>::from_fn(rows, n, |i, j| m[(i, j)] * k);
+    let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(rows, n);
+    let (mut hl, mut hr) = (faer::Mat::<T>::zeros(bs, n), faer::Mat::<T>::zeros(bs, n - 1));
+    let mut buf = faer::dyn_stack::MemBuffer::new(bidiag_in_place_scratch::<T>(rows, n, par, Default::default()));
+    bidiag_in_place(bid.as_mut(), hl.as_mut(), hr.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+    let mut diag: Vec<f64> = (0..n).map(|i| f64_of(bid[(i, i)])).collect();
+    let off: Vec<f64> = (0..n - 1).map(|i| f64_of(bid[(i, i + 1)])).collect();
+    values::bidiagonal_singular_values(&mut diag, &off).map_err(|_| LinalgError::NoConvergence)?;
+    Ok(diag.into_iter().map(|v| of_f64(v / scale)).collect())
 }
 
 /// The Moore-Penrose pseudo-inverse (n x m for an m x n matrix).
