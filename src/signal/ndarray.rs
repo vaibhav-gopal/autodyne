@@ -855,14 +855,55 @@ macro_rules! view_common {
         impl<'a, T: Copy> $View<'a, T> {
             /// Copies the elements (in logical order) into a new contiguous array, keeping labels.
             pub fn to_owned(&self) -> NdArray<T> {
-                let data: Vec<T> = self.iter().copied().collect();
+                let data: Vec<T> = self.to_vec();
                 let mut layout = Layout::row_major(self.shape()).expect("valid shape");
                 layout.labels = self.layout.labels;
                 NdArray { data, layout, _elem: PhantomData }
             }
-            /// The elements in logical order, copied into a `Vec`.
+            /// The elements in logical order, copied into a `Vec`: a row at a time (one copy for a
+            /// contiguous last axis, a fill for a broadcast one).
             pub fn to_vec(&self) -> Vec<T> {
-                self.iter().copied().collect()
+                let shape = self.shape();
+                let strides = self.strides();
+                let n = shape.len();
+                let len: usize = shape.iter().product();
+                let mut out = Vec::with_capacity(len);
+                if len == 0 {
+                    return out;
+                }
+                if n == 0 {
+                    // SAFETY: a scalar view's one element
+                    out.push(unsafe { *self.ptr });
+                    return out;
+                }
+                let (row, step) = (shape[n - 1], strides[n - 1]);
+                let mut index = [0usize; MAX_DIMS];
+                loop {
+                    let offset: isize = (0..n - 1).map(|i| index[i] as isize * strides[i]).sum();
+                    // SAFETY: every index inside the validated layout addresses an element of the
+                    // borrowed memory
+                    unsafe {
+                        let p = self.ptr.offset(offset);
+                        match step {
+                            1 => out.extend_from_slice(std::slice::from_raw_parts(p, row)),
+                            0 => out.extend(std::iter::repeat_n(*p, row)),
+                            _ => out.extend((0..row).map(|j| *p.offset(j as isize * step))),
+                        }
+                    }
+                    // the next row
+                    let mut k = n - 1;
+                    loop {
+                        if k == 0 {
+                            return out;
+                        }
+                        k -= 1;
+                        index[k] += 1;
+                        if index[k] < shape[k] {
+                            break;
+                        }
+                        index[k] = 0;
+                    }
+                }
             }
         }
     };

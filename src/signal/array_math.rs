@@ -252,10 +252,24 @@ pub(crate) fn pad_any<T: Copy + Default>(a: &NdArray<T>, low: &[usize], high: &[
         strides[i] = strides[i + 1] * shape[i + 1];
     }
     let mut out = vec![T::default(); shape.iter().product()];
-    let mut index = vec![0; n];
-    for &x in a.as_slice() {
-        out[(0..n).map(|i| (low[i] + index[i] * (interior[i] + 1)) * strides[i]).sum::<usize>()] = x;
-        for i in (0..n).rev() {
+    if a.is_empty() {
+        return NdArray::from_vec(out, &shape).expect("valid shape");
+    }
+    if n == 0 {
+        out[0] = a.as_slice()[0];
+        return NdArray::from_vec(out, &shape).expect("valid shape");
+    }
+    // a row (last axis) at a time: one copy when nothing goes between its elements
+    let (row, step) = (from[n - 1], interior[n - 1] + 1);
+    let mut index = [0usize; super::MAX_DIMS];
+    for chunk in a.as_slice().chunks(row) {
+        let base = (0..n - 1).map(|i| (low[i] + index[i] * (interior[i] + 1)) * strides[i]).sum::<usize>() + low[n - 1];
+        if step == 1 {
+            out[base..base + row].copy_from_slice(chunk);
+        } else {
+            chunk.iter().enumerate().for_each(|(j, &x)| out[base + j * step] = x);
+        }
+        for i in (0..n - 1).rev() {
             index[i] += 1;
             if index[i] < from[i] {
                 break;
