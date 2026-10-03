@@ -23,6 +23,7 @@ use thiserror::Error;
 use crate::signal::{NdArray, NdView, NdViewMut};
 use crate::units::*;
 
+mod bdc;
 mod dc;
 mod expm;
 mod poly;
@@ -533,12 +534,72 @@ pub struct Svd<T> {
 
 /// The singular value decomposition: reduced (`u` m x k, `vt` k x n, k = min(m, n)) unless `full`
 /// (`u` m x m, `vt` n x n).
+///
+/// As LAPACK's `gesdd`: faer reduces the matrix to bidiagonal form, autodyne's divide and conquer
+/// solves that, and faer's blocked Householder products carry the vectors back.
 pub fn svd<T: LinalgFloat>(a: NdView<'_, T>, full: bool) -> Result<Svd<T>, LinalgError> {
     let m = matrix(a)?;
-    let svd = if full { m.svd() } else { m.thin_svd() }.map_err(|_| LinalgError::NoConvergence)?;
-    let (u, v) = (svd.U(), svd.V());
-    let s = svd.S().column_vector().iter().copied().collect();
-    Ok(Svd { u: to_array(u, &[u.nrows(), u.ncols()]), s, vt: to_array(v.transpose(), &[v.ncols(), v.nrows()]) })
+    if m.nrows() < m.ncols() {
+        // the transpose's: a^T = U S V^T, so a = V S U^T
+        let Svd { u, s, vt } = svd_tall(m.transpose(), full)?;
+        let (ur, uc) = (u.shape()[0], u.shape()[1]);
+        let (vr, vc) = (vt.shape()[0], vt.shape()[1]);
+        let u_t = NdArray::from_vec((0..uc).flat_map(|j| (0..ur).map(move |i| (i, j))).map(|(i, j)| u.as_slice()[i * uc + j]).collect(), &[uc, ur]).expect("valid shape");
+        let vt_t = NdArray::from_vec((0..vc).flat_map(|j| (0..vr).map(move |i| (i, j))).map(|(i, j)| vt.as_slice()[i * vc + j]).collect(), &[vc, vr]).expect("valid shape");
+        return Ok(Svd { u: vt_t, s, vt: u_t });
+    }
+    svd_tall(m, full)
+}
+
+/// [`svd`] of a matrix with at least as many rows as columns.
+fn svd_tall<T: LinalgFloat>(m: MatRef<'_, T>, full: bool) -> Result<Svd<T>, LinalgError> {
+    use faer::linalg::householder::{apply_block_householder_sequence_on_the_left_in_place_scratch, apply_block_householder_sequence_on_the_left_in_place_with_conj};
+    use faer::linalg::svd::bidiag::{bidiag_in_place, bidiag_in_place_scratch};
+    let (rows, n) = (m.nrows(), m.ncols());
+    let ucols = if full { rows } else { n };
+    if n == 0 {
+        let u = faer::Mat::<T>::from_fn(rows, ucols, |i, j| if i == j { T::_ONE } else { T::_ZERO });
+        return Ok(Svd { u: to_array(u.as_ref(), &[rows, ucols]), s: Vec::new(), vt: NdArray::zeros(&[0, 0]).expect("valid shape") });
+    }
+    let par = faer::get_global_parallelism();
+    // scaled into range, as LAPACK's gesdd does: smlnum = sqrt(safmin) / eps, bignum = 1 / smlnum
+    let smlnum = min_positive::<T>().sqrt() / f64_of(T::_EPSILON);
+    let scale = scaling(m, false, smlnum, 1.0 / smlnum);
+    let k = of_f64::<T>(scale);
+    let mut bid = faer::Mat::<T>::from_fn(rows, n, |i, j| m[(i, j)] * k);
+    let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(rows, n);
+    let (mut hl, mut hr) = (faer::Mat::<T>::zeros(bs, n), faer::Mat::<T>::zeros(bs, n - 1));
+    let mut buf = faer::dyn_stack::MemBuffer::new(faer::dyn_stack::StackReq::any_of(&[
+        bidiag_in_place_scratch::<T>(rows, n, par, Default::default()),
+        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(n, bs, ucols),
+        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(n.saturating_sub(1), bs, n),
+    ]));
+    bidiag_in_place(bid.as_mut(), hl.as_mut(), hr.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+    let mut s: Vec<f64> = (0..n).map(|i| f64_of(bid[(i, i)])).collect();
+    let off: Vec<f64> = (0..n - 1).map(|i| f64_of(bid[(i, i + 1)])).collect();
+    let (mut ub, mut vb) = (vec![0.0; n * n], vec![0.0; n * n]);
+    bdc::bidiagonal_svd(&mut s, &off, &mut ub, &mut vb).map_err(|_| LinalgError::NoConvergence)?;
+    // U: [U_B 0; 0 I] through the left reflectors
+    let mut u = faer::Mat::<T>::from_fn(rows, ucols, |i, j| if i < n && j < n { of_f64(ub[j * n + i]) } else if i == j { T::_ONE } else { T::_ZERO });
+    apply_block_householder_sequence_on_the_left_in_place_with_conj(bid.as_ref(), hl.as_ref(), faer::Conj::No, u.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf));
+    // V: V_B through the right reflectors (stored above the superdiagonal, mirrored below as faer does)
+    let mut v = faer::Mat::<T>::from_fn(n, n, |i, j| of_f64(vb[j * n + i]));
+    if n > 1 {
+        for j in 1..n {
+            for i in 0..j {
+                bid[(j, i)] = bid[(i, j)];
+            }
+        }
+        apply_block_householder_sequence_on_the_left_in_place_with_conj(
+            bid.as_ref().submatrix(1, 0, n - 1, n - 1),
+            hr.as_ref(),
+            faer::Conj::Yes,
+            v.as_mut().subrows_mut(1, n - 1),
+            par,
+            faer::dyn_stack::MemStack::new(&mut buf),
+        );
+    }
+    Ok(Svd { u: to_array(u.as_ref(), &[rows, ucols]), s: s.into_iter().map(|x| of_f64(x / scale)).collect(), vt: to_array(v.as_ref().transpose(), &[n, n]) })
 }
 
 /// The singular values, largest first.

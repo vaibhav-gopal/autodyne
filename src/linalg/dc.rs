@@ -122,11 +122,13 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
     if k > 0 {
         let dk: Vec<f64> = kept.iter().map(|&j| ds[j]).collect();
         let zk: Vec<f64> = kept.iter().map(|&j| zs[j]).collect();
+        let z2k: Vec<f64> = zk.iter().map(|v| v * v).collect();
         // delta[i * k + j] = dk[j] - lambda_i
         let mut delta = vec![0.0; k * k];
         let mut lambda = vec![0.0; k];
         for i in 0..k {
-            lambda[i] = secular_root(&dk, &zk, rho, i, &mut delta[i * k..(i + 1) * k])?;
+            let (origin, tau) = secular(k, &z2k, rho, i, |o| dk.iter().map(|&v| v - dk[o]).collect(), |i| dk[i + 1] - dk[i], &mut delta[i * k..(i + 1) * k])?;
+            lambda[i] = dk[origin] + tau;
         }
         // Gu & Eisenstat: the z for which the computed eigenvalues are exact
         let mut w: Vec<f64> = (0..k).map(|i| delta[i * k + i]).collect();
@@ -139,7 +141,8 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
                 }
             }
         }
-        let zhat: Vec<f64> = (0..k).map(|i| (-w[i]).max(0.0).sqrt().copysign(zk[i])).collect();
+        // (where rounding leaves no positive square, the coupling as it was)
+        let zhat: Vec<f64> = (0..k).map(|i| if -w[i] > 0.0 && w[i].is_finite() { (-w[i]).sqrt().copysign(zk[i]) } else { zk[i] }).collect();
         // A column from the first half is zero in the second half's rows and the other way round
         // (only rotated columns mix them): the kept columns in the order first half only, mixed,
         // second half only, so the top rows of the result come from a leading block of them and
@@ -173,8 +176,15 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
                 column[pos[i]] = v;
                 norm += v * v;
             }
-            let scale = 1.0 / norm.sqrt();
-            column.iter_mut().for_each(|v| *v *= scale);
+            if norm > 0.0 && norm.is_finite() {
+                let scale = 1.0 / norm.sqrt();
+                column.iter_mut().for_each(|v| *v *= scale);
+            } else {
+                // collapsed: the nearest pole's direction
+                let nearest = (0..k).min_by(|&a, &b| row[a].abs().total_cmp(&row[b].abs())).unwrap_or(0);
+                column.fill(0.0);
+                column[pos[nearest]] = 1.0;
+            }
         }
         // back to the full space: top rows from the first k - second columns, bottom rows from the
         // last k - first
@@ -203,28 +213,28 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
     Ok(())
 }
 
-/// Root `i` of the secular equation `1/rho + sum_j z_j^2 / (d_j - lambda) = 0` (`d` ascending and
-/// distinct, `rho > 0`): in `(d_i, d_{i+1})`, the last in `(d_{k-1}, d_{k-1} + rho |z|^2]`. Writes
-/// `d_j - lambda` into `delta`, computed from the nearer pole so it keeps its relative accuracy.
-fn secular_root(d: &[f64], z: &[f64], rho: f64, i: usize, delta: &mut [f64]) -> Result<f64, NoConvergence> {
-    let k = d.len();
+/// Root `i` of the secular equation `1/rho + sum_j z2_j / (p_j - x) = 0` over `k` poles `p` (ascending
+/// and distinct, `rho > 0`): in `(p_i, p_{i+1})`, the last in `(p_{k-1}, p_{k-1} + rho sum z2]`.
+/// The poles enter through `offsets(o)`, every `p_j - p_o` (computed accurately by the caller), and
+/// `gap(i) = p_{i+1} - p_i`. Returns the origin `o`, the pole nearer the root, and `tau = x - p_o`;
+/// writes `p_j - x` into `delta`, so the differences keep their relative accuracy.
+pub(crate) fn secular(k: usize, z2: &[f64], rho: f64, i: usize, offsets: impl Fn(usize) -> Vec<f64>, gap: impl Fn(usize) -> f64, delta: &mut [f64]) -> Result<(usize, f64), NoConvergence> {
     let rho_inv = 1.0 / rho;
     let last = i + 1 == k;
     if k == 1 {
-        let shift = rho * z[0] * z[0];
+        let shift = rho * z2[0];
         delta[0] = -shift;
-        return Ok(d[0] + shift);
+        return Ok((0, shift));
     }
     // the origin: the pole nearer the root, and the root's bracket around it
-    let (origin, mut lo, mut hi) = if last {
-        (k - 1, 0.0, rho * z.iter().map(|v| v * v).sum::<f64>())
+    let (origin, mut lo, mut hi, dd) = if last {
+        (k - 1, 0.0, rho * z2.iter().sum::<f64>(), offsets(k - 1))
     } else {
-        let half = (d[i + 1] - d[i]) / 2.0;
-        let f: f64 = rho_inv + (0..k).map(|j| z[j] * z[j] / ((d[j] - d[i]) - half)).sum::<f64>();
-        if f >= 0.0 { (i, 0.0, half) } else { (i + 1, -half, 0.0) }
+        let half = gap(i) / 2.0;
+        let from_i = offsets(i);
+        let f: f64 = rho_inv + (0..k).map(|j| z2[j] / (from_i[j] - half)).sum::<f64>();
+        if f >= 0.0 { (i, 0.0, half, from_i) } else { (i + 1, -half, 0.0, offsets(i + 1)) }
     };
-    let dd: Vec<f64> = d.iter().map(|&v| v - d[origin]).collect();
-    let z2: Vec<f64> = z.iter().map(|v| v * v).collect();
     // the poles either side of the root (for the last root: the last two, both to its left)
     let (p, r) = if last { (k - 2, k - 1) } else { (i, i + 1) };
     let mut tau = (lo + hi) / 2.0;
@@ -249,7 +259,7 @@ fn secular_root(d: &[f64], z: &[f64], rho: f64, i: usize, delta: &mut [f64]) -> 
         let f = rho_inv + psi + phi;
         // f's rounding error, as dlaed4 bounds it (the terms, 1 / rho, and tau's own error)
         if f == 0.0 || f.abs() <= EPS * (8.0 * bound + 2.0 * rho_inv + 3.0 * tau.abs() * (dpsi + dphi)) {
-            return Ok(d[origin] + tau);
+            return Ok((origin, tau));
         }
         if f < 0.0 {
             lo = tau;
@@ -281,10 +291,11 @@ fn secular_root(d: &[f64], z: &[f64], rho: f64, i: usize, delta: &mut [f64]) -> 
             for j in 0..k {
                 delta[j] = dd[j] - next;
             }
-            return Ok(d[origin] + next);
+            return Ok((origin, next));
         }
         tau = next;
-    }    Err(NoConvergence)
+    }
+    Err(NoConvergence)
 }
 
 /// Eigenvalues (ascending) and vectors (columns of `q`, at leading dimension `ld`) of a small
