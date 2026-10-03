@@ -81,11 +81,11 @@ macro_rules! impl_elementwise {
             }
             #[inline(always)]
             fn exp(self) -> Self {
-                $T::exp(self)
+                <$T as super::fastmath::Transcendental>::t_exp(self)
             }
             #[inline(always)]
             fn ln(self) -> Self {
-                $T::ln(self)
+                <$T as super::fastmath::Transcendental>::t_ln(self)
             }
             #[inline(always)]
             fn sin(self) -> Self {
@@ -97,7 +97,7 @@ macro_rules! impl_elementwise {
             }
             #[inline(always)]
             fn tanh(self) -> Self {
-                $T::tanh(self)
+                <$T as super::fastmath::Transcendental>::t_tanh(self)
             }
             #[inline(always)]
             fn sqrt(self) -> Self {

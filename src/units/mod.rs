@@ -2,6 +2,7 @@
 //! todo:
 //! - portable SIMD types once `std::simd` is stable (the `simd` module covers the hot loops until then)
 
+pub(crate) mod fastmath;
 mod cast;
 pub use cast::*;
 
