@@ -20,7 +20,7 @@ use faer::linalg::solvers::{DenseSolveCore, Solve};
 use faer::{Accum, MatMut, MatRef, Side};
 use thiserror::Error;
 
-use crate::signal::{NdArray, NdView};
+use crate::signal::{NdArray, NdView, NdViewMut};
 use crate::units::*;
 
 mod expm;
@@ -96,6 +96,40 @@ fn to_array<T: Copy>(m: MatRef<'_, T>, shape: &[usize]) -> NdArray<T> {
 /// Matrix product, NumPy `matmul` style for 1-D and 2-D operands: matrix · matrix, matrix · vector,
 /// vector · matrix, vector · vector (a scalar, shape `[]`).
 pub fn matmul<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+    let (_, rhs, shape) = product(a, b)?;
+    // overwritten (unless nothing is contracted: then zeros)
+    let mut out = if rhs.nrows() == 0 { NdArray::<T>::zeros(&shape).expect("valid shape") } else { uninit(&shape) };
+    matmul_into(a, b, out.view_mut())?;
+    Ok(out)
+}
+
+/// [`matmul`] into `out` (the product's shape, any strides), which is overwritten: no new array.
+pub fn matmul_into<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, mut out: NdViewMut<'_, T>) -> Result<(), LinalgError> {
+    let (lhs, rhs, shape) = product(a, b)?;
+    if out.shape() != shape.as_slice() {
+        return Err(LinalgError::Mismatch(shape, out.shape().to_vec()));
+    }
+    let (m, n) = (lhs.nrows(), rhs.ncols());
+    // the output as an m x n matrix: [m, n], [n] (m = 1), [m] (n = 1) or [] (both 1)
+    let (rs, cs) = match (out.strides(), shape.len()) {
+        (&[rs, cs], 2) => (rs, cs),
+        (&[s], 1) if m == 1 => (0, s),
+        (&[s], 1) => (s, 0),
+        _ => (0, 0),
+    };
+    if lhs.ncols() == 0 {
+        out.map_inplace(|x| *x = T::_ZERO);
+        return Ok(());
+    }
+    // SAFETY: `out` is a validated view of the product's shape, borrowed mutably for the call
+    let dst = unsafe { MatMut::from_raw_parts_mut(out.as_mut_ptr(), m, n, rs, cs) };
+    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, T::_ONE, faer::get_global_parallelism());
+    Ok(())
+}
+
+/// The operands of a product as matrices, and the product's shape.
+#[allow(clippy::type_complexity)]
+fn product<'a, T: LinalgFloat>(a: NdView<'a, T>, b: NdView<'a, T>) -> Result<(MatRef<'a, T>, MatRef<'a, T>, Vec<usize>), LinalgError> {
     let (sa, sb) = (a.shape().to_vec(), b.shape().to_vec());
     let (lhs, rhs) = match (sa.len(), sb.len()) {
         // a 1-D left operand is one row
@@ -107,18 +141,29 @@ pub fn matmul<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdAr
     if lhs.ncols() != rhs.nrows() {
         return Err(LinalgError::Mismatch(sa, sb));
     }
-    let shape: Vec<usize> = match (sa.len(), sb.len()) {
-        (1, 1) => vec![],
-        (1, 2) => vec![sb[1]],
-        (2, 1) => vec![sa[0]],
-        _ => vec![sa[0], sb[1]],
-    };
-    let (m, n) = (lhs.nrows(), rhs.ncols());
-    let mut out = NdArray::<T>::zeros(&shape).expect("valid shape");
-    // SAFETY: `out` is a fresh contiguous m x n (row-major) buffer, borrowed mutably for the call
-    let dst = unsafe { MatMut::from_raw_parts_mut(out.as_mut_slice().as_mut_ptr(), m, n, n as isize, 1) };
-    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, T::_ONE, faer::get_global_parallelism());
-    Ok(out)
+    Ok((lhs, rhs, matmul_shape(&sa, &sb)?))
+}
+
+/// The shape of [`matmul`]'s result for operands of these shapes.
+pub fn matmul_shape(a: &[usize], b: &[usize]) -> Result<Vec<usize>, LinalgError> {
+    let inner = |s: &[usize], first: bool| if s.len() == 1 { s[0] } else if first { s[1] } else { s[0] };
+    match (a.len(), b.len()) {
+        (1 | 2, 1 | 2) if inner(a, true) != inner(b, false) => Err(LinalgError::Mismatch(a.to_vec(), b.to_vec())),
+        (1, 1) => Ok(vec![]),
+        (1, 2) => Ok(vec![b[1]]),
+        (2, 1) => Ok(vec![a[0]]),
+        (2, 2) => Ok(vec![a[0], b[1]]),
+        _ => Err(LinalgError::Dims { expected: "1-D or 2-D", got: if a.len() > 2 || a.is_empty() { a.to_vec() } else { b.to_vec() } }),
+    }
+}
+/// A new array of `shape` whose elements are about to be overwritten: allocated, not initialized.
+fn uninit<T: LinalgFloat>(shape: &[usize]) -> NdArray<T> {
+    let len = shape.iter().product();
+    let mut data = Vec::with_capacity(len);
+    // SAFETY: f32 / f64 have no invalid bit patterns, and every caller writes all `len` elements
+    // before reading any
+    unsafe { data.set_len(len) };
+    NdArray::from_vec(data, shape).expect("valid shape")
 }
 
 /// Row-major matrix product of contiguous buffers, for any element type: `Some(a[m x k] · b[k x n])`
@@ -148,7 +193,8 @@ pub(crate) fn gemm_strided<T: Copy + 'static>(a: *const T, (m, k, ars, acs): (us
     use std::any::{Any, TypeId};
     assert_eq!(k, k2, "gemm_strided: inner dimensions differ");
     fn go<F: LinalgFloat>(a: *const F, b: *const F, m: usize, k: usize, n: usize, s: [isize; 4]) -> Vec<F> {
-        let mut out = vec![F::_ZERO; m * n];
+        // faer overwrites every element (unless nothing is contracted: then zeros)
+        let mut out = if k == 0 { vec![F::_ZERO; m * n] } else { uninit(&[m * n]).into_vec() };
         // SAFETY: the caller's views cover these matrices (their elements are inside the views'
         // memory, borrowed for the call); `out` is a fresh m x n row-major buffer
         let (lhs, rhs, dst) = unsafe {

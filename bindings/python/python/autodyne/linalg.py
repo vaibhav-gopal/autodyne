@@ -24,7 +24,11 @@ def _float(a):
 
 def matmul(a, b):
     """Matrix product of 1-D or 2-D arrays."""
-    return _native.matmul(_float(a), _float(b))
+    try:
+        # float arrays go straight in (the common case, and the one where a call's overhead shows)
+        return _native.matmul(a, b)
+    except (TypeError, ValueError, AttributeError):
+        return _native.matmul(_float(a), _float(b))
 
 
 def solve(a, b):

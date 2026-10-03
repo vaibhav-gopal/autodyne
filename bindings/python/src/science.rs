@@ -115,7 +115,20 @@ impl DynElementBridge for f64 {}
 
 #[pyfunction]
 fn matmul(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => with_pair::<T, _>(b, |vb| numpy_array(py, linalg::matmul(va, vb).map_err(linalg_error)?)))
+    // the product written straight into a new NumPy array, as NumPy's own does
+    float_view!(a, T, va => with_pair::<T, _>(b, |vb| {
+        let shape = linalg::matmul_shape(va.shape(), vb.shape()).map_err(linalg_error)?;
+        // SAFETY: matmul_into overwrites every element before the array is returned
+        let out = unsafe { numpy::PyArray::<T, numpy::ndarray::IxDyn>::new(py, numpy::ndarray::IxDyn(&shape), false) };
+        let mut strides = vec![1isize; shape.len()];
+        for i in (0..shape.len().saturating_sub(1)).rev() {
+            strides[i] = strides[i + 1] * shape[i + 1] as isize;
+        }
+        // SAFETY: a fresh C-ordered array of `shape`, borrowed by nothing else
+        let view = unsafe { autodyne::signal::NdViewMut::from_raw_parts(numpy::PyArrayMethods::data(&out), &shape, &strides) }.map_err(value_error)?;
+        linalg::matmul_into(va, vb, view).map_err(linalg_error)?;
+        Ok(out.into_any().unbind())
+    }))
 }
 
 #[pyfunction]
