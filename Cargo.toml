@@ -14,6 +14,7 @@ cranelift-frontend = { version = "0.136", optional = true }
 cranelift-jit = { version = "0.136", optional = true }
 cranelift-module = { version = "0.136", optional = true }
 cranelift-native = { version = "0.136", optional = true }
+cubecl = { version = "0.10", features = ["wgpu"], optional = true }
 faer = { version = "0.24.4", default-features = false, features = ["std", "linalg", "rayon"], optional = true }
 libloading = { version = "0.8", optional = true }
 mimalloc = { version = "0.1", optional = true }
@@ -45,6 +46,8 @@ rustfft = ["dep:rustfft", "dep:realfft"]
 # LTI systems and filter design build on
 faer = ["dep:faer"]
 realfft = ["dep:realfft"]
+# gpu: arrays in GPU memory (autodyne::gpu::GpuArray), CubeCL kernels through wgpu
+gpu = ["dep:cubecl"]
 # mimalloc: the process's global allocator (for a binary or extension module that wants it; one per
 # program). It keeps freed pages mapped for reuse, so a large new array is not paid for in page faults
 # on first touch: 2000 x 2000 f32 `a * x + b` into a new array, 2.2 ms with the Windows heap, 0.35 ms

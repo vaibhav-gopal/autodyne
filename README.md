@@ -119,13 +119,14 @@ on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, trans
 writes `RESULTS.md` (run it on a quiet machine: single-threaded CPU timings swing with background load). Observed
 on a Ryzen 9 7900 + RTX 5070 Ti:
 
-- vs `ndarray`: on par for element-wise, transposed and broadcast work; sums 1.7-2x faster (full, row and column),
+- vs `ndarray`: on par for element-wise, transposed and broadcast work; sums 1.5-2x faster (full, row and column),
   while pairwise summation is also more accurate than its running sums
-- vs Burn's CPU backend: 2-7x faster on element-wise, transposed, broadcast and full / row reductions, 1.6x on column
-  sums; on par for FIR vs `conv1d`
-- GPU (Burn wgpu, CubeCL, data already on the GPU): ~10-15x faster than one CPU core on element-wise work, slower on
-  these reductions; uploading and downloading from CPU memory costs ~5x the CPU computation, so the GPU pays off
-  only for data that lives there (batches, fitting)
+- vs Burn's CPU backend: 3-30x faster on element-wise, transposed, broadcast and full / row reductions, 1.5x on column
+  sums, 2.4x on FIR vs `conv1d`
+- on the GPU (feature `gpu`: `autodyne::gpu::GpuArray`, CubeCL kernels through wgpu), data already there: the fastest
+  of the three on every case, element-wise on par with a hand-written CubeCL kernel (115 µs for 4M elements, Burn
+  130), reductions 1.4-5x Burn's (full, row and column sums 113-126 µs), FIR 1.9x Burn's `conv1d`; a round trip
+  from CPU memory (upload, compute, download) costs about what Burn's does
 ### flux: differentiable programs (feature `flux`)
 Plain Rust, no DSL. Code is written once over two traits and runs eagerly or traced:
 

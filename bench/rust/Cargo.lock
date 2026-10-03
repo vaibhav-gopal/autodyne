@@ -210,6 +210,7 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "cubecl",
  "faer",
  "libloading 0.8.9",
  "mimalloc",

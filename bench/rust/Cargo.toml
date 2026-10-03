@@ -7,7 +7,7 @@ license = "GPL-3.0-only"
 publish = false
 
 [dependencies]
-autodyne = { path = "../..", features = ["ndarray", "jit"] }
+autodyne = { path = "../..", features = ["ndarray", "jit", "gpu"] }
 
 [dev-dependencies]
 burn = { version = "0.21", default-features = false, features = ["std", "flex", "wgpu", "ndarray", "autodiff"] }

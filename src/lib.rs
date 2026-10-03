@@ -61,6 +61,8 @@ pub mod dynamic;
 pub mod linalg;
 #[cfg(feature = "faer")]
 pub mod systems;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 pub mod dlpack;
 pub mod interop;
 #[cfg(feature = "flux")]
