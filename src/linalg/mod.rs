@@ -483,7 +483,7 @@ fn lower_scaled<T: LinalgFloat>(m: MatRef<'_, T>) -> (faer::Mat<T>, f64) {
         let k = of_f64::<T>(scale);
         for j in 0..n {
             for i in j..n {
-                out[(i, j)] = out[(i, j)] * k;
+                out[(i, j)] *= k;
             }
         }
     }

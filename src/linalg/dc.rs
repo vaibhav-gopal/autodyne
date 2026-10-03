@@ -36,14 +36,13 @@ pub(crate) fn tridiagonal_eigen(d: &mut [f64], e: &[f64], q: &mut [f64]) -> Resu
     }
     let mut e: Vec<f64> = e.iter().map(|v| v / scale).collect();
     d.iter_mut().for_each(|v| *v /= scale);
-    let mut work = Vec::new();
-    solve(d, &mut e, q, n, &mut work)?;
+    solve(d, &mut e, q, n)?;
     d.iter_mut().for_each(|v| *v *= scale);
     Ok(())
 }
 
 /// Solves the block whose vectors are `q` (n x n at leading dimension `ld`, zero on entry).
-fn solve(d: &mut [f64], e: &mut [f64], q: &mut [f64], ld: usize, work: &mut Vec<f64>) -> Result<(), NoConvergence> {
+fn solve(d: &mut [f64], e: &mut [f64], q: &mut [f64], ld: usize) -> Result<(), NoConvergence> {
     let n = d.len();
     if n <= SMALL {
         return ql(d, e, q, ld);
@@ -56,8 +55,8 @@ fn solve(d: &mut [f64], e: &mut [f64], q: &mut [f64], ld: usize, work: &mut Vec<
     d[m] -= beta;
     let (d1, d2) = d.split_at_mut(m);
     let (e1, e2) = e.split_at_mut(m);
-    solve(d1, &mut e1[..m - 1], q, ld, work)?;
-    solve(d2, e2, &mut q[m * ld + m..], ld, work)?;
+    solve(d1, &mut e1[..m - 1], q, ld)?;
+    solve(d2, e2, &mut q[m * ld + m..], ld)?;
     merge(d, q, ld, m, beta, if coupling < 0.0 { -1.0 } else { 1.0 })
 }
 
@@ -469,8 +468,8 @@ mod tests {
         let d: Vec<f64> = (0..m).map(|i| (50.0 - i as f64).abs()).collect();
         check(&d, &vec![1.0; m - 1], "wilkinson");
         // graded
-        let d: Vec<f64> = (0..60).map(|i| 10f64.powi(-(i as i32) / 4)).collect();
-        let e: Vec<f64> = (0..59).map(|i| 10f64.powi(-(i as i32) / 4 - 1)).collect();
+        let d: Vec<f64> = (0..60).map(|i| 10f64.powi(-i / 4)).collect();
+        let e: Vec<f64> = (0..59).map(|i| 10f64.powi(-i / 4 - 1)).collect();
         check(&d, &e, "graded");
         // huge and tiny scales
         check(&random(80, 7).iter().map(|v| v * 1e300).collect::<Vec<_>>(), &random(79, 8).iter().map(|v| v * 1e300).collect::<Vec<_>>(), "huge");
