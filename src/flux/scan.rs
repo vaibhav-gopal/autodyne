@@ -3,6 +3,9 @@
 use super::ad::vjp;
 use super::graph::{trace, FluxFloat, Graph, Tracer};
 use super::loss::Loss;
+use super::scalar::ScalarScan;
+use std::sync::Arc;
+
 use crate::signal::{ArrayMath, NdArray};
 
 /// A recurrence `step(params, state, x) -> (state', y)`, traced once, run over a signal.
@@ -53,6 +56,8 @@ pub struct Scan {
     pub(crate) residuals: Vec<Vec<usize>>,
     /// recompute each step in the reverse pass instead of saving residuals
     pub(crate) checkpointed: bool,
+    /// the step graphs as register programs, when every value is a single number
+    pub(crate) scalar: Option<Arc<ScalarScan>>,
 }
 
 /// A loss and its gradient, from [`Scan::grad`] / [`Scan::loss_grad`].
@@ -100,6 +105,7 @@ impl Scan {
             vjp(&out, &v[p + s + 1..], &v[..p + s + 1])
         });
         let (step_fwd, step_bwd, residuals) = split(&step, &shapes[..p + s + 1], p, s);
+        let scalar = ScalarScan::compile(&step, &step_fwd, &step_bwd, &step_vjp, p, s, residuals.len());
         Scan {
             params: params.iter().map(|x| x.to_vec()).collect(),
             states: states.iter().map(|x| x.to_vec()).collect(),
@@ -111,6 +117,7 @@ impl Scan {
             step_bwd,
             residuals,
             checkpointed: false,
+            scalar,
         }
     }
 
@@ -154,6 +161,10 @@ impl Scan {
     /// (`[len, output...]`) and the final state.
     pub fn run<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>]) -> (NdArray<T>, Vec<NdArray<T>>) {
         let len = self.check(params, xs, s0);
+        if let Some(sc) = &self.scalar {
+            let (ys, state) = sc.run(&firsts(params), xs.as_slice(), &firsts(s0));
+            return (NdArray::from_vec(ys, &[&[len], self.output.as_slice()].concat()).expect("output shape"), singles(&state, &self.states));
+        }
         let s = self.states.len();
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(len * self.output.iter().product::<usize>());
@@ -218,6 +229,10 @@ impl Scan {
     pub fn vjp<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>], dys: &NdArray<T>) -> ScanVjp<T> {
         let len = self.check(params, xs, s0);
         assert_eq!(dys.shape(), [&[len], self.output.as_slice()].concat(), "Scan::vjp: dys must be [len, output...]");
+        if let Some(sc) = &self.scalar {
+            let (_, saved) = sc.forward(&firsts(params), xs.as_slice(), &firsts(s0), self.checkpointed);
+            return self.scalar_vjp(sc, params, xs, &saved, dys);
+        }
         let inputs: Vec<NdArray<T>> = steps(xs, &self.sample).collect();
         let (_, saved) = self.forward(params, &inputs, s0);
         self.backward(params, &inputs, &saved, dys)
@@ -245,6 +260,13 @@ impl Scan {
     pub fn grad<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>], loss: &Loss, aux: &[NdArray<T>]) -> LossGrad<T> {
         let len = self.check(params, xs, s0);
         assert_eq!(loss.output_shape(), [&[len], self.output.as_slice()].concat(), "Scan::grad: the loss scores outputs of another shape");
+        if let Some(sc) = &self.scalar {
+            let (ys, saved) = sc.forward(&firsts(params), xs.as_slice(), &firsts(s0), self.checkpointed);
+            let ys = NdArray::from_vec(ys, &[&[len], self.output.as_slice()].concat()).expect("output shape");
+            let (value, dys) = loss.grad(&ys, aux);
+            let ScanVjp { params, state, input } = self.scalar_vjp(sc, params, xs, &saved, &dys);
+            return LossGrad { loss: value, params, state, input };
+        }
         let inputs: Vec<NdArray<T>> = steps(xs, &self.sample).collect();
         let (ys, saved) = self.forward(params, &inputs, s0);
         let (value, dys) = loss.grad(&ys, aux);
@@ -257,6 +279,12 @@ impl Scan {
     pub fn loss_grad<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, targets: &NdArray<T>, s0: &[NdArray<T>]) -> LossGrad<T> {
         self.grad(params, xs, s0, &Loss::mse(targets.shape()), std::slice::from_ref(targets))
     }
+    /// The reverse scan of a scalar scan, from its forward pass's saved values.
+    fn scalar_vjp<T: FluxFloat>(&self, sc: &ScalarScan, params: &[NdArray<T>], xs: &NdArray<T>, saved: &[T], dys: &NdArray<T>) -> ScanVjp<T> {
+        let (d_params, d_state, d_xs) = sc.backward(&firsts(params), xs.as_slice(), saved, dys.as_slice(), self.checkpointed);
+        ScanVjp { params: singles(&d_params, &self.params), state: singles(&d_state, &self.states), input: NdArray::from_vec(d_xs, xs.shape()).expect("input shape") }
+    }
+
     /// Checks the argument shapes; returns the number of steps.
     fn check<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>]) -> usize {
         assert_eq!(params.len(), self.params.len(), "Scan: wrong number of parameters");
@@ -270,6 +298,16 @@ impl Scan {
         assert!(xs.ndim() == self.sample.len() + 1 && &xs.shape()[1..] == self.sample.as_slice(), "Scan: xs must be [len, sample...]");
         xs.shape()[0]
     }
+}
+
+/// The single value of each one-element array.
+fn firsts<T: FluxFloat>(arrays: &[NdArray<T>]) -> Vec<T> {
+    arrays.iter().map(|a| a.as_slice()[0]).collect()
+}
+
+/// Single values as one-element arrays of the given shapes.
+fn singles<T: FluxFloat>(values: &[T], shapes: &[Vec<usize>]) -> Vec<NdArray<T>> {
+    values.iter().zip(shapes).map(|(&v, s)| NdArray::from_vec(vec![v], s).expect("a one-element shape")).collect()
 }
 
 /// The steps of a stacked signal (`[len, shape...]`), each of `shape`.

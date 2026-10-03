@@ -52,6 +52,7 @@ mod loss;
 pub mod optim;
 mod pjrt;
 mod runtime;
+mod scalar;
 mod scan;
 mod xla;
 

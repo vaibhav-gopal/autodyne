@@ -780,3 +780,48 @@ fn tracers_from_another_trace_are_rejected() {
 fn mismatched_shapes_are_rejected() {
     trace(&[&[2], &[3]], |v| vec![v[0] + v[1]]);
 }
+
+#[test]
+fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
+    use crate::distortion::Shape;
+    use crate::filter::{BiquadCoeffs, BiquadKind};
+    let one_pole = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
+        let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(48_000.0)).tick(s[0], x);
+        (vec![s], y)
+    });
+    let eq = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
+        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(48_000.0), Tracer::lit(1.0), p[1] * Tracer::lit(10.0));
+        let ([a, b], y) = c.tick([s[0], s[1]], x);
+        // a mask and a select in the step too
+        let y = Tracer::select(y.greater(Tracer::lit(0.9)), Tracer::lit(0.9), y);
+        (vec![a, b], Shape::Tanh.apply(y * p[2]))
+    });
+    assert!(one_pole.scalar.is_some() && eq.scalar.is_some());
+    // a scan over vectors stays interpreted
+    assert!(Scan::trace(&[&[2]], &[&[2]], &[2], |p, s, x| (vec![s[0] * p[0] + x], s[0])).scalar.is_none());
+
+    let n = 300;
+    let xs = vector(&noise(n, 3).iter().map(|v| 0.5 * v).collect::<Vec<_>>());
+    for (scan, params, s0) in [
+        (&one_pole, vec![scalar(1_000.0)], vec![scalar(0.1)]),
+        (&eq, vec![scalar(1_000f32.ln()), scalar(0.3), scalar(1.5)], vec![scalar(0.0), scalar(0.05)]),
+    ] {
+        let mut interpreted = scan.clone();
+        interpreted.scalar = None;
+        assert_eq!(scan.run(&params, &xs, &s0), interpreted.run(&params, &xs, &s0));
+        let (target, _) = interpreted.run(&params.iter().map(|p| p.clone() * scalar(1.1)).collect::<Vec<_>>(), &xs, &s0);
+        let stft = Loss::stft(&[n], &[StftResolution::overlapping(64), StftResolution::overlapping(16)]);
+        for checkpointed in [false, true] {
+            let (a, b) = (scan.clone().checkpointed(checkpointed), interpreted.clone().checkpointed(checkpointed));
+            assert_eq!(a.loss_grad(&params, &xs, &target, &s0), b.loss_grad(&params, &xs, &target, &s0));
+            let ga = a.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target));
+            assert_eq!(ga, b.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target)));
+            assert!(ga.params.iter().all(|g| g.as_slice()[0].is_finite() && g.as_slice()[0] != 0.0));
+        }
+        // f64 too
+        let p64: Vec<NdArray<f64>> = params.iter().map(|p| p.map(|&v| v as f64)).collect();
+        let s64: Vec<NdArray<f64>> = s0.iter().map(|p| p.map(|&v| v as f64)).collect();
+        let x64 = xs.map(|&v| v as f64);
+        assert_eq!(scan.run(&p64, &x64, &s64), interpreted.run(&p64, &x64, &s64));
+    }
+}
