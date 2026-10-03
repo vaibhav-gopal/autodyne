@@ -28,6 +28,12 @@
 //! Processors allocate only when constructed; processing runs in place without allocating, so it is
 //! safe inside an audio callback.
 
+/// With the `mimalloc` feature, mimalloc allocates for the whole program (see the feature's note in
+/// `Cargo.toml`): new arrays reuse freed pages instead of faulting fresh ones in.
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 pub mod units;
 pub mod signal;
 pub mod simd;

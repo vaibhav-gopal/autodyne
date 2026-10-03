@@ -19,6 +19,10 @@ dyn-stack = "0.13"
 faer = { version = "0.24.4", default-features = false, features = ["std", "linalg"] }
 nalgebra = "0.34"
 
+[features]
+# mimalloc as the allocator (autodyne's feature): new arrays without page faults, for every library here
+mimalloc = ["autodyne/mimalloc"]
+
 [[bench]]
 name = "compare"
 harness = false

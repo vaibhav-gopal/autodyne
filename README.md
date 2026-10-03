@@ -98,18 +98,18 @@ VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release --uv   # (Scripts\ on
 results agree), single-threaded, end to end: autodyne's times include crossing into Rust and back through DLPack. Latest
 results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULTS.md). On a Ryzen 9 7900:
 
-- fused `a * x + b`: ~2x faster than NumPy's two passes with a temporary, on contiguous, transposed, strided or
-  reversed inputs (results keep the input's memory order, as NumPy's do); 1.6-2.4x on small arrays (64-1,000 elements),
-  where NumPy arrays cross through NumPy's C API rather than a Python-level DLPack call
-- sums: 2.5x (f32) to 3.5x (f64) faster, row sums 5.8x, column sums (contiguous or transposed) 1.3x
-- mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 1.45x faster
-- IIR filtering vs `scipy.signal.sosfilt`: 1.27x faster on contiguous lanes, on par on strided ones
-- FFT vs `numpy.fft` (pocketfft): 1.3-1.5x faster, 2x at prime lengths (`rustfft` / `realfft` kernels; any length)
-- `scipy.signal`: `sosfilt` 1.1x, `sosfiltfilt` 1.5x, `lfilter` on par (lanes filtered four at a time), `welch` 3x,
-  `stft` 1.1x, filter design ~100x (SciPy designs in Python), `remez` 1.07x
-- linear algebra (faer vs OpenBLAS, one thread): `solve` 1.1-2x, `matmul` 1.1x at 512 x 512 (0.9x at 64 x 64, where the
+- the extension module allocates with mimalloc (autodyne's `mimalloc` feature), which reuses freed pages: a large new
+  array costs no page faults on first touch, most of the time of a large element-wise operation otherwise
+- fused `a * x + b`: 4.7-5.2x faster than NumPy's two passes with a temporary on 10M elements, 4-6x on transposed,
+  strided or reversed inputs (results keep the input's memory order, as NumPy's do), 2-2.6x on small arrays
+- sums: 2.5x (f32) to 3.4x (f64) faster, row sums 5.3x, column sums (contiguous or transposed) 1.35x
+- mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 3.7x; same-dtype `+`: 2x
+- FFT vs `numpy.fft` (pocketfft): 2.2-2.6x faster, 1.3x on short complex rows (`rustfft` / `realfft`; any length)
+- `scipy.signal`: `lfilter` 3.3x, `sosfiltfilt` 2.5x, `sosfilt` 1.4-2x (1.55x on 16 x 480k lanes), `welch` 3.2x,
+  `stft` 2.2x, filter design ~130x (SciPy designs in Python), `remez` 1.04x
+- linear algebra (faer vs OpenBLAS, one thread): `solve` 1.5-2x, `matmul` 1.2x at 512 x 512 (0.9x at 64 x 64, where the
   ~1 µs of crossing into Rust shows), `eigvals` 1.1x, `svdvals` and `eigvalsh` on par (faer's reductions, then
-  autodyne's own dqds and Pal-Walker-Kahan iterations, LAPACK's `dlasq1` / `dsterf`); `eigh` 0.85x, `svd` 0.9x;
+  autodyne's own dqds and Pal-Walker-Kahan iterations, LAPACK's `dlasq1` / `dsterf`); `eigh` 0.88x, `svd` 0.9x;
   `bench/linalg` adds PyTorch, JAX, faer, nalgebra and Burn on the same inputs
 ### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
 `bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
