@@ -8,12 +8,12 @@ logarithms).
 
 | Model | flux in process | flux in process, contracted | flux (XLA) | JAX (XLA) | PyTorch eager | Enzyme (C) | candle | Burn flex | Burn ndarray |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| one-pole low-pass, 48k samples | 53.2 µs | 35.6 µs | 153.6 µs | 155.8 µs | 303.09 ms | 64.1 µs | 14.03 ms | 24.48 ms | 34.36 ms |
-| one-pole MSE gradient, 48k samples | 171.7 µs | 145.6 µs | 501.8 µs | 491.5 µs | 1.26 s | 160.4 µs | 585.83 ms | 3.31 s | 4.41 s |
-| EQ + drive, multi-resolution STFT loss gradient, 2048 samples | 582.9 µs | — | 274.1 µs | 390.1 µs | 149.29 ms | 3.54 ms | — | — | — |
-| rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024 | 1.46 ms | — | 3.36 ms | 3.34 ms | 1.68 ms | 14.50 ms | 22.57 ms | 12.27 ms | 19.87 ms |
+| one-pole low-pass, 48k samples | 53.2 µs | 35.6 µs | 153.6 µs | 155.8 µs | 303.09 ms | 64.1 µs | 14.23 ms | 24.63 ms | 34.10 ms |
+| one-pole MSE gradient, 48k samples | 171.8 µs | 145.8 µs | 501.8 µs | 491.5 µs | 1.26 s | 160.4 µs | 597.09 ms | 3.07 s | 4.18 s |
+| EQ + drive, multi-resolution STFT loss gradient, 2048 samples | 352.2 µs | — | 274.1 µs | 390.1 µs | 149.29 ms | 3.54 ms | — | — | — |
+| rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024 | 1.43 ms | — | 3.36 ms | 3.34 ms | 1.68 ms | 14.50 ms | 22.65 ms | 12.39 ms | 19.85 ms |
 
-autodyne's core `OnePole` filter (no tracing, `process` on a block) runs the forward pass in 55.2 µs.
+autodyne's core `OnePole` filter (no tracing, `process` on a block) runs the forward pass in 57.3 µs.
 
 - flux in process: `Scan::run` / `Scan::grad` / `Graph::eval` with the `jit` feature. Scalar scans (per-sample
   recurrences) are compiled to machine code with Cranelift (the step's arithmetic on registers, parameter-only
