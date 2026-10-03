@@ -134,7 +134,7 @@ impl<T: Float> Fir<T> {
             // Tiles of FIR_TILE outputs: each tap times FIR_TILE consecutive inputs, accumulated
             // per output (vector registers, no horizontal sums)
             let tiles = m / FIR_TILE * FIR_TILE;
-            for (t, out) in chunk[..tiles].chunks_exact_mut(FIR_TILE).enumerate() {
+            for (t, out) in chunk[..tiles].as_chunks_mut::<FIR_TILE>().0.iter_mut().enumerate() {
                 let start = t * FIR_TILE;
                 let mut acc = [T::_ZERO; FIR_TILE];
                 for (k, &h) in self.reversed.iter().enumerate() {

@@ -96,11 +96,17 @@ fn to_array<T: Copy>(m: MatRef<'_, T>, shape: &[usize]) -> NdArray<T> {
 /// Matrix product, NumPy `matmul` style for 1-D and 2-D operands: matrix · matrix, matrix · vector,
 /// vector · matrix, vector · vector (a scalar, shape `[]`).
 pub fn matmul<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
-    let (_, rhs, shape) = product(a, b)?;
-    // overwritten (unless nothing is contracted: then zeros)
-    let mut out = if rhs.nrows() == 0 { NdArray::<T>::zeros(&shape).expect("valid shape") } else { uninit(&shape) };
-    matmul_into(a, b, out.view_mut())?;
-    Ok(out)
+    let (_, _, shape) = product(a, b)?;
+    let mut strides = vec![1isize; shape.len()];
+    for i in (0..shape.len().saturating_sub(1)).rev() {
+        strides[i] = strides[i + 1] * shape[i + 1] as isize;
+    }
+    let data = written(shape.iter().product(), |out| {
+        // SAFETY: a row-major buffer of the product's shape, borrowed mutably for the call
+        let view = unsafe { NdViewMut::from_raw_parts(out, &shape, &strides) }.expect("a valid layout");
+        matmul_into(a, b, view)
+    })?;
+    Ok(NdArray::from_vec(data, &shape).expect("valid shape"))
 }
 
 /// [`matmul`] into `out` (the product's shape, any strides), which is overwritten: no new array.
@@ -156,14 +162,16 @@ pub fn matmul_shape(a: &[usize], b: &[usize]) -> Result<Vec<usize>, LinalgError>
         _ => Err(LinalgError::Dims { expected: "1-D or 2-D", got: if a.len() > 2 || a.is_empty() { a.to_vec() } else { b.to_vec() } }),
     }
 }
-/// A new array of `shape` whose elements are about to be overwritten: allocated, not initialized.
-fn uninit<T: LinalgFloat>(shape: &[usize]) -> NdArray<T> {
-    let len = shape.iter().product();
-    let mut data = Vec::with_capacity(len);
-    // SAFETY: f32 / f64 have no invalid bit patterns, and every caller writes all `len` elements
-    // before reading any
+/// `len` values written by `write` into fresh, uninitialized memory (no zero fill first). `write`
+/// must write every element.
+fn written<T: LinalgFloat, E>(len: usize, write: impl FnOnce(*mut T) -> Result<(), E>) -> Result<Vec<T>, E> {
+    let mut data: Vec<std::mem::MaybeUninit<T>> = Vec::with_capacity(len);
+    // SAFETY: MaybeUninit needs no initialization
     unsafe { data.set_len(len) };
-    NdArray::from_vec(data, shape).expect("valid shape")
+    write(data.as_mut_ptr().cast::<T>())?;
+    let mut data = std::mem::ManuallyDrop::new(data);
+    // SAFETY: every element was written; MaybeUninit<T> has T's layout
+    Ok(unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast::<T>(), data.len(), data.capacity()) })
 }
 
 /// Row-major matrix product of contiguous buffers, for any element type: `Some(a[m x k] · b[k x n])`
@@ -193,15 +201,18 @@ pub(crate) fn gemm_strided<T: Copy + 'static>(a: *const T, (m, k, ars, acs): (us
     use std::any::{Any, TypeId};
     assert_eq!(k, k2, "gemm_strided: inner dimensions differ");
     fn go<F: LinalgFloat>(a: *const F, b: *const F, m: usize, k: usize, n: usize, s: [isize; 4]) -> Vec<F> {
-        // faer overwrites every element (unless nothing is contracted: then zeros)
-        let mut out = if k == 0 { vec![F::_ZERO; m * n] } else { uninit(&[m * n]).into_vec() };
-        // SAFETY: the caller's views cover these matrices (their elements are inside the views'
-        // memory, borrowed for the call); `out` is a fresh m x n row-major buffer
-        let (lhs, rhs, dst) = unsafe {
-            (MatRef::from_raw_parts(a, m, k, s[0], s[1]), MatRef::from_raw_parts(b, k, n, s[2], s[3]), MatMut::from_raw_parts_mut(out.as_mut_ptr(), m, n, n as isize, 1))
-        };
-        faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, F::_ONE, faer::get_global_parallelism());
-        out
+        if k == 0 {
+            return vec![F::_ZERO; m * n];
+        }
+        written(m * n, |out| {
+            // SAFETY: the caller's views cover these matrices (their elements are inside the views'
+            // memory, borrowed for the call); `out` is a fresh m x n row-major buffer
+            let (lhs, rhs, dst) = unsafe { (MatRef::from_raw_parts(a, m, k, s[0], s[1]), MatRef::from_raw_parts(b, k, n, s[2], s[3]), MatMut::from_raw_parts_mut(out, m, n, n as isize, 1)) };
+            // with something contracted, faer overwrites every element
+            faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, F::_ONE, faer::get_global_parallelism());
+            Ok::<(), LinalgError>(())
+        })
+        .expect("cannot fail")
     }
     let s = [ars, acs, brs, bcs];
     let out: Box<dyn Any> = if TypeId::of::<T>() == TypeId::of::<f32>() {
