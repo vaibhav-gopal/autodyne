@@ -286,6 +286,12 @@ pub fn eigh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(Vec<T>, NdArray<T>), Li
     Ok((e.S().column_vector().iter().copied().collect(), to_array(e.U(), a.shape())))
 }
 
+/// The eigenvalues (ascending) of a symmetric matrix, without eigenvectors; only its lower
+/// triangle is read.
+pub fn eigvalsh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError> {
+    square(a)?.self_adjoint_eigenvalues(Side::Lower).map_err(|_| LinalgError::NoConvergence)
+}
+
 /// A singular value decomposition `a = u · diag(s) · vt`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Svd<T> {
