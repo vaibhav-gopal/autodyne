@@ -21,7 +21,9 @@
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
 //! - Instruments: [`synth`] (MIDI, voices, polyphony), [`sampler`] (multisampled playback), [`control`] (LFOs, modulation matrix, transport).
 //! - Differentiable programs: `flux` (feature `flux`) traces code written over [`units::Real`],
-//!   differentiates it and emits StableHLO for XLA / IREE.
+//!   differentiates it and emits StableHLO for XLA / IREE, or runs it in process (feature jit:
+//!   scalar scans compiled to machine code).
+//! - GPU: gpu (feature gpu): arrays in GPU memory with CubeCL kernels through wgpu.
 //! - Integration: [`dlpack`] (zero-copy tensor exchange with NumPy, PyTorch, JAX...), [`wav`] (WAV files with loop metadata), [`params`] (parameters and metadata for hosts), [`dynamic`] (runtime-typed data
 //!   and processors), [`prelude`] (one import for all the traits).
 //!
