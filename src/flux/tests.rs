@@ -797,6 +797,8 @@ fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
         (vec![a, b], Shape::Tanh.apply(y * p[2]))
     });
     assert!(one_pole.scalar.is_some() && eq.scalar.is_some());
+    #[cfg(feature = "jit")]
+    assert!(eq.scalar.as_ref().unwrap().native::<f32>(false).is_some() && eq.scalar.as_ref().unwrap().native::<f64>(true).is_some());
     // a scan over vectors stays interpreted
     assert!(Scan::trace(&[&[2]], &[&[2]], &[2], |p, s, x| (vec![s[0] * p[0] + x], s[0])).scalar.is_none());
 
@@ -817,6 +819,17 @@ fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
             let ga = a.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target));
             assert_eq!(ga, b.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target)));
             assert!(ga.params.iter().all(|g| g.as_slice()[0].is_finite() && g.as_slice()[0] != 0.0));
+        }
+        // fused multiply-adds: the last bits differ, nothing more
+        let near = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-4 * (1.0 + y.abs()));
+        for checkpointed in [false, true] {
+            let (exact, fused) = (scan.clone().checkpointed(checkpointed), scan.clone().checkpointed(checkpointed).contracted(true));
+            assert!(near(fused.run(&params, &xs, &s0).0.as_slice(), exact.run(&params, &xs, &s0).0.as_slice()));
+            let (gf, ge) = (fused.loss_grad(&params, &xs, &target, &s0), exact.loss_grad(&params, &xs, &target, &s0));
+            assert!(near(&[gf.loss], &[ge.loss]) && near(gf.input.as_slice(), ge.input.as_slice()));
+            for (a, b) in gf.params.iter().zip(&ge.params) {
+                assert!((a.as_slice()[0] - b.as_slice()[0]).abs() <= 1e-3 * (1.0 + b.as_slice()[0].abs()), "{a:?} vs {b:?}");
+            }
         }
         // f64 too
         let p64: Vec<NdArray<f64>> = params.iter().map(|p| p.map(|&v| v as f64)).collect();

@@ -78,22 +78,31 @@ impl Loss {
     pub fn graph(&self) -> &Graph {
         &self.value
     }
+    /// The traced loss and its gradient: inputs output, aux...; outputs the loss and d loss / d output.
+    pub fn grad_graph(&self) -> &Graph {
+        &self.grad
+    }
 
     /// The loss of `output`.
     pub fn eval<T: FluxFloat>(&self, output: &NdArray<T>, aux: &[NdArray<T>]) -> T {
-        self.value.eval(&self.args(output, aux))[0].as_slice()[0]
+        self.value.eval_owned(self.args(output.clone(), aux))[0].as_slice()[0]
     }
 
     /// The loss of `output` and its gradient with respect to `output`.
     pub fn grad<T: FluxFloat>(&self, output: &NdArray<T>, aux: &[NdArray<T>]) -> (T, NdArray<T>) {
-        let mut out = self.grad.eval(&self.args(output, aux));
+        self.grad_owned(output.clone(), aux)
+    }
+
+    /// [`grad`](Self::grad) taking the output by value (moved in, not copied).
+    pub(crate) fn grad_owned<T: FluxFloat>(&self, output: NdArray<T>, aux: &[NdArray<T>]) -> (T, NdArray<T>) {
+        let mut out = self.grad.eval_owned(self.args(output, aux));
         let d = out.pop().expect("two outputs");
         (out[0].as_slice()[0], d)
     }
 
-    fn args<T: FluxFloat>(&self, output: &NdArray<T>, aux: &[NdArray<T>]) -> Vec<NdArray<T>> {
+    fn args<T: FluxFloat>(&self, output: NdArray<T>, aux: &[NdArray<T>]) -> Vec<NdArray<T>> {
         assert_eq!(aux.len(), self.aux.len(), "Loss: wrong number of extra inputs");
-        std::iter::once(output).chain(aux).cloned().collect()
+        std::iter::once(output).chain(aux.iter().cloned()).collect()
     }
 }
 

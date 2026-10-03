@@ -818,6 +818,13 @@ impl PyScan {
         PyScan(self.0.clone().checkpointed(checkpointed))
     }
 
+    /// The same scan allowed (`True`) to fuse each product read only by a sum into one fused
+    /// multiply-add when it runs a scalar scan in process: faster recurrences, results differing
+    /// from the step-by-step interpreter's in the last bits (`False`, the default: bit for bit).
+    fn contracted(&self, contracted: bool) -> Self {
+        PyScan(self.0.clone().contracted(contracted))
+    }
+
     /// The shapes saved per step for gradients besides the state.
     #[getter]
     fn residual_shapes(&self) -> Vec<Vec<usize>> {

@@ -56,6 +56,8 @@ pub struct Scan {
     pub(crate) residuals: Vec<Vec<usize>>,
     /// recompute each step in the reverse pass instead of saving residuals
     pub(crate) checkpointed: bool,
+    /// fuse products into sums in compiled scalar scans
+    pub(crate) contracted: bool,
     /// the step graphs as register programs, when every value is a single number
     pub(crate) scalar: Option<Arc<ScalarScan>>,
 }
@@ -117,6 +119,7 @@ impl Scan {
             step_bwd,
             residuals,
             checkpointed: false,
+            contracted: false,
             scalar,
         }
     }
@@ -126,6 +129,18 @@ impl Scan {
     /// no recomputation, more memory per step; see [`residual_shapes`](Self::residual_shapes)).
     pub fn checkpointed(mut self, checkpointed: bool) -> Scan {
         self.checkpointed = checkpointed;
+        self
+    }
+
+    /// Whether a scalar scan (every parameter, state value and sample a single number), run or
+    /// differentiated in process, may fuse each product read only by a sum into one fused
+    /// multiply-add (`true`), or rounds every operation as written (`false`, the default: results
+    /// are bit for bit the interpreter's). Fused, the loop's chain of dependent operations is
+    /// shorter, so long recurrences run faster, and each fused operation rounds once instead of
+    /// twice: results differ in the last bits, usually for the better. Emitted programs are not
+    /// affected (the compiler there decides).
+    pub fn contracted(mut self, contracted: bool) -> Scan {
+        self.contracted = contracted;
         self
     }
 
@@ -162,7 +177,7 @@ impl Scan {
     pub fn run<T: FluxFloat>(&self, params: &[NdArray<T>], xs: &NdArray<T>, s0: &[NdArray<T>]) -> (NdArray<T>, Vec<NdArray<T>>) {
         let len = self.check(params, xs, s0);
         if let Some(sc) = &self.scalar {
-            let (ys, state) = sc.run(&firsts(params), xs.as_slice(), &firsts(s0));
+            let (ys, state) = sc.run(&firsts(params), xs.as_slice(), &firsts(s0), self.contracted);
             return (NdArray::from_vec(ys, &[&[len], self.output.as_slice()].concat()).expect("output shape"), singles(&state, &self.states));
         }
         let s = self.states.len();
@@ -230,7 +245,7 @@ impl Scan {
         let len = self.check(params, xs, s0);
         assert_eq!(dys.shape(), [&[len], self.output.as_slice()].concat(), "Scan::vjp: dys must be [len, output...]");
         if let Some(sc) = &self.scalar {
-            let (_, saved) = sc.forward(&firsts(params), xs.as_slice(), &firsts(s0), self.checkpointed);
+            let (_, saved) = sc.forward(&firsts(params), xs.as_slice(), &firsts(s0), self.checkpointed, self.contracted);
             return self.scalar_vjp(sc, params, xs, &saved, dys);
         }
         let inputs: Vec<NdArray<T>> = steps(xs, &self.sample).collect();
@@ -261,15 +276,15 @@ impl Scan {
         let len = self.check(params, xs, s0);
         assert_eq!(loss.output_shape(), [&[len], self.output.as_slice()].concat(), "Scan::grad: the loss scores outputs of another shape");
         if let Some(sc) = &self.scalar {
-            let (ys, saved) = sc.forward(&firsts(params), xs.as_slice(), &firsts(s0), self.checkpointed);
+            let (ys, saved) = sc.forward(&firsts(params), xs.as_slice(), &firsts(s0), self.checkpointed, self.contracted);
             let ys = NdArray::from_vec(ys, &[&[len], self.output.as_slice()].concat()).expect("output shape");
-            let (value, dys) = loss.grad(&ys, aux);
+            let (value, dys) = loss.grad_owned(ys, aux);
             let ScanVjp { params, state, input } = self.scalar_vjp(sc, params, xs, &saved, &dys);
             return LossGrad { loss: value, params, state, input };
         }
         let inputs: Vec<NdArray<T>> = steps(xs, &self.sample).collect();
         let (ys, saved) = self.forward(params, &inputs, s0);
-        let (value, dys) = loss.grad(&ys, aux);
+        let (value, dys) = loss.grad_owned(ys, aux);
         let ScanVjp { params, state, input } = self.backward(params, &inputs, &saved, &dys);
         LossGrad { loss: value, params, state, input }
     }
@@ -281,7 +296,7 @@ impl Scan {
     }
     /// The reverse scan of a scalar scan, from its forward pass's saved values.
     fn scalar_vjp<T: FluxFloat>(&self, sc: &ScalarScan, params: &[NdArray<T>], xs: &NdArray<T>, saved: &[T], dys: &NdArray<T>) -> ScanVjp<T> {
-        let (d_params, d_state, d_xs) = sc.backward(&firsts(params), xs.as_slice(), saved, dys.as_slice(), self.checkpointed);
+        let (d_params, d_state, d_xs) = sc.backward(&firsts(params), xs.as_slice(), saved, dys.as_slice(), self.checkpointed, self.contracted);
         ScanVjp { params: singles(&d_params, &self.params), state: singles(&d_state, &self.states), input: NdArray::from_vec(d_xs, xs.shape()).expect("input shape") }
     }
 

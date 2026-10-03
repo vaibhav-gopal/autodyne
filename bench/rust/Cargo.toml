@@ -7,7 +7,7 @@ license = "GPL-3.0-only"
 publish = false
 
 [dependencies]
-autodyne = { path = "../..", features = ["ndarray", "flux"] }
+autodyne = { path = "../..", features = ["ndarray", "jit"] }
 
 [dev-dependencies]
 burn = { version = "0.21", default-features = false, features = ["std", "flex", "wgpu", "ndarray", "autodiff"] }
@@ -21,7 +21,9 @@ faer = { version = "0.24.4", default-features = false, features = ["std", "linal
 nalgebra = "0.34"
 
 [features]
-# mimalloc as the allocator (autodyne's feature): new arrays without page faults, for every library here
+# mimalloc as the allocator (autodyne's feature), for every library here: without it, the Windows heap
+# returns freed memory to the system and faults it back in, which dominates array-heavy timings
+default = ["mimalloc"]
 mimalloc = ["autodyne/mimalloc"]
 
 [[bench]]

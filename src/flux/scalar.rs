@@ -45,6 +45,25 @@ pub(crate) enum Inst {
     Binary { dst: u32, op: Binary, a: u32, b: u32 },
     /// `if m != 0 { a } else { b }`.
     Select { dst: u32, m: u32, a: u32, b: u32 },
+    /// `a * b + c`, rounded once (from [`Program::contract`]).
+    MulAdd { dst: u32, a: u32, b: u32, c: u32 },
+}
+
+impl Inst {
+    pub fn dst(&self) -> u32 {
+        match *self {
+            Inst::Const { dst, .. } | Inst::Unary { dst, .. } | Inst::Binary { dst, .. } | Inst::Select { dst, .. } | Inst::MulAdd { dst, .. } => dst,
+        }
+    }
+    fn operands(&self) -> Vec<u32> {
+        match *self {
+            Inst::Const { .. } => vec![],
+            Inst::Unary { a, .. } => vec![a],
+            Inst::Binary { a, b, .. } => vec![a, b],
+            Inst::Select { m, a, b, .. } => vec![m, a, b],
+            Inst::MulAdd { a, b, c, .. } => vec![a, b, c],
+        }
+    }
 }
 
 /// A step graph as register code: registers `0..inputs` hold the inputs; `prologue` computes what
@@ -136,6 +155,7 @@ impl Program {
                 Inst::Unary { op, a, .. } => Inst::Unary { dst, op, a },
                 Inst::Binary { op, a, b, .. } => Inst::Binary { dst, op, a, b },
                 Inst::Select { m, a, b, .. } => Inst::Select { dst, m, a, b },
+                Inst::MulAdd { .. } => unreachable!("compiled graphs have no fused instructions"),
             };
             reg[i] = dst;
             fixed[i] = invariant_value;
@@ -149,6 +169,58 @@ impl Program {
             body,
             outputs: graph.outputs.iter().map(|&o| reg[o as usize]).collect(),
         })
+    }
+
+    /// This program with each product read only by one sum fused into it (`a * b + c` and
+    /// `a * b - c` rounded once): a shorter chain of dependent operations, and results that differ
+    /// from the separately rounded ones in the last bits. Within the prologue and within the body.
+    pub fn contract(&self) -> Program {
+        let mut uses = vec![0u32; self.registers];
+        for inst in self.prologue.iter().chain(&self.body) {
+            inst.operands().into_iter().for_each(|r| uses[r as usize] += 1);
+        }
+        self.outputs.iter().for_each(|&r| uses[r as usize] += 1);
+        let mut registers = self.registers as u32;
+        let mut fuse = |code: &[Inst]| -> Vec<Inst> {
+            let product = |r: u32| code.iter().find_map(|i| match *i {
+                Inst::Binary { dst, op: Binary::Mul, a, b } if dst == r && uses[r as usize] == 1 => Some((a, b)),
+                _ => None,
+            });
+            let mut fused = vec![false; registers as usize];
+            let mut out = Vec::with_capacity(code.len());
+            for inst in code {
+                match *inst {
+                    Inst::Binary { dst, op: Binary::Add, a, b } => {
+                        if let Some((x, y)) = product(a) {
+                            fused[a as usize] = true;
+                            out.push(Inst::MulAdd { dst, a: x, b: y, c: b });
+                        } else if let Some((x, y)) = product(b) {
+                            fused[b as usize] = true;
+                            out.push(Inst::MulAdd { dst, a: x, b: y, c: a });
+                        } else {
+                            out.push(*inst);
+                        }
+                    }
+                    Inst::Binary { dst, op: Binary::Sub, a, b } if product(a).is_some() => {
+                        // a * b - c = a * b + (-c), the negation exact
+                        let (x, y) = product(a).expect("checked");
+                        fused[a as usize] = true;
+                        let neg = registers;
+                        registers += 1;
+                        fused.push(false);
+                        out.push(Inst::Unary { dst: neg, op: Unary::Neg, a: b });
+                        out.push(Inst::MulAdd { dst, a: x, b: y, c: neg });
+                    }
+                    _ => out.push(*inst),
+                }
+            }
+            // drop the products now inside a fused instruction
+            out.retain(|i| !matches!(*i, Inst::Binary { dst, op: Binary::Mul, .. } if fused.get(dst as usize).copied().unwrap_or(false)));
+            out
+        };
+        let prologue = fuse(&self.prologue);
+        let body = fuse(&self.body);
+        Program { inputs: self.inputs, invariant: self.invariant, registers: registers as usize, prologue, body, outputs: self.outputs.clone() }
     }
 
     /// Runs `code` on the registers.
@@ -188,14 +260,26 @@ impl Program {
                     };
                 }
                 Inst::Select { dst, m, a, b } => r[dst as usize] = if r[m as usize] != T::_ZERO { r[a as usize] } else { r[b as usize] },
+                Inst::MulAdd { dst, a, b, c } => r[dst as usize] = mul_add(r[a as usize], r[b as usize], r[c as usize]),
             }
         }
     }
 }
 
+/// `a * b + c` rounded once, as `f32::mul_add` / `f64::mul_add` compute it.
+#[inline]
+pub(crate) fn mul_add<T: FluxFloat>(a: T, b: T, c: T) -> T {
+    use std::any::Any;
+    if let (Some(&a), Some(&b), Some(&c)) = ((&a as &dyn Any).downcast_ref::<f32>(), (&b as &dyn Any).downcast_ref::<f32>(), (&c as &dyn Any).downcast_ref::<f32>()) {
+        return T::_lit(a.mul_add(b, c) as f64);
+    }
+    let (a, b, c) = (a.to_f64().unwrap_or(f64::NAN), b.to_f64().unwrap_or(f64::NAN), c.to_f64().unwrap_or(f64::NAN));
+    T::_lit(a.mul_add(b, c))
+}
+
 /// A scalar scan's programs: the step, the step saving its residuals and the reverse step reading
 /// them, and the reverse step recomputing the step (checkpointed).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub(crate) struct ScalarScan {
     pub params: usize,
     pub states: usize,
@@ -204,19 +288,49 @@ pub(crate) struct ScalarScan {
     pub step_fwd: Program,
     pub step_bwd: Program,
     pub step_vjp: Program,
+    /// the same four with products fused into sums (`Scan::contracted`)
+    pub contracted: [Program; 4],
+    /// the programs as machine code, per element type and contraction, compiled on first use
+    #[cfg(feature = "jit")]
+    jit: [std::sync::OnceLock<Option<Arc<super::jit::Jit>>>; 4],
 }
 
 impl ScalarScan {
     pub fn compile(step: &Graph, step_fwd: &Graph, step_bwd: &Graph, step_vjp: &Graph, params: usize, states: usize, residuals: usize) -> Option<Arc<ScalarScan>> {
+        let (step, step_fwd, step_bwd, step_vjp) =
+            (Program::compile(step, params)?, Program::compile(step_fwd, params)?, Program::compile(step_bwd, params)?, Program::compile(step_vjp, params)?);
+        let contracted = [step.contract(), step_fwd.contract(), step_bwd.contract(), step_vjp.contract()];
         Some(Arc::new(ScalarScan {
             params,
             states,
             residuals,
-            step: Program::compile(step, params)?,
-            step_fwd: Program::compile(step_fwd, params)?,
-            step_bwd: Program::compile(step_bwd, params)?,
-            step_vjp: Program::compile(step_vjp, params)?,
+            step,
+            step_fwd,
+            step_bwd,
+            step_vjp,
+            contracted,
+            #[cfg(feature = "jit")]
+            jit: Default::default(),
         }))
+    }
+
+    /// The step, the step saving residuals, the reverse step reading them, and the reverse step
+    /// recomputing the step: as written, or with products fused into sums.
+    pub(crate) fn programs(&self, contract: bool) -> [&Program; 4] {
+        if contract {
+            let [a, b, c, d] = &self.contracted;
+            [a, b, c, d]
+        } else {
+            [&self.step, &self.step_fwd, &self.step_bwd, &self.step_vjp]
+        }
+    }
+
+    /// The compiled loops for `T` (`None` without the `jit` feature, or if Cranelift cannot
+    /// target this machine).
+    #[cfg(feature = "jit")]
+    pub(crate) fn native<T: FluxFloat>(&self, contract: bool) -> Option<&super::jit::Jit> {
+        let cell = &self.jit[usize::from(size_of::<T>() == 8) * 2 + usize::from(contract)];
+        cell.get_or_init(|| super::jit::Jit::compile::<T>(self, contract).map(Arc::new)).as_deref()
     }
 
     /// Registers holding the parameters, with the prologue run.
@@ -228,9 +342,21 @@ impl ScalarScan {
     }
 
     /// The outputs and the final state.
-    pub fn run<T: FluxFloat>(&self, params: &[T], xs: &[T], s0: &[T]) -> (Vec<T>, Vec<T>) {
+    pub fn run<T: FluxFloat>(&self, params: &[T], xs: &[T], s0: &[T], contract: bool) -> (Vec<T>, Vec<T>) {
+        #[cfg(feature = "jit")]
+        if let Some(jit) = self.native::<T>(contract) {
+            let mut state = s0.to_vec();
+            let mut ys = Vec::with_capacity(xs.len());
+            // SAFETY: the buffers have the sizes the compiled loop reads and writes, and it writes
+            // every output step
+            unsafe {
+                jit.run::<T>()(params.as_ptr(), state.as_mut_ptr(), xs.as_ptr(), ys.as_mut_ptr(), std::ptr::null_mut(), xs.len());
+                ys.set_len(xs.len());
+            }
+            return (ys, state);
+        }
         let (p, s) = (self.params, self.states);
-        let program = &self.step;
+        let program = self.programs(contract)[0];
         let mut r = Self::registers(program, params);
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(xs.len());
@@ -248,9 +374,24 @@ impl ScalarScan {
 
     /// The outputs, and for each step its input state followed by its residuals (none when
     /// `checkpointed`).
-    pub fn forward<T: FluxFloat>(&self, params: &[T], xs: &[T], s0: &[T], checkpointed: bool) -> (Vec<T>, Vec<T>) {
+    pub fn forward<T: FluxFloat>(&self, params: &[T], xs: &[T], s0: &[T], checkpointed: bool, contract: bool) -> (Vec<T>, Vec<T>) {
+        #[cfg(feature = "jit")]
+        if let Some(jit) = self.native::<T>(contract) {
+            let per = self.states + if checkpointed { 0 } else { self.residuals };
+            let mut state = s0.to_vec();
+            let mut ys = Vec::with_capacity(xs.len());
+            let mut saved = Vec::with_capacity(xs.len() * per);
+            // SAFETY: as in `run`; every step's saved values are written too
+            unsafe {
+                jit.forward::<T>(checkpointed)(params.as_ptr(), state.as_mut_ptr(), xs.as_ptr(), ys.as_mut_ptr(), saved.as_mut_ptr(), xs.len());
+                ys.set_len(xs.len());
+                saved.set_len(xs.len() * per);
+            }
+            return (ys, saved);
+        }
         let (p, s) = (self.params, self.states);
-        let (program, r_count) = if checkpointed { (&self.step, 0) } else { (&self.step_fwd, self.residuals) };
+        let [step, step_fwd, ..] = self.programs(contract);
+        let (program, r_count) = if checkpointed { (step, 0) } else { (step_fwd, self.residuals) };
         let mut r = Self::registers(program, params);
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(xs.len());
@@ -270,9 +411,22 @@ impl ScalarScan {
     }
 
     /// The reverse scan: the cotangents of the parameters, the initial state and the samples.
-    pub fn backward<T: FluxFloat>(&self, params: &[T], xs: &[T], saved: &[T], dys: &[T], checkpointed: bool) -> (Vec<T>, Vec<T>, Vec<T>) {
+    pub fn backward<T: FluxFloat>(&self, params: &[T], xs: &[T], saved: &[T], dys: &[T], checkpointed: bool, contract: bool) -> (Vec<T>, Vec<T>, Vec<T>) {
+        #[cfg(feature = "jit")]
+        if let Some(jit) = self.native::<T>(contract) {
+            let mut d_params = vec![T::_ZERO; self.params];
+            let mut d_state = vec![T::_ZERO; self.states];
+            let mut d_xs = Vec::with_capacity(xs.len());
+            // SAFETY: as in `run`; every step's d x is written
+            unsafe {
+                jit.backward::<T>(checkpointed)(params.as_ptr(), xs.as_ptr(), saved.as_ptr(), dys.as_ptr(), d_params.as_mut_ptr(), d_state.as_mut_ptr(), d_xs.as_mut_ptr(), xs.len());
+                d_xs.set_len(xs.len());
+            }
+            return (d_params, d_state, d_xs);
+        }
         let (p, s) = (self.params, self.states);
-        let (program, r_count) = if checkpointed { (&self.step_vjp, 0) } else { (&self.step_bwd, self.residuals) };
+        let [_, _, step_bwd, step_vjp] = self.programs(contract);
+        let (program, r_count) = if checkpointed { (step_vjp, 0) } else { (step_bwd, self.residuals) };
         let mut r = Self::registers(program, params);
         let mut d_params = vec![T::_ZERO; p];
         let mut d_state = vec![T::_ZERO; s];

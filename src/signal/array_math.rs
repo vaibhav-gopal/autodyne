@@ -388,6 +388,52 @@ pub(crate) fn dot_operands<T: Copy>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize]
     (am, bm, m, k, n, shape)
 }
 
+/// `dot_general` reading both operands in place (any strides) when each is a matrix once its free
+/// axes and its contracted axes are merged (always so for 2-D operands): `None` otherwise, or for
+/// element types the matrix product does not cover.
+#[cfg(feature = "faer")]
+fn dot_in_place<T: Copy + 'static>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize], cb: &[usize]) -> Option<NdArray<T>> {
+    let (sa, sb) = (a.shape(), b.shape());
+    if ca.len() != cb.len() || ca.iter().zip(cb).any(|(&i, &j)| i >= sa.len() || j >= sb.len() || sa[i] != sb[j]) {
+        return None;
+    }
+    let fa: Vec<usize> = (0..sa.len()).filter(|x| !ca.contains(x)).collect();
+    let fb: Vec<usize> = (0..sb.len()).filter(|x| !cb.contains(x)).collect();
+    let av = a.view().permute(&[fa.as_slice(), ca].concat()).ok()?;
+    let bv = b.view().permute(&[cb, fb.as_slice()].concat()).ok()?;
+    let ma = merged(av.shape(), av.strides(), fa.len())?;
+    let mb = merged(bv.shape(), bv.strides(), cb.len())?;
+    let out = crate::linalg::gemm_strided(av.as_ptr(), ma, bv.as_ptr(), mb)?;
+    let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
+    NdArray::from_vec(out, &shape).ok()
+}
+
+/// A view's axes as a matrix: the first `split` merged into rows, the rest into columns, if each
+/// group steps through memory with one stride (axes of length 1 aside). `(rows, columns, row
+/// stride, column stride)`, strides in elements.
+#[cfg(feature = "faer")]
+fn merged(shape: &[usize], strides: &[isize], split: usize) -> Option<(usize, usize, isize, isize)> {
+    fn group(shape: &[usize], strides: &[isize]) -> Option<(usize, isize)> {
+        let mut stride: Option<isize> = None;
+        let mut inner = 1usize;
+        for (&len, &st) in shape.iter().zip(strides).rev() {
+            if len == 1 {
+                continue;
+            }
+            match stride {
+                None => stride = Some(st),
+                Some(s) if st == s * inner as isize => {}
+                Some(_) => return None,
+            }
+            inner *= len;
+        }
+        Some((shape.iter().product(), stride.unwrap_or(1)))
+    }
+    let (rows, rs) = group(&shape[..split], &strides[..split])?;
+    let (cols, cs) = group(&shape[split..], &strides[split..])?;
+    Some((rows, cols, rs, cs))
+}
+
 /// The triple-loop matrix product.
 pub(crate) fn matmul_naive<T: Copy + Default + Add<Output = T> + Mul<Output = T>>(a: &[T], b: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
     let mut out = Vec::with_capacity(m * n);
@@ -483,6 +529,10 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     }
 
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self {
+        #[cfg(feature = "faer")]
+        if let Some(out) = dot_in_place(&self, &rhs, ca, cb) {
+            return out;
+        }
         let (a, b, m, k, n, shape) = dot_operands(&self, &rhs, ca, cb);
         #[cfg(feature = "faer")]
         if let Some(out) = crate::linalg::gemm_any(&a, &b, m, k, n) {
@@ -535,24 +585,27 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
         let n = *shape.last().expect("rfft: needs an axis");
         assert!(n >= 1, "rfft: empty axis");
         let m = n / 2 + 1;
-        let mut out = Vec::with_capacity(self.len() / n * m);
-        let mut fft = RealFft::<f64>::new(n);
-        for row in self.as_slice().chunks(n) {
-            out.extend(rfft_row(&mut fft, row).into_iter().map(|z| Complex::new(T::_lit(z.re), T::_lit(z.im))));
+        let rows = self.len() / n;
+        let mut out = vec![Complex::new(T::_ZERO, T::_ZERO); rows * m];
+        let mut fft = RealFft::<T>::new(n);
+        let input = if self.view().is_contiguous() { self } else { self.view().to_owned() };
+        for (row, bins) in input.as_slice().chunks(n).zip(out.chunks_mut(m)) {
+            fft.forward(row, bins);
         }
         *shape.last_mut().unwrap() = m;
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
 
     fn irfft_complex(spectrum: NdArray<Complex<T>>, n: usize) -> Self {
-        let (re, im) = split_complex(spectrum);
-        let mut shape = NdArray::shape(&re).to_vec();
+        let mut shape = NdArray::shape(&spectrum).to_vec();
         let m = n / 2 + 1;
         assert!(n >= 1 && shape.last() == Some(&m), "irfft: {n} samples need {m} bins, got {shape:?}");
-        let mut out = Vec::with_capacity(re.len() / m * n);
-        let mut fft = RealFft::<f64>::new(n);
-        for (r, i) in re.as_slice().chunks(m).zip(im.as_slice().chunks(m)) {
-            out.extend(irfft_row(&mut fft, r, i).into_iter().map(T::_lit));
+        let rows = spectrum.len() / m;
+        let mut out = vec![T::_ZERO; rows * n];
+        let mut fft = RealFft::<T>::new(n);
+        let spectrum = if spectrum.view().is_contiguous() { spectrum } else { spectrum.view().to_owned() };
+        for (bins, row) in spectrum.as_slice().chunks(m).zip(out.chunks_mut(n)) {
+            fft.inverse(bins, row);
         }
         *shape.last_mut().unwrap() = n;
         NdArray::from_vec(out, &shape).expect("valid shape")
@@ -607,6 +660,24 @@ impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
         transpose_any(self, perm)
     }
     fn sum_axes(self, axes: &[usize]) -> Self {
+        let last = self.ndim().saturating_sub(1);
+        if self.ndim() > 0 && !axes.contains(&last) && self.view().is_contiguous() {
+            // the real and imaginary parts as a real array with the last axis doubled: the real sums
+            // (pairwise, vectorized) along the same axes
+            let mut shape = self.shape().to_vec();
+            shape[last] *= 2;
+            let mut data = std::mem::ManuallyDrop::new(self.into_vec());
+            // SAFETY: Complex<T> is repr(C) { re, im }: a Vec of n of them is a Vec of 2n T's
+            let reals = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast::<T>(), data.len() * 2, data.capacity() * 2) };
+            let sums = NdArray::from_vec(reals, &shape).expect("valid shape").sum_axes(axes);
+            let mut out_shape = sums.shape().to_vec();
+            let n = out_shape.len();
+            out_shape[n - 1] /= 2;
+            let mut sums = std::mem::ManuallyDrop::new(sums.into_vec());
+            // SAFETY: an even number of T's laid out as (re, im) pairs, as above
+            let pairs = unsafe { Vec::from_raw_parts(sums.as_mut_ptr().cast::<Complex<T>>(), sums.len() / 2, sums.capacity() / 2) };
+            return NdArray::from_vec(pairs, &out_shape).expect("valid shape");
+        }
         sum_axes_any(self, axes)
     }
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self {
@@ -648,43 +719,18 @@ fn join_complex<T: Float + Default>(re: &NdArray<T>, im: &NdArray<T>) -> NdArray
     NdArray::from_vec(re.as_slice().iter().zip(im.as_slice()).map(|(&r, &i)| Complex::new(r, i)).collect(), re.shape()).expect("same shape")
 }
 
-fn split_complex<T: Float + Default>(a: NdArray<Complex<T>>) -> (NdArray<T>, NdArray<T>) {
-    (a.map(|c| c.re), a.map(|c| c.im))
-}
-
 fn complex_fft<T: Float + Default>(a: NdArray<Complex<T>>, inverse: bool) -> NdArray<Complex<T>> {
     let n = *a.shape().last().expect("fft: needs an axis");
     assert!(n >= 1, "fft: empty axis");
-    let mut fft = Fft::<f64>::new(n);
-    let mut row = vec![Complex::zero(); n];
-    let mut out = Vec::with_capacity(a.len());
-    for chunk in a.as_slice().chunks(n) {
-        for (r, z) in row.iter_mut().zip(chunk) {
-            *r = Complex::new(z.re.to_f64().unwrap_or(f64::NAN), z.im.to_f64().unwrap_or(f64::NAN));
-        }
+    let mut fft = Fft::<T>::new(n);
+    let mut out = if a.view().is_contiguous() { a } else { a.view().to_owned() };
+    for row in out.as_mut_slice().chunks_mut(n) {
         if inverse {
-            fft.inverse(&mut row);
+            fft.inverse(row);
         } else {
-            fft.forward(&mut row);
+            fft.forward(row);
         }
-        out.extend(row.iter().map(|z| Complex::new(T::_lit(z.re), T::_lit(z.im))));
     }
-    NdArray::from_vec(out, a.shape()).expect("same shape")
-}
-
-/// Bins 0..=n/2 of a real signal's DFT, computed in f64.
-fn rfft_row<T: Float>(fft: &mut RealFft<f64>, x: &[T]) -> Vec<Complex<f64>> {
-    let x: Vec<f64> = x.iter().map(|v| v.to_f64().unwrap()).collect();
-    let mut out = vec![Complex::new(0.0, 0.0); fft.spectrum_len()];
-    fft.forward(&x, &mut out);
-    out
-}
-
-/// `n` samples from bins 0..=n/2, scaled by 1/n, in f64; imaginary parts of bins 0 and n/2 ignored.
-fn irfft_row<T: Float>(fft: &mut RealFft<f64>, re: &[T], im: &[T]) -> Vec<f64> {
-    let spectrum: Vec<Complex<f64>> = re.iter().zip(im).map(|(r, i)| Complex::new(r.to_f64().unwrap(), i.to_f64().unwrap())).collect();
-    let mut out = vec![0.0f64; fft.len()];
-    fft.inverse(&spectrum, &mut out);
     out
 }
 #[cfg(test)]

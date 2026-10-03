@@ -44,10 +44,13 @@
 //! ```
 
 mod ad;
+mod fuse;
 mod graph;
 mod hlo;
 mod interp;
 mod iree;
+#[cfg(feature = "jit")]
+mod jit;
 mod loss;
 pub mod optim;
 mod pjrt;

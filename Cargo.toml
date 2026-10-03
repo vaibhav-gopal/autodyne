@@ -9,6 +9,11 @@ publish = false
 repository = "https://github.com/vaibhav-gopal/autodyne"
 
 [dependencies]
+cranelift-codegen = { version = "0.136", optional = true }
+cranelift-frontend = { version = "0.136", optional = true }
+cranelift-jit = { version = "0.136", optional = true }
+cranelift-module = { version = "0.136", optional = true }
+cranelift-native = { version = "0.136", optional = true }
 faer = { version = "0.24.4", default-features = false, features = ["std", "linalg", "rayon"], optional = true }
 libloading = { version = "0.8", optional = true }
 mimalloc = { version = "0.1", optional = true }
@@ -32,6 +37,9 @@ ndarray = ["dep:ndarray"]
 # flux: trace, differentiate and emit StableHLO; IREE / XLA run as external tools, or PJRT plugins
 # loaded at run time (libloading)
 flux = ["dep:libloading"]
+# jit: flux compiles scalar scans (per-sample recurrences and their gradients) to machine code with
+# Cranelift, in process, instead of running them as register programs
+jit = ["flux", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
 rustfft = ["dep:rustfft", "dep:realfft"]
 # faer: linear algebra (solve, least squares, eigenvalues, SVD) and fast matrix products; also what
 # LTI systems and filter design build on

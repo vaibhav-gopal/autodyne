@@ -142,6 +142,32 @@ pub(crate) fn gemm_any<T: Copy + 'static>(a: &Vec<T>, b: &Vec<T>, m: usize, k: u
     out.downcast::<Vec<T>>().ok().map(|b| *b)
 }
 
+/// The row-major product of two strided matrices, each `(rows, columns, row stride, column
+/// stride)` from its first element, for `f32` / `f64` (`None` for other element types).
+pub(crate) fn gemm_strided<T: Copy + 'static>(a: *const T, (m, k, ars, acs): (usize, usize, isize, isize), b: *const T, (k2, n, brs, bcs): (usize, usize, isize, isize)) -> Option<Vec<T>> {
+    use std::any::{Any, TypeId};
+    assert_eq!(k, k2, "gemm_strided: inner dimensions differ");
+    fn go<F: LinalgFloat>(a: *const F, b: *const F, m: usize, k: usize, n: usize, s: [isize; 4]) -> Vec<F> {
+        let mut out = vec![F::_ZERO; m * n];
+        // SAFETY: the caller's views cover these matrices (their elements are inside the views'
+        // memory, borrowed for the call); `out` is a fresh m x n row-major buffer
+        let (lhs, rhs, dst) = unsafe {
+            (MatRef::from_raw_parts(a, m, k, s[0], s[1]), MatRef::from_raw_parts(b, k, n, s[2], s[3]), MatMut::from_raw_parts_mut(out.as_mut_ptr(), m, n, n as isize, 1))
+        };
+        faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, F::_ONE, faer::get_global_parallelism());
+        out
+    }
+    let s = [ars, acs, brs, bcs];
+    let out: Box<dyn Any> = if TypeId::of::<T>() == TypeId::of::<f32>() {
+        Box::new(go::<f32>(a.cast(), b.cast(), m, k, n, s))
+    } else if TypeId::of::<T>() == TypeId::of::<f64>() {
+        Box::new(go::<f64>(a.cast(), b.cast(), m, k, n, s))
+    } else {
+        return None;
+    };
+    out.downcast::<Vec<T>>().ok().map(|b| *b)
+}
+
 /// Row-major matrix product of contiguous buffers: `out[m x n] = a[m x k] · b[k x n]`.
 fn gemm<T: LinalgFloat>(a: &[T], b: &[T], out: &mut [T], m: usize, k: usize, n: usize) {
     // SAFETY: the buffers hold m*k, k*n and m*n elements (the caller sizes them)

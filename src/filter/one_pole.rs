@@ -1,7 +1,8 @@
 use crate::units::*;
 
-/// One-pole low-pass: `y[n] = y[n-1] + a (x[n] - y[n-1])`, with `a = 1 - exp(-2π fc / fs)`
-/// (6 dB/octave, no overshoot; also the usual parameter smoother).
+/// One-pole low-pass: `y[n] = p y[n-1] + a x[n]`, with pole `p = exp(-2π fc / fs)` and `a = 1 - p`
+/// (6 dB/octave, no overshoot; also the usual parameter smoother). Only `p y[n-1]` and the sum wait
+/// on the previous output, so a run of samples costs a multiply and an add of latency each.
 ///
 /// The maths is written once over [`Real`]: [`tick`](Self::tick) is a pure function of the state,
 /// so the same code runs per sample on the audio thread (`f32` / `f64`) and traces into a
@@ -9,31 +10,39 @@ use crate::units::*;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct OnePole<T> {
     a: T,
+    pole: T,
     state: T,
 }
 
 impl<T: Real> OnePole<T> {
     /// A low-pass with its -3 dB point near `cutoff` Hz (exact well below Nyquist).
     pub fn lowpass(cutoff: T, sample_rate: T) -> Self {
-        Self { a: Self::coefficient(cutoff, sample_rate), state: T::lit(0.0) }
+        let pole = Self::pole(cutoff, sample_rate);
+        Self { a: T::lit(1.0) - pole, pole, state: T::lit(0.0) }
+    }
+
+    /// The pole `exp(-2π fc / fs)` for a cutoff.
+    pub fn pole(cutoff: T, sample_rate: T) -> T {
+        (-T::lit(std::f64::consts::TAU) * cutoff / sample_rate).exp()
     }
 
     /// The smoothing coefficient `a = 1 - exp(-2π fc / fs)` for a cutoff.
     pub fn coefficient(cutoff: T, sample_rate: T) -> T {
-        T::lit(1.0) - (-T::lit(std::f64::consts::TAU) * cutoff / sample_rate).exp()
+        T::lit(1.0) - Self::pole(cutoff, sample_rate)
     }
 
     /// One step from `state` with input `x`: returns `(next state, output)`.
     #[inline(always)]
     pub fn tick(&self, state: T, x: T) -> (T, T) {
-        let y = state + self.a * (x - state);
+        let y = self.pole * state + self.a * x;
         (y, y)
     }
 }
 
 impl<T: Float> OnePole<T> {
     pub fn set_cutoff(&mut self, cutoff: T, sample_rate: T) {
-        self.a = Self::coefficient(cutoff, sample_rate);
+        self.pole = Self::pole(cutoff, sample_rate);
+        self.a = T::_ONE - self.pole;
     }
 
     #[inline]
@@ -43,10 +52,16 @@ impl<T: Float> OnePole<T> {
         y
     }
 
+    /// Filters `block` in place. Denormal states are flushed once per block (inside a block the
+    /// recurrence runs on registers, a multiply and an add of latency per sample).
     pub fn process(&mut self, block: &mut [T]) {
+        let mut state = self.state;
         for x in block.iter_mut() {
-            *x = self.process_sample(*x);
+            let (next, y) = self.tick(state, *x);
+            state = next;
+            *x = y;
         }
+        self.state = state._flush_denormal();
     }
 
     pub fn reset(&mut self) {
@@ -74,7 +89,7 @@ mod tests {
         let lp = OnePole::lowpass(fc, fs);
         // |H(e^jw)| for y = (1-a) y[-1] + a x
         let w = std::f64::consts::TAU * fc / fs;
-        let p = 1.0 - lp.a;
+        let p = lp.pole;
         let mag = lp.a / (1.0 - 2.0 * p * w.cos() + p * p).sqrt();
         assert!((20.0 * mag.log10() + 3.01).abs() < 0.05, "{}", 20.0 * mag.log10());
     }

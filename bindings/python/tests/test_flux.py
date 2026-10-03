@@ -105,7 +105,9 @@ def test_complex_spectra_and_checkpointing():
     xs, target = noise(128, 10), noise(128, 11)
     saved = scan.grad([900.0], xs, [0.0], [target])
     recomputed = scan.checkpointed(True).grad([900.0], xs, [0.0], [target])
-    assert scan.residual_shapes and not scan.checkpointed(True).residual_shapes
+    assert not scan.checkpointed(True).residual_shapes
+    fused = scan.contracted(True).grad([900.0], xs, [0.0], [target])
+    np.testing.assert_allclose(fused["params"][0], saved["params"][0], rtol=1e-6)
     np.testing.assert_allclose(saved["params"][0], recomputed["params"][0], rtol=1e-12)
     program = flux.trace(lambda x: x.rfft()[0], [[4, 2048]]).program(max_fft=64)
     assert "length = [2048]" not in program.text

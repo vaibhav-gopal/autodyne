@@ -245,14 +245,27 @@ pub struct Node {
 ///
 /// Built by [`trace`]. Values are arrays of up to [`MAX_DIMS`] axes (shape `[]` is a scalar) of real
 /// numbers, complex numbers (spectra) or booleans (masks); inputs and outputs are real.
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Graph {
     pub(crate) nodes: Vec<Node>,
     pub(crate) inputs: Vec<Vec<usize>>,
     pub(crate) outputs: Vec<Id>,
+    /// how the interpreter fuses element-wise operations, worked out on first evaluation
+    pub(crate) fusion: std::sync::OnceLock<std::sync::Arc<super::fuse::Fusion>>,
+}
+
+/// Graphs are equal when their nodes, inputs and outputs are.
+impl PartialEq for Graph {
+    fn eq(&self, other: &Graph) -> bool {
+        self.nodes == other.nodes && self.inputs == other.inputs && self.outputs == other.outputs
+    }
 }
 
 impl Graph {
+    /// The interpreter's fusion plan (made once).
+    pub(crate) fn fusion(&self) -> &super::fuse::Fusion {
+        self.fusion.get_or_init(|| std::sync::Arc::new(super::fuse::Fusion::plan(self)))
+    }
     pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
@@ -342,7 +355,7 @@ pub(crate) fn trace_unpruned(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> V
         assert!(s.len() <= MAX_DIMS, "flux::trace: at most {MAX_DIMS} axes");
     }
     let nodes = (0..inputs.len()).map(|n| Node { op: Op::Input(n as u32), shape: inputs[n].to_vec(), kind: Kind::Real }).collect();
-    let graph = Graph { nodes, inputs: inputs.iter().map(|s| s.to_vec()).collect(), outputs: Vec::new() };
+    let graph = Graph { nodes, inputs: inputs.iter().map(|s| s.to_vec()).collect(), ..Graph::default() };
     let trace = NEXT_TRACE.with(|n| {
         let t = n.get();
         n.set(t.wrapping_add(1));

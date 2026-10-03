@@ -15,8 +15,9 @@ use std::f64::consts::TAU;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use autodyne::filter::OnePole;
-use autodyne::flux::{scalar, trace, vector, vjp, Scan, Tracer};
+use autodyne::distortion::Shape;
+use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
+use autodyne::flux::{scalar, trace, vector, vjp, Loss, Scan, StftResolution, Tracer};
 use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
 use autodyne::units::Elementwise;
 use burn::backend::{Autodiff, Flex, NdArray as BurnNdArray};
@@ -270,7 +271,9 @@ fn run() {
     let want = load("one_pole_forward", "out0");
     let run = || {
         let mut f = OnePole::lowpass(cutoff, FS as f32);
-        xs.iter().map(|&x| f.process_sample(x)).collect::<Vec<f32>>()
+        let mut ys = xs.clone();
+        f.process(&mut ys);
+        ys
     };
     let e = error(&run(), &want);
     rows.push(Row { model: "one-pole low-pass, 48k samples", library: "autodyne core (OnePole)".into(), time: time(run), error: Some(e) });
@@ -284,6 +287,30 @@ fn run() {
     rows.push(Row { model: "one-pole low-pass, 48k samples", library: "flux interpreter".into(), time: time(|| scan.run(&[scalar(cutoff)], &xs_nd, &[scalar(0.0)])), error: None });
     let targets = NdArray::from_vec(load("one_pole_grad", "in2"), &[xs.len()]).unwrap();
     rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: "flux interpreter".into(), time: time(|| scan.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])), error: None });
+    // with fused multiply-adds (results differ from the interpreter's in the last bits)
+    let fused = scan.clone().contracted(true);
+    let want_grad = load("one_pole_grad", "out3");
+    let e = error(fused.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)]).input.as_slice(), &want_grad);
+    rows.push(Row { model: "one-pole low-pass, 48k samples", library: "flux interpreter, contracted".into(), time: time(|| fused.run(&[scalar(cutoff)], &xs_nd, &[scalar(0.0)])), error: None });
+    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: "flux interpreter, contracted".into(), time: time(|| fused.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])), error: Some(e) });
+    // the EQ into drive, with the multi-resolution STFT loss
+    let n = 2_048;
+    let chain = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
+        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(FS), Tracer::lit(1.0), p[1] * Tracer::lit(10.0));
+        let ([a, b], y) = c.tick([s[0], s[1]], x);
+        (vec![a, b], Shape::Tanh.apply(y * p[2]))
+    });
+    let stft = Loss::stft(&[n], &[StftResolution::overlapping(512), StftResolution::overlapping(128), StftResolution::overlapping(32)]);
+    let eq_in: Vec<Vec<f32>> = (0..7).map(|k| load("eq_drive_stft_grad", &format!("in{k}"))).collect();
+    let eq_want = load("eq_drive_stft_grad", "out6");
+    let eq_params = [scalar(eq_in[0][0]), scalar(eq_in[1][0]), scalar(eq_in[2][0])];
+    let eq_xs = NdArray::from_vec(eq_in[3].clone(), &[n]).unwrap();
+    let eq_target = NdArray::from_vec(eq_in[4].clone(), &[n]).unwrap();
+    let eq_s0 = [scalar(eq_in[5][0]), scalar(eq_in[6][0])];
+    let eq_run = || chain.grad(&eq_params, &eq_xs, &eq_s0, &stft, std::slice::from_ref(&eq_target));
+    let e = error(eq_run().input.as_slice(), &eq_want);
+    rows.push(Row { model: "EQ + drive, multi-resolution STFT loss gradient, 2048 samples", library: "flux interpreter".into(), time: time(eq_run), error: Some(e) });
+
     let (batch, len, width) = (256usize, 1_024usize, 64usize);
     let model = trace(&[&[batch, len], &[len / 2 + 1], &[len, width]], |v| {
         let (x, gain, w) = (v[0], v[1], v[2]);

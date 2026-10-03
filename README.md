@@ -157,10 +157,11 @@ Backends, all found at run time (nothing is linked at build time, and the real-t
 
 Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 20-40%
 sooner and run at 0.96-1.24x JAX's speed: on par for a one-pole's gradient, ahead on spectral models and on an EQ
-chain's STFT-loss gradient. Against other automatic differentiation ([`AUTODIFF.md`](bench/flux/AUTODIFF.md), one core): far ahead of
-Burn, candle and PyTorch eager on recurrences (a one-pole's gradient over 48k samples 0.5 ms; candle 0.85 s,
-PyTorch 1.26 s), ahead of all on the EQ chain's STFT loss (0.27 ms; Enzyme 3.5 ms); behind Enzyme on the one-pole
-(0.16 ms) and PyTorch on the spectral model (1.68 ms vs 3.36 ms). From Python, `autodyne.flux` traces functions written with NumPy-style operators on
+chain's STFT-loss gradient. Against other automatic differentiation ([`AUTODIFF.md`](bench/flux/AUTODIFF.md), one core), in process
+(feature `jit`: scalar scans compiled with Cranelift, array graphs interpreted with fused element-wise chains): a
+one-pole's gradient over 48k samples in 172 µs (146 µs with `Scan::contracted`; Enzyme 160 µs, XLA 0.5 ms, candle
+0.59 s, PyTorch 1.26 s), its forward pass in 53 µs (36 µs; C 64 µs), a spectral model's gradient in 1.46 ms (PyTorch
+1.68 ms, XLA 3.36 ms); on XLA, the EQ chain's STFT loss in 0.27 ms (Enzyme 3.5 ms). From Python, `autodyne.flux` traces functions written with NumPy-style operators on
 tracers, with the same scans, losses, processors and backends.
 
 ```sh
