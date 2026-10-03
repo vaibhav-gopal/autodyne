@@ -3,6 +3,9 @@
 //! no calls or branches, so loops over them vectorize (std's versions call the platform's libm,
 //! one element at a time).
 
+// the coefficients as Cephes publishes them (rounded to f32 by the compiler)
+#![allow(clippy::excessive_precision)]
+
 /// The exponential, logarithm and hyperbolic tangent each float type computes with: these for
 /// `f32`, std's for `f64`.
 pub(crate) trait Transcendental: Sized {
