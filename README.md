@@ -107,10 +107,11 @@ results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULT
 - FFT vs `numpy.fft` (pocketfft): 2.2-2.6x faster, 1.3x on short complex rows (`rustfft` / `realfft`; any length)
 - `scipy.signal`: `lfilter` 3.3x, `sosfiltfilt` 2.5x, `sosfilt` 1.4-2x (1.55x on 16 x 480k lanes), `welch` 3.2x,
   `stft` 2.2x, filter design ~130x (SciPy designs in Python), `remez` 1.04x
-- linear algebra (faer vs OpenBLAS, one thread): `solve` 1.5-2x, `matmul` 1.2x at 512 x 512 (0.9x at 64 x 64, where the
-  ~1 µs of crossing into Rust shows), `eigvals` 1.1x, `svdvals` and `eigvalsh` on par (faer's reductions, then
-  autodyne's own dqds and Pal-Walker-Kahan iterations, LAPACK's `dlasq1` / `dsterf`); `eigh` 0.88x, `svd` 0.9x;
-  `bench/linalg` adds PyTorch, JAX, faer, nalgebra and Burn on the same inputs
+- linear algebra (one thread): `solve` 1.45-2x, `matmul` 1.13x at 512 x 512 (0.96x at 64 x 64, OpenBLAS's kernel a
+  shade faster there), `eigvals` 1.1x, `eigh` 1.15x, singular values on par. faer does the reductions and products;
+  the iterations are autodyne's own: dqds and Pal-Walker-Kahan for values alone (LAPACK's `dlasq1` / `dsterf`),
+  divide and conquer with vectors (`dstedc` / `dbdsdc`). `bench/linalg` adds PyTorch, JAX, faer, nalgebra and Burn on
+  the same inputs: fastest of all on `svd` (1.11x JAX), `eigh` (1.15x JAX) and `eigvalsh`, tied elsewhere
 ### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
 `bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
 on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, transposed, broadcast, reductions, FIR vs

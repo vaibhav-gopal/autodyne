@@ -7,15 +7,15 @@ Relative = the fastest time / this one.
 
 | Operation | NumPy 2.5.3 | PyTorch 2.14.1 | JAX 0.11.2 | autodyne | faer | nalgebra | burn (ndarray) |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| matmul 64 | 9.0 µs (0.74) | 11.3 µs (0.59) | 28.8 µs (0.23) | 7.0 µs (0.96) | 6.7 µs (1.00) | 25.6 µs (0.26) | 41.9 µs (0.16) |
-| matmul 512 | 3.87 ms (0.84) | 3.62 ms (0.89) | 4.24 ms (0.76) | 3.40 ms (0.95) | 3.24 ms (1.00) | 3.69 ms (0.88) | 4.60 ms (0.71) |
-| solve 512 | 2.83 ms (0.89) | 3.07 ms (0.82) | 2.87 ms (0.87) | 2.60 ms (0.97) | 2.51 ms (1.00) | 6.66 ms (0.38) | — |
-| det 300 | 517.0 µs (0.73) | 503.2 µs (0.75) | 588.4 µs (0.64) | 399.7 µs (0.95) | 379.1 µs (1.00) | 1.25 ms (0.30) | 32.10 ms (0.01) |
-| svdvals 300 | 3.66 ms (1.00) | 3.67 ms (1.00) | 3.72 ms (0.98) | 3.72 ms (0.98) | 6.12 ms (0.60) | 6.73 ms (0.54) | — |
-| svd 300 | 9.02 ms (0.96) | 9.52 ms (0.91) | 8.69 ms (1.00) | 9.98 ms (0.87) | 9.82 ms (0.88) | 24.26 ms (0.36) | — |
-| eigvals 300 | 17.07 ms (0.93) | 15.95 ms (1.00) | 18.06 ms (0.88) | 16.80 ms (0.95) | 16.72 ms (0.95) | 26.32 ms (0.61) | — |
-| eigh 300 | 5.07 ms (0.96) | 5.40 ms (0.90) | 4.85 ms (1.00) | 5.72 ms (0.85) | 5.64 ms (0.86) | 12.89 ms (0.38) | — |
-| eigvalsh 300 | 2.07 ms (0.96) | 2.69 ms (0.74) | 4.79 ms (0.42) | 1.99 ms (1.00) | 2.91 ms (0.69) | 4.51 ms (0.44) | — |
+| matmul 64 | 9.0 µs (0.74) | 11.3 µs (0.59) | 32.8 µs (0.20) | 6.7 µs (1.00) | 6.7 µs (1.00) | 7.6 µs (0.88) | 11.6 µs (0.58) |
+| matmul 512 | 3.89 ms (0.83) | 3.68 ms (0.88) | 4.01 ms (0.81) | 3.24 ms (1.00) | 3.24 ms (1.00) | 3.38 ms (0.96) | 3.78 ms (0.86) |
+| solve 512 | 2.85 ms (0.67) | 3.09 ms (0.62) | 2.91 ms (0.66) | 1.99 ms (0.97) | 1.92 ms (1.00) | 6.26 ms (0.31) | — |
+| det 300 | 607.2 µs (0.62) | 507.3 µs (0.74) | 589.4 µs (0.64) | 376.4 µs (1.00) | 375.9 µs (1.00) | 1.25 ms (0.30) | 27.78 ms (0.01) |
+| svdvals 300 | 3.57 ms (1.00) | 3.70 ms (0.97) | 3.73 ms (0.96) | 3.70 ms (0.97) | 5.83 ms (0.61) | 6.74 ms (0.53) | — |
+| svd 300 | 9.09 ms (0.86) | 9.54 ms (0.82) | 8.73 ms (0.90) | 7.86 ms (1.00) | 9.11 ms (0.86) | 26.13 ms (0.30) | — |
+| eigvals 300 | 17.00 ms (0.94) | 15.96 ms (1.00) | 18.08 ms (0.88) | 16.46 ms (0.97) | 16.46 ms (0.97) | 26.00 ms (0.61) | — |
+| eigh 300 | 5.03 ms (0.84) | 5.41 ms (0.78) | 4.89 ms (0.87) | 4.25 ms (1.00) | 5.43 ms (0.78) | 12.86 ms (0.33) | — |
+| eigvalsh 300 | 2.05 ms (0.96) | 2.69 ms (0.73) | 4.81 ms (0.41) | 1.96 ms (1.00) | 2.94 ms (0.67) | 4.51 ms (0.44) | — |
 
 ## faer's phases
 
@@ -24,10 +24,10 @@ decomposition is the iteration on that form (and, with vectors, accumulating the
 
 | Decomposition | faer total | faer reduction | faer rest | LAPACK total | LAPACK reduction | LAPACK rest |
 |---|---:|---:|---:|---:|---:|---:|
-| svdvals 300 | 6.12 ms | 2.61 ms | 3.51 ms | 3.66 ms | 2.64 ms | 1.02 ms |
-| svd 300 | 9.82 ms | 2.61 ms | 7.21 ms | 9.02 ms | 2.64 ms | 6.38 ms |
-| eigvalsh 300 | 2.91 ms | 1.10 ms | 1.81 ms | 2.07 ms | 1.21 ms | 855.6 µs |
-| eigh 300 | 5.64 ms | 1.10 ms | 4.54 ms | 5.07 ms | 1.21 ms | 3.85 ms |
+| svdvals 300 | 5.83 ms | 2.66 ms | 3.16 ms | 3.57 ms | 2.61 ms | 961.2 µs |
+| svd 300 | 9.11 ms | 2.66 ms | 6.44 ms | 9.09 ms | 2.61 ms | 6.48 ms |
+| eigvalsh 300 | 2.94 ms | 1.11 ms | 1.83 ms | 2.05 ms | 1.21 ms | 838.7 µs |
+| eigh 300 | 5.43 ms | 1.11 ms | 4.32 ms | 5.03 ms | 1.21 ms | 3.82 ms |
 
 LAPACK: OpenBLAS's (NumPy's own library): the totals through NumPy, the reductions by calling `dgebrd` / `dsytrd`
-directly. Its values-only iterations, timed alone: `dlasq1` (dqds, singular values of the bidiagonal) 874.1 µs, `dsterf` (tridiagonal eigenvalues) 822.4 µs.
+directly. Its values-only iterations, timed alone: `dlasq1` (dqds, singular values of the bidiagonal) 850.5 µs, `dsterf` (tridiagonal eigenvalues) 840.4 µs.
