@@ -11,6 +11,7 @@ autodyne = { path = "../..", features = ["ndarray", "flux"] }
 
 [dev-dependencies]
 burn = { version = "0.21", default-features = false, features = ["std", "flex", "wgpu", "ndarray", "autodiff"] }
+candle-core = "0.9"
 criterion = "0.8"
 cubecl = { version = "0.10", features = ["wgpu"] }
 ndarray = "0.17"

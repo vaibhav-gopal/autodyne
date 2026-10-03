@@ -1,10 +1,10 @@
-//! flux against Burn's autodiff on the models of `bench/flux`: the same inputs (the `.npy` files
+//! flux against Burn's and candle's autodiff on the models of `bench/flux`: the same inputs (the `.npy` files
 //! `examples/flux_programs.rs` writes), the results checked against flux's interpreter, times printed
 //! as a Markdown table.
 //!
 //! ```text
 //! cargo run --release --example flux_programs --features flux -- DIR     (in the autodyne root)
-//! cargo run --release --example flux_burn -- DIR                          (here)
+//! cargo run --release --example flux_autodiff -- DIR                          (here)
 //! ```
 //!
 //! Burn has no compiled loop (scan): a recurrence is one small tensor op per sample, recorded on its
@@ -143,6 +143,76 @@ fn burn_spectral_grad<B: AutodiffBackend>(x: &[f32], gain: &[f32], w: &[f32], df
     [values(loss.inner()), values(gain.grad(&grads).expect("a gradient")), values(w.grad(&grads).expect("a gradient"))]
 }
 
+// THE MODELS, IN CANDLE ===========================================================================
+
+fn candle_one_pole(cutoff: &candle_core::Tensor, xs: &candle_core::Tensor, s0: &candle_core::Tensor) -> candle_core::Result<candle_core::Tensor> {
+    let n = xs.dims1()?;
+    // a = 1 - exp(-2π fc / fs)
+    let a = cutoff.affine(-TAU / FS, 0.0)?.exp()?.affine(-1.0, 1.0)?;
+    let mut s = s0.clone();
+    let mut ys = Vec::with_capacity(n);
+    for x in xs.chunk(n, 0)? {
+        s = (&s + a.mul(&(x - &s)?)?)?;
+        ys.push(s.clone());
+    }
+    candle_core::Tensor::cat(&ys, 0)
+}
+
+fn candle_rows(dir: &Path, rows: &mut Vec<Row>) -> candle_core::Result<()> {
+    use candle_core::{Device, Tensor as T, Var};
+    let device = Device::Cpu;
+    let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
+    let name = "candle (autodiff)".to_string();
+    let get = |t: &T| -> Vec<f32> { t.flatten_all().and_then(|t| t.to_vec1::<f32>()).expect("f32 values") };
+
+    let (cutoff, xs, s0) = (load("one_pole_forward", "in0"), load("one_pole_forward", "in1"), load("one_pole_forward", "in2"));
+    let want = load("one_pole_forward", "out0");
+    let n = xs.len();
+    let (tc, tx, ts) = (T::from_slice(&cutoff, 1, &device)?, T::from_slice(&xs, n, &device)?, T::from_slice(&s0, 1, &device)?);
+    let run = || get(&candle_one_pole(&tc, &tx, &ts).expect("forward"));
+    let e = error(&run(), &want);
+    rows.push(Row { model: "one-pole low-pass, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+
+    let ins: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("in{k}"))).collect();
+    let want: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("out{k}"))).collect();
+    let run = || -> [Vec<f32>; 4] {
+        let c = Var::from_slice(&ins[0], 1, &device).unwrap();
+        let x = Var::from_slice(&ins[1], n, &device).unwrap();
+        let s = Var::from_slice(&ins[3], 1, &device).unwrap();
+        let t = T::from_slice(&ins[2], n, &device).unwrap();
+        let loss = (candle_one_pole(c.as_tensor(), x.as_tensor(), s.as_tensor()).unwrap() - t).unwrap().sqr().unwrap().mean_all().unwrap();
+        let g = loss.backward().unwrap();
+        [get(&loss), get(g.get(c.as_tensor()).unwrap()), get(g.get(s.as_tensor()).unwrap()), get(g.get(x.as_tensor()).unwrap())]
+    };
+    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
+    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+
+    let ins: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("in{k}"))).collect();
+    let want: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("out{k}"))).collect();
+    let bins = ins[1].len();
+    let len = (bins - 1) * 2;
+    let (batch, width) = (ins[0].len() / len, ins[2].len() / len);
+    let [a, b, c, d] = dft_matrices(len);
+    let (fr, fi) = (T::from_slice(&a, (len, bins), &device)?, T::from_slice(&b, (len, bins), &device)?);
+    let (ir, ii) = (T::from_slice(&c, (bins, len), &device)?, T::from_slice(&d, (bins, len), &device)?);
+    let x = T::from_slice(&ins[0], (batch, len), &device)?;
+    let run = || -> [Vec<f32>; 3] {
+        let gain = Var::from_slice(&ins[1], bins, &device).unwrap();
+        let w = Var::from_slice(&ins[2], (len, width), &device).unwrap();
+        let g = gain.as_tensor().unsqueeze(0).unwrap();
+        let re = x.matmul(&fr).unwrap().broadcast_mul(&g).unwrap();
+        let im = x.matmul(&fi).unwrap().broadcast_mul(&g).unwrap();
+        let y = (re.matmul(&ir).unwrap() + im.matmul(&ii).unwrap()).unwrap();
+        let h = y.matmul(w.as_tensor()).unwrap().tanh().unwrap();
+        let loss = h.sqr().unwrap().mean_all().unwrap();
+        let grads = loss.backward().unwrap();
+        [get(&loss), get(grads.get(gain.as_tensor()).unwrap()), get(grads.get(w.as_tensor()).unwrap())]
+    };
+    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
+    rows.push(Row { model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", library: name, time: time(run), error: Some(e) });
+    Ok(())
+}
+
 // THE COMPARISON ==================================================================================
 
 struct Row {
@@ -185,7 +255,12 @@ fn burn_rows<B: AutodiffBackend>(name: &str, dir: &Path, rows: &mut Vec<Row>) {
 }
 
 fn main() {
-    let dir = std::env::args().nth(1).expect("usage: flux_burn <dir written by flux_programs>");
+    // candle's backward pass recurses through the graph: 48k steps deep for the scans
+    std::thread::Builder::new().stack_size(1 << 30).spawn(run).unwrap().join().unwrap();
+}
+
+fn run() {
+    let dir = std::env::args().nth(1).expect("usage: flux_autodiff <dir written by flux_programs>");
     let dir = Path::new(&dir);
     let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
     let mut rows = Vec::new();
@@ -226,6 +301,7 @@ fn main() {
 
     burn_rows::<Autodiff<Flex>>("burn flex (autodiff)", dir, &mut rows);
     burn_rows::<Autodiff<BurnNdArray>>("burn ndarray (autodiff)", dir, &mut rows);
+    candle_rows(dir, &mut rows).expect("candle runs");
 
     println!("| Model | Library | Time | Error vs flux |");
     println!("|---|---|---:|---:|");
