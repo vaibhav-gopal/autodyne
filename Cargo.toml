@@ -49,3 +49,7 @@ required-features = ["flux"]
 # never depends on a plugin framework.
 [workspace]
 members = [".", "plugins/autodyne-plug", "plugins/autodyne-reverb", "plugins/autodyne-synth", "xtask"]
+
+# Keep target/ small: dependencies build without debug info (autodyne's own code keeps it).
+[profile.dev.package."*"]
+debug = false
