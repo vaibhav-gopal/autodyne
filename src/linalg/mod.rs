@@ -23,6 +23,7 @@ use thiserror::Error;
 use crate::signal::{NdArray, NdView, NdViewMut};
 use crate::units::*;
 
+mod dc;
 mod expm;
 mod poly;
 mod values;
@@ -376,10 +377,44 @@ pub fn eigvals<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<Complex<T>>, Lina
 
 /// Eigenvalues (ascending) and orthonormal eigenvectors (columns) of a symmetric matrix; only its
 /// lower triangle is read.
+///
+/// faer reduces the matrix to tridiagonal form; autodyne's divide and conquer (LAPACK's `dstedc`)
+/// solves that, and faer's blocked Householder products carry the vectors back.
 pub fn eigh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(Vec<T>, NdArray<T>), LinalgError> {
+    use faer::linalg::evd::tridiag::{tridiag_in_place, tridiag_in_place_scratch};
+    use faer::linalg::householder::{apply_block_householder_sequence_on_the_left_in_place_scratch, apply_block_householder_sequence_on_the_left_in_place_with_conj};
     let m = square(a)?;
-    let e = m.self_adjoint_eigen(Side::Lower).map_err(|_| LinalgError::NoConvergence)?;
-    Ok((e.S().column_vector().iter().copied().collect(), to_array(e.U(), a.shape())))
+    let n = m.nrows();
+    if n == 0 {
+        return Ok((Vec::new(), NdArray::zeros(&[0, 0]).expect("valid shape")));
+    }
+    let par = faer::get_global_parallelism();
+    let (mut trid, scale) = lower_scaled(m);
+    let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(n, n);
+    let mut householder = faer::Mat::<T>::zeros(bs, n.saturating_sub(1));
+    let mut buf = faer::dyn_stack::MemBuffer::new(faer::dyn_stack::StackReq::any_of(&[
+        tridiag_in_place_scratch::<T>(n, par, Default::default()),
+        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(n.saturating_sub(1), bs, n),
+    ]));
+    if n > 1 {
+        tridiag_in_place(trid.as_mut(), householder.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+    }
+    let mut values: Vec<f64> = (0..n).map(|i| f64_of(trid[(i, i)])).collect();
+    let off: Vec<f64> = (0..n - 1).map(|i| f64_of(trid[(i + 1, i)])).collect();
+    let mut q = vec![0.0; n * n];
+    dc::tridiagonal_eigen(&mut values, &off, &mut q).map_err(|_| LinalgError::NoConvergence)?;
+    let mut u = faer::Mat::<T>::from_fn(n, n, |i, j| of_f64(q[j * n + i]));
+    if n > 1 {
+        apply_block_householder_sequence_on_the_left_in_place_with_conj(
+            trid.as_ref().submatrix(1, 0, n - 1, n - 1),
+            householder.as_ref(),
+            faer::Conj::No,
+            u.as_mut().subrows_mut(1, n - 1),
+            par,
+            faer::dyn_stack::MemStack::new(&mut buf),
+        );
+    }
+    Ok((values.into_iter().map(|v| of_f64(v / scale)).collect(), to_array(u.as_ref(), a.shape())))
 }
 
 /// The eigenvalues (ascending) of a symmetric matrix, without eigenvectors; only its lower
@@ -397,10 +432,7 @@ pub fn eigvalsh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError>
     }
     let par = faer::get_global_parallelism();
     // scaled into range, as LAPACK's dsyev does: rmin = sqrt(safmin / eps), rmax = 1 / rmin
-    let rmin = (min_positive::<T>() / f64_of(T::_EPSILON)).sqrt();
-    let scale = scaling(m, true, rmin, 1.0 / rmin);
-    let k = of_f64::<T>(scale);
-    let mut trid = faer::Mat::<T>::from_fn(n, n, |i, j| if i >= j { m[(i, j)] * k } else { T::_ZERO });
+    let (mut trid, scale) = lower_scaled(m);
     if n > 1 {
         let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(n, n);
         let mut householder = faer::Mat::<T>::zeros(bs, n - 1);
@@ -411,6 +443,51 @@ pub fn eigvalsh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError>
     let off: Vec<f64> = (0..n - 1).map(|i| f64_of(trid[(i + 1, i)])).collect();
     values::tridiagonal_eigenvalues(&mut diag, &off).map_err(|_| LinalgError::NoConvergence)?;
     Ok(diag.into_iter().map(|v| of_f64(v / scale)).collect())
+}
+
+/// The lower triangle of `m` in a new column-major matrix (zeros above), scaled into range as
+/// LAPACK's dsyev does (rmin = sqrt(safmin / eps), rmax = 1 / rmin), and the power of two it was
+/// scaled by: one pass over the input in its own memory order.
+fn lower_scaled<T: LinalgFloat>(m: MatRef<'_, T>) -> (faer::Mat<T>, f64) {
+    let n = m.nrows();
+    let mut out = faer::Mat::<T>::zeros(n, n);
+    let mut top = T::_ZERO;
+    if m.col_stride() == 1 {
+        // row-major: read rows, contiguous
+        for i in 0..n {
+            for j in 0..=i {
+                let v = m[(i, j)];
+                top = top.maximum(v.abs());
+                out[(i, j)] = v;
+            }
+        }
+    } else {
+        for j in 0..n {
+            for i in j..n {
+                let v = m[(i, j)];
+                top = top.maximum(v.abs());
+                out[(i, j)] = v;
+            }
+        }
+    }
+    let rmin = (min_positive::<T>() / f64_of(T::_EPSILON)).sqrt();
+    let top = f64_of(top);
+    let scale = if top > 0.0 && top < rmin {
+        (rmin / top).log2().ceil().exp2()
+    } else if top > 1.0 / rmin && top.is_finite() {
+        (-(top * rmin).log2().ceil()).exp2()
+    } else {
+        1.0
+    };
+    if scale != 1.0 {
+        let k = of_f64::<T>(scale);
+        for j in 0..n {
+            for i in j..n {
+                out[(i, j)] = out[(i, j)] * k;
+            }
+        }
+    }
+    (out, scale)
 }
 
 /// A power of two bringing the largest magnitude of `m` (its lower triangle if `lower`) into
