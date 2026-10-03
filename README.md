@@ -49,6 +49,7 @@ happens) and then run in place on `&mut [T]` blocks, so they are safe to call fr
 | `interop` | zero-copy conversions with the `ndarray` crate (feature `ndarray`): views both ways for any strides, owned arrays move their `Vec`; Arrow buffers are slices already |
 | `prelude` | `use autodyne::prelude::*` brings every trait and the common types into scope |
 | `dynamic` | runtime-typed data and processing: `DynArray` (any dtype, bytes), zero-copy `DynView` over external memory, runtime-typed math (`binary` with broadcasting, scalars with NumPy's weak typing, `unary` functions, `sum` / `mean` / `min` / `max`, `cast` checked / saturating / wrapping) under explicit `Promotion` rules: NumPy's table with every conversion checked, so nothing is lost silently (or `KeepFloat`, floats keeping their width); `DynProcessor` built at runtime with `build_dyn` |
+| `gpu` | (feature `gpu`) `GpuArray`: `f32` arrays kept in GPU memory, CubeCL kernels through wgpu (Vulkan, Metal, DirectX 12): fused `a * x + b`, element-wise ops broadcasting rows or columns, `exp` / `ln` / `tanh` / `sin` / `cos` / `sqrt` / `abs`, sums along any axis, per-lane FIR; `from_host` / `from_array` / `to_host` |
 
 ```rust
 use autodyne::prelude::*;
