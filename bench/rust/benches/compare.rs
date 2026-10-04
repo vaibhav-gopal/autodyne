@@ -112,7 +112,7 @@ fn elementwise(c: &mut Criterion) {
             cubecl::future::block_on(client.sync()).unwrap();
         })
     });
-    let ag = GpuArray::from_host(&ours.view());
+    let ag = GpuArray::from_host(&ours.view()).unwrap();
     close(ag.axpb(2.0, 0.5).to_host().as_slice(), &expected, 1e-6, "autodyne gpu");
     g.bench_function("autodyne gpu (GPU, resident)", |b| {
         b.iter(|| {
@@ -121,7 +121,7 @@ fn elementwise(c: &mut Criterion) {
             black_box(out)
         })
     });
-    g.bench_function("autodyne gpu (GPU, round trip)", |b| b.iter(|| black_box(GpuArray::from_host(&ours.view()).axpb(2.0, 0.5).to_host())));
+    g.bench_function("autodyne gpu (GPU, round trip)", |b| b.iter(|| black_box(GpuArray::from_host(&ours.view()).unwrap().axpb(2.0, 0.5).to_host())));
     g.bench_function("cubecl kernel (GPU, round trip)", |b| {
         b.iter(|| {
             let input = client.create(Bytes::from_elems(v.clone()));
@@ -178,7 +178,7 @@ fn elementwise(c: &mut Criterion) {
             black_box(out)
         })
     });
-    let (ag, ag_row) = (GpuArray::from_host(&ours.view()), GpuArray::from_host(&our_row.view()));
+    let (ag, ag_row) = (GpuArray::from_host(&ours.view()).unwrap(), GpuArray::from_host(&our_row.view()).unwrap());
     close(ag.add(&ag_row).to_host().as_slice(), &b_expected, 1e-6, "autodyne gpu broadcast");
     g.bench_function("autodyne gpu (GPU, resident)", |b| {
         b.iter(|| {
@@ -206,7 +206,7 @@ fn reductions(c: &mut Criterion) {
     close(&to_vec(flex.clone().sum_dim(0)), nd.sum_axis(ndarray::Axis(0)).as_slice().unwrap(), 1e-3, "burn column sums");
     close(&to_vec(gpu.clone().sum_dim(1)), ours.sum_axis(1).unwrap().as_slice(), 1e-3, "burn wgpu row sums");
 
-    let ag = GpuArray::from_host(&ours.view());
+    let ag = GpuArray::from_host(&ours.view()).unwrap();
     assert!((ag.sum().to_host().as_slice()[0] as f64 - total).abs() < 1e-2 * total.abs().max(1.0));
     close(ag.sum_axis(0).to_host().as_slice(), ours.sum_axis(0).unwrap().as_slice(), 1e-3, "autodyne gpu column sums");
     close(ag.sum_axis(1).to_host().as_slice(), ours.sum_axis(1).unwrap().as_slice(), 1e-3, "autodyne gpu row sums");
@@ -281,7 +281,7 @@ fn convolution(c: &mut Criterion) {
         })
     });
     g.bench_function("burn flex conv1d (CPU)", |b| b.iter(|| black_box(to_vec(conv1d(flex_x.clone(), flex_w.clone(), None, options.clone())))));
-    let ag = GpuArray::from_host(&NdArray::from_vec(signal.clone(), &[channels, len]).unwrap().view());
+    let ag = GpuArray::from_host(&NdArray::from_vec(signal.clone(), &[channels, len]).unwrap().view()).unwrap();
     close(&ag.fir(&taps).to_host().as_slice()[..len], &ours.as_slice()[..len], 1e-4, "autodyne gpu fir");
     g.bench_function("autodyne gpu fir (GPU, resident)", |b| {
         b.iter(|| {

@@ -8,10 +8,10 @@ arrays that own autodyne's memory.
 import numpy as _np
 
 from . import _autodyne as _native
-from . import fft, flux, linalg, signal
+from . import fft, flux, gpu, linalg, signal
 from ._autodyne import Array
 
-__all__ = ["Array", "fft", "flux", "linalg", "signal", "sum", "axpb", "lowpass", "rfft", "add", "sub", "mul", "div", "minimum", "maximum", "cast"]
+__all__ = ["Array", "fft", "flux", "gpu", "linalg", "signal", "sum", "axpb", "lowpass", "rfft", "add", "sub", "mul", "div", "minimum", "maximum", "cast"]
 
 
 def _numpy(result):

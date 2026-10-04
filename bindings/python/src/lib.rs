@@ -21,6 +21,7 @@ use numpy::ndarray::{ArrayD, IxDyn, ShapeBuilder};
 use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 
 mod flux;
+mod gpu;
 mod science;
 
 const VERSIONED: &CStr = c"dltensor_versioned";
@@ -408,5 +409,6 @@ fn _autodyne(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(rfft, m)?)?;
     science::register(m)?;
     flux::register(m)?;
+    gpu::register(m)?;
     Ok(())
 }
