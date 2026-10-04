@@ -303,3 +303,19 @@ fn values_only_paths_on_many_structures() {
         }
     }
 }
+#[test]
+fn small_products_match_the_naive_product() {
+    // shapes the small kernel takes (multiples of 4 x 8 / 16) and shapes it leaves to faer
+    for (m, k, n) in [(4, 1, 8), (4, 3, 16), (8, 64, 16), (64, 64, 64), (128, 128, 128), (12, 7, 32), (5, 5, 8), (64, 64, 63)] {
+        let a = random(&[m, k], 3);
+        let b = random(&[k, n], 4);
+        let want = naive(&a, &b);
+        let got = matmul(a.view(), b.view()).unwrap();
+        assert!(close(got.as_slice(), &want, 1e-12), "f64 {m}x{k}x{n}");
+        let a32 = NdArray::from_vec(a.as_slice().iter().map(|&v| v as f32).collect(), &[m, k]).unwrap();
+        let b32 = NdArray::from_vec(b.as_slice().iter().map(|&v| v as f32).collect(), &[k, n]).unwrap();
+        let got32 = matmul(a32.view(), b32.view()).unwrap();
+        let back: Vec<f64> = got32.as_slice().iter().map(|&v| v as f64).collect();
+        assert!(close(&back, &want, 1e-4), "f32 {m}x{k}x{n}");
+    }
+}

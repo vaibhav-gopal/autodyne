@@ -27,6 +27,7 @@ mod bdc;
 mod dc;
 mod expm;
 mod poly;
+mod small;
 mod values;
 pub use expm::expm;
 pub use poly::*;
@@ -127,6 +128,12 @@ pub fn matmul_into<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, mut out: 
     };
     if lhs.ncols() == 0 {
         out.map_inplace(|x| *x = T::_ZERO);
+        return Ok(());
+    }
+    // small row-major products: a register-blocked kernel (no packing)
+    let k = lhs.ncols();
+    let row_major = |rs: isize, cs: isize, cols: usize| cs == 1 && rs == cols as isize;
+    if shape.len() == 2 && row_major(lhs.row_stride(), lhs.col_stride(), k) && row_major(rhs.row_stride(), rhs.col_stride(), n) && row_major(rs, cs, n) && small::matmul(lhs.as_ptr(), rhs.as_ptr(), out.as_mut_ptr(), m, k, n) {
         return Ok(());
     }
     // SAFETY: `out` is a validated view of the product's shape, borrowed mutably for the call

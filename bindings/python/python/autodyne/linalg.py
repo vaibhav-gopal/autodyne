@@ -22,13 +22,9 @@ def _float(a):
     return a if a.dtype.char in "fd" else a.astype(_np.float64)
 
 
-def matmul(a, b):
-    """Matrix product of 1-D or 2-D arrays."""
-    try:
-        # float arrays go straight in (the common case, and the one where a call's overhead shows)
-        return _native.matmul(a, b)
-    except (TypeError, ValueError, AttributeError):
-        return _native.matmul(_float(a), _float(b))
+# Matrix product of 1-D or 2-D arrays: the native function itself (no Python frame in between, the
+# call's overhead shows on small matrices); it converts lists and integer arrays to float64.
+matmul = _native.matmul
 
 
 def solve(a, b):

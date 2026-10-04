@@ -114,7 +114,25 @@ impl DynElementBridge for f32 {}
 impl DynElementBridge for f64 {}
 
 #[pyfunction]
-fn matmul(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
+fn matmul<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, b: &Bound<'py, PyAny>) -> PyResult<Obj> {
+    let float = |x: &Bound<'_, PyAny>| x.cast::<numpy::PyArrayDyn<f64>>().is_ok() || x.cast::<numpy::PyArrayDyn<f32>>().is_ok();
+    if float(a) && float(b) {
+        return matmul_floats(py, a, b);
+    }
+    // anything else (lists, integer arrays, other tensors) through NumPy, as float64 unless float
+    let np = py.import("numpy")?;
+    let convert = |x: &Bound<'py, PyAny>| -> PyResult<Bound<'py, PyAny>> {
+        if float(x) {
+            return Ok(x.clone());
+        }
+        let arr = np.call_method1("asarray", (x,))?;
+        let kind: String = arr.getattr("dtype")?.getattr("kind")?.extract()?;
+        if kind == "f" { Ok(arr) } else { np.call_method1("asarray", (x, "float64")) }
+    };
+    matmul_floats(py, &convert(a)?, &convert(b)?)
+}
+
+fn matmul_floats(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
     // the product written straight into a new NumPy array, as NumPy's own does
     float_view!(a, T, va => with_pair::<T, _>(b, |vb| {
         let shape = linalg::matmul_shape(va.shape(), vb.shape()).map_err(linalg_error)?;
