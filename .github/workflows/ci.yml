@@ -32,10 +32,13 @@ jobs:
         run: cargo test -p autodyne --no-default-features --lib fft
       - name: Test with the ndarray interop
         run: cargo test -p autodyne --features ndarray --lib
+      # the JIT compiles flux's scans with Cranelift; GPU tests skip themselves without an adapter
+      - name: Test the JIT and GPU features
+        run: cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::
       - name: Doc tests
         run: cargo test --workspace --doc
       - name: Docs build without warnings
-        run: cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux
+        run: cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux,autodyne/jit,autodyne/gpu
         env:
           RUSTDOCFLAGS: -D warnings
       # `live` needs a sound device, so CI only builds it (via --all-targets above)
@@ -54,7 +57,7 @@ jobs:
         run: cargo bench --no-run
       # The crate is warning-free; keep it that way.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux -- -D warnings
+        run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 
   # The n-d views are raw pointers over validated layouts: check their unsafe code for undefined
   # behaviour (Miri's float noise is turned off so exact-equality assertions stay meaningful).
