@@ -18,10 +18,12 @@
 //! assert!((h[0].norm() - 1.0).abs() < 1e-9 && (h[1].norm() - 0.5f64.sqrt()).abs() < 1e-9);
 //! ```
 
+mod analysis;
 mod convert;
 mod discretize;
 mod response;
 
+pub use analysis::*;
 pub use convert::*;
 pub use discretize::*;
 pub use response::*;
@@ -67,6 +69,9 @@ pub enum SystemError {
     /// A linear algebra failure (e.g. finding roots).
     #[error(transparent)]
     Linalg(#[from] LinalgError),
+    /// An n-d layout error (matrices of inconsistent shapes).
+    #[error(transparent)]
+    Nd(#[from] crate::signal::NdError),
     /// Inconsistent coefficients or shapes.
     #[error("invalid system: {0}")]
     Invalid(String),

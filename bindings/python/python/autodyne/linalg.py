@@ -6,7 +6,8 @@ import numpy as _np
 from . import _autodyne as _native
 
 __all__ = ["set_threads", "matmul", "solve", "inv", "det", "lstsq", "eig", "eigvals", "eigh", "svd", "pinv", "qr", "cholesky",
-           "expm", "roots"]
+           "expm", "roots", "schur", "solve_sylvester", "solve_continuous_lyapunov", "solve_discrete_lyapunov",
+           "solve_continuous_are", "solve_discrete_are"]
 
 
 def set_threads(n):
@@ -93,3 +94,39 @@ def expm(a):
 def roots(p):
     """Polynomial roots (coefficients highest power first), like ``numpy.roots``."""
     return _native.roots(_np.asarray(p, dtype=_np.float64))
+
+
+# ---- matrix equations (scipy.linalg) -------------------------------------------------------------
+
+def schur(a, output="real"):
+    """``(T, Z)`` with ``a = Z @ T @ Z.T``, ``T`` quasi-upper-triangular (``scipy.linalg.schur``, real)."""
+    if output != "real":
+        raise NotImplementedError("only output='real'")
+    return _native.schur(_float(a))
+
+
+def solve_sylvester(a, b, q):
+    """``x`` with ``a @ x + x @ b = q`` (Bartels-Stewart), like ``scipy.linalg.solve_sylvester``."""
+    return _native.solve_sylvester(_float(a), _float(b), _float(q))
+
+
+def solve_continuous_lyapunov(a, q):
+    """``x`` with ``a @ x + x @ a.T = q``, like ``scipy.linalg.solve_continuous_lyapunov``."""
+    return _native.solve_continuous_lyapunov(_float(a), _float(q))
+
+
+def solve_discrete_lyapunov(a, q, method=None):
+    """``x`` with ``a @ x @ a.T - x + q = 0``, like ``scipy.linalg.solve_discrete_lyapunov``."""
+    return _native.solve_discrete_lyapunov(_float(a), _float(q))
+
+
+def solve_continuous_are(a, b, q, r):
+    """The stabilizing solution of the continuous algebraic Riccati equation, like
+    ``scipy.linalg.solve_continuous_are`` (matrix sign function, polished by Newton steps)."""
+    return _native.solve_continuous_are(_float(a), _float(_np.atleast_2d(b)), _float(q), _float(_np.atleast_2d(r)))
+
+
+def solve_discrete_are(a, b, q, r):
+    """The stabilizing solution of the discrete algebraic Riccati equation, like
+    ``scipy.linalg.solve_discrete_are`` (structure-preserving doubling, polished by Newton steps)."""
+    return _native.solve_discrete_are(_float(a), _float(_np.atleast_2d(b)), _float(q), _float(_np.atleast_2d(r)))

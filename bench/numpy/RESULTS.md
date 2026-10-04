@@ -6,73 +6,87 @@ Python 3.12.14, NumPy 2.5.3, SciPy 1.18.1. autodyne times are end to end
 
 | Axis | Case | NumPy / SciPy | autodyne | Speedup |
 |---|---|---:|---:|---:|
-| fused a*x+b | float32, n=1,000 | 1.6 µs | 0.6 µs | 2.66x |
-| fused a*x+b | float32, n=100,000 | 14.1 µs | 5.9 µs | 2.40x |
-| fused a*x+b | float32, n=10,000,000 | 12,975.7 µs | 2,155.0 µs | 6.02x |
-| fused a*x+b | float64, n=1,000 | 1.4 µs | 0.7 µs | 2.03x |
-| fused a*x+b | float64, n=100,000 | 25.6 µs | 13.6 µs | 1.89x |
-| fused a*x+b | float64, n=10,000,000 | 26,279.5 µs | 4,877.4 µs | 5.39x |
-| strided a*x+b | transposed 2000x2000 f64 | 10,009.8 µs | 1,751.5 µs | 5.71x |
-| strided a*x+b | every other column, 2000x1000 | 5,271.8 µs | 1,218.7 µs | 4.33x |
-| strided a*x+b | reversed rows | 11,230.1 µs | 2,327.7 µs | 4.82x |
-| sum | float32, n=10,000,000 | 1,521.4 µs | 609.3 µs | 2.50x |
-| sum | float64, n=10,000,000 | 4,724.7 µs | 1,326.7 µs | 3.56x |
-| sum | axis 0 of 2000x2000 f64 | 680.1 µs | 518.9 µs | 1.31x |
-| sum | axis 1 of 2000x2000 f64 | 2,297.0 µs | 390.3 µs | 5.89x |
-| sum | transposed 2000x2000 f64, axis 1 | 705.8 µs | 524.8 µs | 1.34x |
-| mixed dtypes | int16 2000x2000 + float32 row | 3,477.6 µs | 932.0 µs | 3.73x |
-| mixed dtypes | float64 + float64, same shape | 5,462.9 µs | 2,698.2 µs | 2.02x |
-| small calls | sum of 64 f64 | 1.1 µs | 0.3 µs | 3.70x |
-| small calls | a*x+b on 64 f64 | 1.0 µs | 0.6 µs | 1.71x |
-| IIR (scipy sosfilt) | 16 x 480,000 f32, along contiguous time | 39,369.8 µs | 19,045.4 µs | 2.07x |
-| IIR (scipy sosfilt) | 480,000 x 16 f32, along strided time | 45,953.0 µs | 26,591.5 µs | 1.73x |
-| FFT (numpy.fft) | rfft, 256 x 4096 f64 | 3,409.4 µs | 1,382.1 µs | 2.47x |
-| FFT (numpy.fft) | rfft, 4096 x 64 f64 | 3,027.4 µs | 1,184.4 µs | 2.56x |
-| FFT (numpy.fft) | complex fft, 64 x 1000 | 266.1 µs | 121.0 µs | 2.20x |
-| FFT (numpy.fft) | complex fft, 64 x 1031 | 1,826.5 µs | 577.2 µs | 3.16x |
-| FFT (numpy.fft) | complex fft, 64 x 4095 | 2,546.2 µs | 843.0 µs | 3.02x |
-| linalg (numpy) | matmul 64x64 | 7.6 µs | 7.6 µs | 0.99x |
-| linalg (numpy) | solve 64x64 | 61.9 µs | 31.5 µs | 1.96x |
-| linalg (numpy) | matmul 512x512 | 3,966.6 µs | 3,513.7 µs | 1.13x |
-| linalg (numpy) | solve 512x512 | 13,883.8 µs | 9,323.4 µs | 1.49x |
-| linalg (numpy) | eigvals 300x300 | 18,159.9 µs | 16,233.0 µs | 1.12x |
-| linalg (numpy) | svd 300x300 | 3,700.6 µs | 3,666.6 µs | 1.01x |
-| linalg (numpy) | eigh 300x300 | 4,979.5 µs | 4,339.4 µs | 1.15x |
-| filtering (scipy.signal) | sosfilt, 8th-order ellip, 16 x 48000 | 6,057.7 µs | 2,931.7 µs | 2.07x |
-| filtering (scipy.signal) | sosfiltfilt, 16 x 48000 | 13,792.9 µs | 5,675.8 µs | 2.43x |
-| filtering (scipy.signal) | lfilter, 4th-order, 16 x 48000 | 4,079.1 µs | 1,266.6 µs | 3.22x |
-| filter design (scipy.signal) | ellip(8) to sos | 638.4 µs | 4.7 µs | 135.59x |
-| filter design (scipy.signal) | remez, 101 taps | 164.7 µs | 153.4 µs | 1.07x |
-| spectral (scipy.signal) | welch, 16 x 48000, nperseg 1024 | 11,737.6 µs | 3,419.4 µs | 3.43x |
-| spectral (scipy.signal) | stft, 16 x 48000, nperseg 512 | 9,197.8 µs | 3,816.5 µs | 2.41x |
-| spectral (scipy.signal) | hilbert, 16 x 48000 | 10,625.2 µs | 5,075.6 µs | 2.09x |
-| convolution (scipy.signal) | convolve 48000 x 32 taps (auto) | 369.5 µs | 86.3 µs | 4.28x |
-| convolution (scipy.signal) | convolve 1M x 1000 taps (auto) | 32,245.1 µs | 4,367.0 µs | 7.38x |
-| convolution (scipy.signal) | oaconvolve 1M x 1000 taps | 13,983.0 µs | 4,502.8 µs | 3.11x |
-| convolution (scipy.signal) | fftconvolve 100k x 50k | 4,054.4 µs | 1,101.8 µs | 3.68x |
-| convolution (scipy.signal) | correlate 48000 x 4800 (auto) | 1,000.9 µs | 317.0 µs | 3.16x |
-| smoothing (scipy.signal) | savgol_filter 16 x 48000, window 31, order 3 | 4,748.9 µs | 2,374.9 µs | 2.00x |
-| resampling (scipy.signal) | resample_poly 48k -> 44.1k, 16 x 48000 | 6,639.7 µs | 3,507.0 µs | 1.89x |
-| resampling (scipy.signal) | upfirdn 4/3, 64 taps, 16 x 48000 | 6,774.4 µs | 3,131.0 µs | 2.16x |
-| peaks (scipy.signal) | find_peaks 1M samples | 3,733.4 µs | 1,680.5 µs | 2.22x |
-| peaks (scipy.signal) | find_peaks 1M, prominence + width | 45,465.1 µs | 31,342.7 µs | 1.45x |
-| random (numpy.random) | random, 1M draws | 2,481.9 µs | 911.0 µs | 2.72x |
-| random (numpy.random) | standard_normal f64, 1M draws | 6,828.3 µs | 1,790.1 µs | 3.81x |
-| random (numpy.random) | standard_normal f32, 1M draws | 5,580.2 µs | 1,778.5 µs | 3.14x |
-| random (numpy.random) | exponential, 1M draws | 4,619.7 µs | 2,048.3 µs | 2.26x |
-| random (numpy.random) | gamma(2.5), 1M draws | 16,754.9 µs | 7,312.3 µs | 2.29x |
-| random (numpy.random) | poisson(5), 1M draws | 26,595.0 µs | 10,060.3 µs | 2.64x |
-| random (numpy.random) | poisson(100), 1M draws | 25,801.6 µs | 15,310.5 µs | 1.69x |
-| random (numpy.random) | binomial(100, 0.3), 1M draws | 111,280.1 µs | 30,476.0 µs | 3.65x |
-| random (numpy.random) | integers [0, 1000), 1M draws | 2,404.2 µs | 1,947.0 µs | 1.23x |
-| statistics (numpy) | median 16 x 48000, axis 1 | 5,940.2 µs | 1,217.8 µs | 4.88x |
-| statistics (numpy) | quantile [.1, .5, .9], 16 x 48000 | 9,003.1 µs | 3,406.6 µs | 2.64x |
-| statistics (scipy.stats) | skew, 16 x 48000 | 17,814.9 µs | 962.5 µs | 18.51x |
-| statistics (scipy.stats) | kurtosis, 16 x 48000 | 17,827.6 µs | 962.6 µs | 18.52x |
-| statistics (numpy) | histogram 1M, 100 bins | 4,522.7 µs | 2,380.4 µs | 1.90x |
-| statistics (numpy) | histogram 1M, bins='auto' | 15,700.0 µs | 7,355.9 µs | 2.13x |
-| statistics (numpy) | cov 50 x 10000 | 1,834.9 µs | 1,590.3 µs | 1.15x |
-| statistics (numpy) | corrcoef 50 x 10000 | 1,843.9 µs | 1,615.4 µs | 1.14x |
-| time series (statsmodels) | acf 100k, 50 lags | 8,408.1 µs | 1,008.7 µs | 8.34x |
-| time series (statsmodels) | pacf 100k, 40 lags | 27,935.8 µs | 1,003.1 µs | 27.85x |
-| time series (statsmodels) | burg 100k, order 10 | 2,128.9 µs | 1,224.9 µs | 1.74x |
+| fused a*x+b | float32, n=1,000 | 1.6 µs | 0.6 µs | 2.72x |
+| fused a*x+b | float32, n=100,000 | 13.9 µs | 5.7 µs | 2.44x |
+| fused a*x+b | float32, n=10,000,000 | 12,757.1 µs | 2,237.2 µs | 5.70x |
+| fused a*x+b | float64, n=1,000 | 1.4 µs | 0.7 µs | 2.08x |
+| fused a*x+b | float64, n=100,000 | 26.1 µs | 13.2 µs | 1.98x |
+| fused a*x+b | float64, n=10,000,000 | 25,922.7 µs | 5,129.8 µs | 5.05x |
+| strided a*x+b | transposed 2000x2000 f64 | 9,939.4 µs | 1,539.7 µs | 6.46x |
+| strided a*x+b | every other column, 2000x1000 | 5,274.4 µs | 1,193.8 µs | 4.42x |
+| strided a*x+b | reversed rows | 11,313.6 µs | 2,166.4 µs | 5.22x |
+| sum | float32, n=10,000,000 | 1,500.0 µs | 592.4 µs | 2.53x |
+| sum | float64, n=10,000,000 | 4,622.9 µs | 1,334.0 µs | 3.47x |
+| sum | axis 0 of 2000x2000 f64 | 659.6 µs | 512.8 µs | 1.29x |
+| sum | axis 1 of 2000x2000 f64 | 2,177.1 µs | 377.9 µs | 5.76x |
+| sum | transposed 2000x2000 f64, axis 1 | 659.5 µs | 519.3 µs | 1.27x |
+| mixed dtypes | int16 2000x2000 + float32 row | 3,430.1 µs | 925.9 µs | 3.70x |
+| mixed dtypes | float64 + float64, same shape | 5,501.9 µs | 2,593.4 µs | 2.12x |
+| small calls | sum of 64 f64 | 1.0 µs | 0.3 µs | 3.70x |
+| small calls | a*x+b on 64 f64 | 1.0 µs | 0.6 µs | 1.75x |
+| IIR (scipy sosfilt) | 16 x 480,000 f32, along contiguous time | 40,004.0 µs | 18,914.7 µs | 2.11x |
+| IIR (scipy sosfilt) | 480,000 x 16 f32, along strided time | 46,364.8 µs | 26,759.4 µs | 1.73x |
+| FFT (numpy.fft) | rfft, 256 x 4096 f64 | 3,409.6 µs | 1,370.9 µs | 2.49x |
+| FFT (numpy.fft) | rfft, 4096 x 64 f64 | 2,963.2 µs | 1,142.1 µs | 2.59x |
+| FFT (numpy.fft) | complex fft, 64 x 1000 | 260.9 µs | 120.4 µs | 2.17x |
+| FFT (numpy.fft) | complex fft, 64 x 1031 | 1,818.5 µs | 565.9 µs | 3.21x |
+| FFT (numpy.fft) | complex fft, 64 x 4095 | 2,537.3 µs | 821.6 µs | 3.09x |
+| linalg (numpy) | matmul 64x64 | 7.6 µs | 7.5 µs | 1.00x |
+| linalg (numpy) | solve 64x64 | 60.9 µs | 30.3 µs | 2.01x |
+| linalg (numpy) | matmul 512x512 | 3,933.6 µs | 3,525.1 µs | 1.12x |
+| linalg (numpy) | solve 512x512 | 13,874.7 µs | 9,469.0 µs | 1.47x |
+| linalg (numpy) | eigvals 300x300 | 17,916.2 µs | 16,043.2 µs | 1.12x |
+| linalg (numpy) | svd 300x300 | 3,620.4 µs | 3,636.7 µs | 1.00x |
+| linalg (numpy) | eigh 300x300 | 4,973.8 µs | 4,436.1 µs | 1.12x |
+| filtering (scipy.signal) | sosfilt, 8th-order ellip, 16 x 48000 | 5,972.1 µs | 3,086.0 µs | 1.94x |
+| filtering (scipy.signal) | sosfiltfilt, 16 x 48000 | 13,758.0 µs | 5,789.6 µs | 2.38x |
+| filtering (scipy.signal) | lfilter, 4th-order, 16 x 48000 | 4,126.9 µs | 1,387.0 µs | 2.98x |
+| filter design (scipy.signal) | ellip(8) to sos | 616.7 µs | 4.6 µs | 133.05x |
+| filter design (scipy.signal) | remez, 101 taps | 161.6 µs | 151.9 µs | 1.06x |
+| spectral (scipy.signal) | welch, 16 x 48000, nperseg 1024 | 12,214.0 µs | 3,299.0 µs | 3.70x |
+| spectral (scipy.signal) | stft, 16 x 48000, nperseg 512 | 9,214.0 µs | 3,956.8 µs | 2.33x |
+| spectral (scipy.signal) | hilbert, 16 x 48000 | 10,700.2 µs | 5,287.3 µs | 2.02x |
+| convolution (scipy.signal) | convolve 48000 x 32 taps (auto) | 355.5 µs | 84.1 µs | 4.23x |
+| convolution (scipy.signal) | convolve 1M x 1000 taps (auto) | 32,280.3 µs | 4,188.5 µs | 7.71x |
+| convolution (scipy.signal) | oaconvolve 1M x 1000 taps | 14,006.8 µs | 4,163.5 µs | 3.36x |
+| convolution (scipy.signal) | fftconvolve 100k x 50k | 3,971.8 µs | 1,089.5 µs | 3.65x |
+| convolution (scipy.signal) | correlate 48000 x 4800 (auto) | 1,001.3 µs | 406.2 µs | 2.46x |
+| smoothing (scipy.signal) | savgol_filter 16 x 48000, window 31, order 3 | 4,944.4 µs | 2,497.6 µs | 1.98x |
+| resampling (scipy.signal) | resample_poly 48k -> 44.1k, 16 x 48000 | 6,693.5 µs | 3,615.0 µs | 1.85x |
+| resampling (scipy.signal) | upfirdn 4/3, 64 taps, 16 x 48000 | 7,028.9 µs | 3,192.4 µs | 2.20x |
+| peaks (scipy.signal) | find_peaks 1M samples | 3,820.4 µs | 1,676.1 µs | 2.28x |
+| peaks (scipy.signal) | find_peaks 1M, prominence + width | 44,883.5 µs | 31,721.5 µs | 1.41x |
+| random (numpy.random) | random, 1M draws | 2,376.0 µs | 902.5 µs | 2.63x |
+| random (numpy.random) | standard_normal f64, 1M draws | 6,576.7 µs | 1,757.0 µs | 3.74x |
+| random (numpy.random) | standard_normal f32, 1M draws | 5,590.0 µs | 1,762.8 µs | 3.17x |
+| random (numpy.random) | exponential, 1M draws | 4,948.2 µs | 2,075.2 µs | 2.38x |
+| random (numpy.random) | gamma(2.5), 1M draws | 17,064.2 µs | 7,218.0 µs | 2.36x |
+| random (numpy.random) | poisson(5), 1M draws | 25,551.2 µs | 10,390.5 µs | 2.46x |
+| random (numpy.random) | poisson(100), 1M draws | 25,347.4 µs | 15,241.3 µs | 1.66x |
+| random (numpy.random) | binomial(100, 0.3), 1M draws | 111,115.8 µs | 30,168.6 µs | 3.68x |
+| random (numpy.random) | integers [0, 1000), 1M draws | 2,606.1 µs | 1,960.1 µs | 1.33x |
+| statistics (numpy) | median 16 x 48000, axis 1 | 5,930.3 µs | 1,242.7 µs | 4.77x |
+| statistics (numpy) | quantile [.1, .5, .9], 16 x 48000 | 9,007.1 µs | 3,407.2 µs | 2.64x |
+| statistics (scipy.stats) | skew, 16 x 48000 | 18,445.4 µs | 1,012.5 µs | 18.22x |
+| statistics (scipy.stats) | kurtosis, 16 x 48000 | 18,726.5 µs | 1,004.6 µs | 18.64x |
+| statistics (numpy) | histogram 1M, 100 bins | 4,127.9 µs | 2,341.7 µs | 1.76x |
+| statistics (numpy) | histogram 1M, bins='auto' | 15,522.7 µs | 7,369.1 µs | 2.11x |
+| statistics (numpy) | cov 50 x 10000 | 1,816.2 µs | 1,622.0 µs | 1.12x |
+| statistics (numpy) | corrcoef 50 x 10000 | 1,821.7 µs | 1,611.1 µs | 1.13x |
+| time series (statsmodels) | acf 100k, 50 lags | 8,350.9 µs | 1,039.1 µs | 8.04x |
+| time series (statsmodels) | pacf 100k, 40 lags | 27,623.0 µs | 1,000.9 µs | 27.60x |
+| time series (statsmodels) | burg 100k, order 10 | 2,101.3 µs | 1,217.0 µs | 1.73x |
+| matrix equations (scipy.linalg) | schur 10x10 | 17.8 µs | 6.6 µs | 2.70x |
+| matrix equations (scipy.linalg) | solve_continuous_lyapunov 10x10 | 33.6 µs | 11.7 µs | 2.87x |
+| matrix equations (scipy.linalg) | solve_continuous_are 10x10 | 374.8 µs | 108.8 µs | 3.45x |
+| matrix equations (scipy.linalg) | solve_discrete_are 10x10 | 404.1 µs | 95.2 µs | 4.24x |
+| matrix equations (scipy.linalg) | schur 50x50 | 368.3 µs | 260.1 µs | 1.42x |
+| matrix equations (scipy.linalg) | solve_continuous_lyapunov 50x50 | 501.5 µs | 392.1 µs | 1.28x |
+| matrix equations (scipy.linalg) | solve_continuous_are 50x50 | 7,062.4 µs | 2,677.1 µs | 2.64x |
+| matrix equations (scipy.linalg) | solve_discrete_are 50x50 | 7,026.9 µs | 2,198.7 µs | 3.20x |
+| matrix equations (scipy.linalg) | schur 200x200 | 9,245.6 µs | 12,375.3 µs | 0.75x |
+| matrix equations (scipy.linalg) | solve_continuous_lyapunov 200x200 | 13,699.1 µs | 16,668.1 µs | 0.82x |
+| matrix equations (scipy.linalg) | solve_continuous_are 200x200 | 245,358.4 µs | 97,895.2 µs | 2.51x |
+| matrix equations (scipy.linalg) | solve_discrete_are 200x200 | 224,738.9 µs | 75,148.6 µs | 2.99x |
+| ODEs (scipy.integrate) | solve_ivp RK45, Lotka-Volterra to t=50, rtol 1e-8 | 41,545.7 µs | 10,161.2 µs | 4.09x |
+| ODEs (scipy.integrate) | stiff Van der Pol mu=1000: Radau vs Rosenbrock23 | 55,923.9 µs | 5,045.1 µs | 11.08x |

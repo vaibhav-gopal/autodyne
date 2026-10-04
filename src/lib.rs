@@ -18,10 +18,11 @@
 //!   [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
 //! - Maths: [`special`] (gamma, error and normal functions, Bessel and elliptic functions),
 //!   [`random`] (generators, distributions, random processes), [`stats`] (order statistics,
-//!   moments, histograms, covariance, autocorrelation and AR fits), [`linalg`] (matrix products,
-//!   solves, least squares, eigen / SVD, polynomials) and [`systems`] (LTI systems: transfer
-//!   functions, zeros-poles-gain, state space, responses, discretization); `linalg` and `systems`
-//!   need the feature `faer`, on by default.
+//!   moments, histograms, covariance, autocorrelation and AR fits), [`ode`] (initial value
+//!   problems), [`linalg`] (matrix products, solves, least squares, eigen / Schur / SVD, matrix
+//!   equations, polynomials) and [`systems`] (LTI systems: transfer functions, zeros-poles-gain,
+//!   state space, responses, discretization, controllability, LQR, margins); `linalg` and
+//!   `systems` need the feature `faer`, on by default.
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
 //! - Instruments: [`synth`] (MIDI, voices, polyphony), [`sampler`] (multisampled playback), [`control`] (LFOs, modulation matrix, transport).
 //! - Differentiable programs: `flux` (feature `flux`) traces code written over [`units::Real`],
@@ -61,6 +62,7 @@ pub mod special;
 pub mod osc;
 pub mod random;
 pub mod stats;
+pub mod ode;
 pub mod filter;
 pub mod spectral;
 pub mod iq;

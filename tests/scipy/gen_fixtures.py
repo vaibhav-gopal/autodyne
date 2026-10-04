@@ -319,6 +319,82 @@ ar, s2 = sm_burg(y, order=4)
 st["burg"] = dict(ar=r(ar), sigma2=float(s2))
 fx["stats"] = st
 
+# ---- matrix equations (scipy.linalg) ------------------------------------------------------------
+import scipy.linalg as sla
+
+eq = {}
+for n in [6, 20]:
+    a = rng.standard_normal((n, n))
+    stable = a - (np.max(np.linalg.eigvals(a).real) + 1.0) * np.eye(n)  # continuous-stable
+    schur_stable = a / (1.1 * np.max(np.abs(np.linalg.eigvals(a))))  # discrete-stable
+    b = rng.standard_normal((n, 2))
+    m = rng.standard_normal((n, n))
+    qs = m @ m.T + n * np.eye(n)  # symmetric positive definite
+    r2 = np.array([[2.0, 0.3], [0.3, 1.0]])
+    rhs = rng.standard_normal((n, n - 1))
+    bb = rng.standard_normal((n - 1, n - 1))
+    eq[str(n)] = dict(
+        a=r(a), stable=r(stable), dstable=r(schur_stable), b=r(b), q=r(qs), r=r(r2), c=r(rhs), bb=r(bb),
+        sylvester=r(sla.solve_sylvester(a, bb, rhs)),
+        lyapunov=r(sla.solve_continuous_lyapunov(stable, -qs)),
+        lyapunov_general=r(sla.solve_continuous_lyapunov(a, m)),
+        discrete_lyapunov=r(sla.solve_discrete_lyapunov(schur_stable, qs)),
+        care=r(sla.solve_continuous_are(a, b, qs, r2)),
+        dare=r(sla.solve_discrete_are(a, b, qs, r2)),
+    )
+fx["equations"] = eq
+
+# ---- control analysis (python-control) -----------------------------------------------------------
+import control
+
+ctl = {}
+A4 = np.array([[-1.0, 2.0, 0.0, 0.5], [-2.0, -1.5, 1.0, 0.0], [0.0, 0.3, -0.8, 1.0], [0.2, 0.0, -1.0, -2.0]])
+B4 = np.array([[1.0, 0.0], [0.0, 0.5], [0.3, 0.0], [0.0, 1.0]])
+C4 = np.array([[1.0, 0.0, 0.5, 0.0]])
+D4 = np.array([[0.0, 0.1]])
+sys_c = control.ss(A4, B4, C4, D4)
+sys_d = control.c2d(sys_c, 0.1)
+Q4, R2 = np.diag([1.0, 2.0, 0.5, 1.0]), np.array([[1.0, 0.2], [0.2, 0.5]])
+for name, s in [("continuous", sys_c), ("discrete", sys_d)]:
+    wn, zeta, poles = control.damp(s, doprint=False)
+    k, sol, e = (control.lqr if name == "continuous" else control.dlqr)(s.A, s.B, Q4, R2)
+    ctl[name] = dict(
+        A=r(s.A), B=r(s.B), C=r(s.C), D=r(s.D), dt=float(s.dt or 0.0),
+        ctrb=r(control.ctrb(s.A, s.B)), obsv=r(control.obsv(s.A, s.C)),
+        wc=r(sla.solve_continuous_lyapunov(s.A, -s.B @ s.B.T) if name == "continuous" else sla.solve_discrete_lyapunov(s.A, s.B @ s.B.T)),
+        wo=r(sla.solve_continuous_lyapunov(s.A.T, -s.C.T @ s.C) if name == "continuous" else sla.solve_discrete_lyapunov(s.A.T, s.C.T @ s.C)), dcgain=r(np.atleast_2d(control.dcgain(s))),
+        poles=c(poles), wn=r(wn), zeta=r(zeta), Q=r(Q4), R=r(R2), lqr_k=r(k), lqr_s=r(sol), lqr_poles=c(e),
+    )
+margins = []
+for num, den, dt in [([1.0], [1.0, 3.0, 2.0, 0.0], 0.0), ([2.5], [1.0, 3.0, 2.0, 0.0], 0.0), ([4.0, 2.0], [1.0, 2.0, 3.0, 1.0, 0.0], 0.0),
+                     ([10.0], [1.0, 6.0, 11.0, 6.0], 0.0)]:
+    g = control.tf(num, den)
+    gm, pm, _, wpc, wgc, _ = control.stability_margins(g)
+    margins.append(dict(num=num, den=den, dt=dt, gm=float(gm), pm=float(pm), wpc=float(wpc), wgc=float(wgc)))
+gd = control.c2d(control.tf([2.5], [1.0, 3.0, 2.0, 0.0]), 0.05)
+gm, pm, _, wpc, wgc, _ = control.stability_margins(gd)
+margins.append(dict(num=r(gd.num[0][0]), den=r(gd.den[0][0]), dt=0.05, gm=float(gm), pm=float(pm), wpc=float(wpc), wgc=float(wgc)))
+ctl["margins"] = margins
+fx["control"] = ctl
+
+# ---- initial value problems (scipy.integrate.solve_ivp) -------------------------------------------
+from scipy.integrate import solve_ivp
+
+
+def lotka(t, y):
+    return [1.5 * y[0] - y[0] * y[1], -3.0 * y[1] + y[0] * y[1]]
+
+
+ivp = {}
+for method in ["RK45", "RK23"]:
+    s = solve_ivp(lotka, (0.0, 15.0), [10.0, 5.0], method=method, rtol=1e-6, atol=1e-9)
+    te = np.linspace(0.0, 15.0, 31)
+    se = solve_ivp(lotka, (0.0, 15.0), [10.0, 5.0], method=method, rtol=1e-6, atol=1e-9, t_eval=te)
+    ivp[method] = dict(t=r(s.t), y=r(s.y.T), nfev=int(s.nfev), t_eval=r(te), y_eval=r(se.y.T))
+ref = solve_ivp(lotka, (0.0, 15.0), [10.0, 5.0], method="DOP853", rtol=1e-12, atol=1e-12)
+ivp["reference_end"] = r(ref.y[:, -1])
+fx["ivp"] = ivp
+
 out = pathlib.Path(__file__).with_name("fixtures.json")
 out.write_text(json.dumps(fx))
 print(f"wrote {out} ({out.stat().st_size // 1024} KiB), SciPy {scipy.__version__}")

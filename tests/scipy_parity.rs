@@ -483,6 +483,163 @@ fn statistics_match_numpy_scipy_and_statsmodels() {
 }
 
 #[test]
+fn matrix_equations_match_scipy() {
+    use autodyne::linalg::{eigvals, matmul, schur, solve_continuous_are, solve_continuous_lyapunov, solve_discrete_are, solve_discrete_lyapunov, solve_sylvester};
+
+    for (key, case) in fixtures()["equations"].as_object().unwrap() {
+        let m = |k: &str| array(&case[k]);
+        let (a, b, q, r) = (m("a"), m("b"), m("q"), m("r"));
+        // Schur: a = z t zᵀ with z orthogonal, t quasi-triangular, the same eigenvalues
+        let (t, z) = schur(a.view()).unwrap();
+        let n = a.shape()[0];
+        let back = matmul(matmul(z.view(), t.view()).unwrap().view(), z.view().transpose()).unwrap();
+        assert_close(&format!("{key}: z t zᵀ"), back.as_slice(), a.as_slice(), 1e-12);
+        let ztz = matmul(z.view().transpose(), z.view()).unwrap();
+        let eye: Vec<f64> = (0..n * n).map(|i| if i / n == i % n { 1.0 } else { 0.0 }).collect();
+        assert_close(&format!("{key}: zᵀ z"), ztz.as_slice(), &eye, 1e-13);
+        for i in 0..n {
+            for j in 0..i.saturating_sub(1) {
+                assert_eq!(t.as_slice()[i * n + j], 0.0, "{key}: t[{i}][{j}]");
+            }
+        }
+        let ev: Vec<C64> = eigvals(t.view()).unwrap();
+        assert_same_roots(&format!("{key}: eigenvalues"), &ev, &eigvals(a.view()).unwrap(), 1e-10);
+
+        assert_close(&format!("{key}: sylvester"), solve_sylvester(a.view(), m("bb").view(), m("c").view()).unwrap().as_slice(), &nd(&case["sylvester"]).0, 1e-10);
+        let neg_q = q.map(|v| -v);
+        assert_close(&format!("{key}: lyapunov"), solve_continuous_lyapunov(m("stable").view(), neg_q.view()).unwrap().as_slice(), &nd(&case["lyapunov"]).0, 1e-10);
+        // a general (not symmetric) right-hand side, a not stable
+        let general = NdArray::from_vec(nd(&case["lyapunov_general"]).0, &[n, n]).unwrap();
+        let mm = {
+            // recover q from the SciPy solution: q = a x + x aᵀ
+            let ax = matmul(a.view(), general.view()).unwrap();
+            let xa = matmul(general.view(), a.view().transpose()).unwrap();
+            NdArray::from_vec(ax.as_slice().iter().zip(xa.as_slice()).map(|(p, q)| p + q).collect(), &[n, n]).unwrap()
+        };
+        assert_close(&format!("{key}: lyapunov, general"), solve_continuous_lyapunov(a.view(), mm.view()).unwrap().as_slice(), general.as_slice(), 1e-9);
+        assert_close(&format!("{key}: discrete lyapunov"), solve_discrete_lyapunov(m("dstable").view(), q.view()).unwrap().as_slice(), &nd(&case["discrete_lyapunov"]).0, 1e-10);
+        // Riccati: our residual must be tiny and no worse than SciPy's; the values must agree where
+        // the problem is well conditioned (at n = 20 the random a is far from stable, x reaches
+        // 1e11, and SciPy's own residual is only 2e-6 relative)
+        let care = solve_continuous_are(a.view(), b.view(), q.view(), r.view()).unwrap();
+        let dare = solve_discrete_are(a.view(), b.view(), q.view(), r.view()).unwrap();
+        let scipy_care = NdArray::from_vec(nd(&case["care"]).0, &[n, n]).unwrap();
+        let scipy_dare = NdArray::from_vec(nd(&case["dare"]).0, &[n, n]).unwrap();
+        for (name, residual, ours, theirs) in [("care", care_residual as fn(&_, &_, &_, &_, &_) -> f64, &care, &scipy_care), ("dare", dare_residual, &dare, &scipy_dare)] {
+            let (mine, scipy) = (residual(&a, &b, &q, &r, ours), residual(&a, &b, &q, &r, theirs));
+            assert!(mine < 1e-9 && mine <= scipy.max(1e-14) * 2.0, "{key}: {name} relative residual {mine:e} (SciPy {scipy:e})");
+            if n <= 6 {
+                assert_close(&format!("{key}: {name}"), ours.as_slice(), theirs.as_slice(), 1e-10);
+            }
+        }
+    }
+}
+
+#[test]
+fn control_analysis_matches_python_control() {
+    use autodyne::systems::{damp, dlqr, lqr, stability_margins, TransferFunction};
+
+    let ctl = &fixtures()["control"];
+    for key in ["continuous", "discrete"] {
+        let s = &ctl[key];
+        let dt = s["dt"].as_f64().unwrap();
+        let domain = if dt > 0.0 { Domain::Discrete { dt } } else { Domain::Continuous };
+        let sys = StateSpace::new(array(&s["A"]), array(&s["B"]), array(&s["C"]), array(&s["D"]), domain).unwrap();
+        assert_close(&format!("{key} ctrb"), sys.ctrb().unwrap().as_slice(), &nd(&s["ctrb"]).0, 1e-12);
+        assert_close(&format!("{key} obsv"), sys.obsv().unwrap().as_slice(), &nd(&s["obsv"]).0, 1e-12);
+        assert!(sys.is_controllable().unwrap() && sys.is_observable().unwrap());
+        assert_close(&format!("{key} controllability Gramian"), sys.controllability_gramian().unwrap().as_slice(), &nd(&s["wc"]).0, 1e-10);
+        assert_close(&format!("{key} observability Gramian"), sys.observability_gramian().unwrap().as_slice(), &nd(&s["wo"]).0, 1e-10);
+        assert_close(&format!("{key} dcgain"), sys.dcgain().unwrap().as_slice(), &nd(&s["dcgain"]).0, 1e-10);
+        // damping, matched pole by pole
+        let want_poles = complexes(&s["poles"]);
+        let (wn, zeta) = (f64s(&s["wn"]), f64s(&s["zeta"]));
+        for (p, w, z) in damp(&sys.poles().unwrap(), domain) {
+            let i = want_poles.iter().enumerate().min_by(|a, b| (*a.1 - p).norm().total_cmp(&(*b.1 - p).norm())).unwrap().0;
+            assert!((w - wn[i]).abs() < 1e-9 * wn[i] && (z - zeta[i]).abs() < 1e-9, "{key} damp: {p:?} {w} {z} vs {} {}", wn[i], zeta[i]);
+        }
+        let (q, r) = (array(&s["Q"]), array(&s["R"]));
+        let reg = if dt > 0.0 { dlqr(&sys.a, &sys.b, &q, &r) } else { lqr(&sys.a, &sys.b, &q, &r) }.unwrap();
+        assert_close(&format!("{key} lqr K"), reg.k.as_slice(), &nd(&s["lqr_k"]).0, 1e-9);
+        assert_close(&format!("{key} lqr S"), reg.s.as_slice(), &nd(&s["lqr_s"]).0, 1e-9);
+        assert_same_roots(&format!("{key} lqr poles"), &reg.poles, &complexes(&s["lqr_poles"]), 1e-9);
+    }
+    for m in ctl["margins"].as_array().unwrap() {
+        let dt = m["dt"].as_f64().unwrap();
+        let domain = if dt > 0.0 { Domain::Discrete { dt } } else { Domain::Continuous };
+        let tf = TransferFunction::new(f64s(&m["num"]), f64s(&m["den"]), domain);
+        let got = stability_margins(&tf).unwrap();
+        let name = format!("{:?} / {:?}", m["num"], m["den"]);
+        assert!((got.gain_margin - m["gm"].as_f64().unwrap()).abs() < 1e-9 * got.gain_margin, "{name}: gm {} vs {}", got.gain_margin, m["gm"]);
+        assert!((got.phase_margin - m["pm"].as_f64().unwrap()).abs() < 1e-8, "{name}: pm {} vs {}", got.phase_margin, m["pm"]);
+        assert!((got.phase_crossover - m["wpc"].as_f64().unwrap()).abs() < 1e-9 * got.phase_crossover, "{name}: wpc {} vs {}", got.phase_crossover, m["wpc"]);
+        assert!((got.gain_crossover - m["wgc"].as_f64().unwrap()).abs() < 1e-9 * got.gain_crossover, "{name}: wgc {} vs {}", got.gain_crossover, m["wgc"]);
+    }
+}
+
+#[test]
+fn initial_value_problems_match_solve_ivp() {
+    use autodyne::ode::{solve_ivp, OdeMethod, OdeOptions};
+
+    let lotka = |_t: f64, y: &[f64], dy: &mut [f64]| {
+        dy[0] = 1.5 * y[0] - y[0] * y[1];
+        dy[1] = -3.0 * y[1] + y[0] * y[1];
+    };
+    let ivp = &fixtures()["ivp"];
+    for (method, key) in [(OdeMethod::Rk45, "RK45"), (OdeMethod::Rk23, "RK23")] {
+        let case = &ivp[key];
+        let options = || OdeOptions { method, rtol: 1e-6, atol: 1e-9, ..Default::default() };
+        // the same steps as SciPy: its initial step, error norm and step factors
+        let sol = solve_ivp(lotka, (0.0, 15.0), &[10.0, 5.0], options()).unwrap();
+        assert_eq!(sol.nfev as u64, case["nfev"].as_u64().unwrap(), "{key}: function evaluations");
+        assert_close(&format!("{key} step times"), &sol.t, &f64s(&case["t"]), 1e-12);
+        assert_close(&format!("{key} states"), &sol.y.concat(), &nd(&case["y"]).0, 1e-10);
+        let te = f64s(&case["t_eval"]);
+        let dense = solve_ivp(lotka, (0.0, 15.0), &[10.0, 5.0], OdeOptions { t_eval: Some(te.clone()), ..options() }).unwrap();
+        assert_eq!(dense.t, te);
+        assert_close(&format!("{key} dense output"), &dense.y.concat(), &nd(&case["y_eval"]).0, 1e-10);
+    }
+    // the stiff method against a tight reference
+    let stiff = solve_ivp(lotka, (0.0, 15.0), &[10.0, 5.0], OdeOptions { method: OdeMethod::Rosenbrock23, rtol: 1e-8, atol: 1e-10, ..Default::default() }).unwrap();
+    assert_close("Rosenbrock23 end", stiff.y.last().unwrap(), &f64s(&ivp["reference_end"]), 1e-4);
+}
+
+type M = NdArray<f64>;
+
+fn mm(x: &M, y: &M) -> M {
+    autodyne::linalg::matmul(x.view(), y.view()).unwrap()
+}
+
+fn tr(x: &M) -> M {
+    x.view().transpose().to_owned()
+}
+
+fn combine(parts: &[(f64, &M)]) -> M {
+    let shape = parts[0].1.shape().to_vec();
+    let n: usize = shape.iter().product();
+    NdArray::from_vec((0..n).map(|i| parts.iter().map(|(c, m)| c * m.as_slice()[i]).sum()).collect(), &shape).unwrap()
+}
+
+fn rel_norm(res: &M, x: &M) -> f64 {
+    let norm = |m: &M| m.as_slice().iter().map(|v| v * v).sum::<f64>().sqrt();
+    norm(res) / norm(x)
+}
+
+/// `‖aᵀ x + x a - x b r⁻¹ bᵀ x + q‖ / ‖x‖`.
+fn care_residual(a: &M, b: &M, q: &M, r: &M, x: &M) -> f64 {
+    let g = mm(&mm(b, &autodyne::linalg::inv(r.view()).unwrap()), &tr(b));
+    rel_norm(&combine(&[(1.0, &mm(&tr(a), x)), (1.0, &mm(x, a)), (-1.0, &mm(&mm(x, &g), x)), (1.0, q)]), x)
+}
+
+/// `‖aᵀ x a - x - aᵀ x b (r + bᵀ x b)⁻¹ bᵀ x a + q‖ / ‖x‖`.
+fn dare_residual(a: &M, b: &M, q: &M, r: &M, x: &M) -> f64 {
+    let xa = mm(x, a);
+    let s = autodyne::linalg::inv(combine(&[(1.0, r), (1.0, &mm(&mm(&tr(b), x), b))]).view()).unwrap();
+    let k = mm(&s, &mm(&tr(b), &xa));
+    rel_norm(&combine(&[(1.0, &mm(&tr(a), &xa)), (-1.0, x), (-1.0, &mm(&mm(&mm(&tr(a), x), b), &k)), (1.0, q)]), x)
+}
+
+#[test]
 fn spectral_estimates_match_scipy() {
     let s = &fixtures()["spectral"];
     let (x, y) = (array(&s["x"]), array(&s["y"]));

@@ -20,8 +20,10 @@ use pyo3::types::PyDict;
 use numpy::ndarray::{ArrayD, IxDyn, ShapeBuilder};
 use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 
+mod control;
 mod flux;
 mod gpu;
+mod integrate;
 mod random;
 mod science;
 mod stats;
@@ -424,5 +426,7 @@ fn _autodyne(m: &Bound<'_, PyModule>) -> PyResult<()> {
     gpu::register(m)?;
     random::register(m)?;
     stats::register(m)?;
+    control::register(m)?;
+    integrate::register(m)?;
     Ok(())
 }

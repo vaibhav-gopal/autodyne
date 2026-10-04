@@ -26,11 +26,16 @@ use crate::units::*;
 
 mod bdc;
 mod dc;
+pub(crate) mod dense;
+mod equations;
 mod expm;
 mod poly;
+mod schur;
 mod values;
+pub use equations::*;
 pub use expm::expm;
 pub use poly::*;
+pub use schur::schur;
 
 /// Element types linear algebra works on: `f32` and `f64`.
 pub trait LinalgFloat: Float + Default + faer::traits::RealField {}

@@ -209,6 +209,44 @@ try:
 except ImportError:
     print("statsmodels not installed: time-series rows skipped")
 
+# matrix equations vs scipy.linalg (control-sized and larger)
+import scipy.linalg as sla
+
+for n in (10, 50, 200):
+    a = rng.standard_normal((n, n))
+    stable = a - (np.max(np.linalg.eigvals(a).real) + 1.0) * np.eye(n)
+    dstable = a / (1.2 * np.max(np.abs(np.linalg.eigvals(a))))
+    spd = (lambda m: m @ m.T + n * np.eye(n))(rng.standard_normal((n, n)))
+    bn, r2 = rng.standard_normal((n, 2)), np.eye(2)
+    case("matrix equations (scipy.linalg)", f"schur {n}x{n}", lambda: sla.schur(a)[0].diagonal().sum(), lambda: al.schur(a)[0].diagonal().sum(), 1e-8)
+    case("matrix equations (scipy.linalg)", f"solve_continuous_lyapunov {n}x{n}", lambda: sla.solve_continuous_lyapunov(stable, -spd),
+         lambda: al.solve_continuous_lyapunov(stable, -spd), 1e-8)
+    case("matrix equations (scipy.linalg)", f"solve_continuous_are {n}x{n}", lambda: sla.solve_continuous_are(stable, bn, spd, r2),
+         lambda: al.solve_continuous_are(stable, bn, spd, r2), 1e-6)
+    case("matrix equations (scipy.linalg)", f"solve_discrete_are {n}x{n}", lambda: sla.solve_discrete_are(dstable, bn, spd, r2),
+         lambda: al.solve_discrete_are(dstable, bn, spd, r2), 1e-6)
+
+# initial value problems vs scipy.integrate.solve_ivp (both call the same Python right-hand side)
+from scipy import integrate as sint
+
+from autodyne import integrate as aint
+
+
+def lotka(t, y):
+    return np.array([1.5 * y[0] - y[0] * y[1], -3.0 * y[1] + y[0] * y[1]])
+
+
+def vdp(t, y):
+    return np.array([y[1], 1000.0 * (1.0 - y[0] ** 2) * y[1] - y[0]])
+
+
+case("ODEs (scipy.integrate)", "solve_ivp RK45, Lotka-Volterra to t=50, rtol 1e-8",
+     lambda: sint.solve_ivp(lotka, (0, 50), [10.0, 5.0], rtol=1e-8, atol=1e-10).y[:, -1],
+     lambda: aint.solve_ivp(lotka, (0, 50), [10.0, 5.0], rtol=1e-8, atol=1e-10).y[:, -1], 1e-9)
+case("ODEs (scipy.integrate)", "stiff Van der Pol mu=1000: Radau vs Rosenbrock23",
+     lambda: sint.solve_ivp(vdp, (0, 3000), [2.0, 0.0], method="Radau", rtol=1e-4).y[0, -1],
+     lambda: aint.solve_ivp(vdp, (0, 3000), [2.0, 0.0], method="Rosenbrock23", rtol=1e-4).y[0, -1], 0.05)
+
 lines = [
     "# autodyne vs NumPy / SciPy",
     "",
