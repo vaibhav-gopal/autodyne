@@ -3,6 +3,7 @@
 
 use super::optim::Optimizer;
 use super::*;
+use crate::testing::noise_f32 as noise;
 use crate::distortion::Shape;
 use crate::dynamics::{envelope_step, time_coeff, Compressor, CompressorCurve, EnvelopeFollower};
 use crate::filter::{Biquad, BiquadCoeffs, BiquadKind, Ladder, LadderCoeffs, Svf, SvfCoeffs, SvfMode};
@@ -10,16 +11,6 @@ use crate::signal::NdArray;
 use crate::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
-
-fn noise(n: usize, seed: u32) -> Vec<f32> {
-    let mut state = seed;
-    (0..n)
-        .map(|_| {
-            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            (state >> 8) as f32 / (1u32 << 23) as f32 - 1.0
-        })
-        .collect()
-}
 
 fn close(a: &[f32], b: &[f32], tol: f32) {
     assert_eq!(a.len(), b.len());

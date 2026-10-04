@@ -4,7 +4,7 @@
 use std::f64::consts::PI;
 
 use crate::special::{arc_jac_sc1, ellipj, ellipk, ellipkm1};
-use super::DesignError;
+use crate::filter::FilterError;
 use crate::systems::{bilinear_zpk, Domain, Zpk, C64};
 
 /// Which band a filter passes, with its edge frequencies: Hz for a digital design, rad/s for an
@@ -154,7 +154,7 @@ fn ellipdeg(n: usize, m1: f64) -> f64 {
 
 /// Elliptic (Cauer) analog prototype: `rp` dB passband ripple, `rs` dB stopband attenuation, the
 /// steepest transition for its order (`ellipap`).
-pub fn ellipap(n: usize, rp: f64, rs: f64) -> Result<(Vec<C64>, Vec<C64>, f64), DesignError> {
+pub fn ellipap(n: usize, rp: f64, rs: f64) -> Result<(Vec<C64>, Vec<C64>, f64), FilterError> {
     if n == 0 {
         return Ok((Vec::new(), Vec::new(), 10f64.powf(-rp / 20.0)));
     }
@@ -166,7 +166,7 @@ pub fn ellipap(n: usize, rp: f64, rs: f64) -> Result<(Vec<C64>, Vec<C64>, f64), 
     let eps = eps_sq.sqrt();
     let ck1_sq = eps_sq / pow10m1(0.1 * rs);
     if ck1_sq == 0.0 {
-        return Err(DesignError::Invalid("cannot design an elliptic filter with these rp and rs".into()));
+        return Err(FilterError::invalid("cannot design an elliptic filter with these rp and rs"));
     }
     let val0 = ellipk(ck1_sq);
     let m = ellipdeg(n, ck1_sq);
@@ -203,13 +203,13 @@ fn factorial(n: usize) -> f64 {
 }
 
 /// Bessel analog prototype (`besselap`): the roots of the reverse Bessel polynomial, normalized.
-pub fn besselap(n: usize, norm: BesselNorm) -> Result<(Vec<C64>, Vec<C64>, f64), DesignError> {
+pub fn besselap(n: usize, norm: BesselNorm) -> Result<(Vec<C64>, Vec<C64>, f64), FilterError> {
     if n == 0 {
         return Ok((Vec::new(), Vec::new(), 1.0));
     }
     // θ_n(s) = Σ a_k s^k, a_k = (2n - k)! / (2^(n-k) k! (n - k)!), highest power first
     let coeffs: Vec<f64> = (0..=n).rev().map(|k| factorial(2 * n - k) / (2f64.powi((n - k) as i32) * factorial(k) * factorial(n - k))).collect();
-    let mut poles = crate::linalg::roots(&coeffs).map_err(|e| DesignError::Invalid(e.to_string()))?;
+    let mut poles = crate::linalg::roots(&coeffs)?;
     // polish with Newton steps on θ_n (the companion matrix loses digits as n grows)
     let deriv: Vec<f64> = coeffs.iter().enumerate().take(n).map(|(i, &c)| c * (n - i) as f64).collect();
     for p in &mut poles {
@@ -300,7 +300,7 @@ pub fn lp2bs_zpk(z: &[C64], p: &[C64], k: f64, wo: f64, bw: f64) -> (Vec<C64>, V
 /// moved to the band (edges prewarped for a digital design) and, for a digital design, mapped to
 /// the z-plane by the bilinear transform. Convert the result with `to_sos()` (recommended) or
 /// `to_tf()`.
-pub fn iirfilter(order: usize, band: Band, kind: IirKind, design: Design) -> Result<Zpk, DesignError> {
+pub fn iirfilter(order: usize, band: Band, kind: IirKind, design: Design) -> Result<Zpk, FilterError> {
     let (z, p, k) = match kind {
         IirKind::Butterworth => buttap(order),
         IirKind::Chebyshev1 { rp } => cheb1ap(order, rp),
@@ -317,7 +317,7 @@ pub fn iirfilter(order: usize, band: Band, kind: IirKind, design: Design) -> Res
             let normalized: Vec<f64> = band_edges(band).iter().map(|&w| w / nyquist).collect();
             for &w in &normalized {
                 if !(w > 0.0 && w < 1.0) {
-                    return Err(DesignError::Invalid(format!("digital filter edges must be between 0 and the Nyquist frequency {nyquist} Hz")));
+                    return Err(FilterError::invalid(format!("digital filter edges must be between 0 and the Nyquist frequency {nyquist} Hz")));
                 }
             }
             (normalized.iter().map(|&w| 4.0 * (PI * w / 2.0).tan()).collect(), Domain::sampled(fs))
@@ -328,7 +328,7 @@ pub fn iirfilter(order: usize, band: Band, kind: IirKind, design: Design) -> Res
         Band::Highpass(_) => lp2hp_zpk(&z, &p, k, edges[0]),
         Band::Bandpass(..) | Band::Bandstop(..) => {
             if edges[1] <= edges[0] {
-                return Err(DesignError::Invalid("band edges must increase".into()));
+                return Err(FilterError::invalid("band edges must increase"));
             }
             let (bw, wo) = (edges[1] - edges[0], (edges[0] * edges[1]).sqrt());
             if matches!(band, Band::Bandpass(..)) {
@@ -356,28 +356,28 @@ fn band_edges(band: Band) -> Vec<f64> {
 }
 
 /// A Butterworth filter: maximally flat passband (`scipy.signal.butter`).
-pub fn butter(order: usize, band: Band, design: Design) -> Result<Zpk, DesignError> {
+pub fn butter(order: usize, band: Band, design: Design) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Butterworth, design)
 }
 
 /// A Chebyshev type I filter: `rp` dB passband ripple, a steeper edge (`scipy.signal.cheby1`).
-pub fn cheby1(order: usize, rp: f64, band: Band, design: Design) -> Result<Zpk, DesignError> {
+pub fn cheby1(order: usize, rp: f64, band: Band, design: Design) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Chebyshev1 { rp }, design)
 }
 
 /// A Chebyshev type II filter: flat passband, `rs` dB stopband ripple (`scipy.signal.cheby2`). The
 /// band edges are where the stopband starts.
-pub fn cheby2(order: usize, rs: f64, band: Band, design: Design) -> Result<Zpk, DesignError> {
+pub fn cheby2(order: usize, rs: f64, band: Band, design: Design) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Chebyshev2 { rs }, design)
 }
 
 /// An elliptic (Cauer) filter: `rp` dB passband ripple, `rs` dB stopband attenuation, the steepest
 /// edge for its order (`scipy.signal.ellip`).
-pub fn ellip(order: usize, rp: f64, rs: f64, band: Band, design: Design) -> Result<Zpk, DesignError> {
+pub fn ellip(order: usize, rp: f64, rs: f64, band: Band, design: Design) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Elliptic { rp, rs }, design)
 }
 
 /// A Bessel filter: maximally flat group delay (`scipy.signal.bessel`).
-pub fn bessel(order: usize, band: Band, norm: BesselNorm, design: Design) -> Result<Zpk, DesignError> {
+pub fn bessel(order: usize, band: Band, norm: BesselNorm, design: Design) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Bessel { norm }, design)
 }

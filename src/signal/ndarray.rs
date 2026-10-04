@@ -61,7 +61,7 @@ pub enum Axis {
 }
 
 /// Errors from building, indexing and re-laying-out n-d arrays and views.
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum NdError {
     /// More axes than [`MAX_DIMS`].
     #[error("{0} dimensions exceeds the maximum of {MAX_DIMS}")]

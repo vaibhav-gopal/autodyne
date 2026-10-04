@@ -8,18 +8,18 @@
 //! its own previous output.
 
 use crate::signal::{extended, lanes_f64, Edge, NdArray, NdView};
-use crate::systems::SystemError;
+use super::FilterError;
 use crate::units::*;
 
 /// Lanes filtered together.
 const LANES: usize = 4;
 
-fn invalid(m: impl Into<String>) -> SystemError {
-    SystemError::Invalid(m.into())
+fn invalid(m: impl Into<String>) -> FilterError {
+    FilterError::invalid(m)
 }
 
 /// `b` and `a` divided by `a[0]` and padded to the same length.
-fn normalized(b: &[f64], a: &[f64]) -> Result<(Vec<f64>, Vec<f64>), SystemError> {
+fn normalized(b: &[f64], a: &[f64]) -> Result<(Vec<f64>, Vec<f64>), FilterError> {
     let a0 = *a.first().ok_or_else(|| invalid("the denominator is empty"))?;
     if a0 == 0.0 {
         return Err(invalid("a[0] must not be zero"));
@@ -113,15 +113,11 @@ fn cascade(sections: &[[f64; 5]], x: &mut [f64], z: &mut [[[f64; LANES]; 2]]) {
     }
 }
 
-fn check_axis(shape: &[usize], axis: usize) -> Result<(), SystemError> {
+fn check_axis(shape: &[usize], axis: usize) -> Result<(), FilterError> {
     if axis >= shape.len() {
         return Err(invalid(format!("axis {axis} is out of range for shape {shape:?}")));
     }
     Ok(())
-}
-
-fn nd(e: crate::signal::NdError) -> SystemError {
-    invalid(e.to_string())
 }
 
 /// Interleaves up to [`LANES`] equal-length lanes (missing ones are zero).
@@ -143,12 +139,12 @@ fn map_groups<T: Float + Default>(
     axis: usize,
     out_len: usize,
     mut f: impl FnMut(usize, &[&[f64]]) -> Vec<f64>,
-) -> Result<NdArray<T>, SystemError> {
-    let lanes = lanes_f64(&x, axis).map_err(nd)?;
+) -> Result<NdArray<T>, FilterError> {
+    let lanes = lanes_f64(&x, axis)?;
     let mut shape = x.shape().to_vec();
     shape[axis] = out_len;
-    let mut out = NdArray::<T>::zeros(&shape).map_err(nd)?;
-    let mut dst: Vec<_> = out.lanes_mut(axis).map_err(nd)?.collect();
+    let mut out = NdArray::<T>::zeros(&shape)?;
+    let mut dst: Vec<_> = out.lanes_mut(axis)?.collect();
     for (g, chunk) in lanes.chunks(LANES).enumerate() {
         let group: Vec<&[f64]> = chunk.iter().map(Vec::as_slice).collect();
         let y = f(g * LANES, &group);
@@ -171,7 +167,7 @@ fn map_groups<T: Float + Default>(
 }
 
 /// Filters `x` along `axis` with `b(z⁻¹) / a(z⁻¹)` from rest (`scipy.signal.lfilter`).
-pub fn lfilter<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize) -> Result<NdArray<T>, SystemError> {
+pub fn lfilter<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize) -> Result<NdArray<T>, FilterError> {
     let (b, a) = normalized(b, a)?;
     check_axis(x.shape(), axis)?;
     let n = x.shape()[axis];
@@ -186,7 +182,7 @@ pub fn lfilter<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis:
 
 /// [`lfilter`] from initial state `zi` (the shape of `x` with `axis` of length
 /// `max(len(a), len(b)) - 1`): returns the output and the final state, the same shape as `zi`.
-pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize, zi: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), SystemError> {
+pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize, zi: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), FilterError> {
     let (b, a) = normalized(b, a)?;
     let order = b.len() - 1;
     let mut expected = x.shape().to_vec();
@@ -195,7 +191,7 @@ pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_
     if zi.shape() != expected.as_slice() {
         return Err(invalid(format!("zi should have shape {expected:?}, got {:?}", zi.shape())));
     }
-    let states = lanes_f64(&zi, axis).map_err(nd)?;
+    let states = lanes_f64(&zi, axis)?;
     let mut finals = states.clone();
     let n = x.shape()[axis];
     let y = map_groups(x, axis, n, |first, group| {
@@ -219,9 +215,9 @@ pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_
 }
 
 /// An array of `shape` whose lanes along `axis` are `lanes`.
-fn assemble_states<T: Float + Default>(shape: &[usize], axis: usize, lanes: &[Vec<f64>]) -> Result<NdArray<T>, SystemError> {
-    let mut out = NdArray::<T>::zeros(shape).map_err(nd)?;
-    for (mut dst, src) in out.lanes_mut(axis).map_err(nd)?.zip(lanes) {
+fn assemble_states<T: Float + Default>(shape: &[usize], axis: usize, lanes: &[Vec<f64>]) -> Result<NdArray<T>, FilterError> {
+    let mut out = NdArray::<T>::zeros(shape)?;
+    for (mut dst, src) in out.lanes_mut(axis)?.zip(lanes) {
         for (d, &s) in dst.iter_mut().zip(src) {
             *d = T::_lit(s);
         }
@@ -231,7 +227,7 @@ fn assemble_states<T: Float + Default>(shape: &[usize], axis: usize, lanes: &[Ve
 
 /// The initial state of [`lfilter_with_state`] for the steady state of a unit step: scale it by
 /// the first input value to start without a transient (`scipy.signal.lfilter_zi`).
-pub fn lfilter_zi(b: &[f64], a: &[f64]) -> Result<Vec<f64>, SystemError> {
+pub fn lfilter_zi(b: &[f64], a: &[f64]) -> Result<Vec<f64>, FilterError> {
     let (b, a) = normalized(b, a)?;
     let n = b.len() - 1;
     if n == 0 {
@@ -248,7 +244,7 @@ pub fn lfilter_zi(b: &[f64], a: &[f64]) -> Result<Vec<f64>, SystemError> {
     Ok(crate::linalg::solve(m.view(), rhs.view())?.into_vec())
 }
 
-fn check_sos(sos: &[[f64; 6]]) -> Result<Vec<[f64; 5]>, SystemError> {
+fn check_sos(sos: &[[f64; 6]]) -> Result<Vec<[f64; 5]>, FilterError> {
     if sos.is_empty() || sos.iter().any(|s| s[3] == 0.0) {
         return Err(invalid("sections need a0 != 0 (and there must be at least one)"));
     }
@@ -257,7 +253,7 @@ fn check_sos(sos: &[[f64; 6]]) -> Result<Vec<[f64; 5]>, SystemError> {
 
 /// Filters `x` along `axis` through second-order sections in series, from rest
 /// (`scipy.signal.sosfilt`).
-pub fn sosfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize) -> Result<NdArray<T>, SystemError> {
+pub fn sosfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize) -> Result<NdArray<T>, FilterError> {
     let sections = check_sos(sos)?;
     check_axis(x.shape(), axis)?;
     let n = x.shape()[axis];
@@ -270,7 +266,7 @@ pub fn sosfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usi
 
 /// [`sosfilt`] from initial state `zi`, shape `[sections, ...x's shape with axis of length 2]`:
 /// returns the output and the final state.
-pub fn sosfilt_with_state<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize, zi: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), SystemError> {
+pub fn sosfilt_with_state<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize, zi: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), FilterError> {
     let sections = check_sos(sos)?;
     check_axis(x.shape(), axis)?;
     let mut expected = vec![sos.len()];
@@ -281,7 +277,7 @@ pub fn sosfilt_with_state<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>
     }
     let per_section: usize = x.shape().iter().enumerate().filter(|&(i, _)| i != axis).map(|(_, &n)| n).product();
     // zi lanes along axis + 1, section-major
-    let states = lanes_f64(&zi, axis + 1).map_err(nd)?;
+    let states = lanes_f64(&zi, axis + 1)?;
     let mut finals = states.clone();
     let n = x.shape()[axis];
     let y = map_groups(x, axis, n, |first, group| {
@@ -307,7 +303,7 @@ pub fn sosfilt_with_state<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>
 
 /// The steady-state step initial conditions of each section, scaled by the gain of the sections
 /// before it (`scipy.signal.sosfilt_zi`).
-pub fn sosfilt_zi(sos: &[[f64; 6]]) -> Result<Vec<[f64; 2]>, SystemError> {
+pub fn sosfilt_zi(sos: &[[f64; 6]]) -> Result<Vec<[f64; 2]>, FilterError> {
     check_sos(sos)?;
     let mut scale = 1.0;
     let mut out = Vec::with_capacity(sos.len());
@@ -333,7 +329,7 @@ pub enum Pad {
     None,
 }
 
-fn pad_len(pad: Pad, default: usize, len: usize) -> Result<usize, SystemError> {
+fn pad_len(pad: Pad, default: usize, len: usize) -> Result<usize, FilterError> {
     let n = match pad {
         Pad::Odd(n) | Pad::Even(n) | Pad::Constant(n) => n.unwrap_or(default),
         Pad::None => 0,
@@ -370,7 +366,7 @@ fn extended_group(group: &[&[f64]], edge: usize, pad: Pad) -> (Vec<f64>, usize) 
 /// Zero-phase filtering (`scipy.signal.filtfilt`, `method="pad"`): forward, then backward, each pass
 /// starting from the steady state of the padded end, so the result has no phase shift and the
 /// magnitude response squared.
-pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize, pad: Pad) -> Result<NdArray<T>, SystemError> {
+pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize, pad: Pad) -> Result<NdArray<T>, FilterError> {
     check_axis(x.shape(), axis)?;
     let (bn, an) = normalized(b, a)?;
     let n = x.shape()[axis];
@@ -392,7 +388,7 @@ pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis
 }
 
 /// Zero-phase filtering through second-order sections (`scipy.signal.sosfiltfilt`).
-pub fn sosfiltfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize, pad: Pad) -> Result<NdArray<T>, SystemError> {
+pub fn sosfiltfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize, pad: Pad) -> Result<NdArray<T>, FilterError> {
     check_axis(x.shape(), axis)?;
     let sections = check_sos(sos)?;
     let zi = sosfilt_zi(sos)?;

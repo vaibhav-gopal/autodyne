@@ -39,7 +39,7 @@ impl StateSpace {
     /// The discrete system for sample period `dt` (`scipy.signal.cont2discrete`).
     pub fn discretize(&self, dt: f64, method: Method) -> Result<StateSpace, SystemError> {
         if self.domain.is_discrete() {
-            return Err(SystemError::Invalid("the system is already discrete".into()));
+            return Err(SystemError::invalid("the system is already discrete"));
         }
         let (n, m) = (self.order(), self.b.shape()[1]);
         let domain = Domain::Discrete { dt };
@@ -82,7 +82,7 @@ impl StateSpace {
     /// The generalized bilinear transform with period `dt` and weight `alpha`.
     fn gbt(&self, dt: f64, alpha: f64) -> Result<StateSpace, SystemError> {
         if !(0.0..=1.0).contains(&alpha) {
-            return Err(SystemError::Invalid(format!("gbt alpha must be in [0, 1], got {alpha}")));
+            return Err(SystemError::invalid(format!("gbt alpha must be in [0, 1], got {alpha}")));
         }
         let n = self.order();
         let ima = add(&eye(n), &scaled(&self.a, -alpha * dt));
@@ -101,7 +101,7 @@ impl TransferFunction {
     /// `scipy.signal.cont2discrete` does).
     pub fn discretize(&self, dt: f64, method: Method) -> Result<TransferFunction, SystemError> {
         if self.domain.is_discrete() {
-            return Err(SystemError::Invalid("the system is already discrete".into()));
+            return Err(SystemError::invalid("the system is already discrete"));
         }
         let ss = self.to_ss()?.discretize(dt, method)?;
         let (mut num, den) = ss.to_tf(0)?;
@@ -113,7 +113,7 @@ impl Zpk {
     /// The digital system for sample rate `fs` by the bilinear transform (`bilinear_zpk`).
     pub fn bilinear(&self, fs: f64) -> Result<Zpk, SystemError> {
         if self.domain.is_discrete() {
-            return Err(SystemError::Invalid("the system is already discrete".into()));
+            return Err(SystemError::invalid("the system is already discrete"));
         }
         let (zeros, poles, gain) = bilinear_zpk(&self.zeros, &self.poles, self.gain, fs);
         Ok(Zpk { zeros, poles, gain, domain: Domain::sampled(fs) })

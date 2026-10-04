@@ -247,7 +247,7 @@ impl ParamInfo {
 }
 
 /// Errors reading or setting parameters.
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ParamError {
     /// No parameter at this index.
     #[error("no parameter at index {0}")]

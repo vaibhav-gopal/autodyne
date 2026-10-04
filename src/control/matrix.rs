@@ -35,7 +35,7 @@ pub struct Route {
 }
 
 /// Errors connecting modulation routes.
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum RouteError {
     /// A route slot past the last one.
     #[error("no route slot {0}")]

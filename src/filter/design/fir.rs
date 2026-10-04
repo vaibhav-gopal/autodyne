@@ -3,7 +3,7 @@
 
 use std::f64::consts::PI;
 
-use super::DesignError;
+use crate::filter::FilterError;
 use crate::fft::RealFft;
 use crate::spectral::{get_window, WindowSpec};
 use crate::units::Complex;
@@ -35,10 +35,10 @@ pub fn kaiser_atten(numtaps: usize, width: f64) -> f64 {
 
 /// The taps and Kaiser `beta` meeting `ripple` dB (positive) with transition `width` (a fraction of
 /// the Nyquist frequency) (`scipy.signal.kaiserord`).
-pub fn kaiserord(ripple: f64, width: f64) -> Result<(usize, f64), DesignError> {
+pub fn kaiserord(ripple: f64, width: f64) -> Result<(usize, f64), FilterError> {
     let a = ripple.abs();
     if a < 8.0 {
-        return Err(DesignError::Invalid(format!("requested maximum ripple attenuation {a} is too small for the Kaiser formula")));
+        return Err(FilterError::invalid(format!("requested maximum ripple attenuation {a} is too small for the Kaiser formula")));
     }
     let numtaps = (a - 7.95) / 2.285 / (PI * width) + 1.0;
     Ok((numtaps.ceil() as usize, kaiser_beta(a)))
@@ -48,21 +48,21 @@ pub fn kaiserord(ripple: f64, width: f64) -> Result<(usize, f64), DesignError> {
 /// rate `fs` (increasing, between 0 and Nyquist), `pass_zero` true if the band containing 0 Hz
 /// passes (one edge: low-pass, else high-pass; two: band-stop, else band-pass; and so on), `scale`
 /// to normalize the passband gain to exactly 1.
-pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: bool, scale: bool, fs: f64) -> Result<Vec<f64>, DesignError> {
+pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: bool, scale: bool, fs: f64) -> Result<Vec<f64>, FilterError> {
     let nyq = fs / 2.0;
     if cutoff.is_empty() {
-        return Err(DesignError::Invalid("at least one cutoff frequency must be given".into()));
+        return Err(FilterError::invalid("at least one cutoff frequency must be given"));
     }
     let cut: Vec<f64> = cutoff.iter().map(|c| c / nyq).collect();
     if cut.iter().any(|&c| c <= 0.0 || c >= 1.0) {
-        return Err(DesignError::Invalid(format!("cutoffs must be between 0 and the Nyquist frequency {nyq} Hz")));
+        return Err(FilterError::invalid(format!("cutoffs must be between 0 and the Nyquist frequency {nyq} Hz")));
     }
     if cut.windows(2).any(|w| w[1] <= w[0]) {
-        return Err(DesignError::Invalid("cutoffs must strictly increase".into()));
+        return Err(FilterError::invalid("cutoffs must strictly increase"));
     }
     let pass_nyquist = (cut.len() % 2 == 1) ^ pass_zero;
     if pass_nyquist && numtaps.is_multiple_of(2) {
-        return Err(DesignError::Invalid("a filter with an even number of taps must have zero response at the Nyquist frequency".into()));
+        return Err(FilterError::invalid("a filter with an even number of taps must have zero response at the Nyquist frequency"));
     }
     let edges: Vec<f64> = std::iter::once(0.0).filter(|_| pass_zero).chain(cut).chain(std::iter::once(1.0).filter(|_| pass_nyquist)).collect();
     let alpha = 0.5 * (numtaps as f64 - 1.0);
@@ -99,9 +99,9 @@ pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: boo
 /// `(freq, gain)` (Hz, from 0 to Nyquist; a frequency may repeat once for a step), sampled on
 /// `nfreqs` points (default `1 + 2^ceil(log2 numtaps)`), inverse transformed and windowed.
 /// `antisymmetric` gives type III / IV filters (90° phase).
-pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>, window: Option<WindowSpec>, antisymmetric: bool, fs: f64) -> Result<Vec<f64>, DesignError> {
+pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>, window: Option<WindowSpec>, antisymmetric: bool, fs: f64) -> Result<Vec<f64>, FilterError> {
     let nyq = fs / 2.0;
-    let bad = |m: &str| Err(DesignError::Invalid(m.into()));
+    let bad = |m: &str| Err(FilterError::invalid(m));
     if freq.len() != gain.len() {
         return bad("freq and gain must have the same length");
     }
@@ -174,19 +174,19 @@ pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>
 /// A linear-phase FIR minimizing the weighted squared error to a piecewise-linear response
 /// (`scipy.signal.firls`): `bands` are `(start, end)` pairs in Hz, `desired` the gains at each
 /// band's start and end, `weight` one per band (default 1). `numtaps` must be odd.
-pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weight: Option<&[f64]>, fs: f64) -> Result<Vec<f64>, DesignError> {
+pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weight: Option<&[f64]>, fs: f64) -> Result<Vec<f64>, FilterError> {
     if numtaps.is_multiple_of(2) || numtaps < 1 {
-        return Err(DesignError::Invalid("numtaps must be odd".into()));
+        return Err(FilterError::invalid("numtaps must be odd"));
     }
     if bands.len() != desired.len() {
-        return Err(DesignError::Invalid("one desired pair per band".into()));
+        return Err(FilterError::invalid("one desired pair per band"));
     }
     let nyq = fs / 2.0;
     let bands: Vec<(f64, f64)> = bands.iter().map(|&(a, b)| (a / nyq, b / nyq)).collect();
     let ones = vec![1.0; bands.len()];
     let weight = weight.unwrap_or(&ones);
     if weight.len() != bands.len() || weight.iter().any(|&w| w < 0.0) {
-        return Err(DesignError::Invalid("one non-negative weight per band".into()));
+        return Err(FilterError::invalid("one non-negative weight per band"));
     }
     let m = (numtaps - 1) / 2;
     // q[n] = Σ_bands w (f1 sinc(f1 n) - f0 sinc(f0 n))
@@ -221,7 +221,7 @@ pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weigh
         })
         .collect();
     let rhs = crate::signal::NdArray::from_vec(b, &[size]).expect("shape");
-    let a = crate::linalg::solve(qmat.view(), rhs.view()).map_err(|e| DesignError::Invalid(e.to_string()))?;
+    let a = crate::linalg::solve(qmat.view(), rhs.view())?;
     let a = a.as_slice();
     Ok(a[1..].iter().rev().copied().chain(std::iter::once(2.0 * a[0])).chain(a[1..].iter().copied()).collect())
 }
@@ -251,18 +251,18 @@ pub fn remez(
     maxiter: usize,
     grid_density: usize,
     fs: f64,
-) -> Result<Vec<f64>, DesignError> {
+) -> Result<Vec<f64>, FilterError> {
     if bands.len() != desired.len() || bands.is_empty() {
-        return Err(DesignError::Invalid("one desired gain per band".into()));
+        return Err(FilterError::invalid("one desired gain per band"));
     }
     let ones = vec![1.0; bands.len()];
     let weight = weight.unwrap_or(&ones);
     if weight.len() != bands.len() {
-        return Err(DesignError::Invalid("one weight per band".into()));
+        return Err(FilterError::invalid("one weight per band"));
     }
     let bands: Vec<(f64, f64)> = bands.iter().map(|&(a, b)| (a / fs, b / fs)).collect();
     if bands.iter().any(|&(a, b)| a < 0.0 || b > 0.5 || b < a) {
-        return Err(DesignError::Invalid("bands must be within 0 and fs/2, each increasing".into()));
+        return Err(FilterError::invalid("bands must be within 0 and fs/2, each increasing"));
     }
     let positive = kind == RemezType::Bandpass;
     let odd = numtaps % 2 == 1;
@@ -289,7 +289,7 @@ pub fn remez(
     }
     let gridsize = grid.len();
     if gridsize < r + 2 {
-        return Err(DesignError::Invalid("the frequency grid is too coarse for this many taps".into()));
+        return Err(FilterError::invalid("the frequency grid is too coarse for this many taps"));
     }
     if !positive && odd && grid[gridsize - 1] > 0.5 - delf {
         grid[gridsize - 1] = 0.5 - delf;
@@ -322,7 +322,7 @@ pub fn remez(
     for _ in 0..maxiter {
         calc_parms(r, &ext, &grid, &d, &w, &mut ad, &mut x, &mut y);
         errors(&xgrid, &d, &w, r, &ad, &x, &y, &mut e);
-        search(r, &mut ext, &e).map_err(|m| DesignError::Invalid(format!("remez failed to converge ({m}); try a wider transition band")))?;
+        search(r, &mut ext, &e).map_err(|m| FilterError::invalid(format!("remez failed to converge ({m}); try a wider transition band")))?;
         let errs: Vec<f64> = ext.iter().map(|&i| e[i].abs()).collect();
         let (lo, hi) = errs.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
         if (hi - lo) / hi < 0.0001 {

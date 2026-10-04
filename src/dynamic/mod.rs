@@ -22,7 +22,7 @@ mod processor;
 pub use processor::*;
 
 /// Errors from runtime-typed arrays, views and processors.
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DynError {
     /// The element type isn't the one asked for.
     #[error("expected element type {expected}, found {found}")]

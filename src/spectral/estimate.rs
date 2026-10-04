@@ -20,14 +20,19 @@ pub enum SpectralError {
     /// An argument is out of range or inconsistent with the others.
     #[error("invalid argument: {0}")]
     Invalid(String),
+    /// An n-d layout error (an axis out of range, a slice outside the input).
+    #[error(transparent)]
+    Nd(#[from] crate::signal::NdError),
+}
+
+impl SpectralError {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        SpectralError::Invalid(message.into())
+    }
 }
 
 /// Frequencies, segment times, and values (frequency on the input's axis, time last).
 pub type TimeFrequency<E> = (Vec<f64>, Vec<f64>, NdArray<E>);
-
-fn invalid(m: impl Into<String>) -> SpectralError {
-    SpectralError::Invalid(m.into())
-}
 
 /// What is removed from each segment before transforming it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -158,15 +163,15 @@ impl Plan {
     fn new(seg: &Segments, len: usize, default_overlap: impl Fn(usize) -> usize, fs: f64, stft: bool) -> Result<Plan, SpectralError> {
         let nperseg = seg.nperseg.unwrap_or(256).min(len);
         if nperseg < 1 {
-            return Err(invalid("nperseg must be at least 1"));
+            return Err(SpectralError::invalid("nperseg must be at least 1"));
         }
         let nfft = seg.nfft.unwrap_or(nperseg);
         if nfft < nperseg {
-            return Err(invalid("nfft must be at least nperseg"));
+            return Err(SpectralError::invalid("nfft must be at least nperseg"));
         }
         let noverlap = seg.noverlap.unwrap_or(default_overlap(nperseg));
         if noverlap >= nperseg {
-            return Err(invalid("noverlap must be less than nperseg"));
+            return Err(SpectralError::invalid("noverlap must be less than nperseg"));
         }
         let win = get_window(seg.window, nperseg, true);
         let mut scale = match seg.scaling {
@@ -266,7 +271,7 @@ fn detrend(x: &mut [f64], kind: Detrend) {
 
 /// The lanes of `x` along `axis` as f64 vectors.
 fn lanes<T: Float>(x: NdView<'_, T>, axis: usize) -> Result<Vec<Vec<f64>>, SpectralError> {
-    lanes_f64(&x, axis).map_err(|e| invalid(e.to_string()))
+    Ok(lanes_f64(&x, axis)?)
 }
 
 /// Assembles per-lane results (`[nfreq * extra]`, frequency-major) into the shape of `x` with
@@ -337,7 +342,7 @@ fn median(v: &mut [f64]) -> f64 {
 /// frequencies and `conj(X) Y` averaged over segments.
 pub fn csd<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments, average: Average) -> Result<(Vec<f64>, NdArray<Complex<T>>), SpectralError> {
     if x.shape() != y.shape() {
-        return Err(invalid("x and y must have the same shape"));
+        return Err(SpectralError::invalid("x and y must have the same shape"));
     }
     let (xl, yl) = (lanes(x, axis)?, lanes(y, axis)?);
     let len = x.shape()[axis];
@@ -410,11 +415,11 @@ pub fn welch<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &S
 /// boxcar). `nfft` shorter than the signal truncates it, longer zero-pads.
 pub fn periodogram<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, window: WindowSpec, nfft: Option<usize>, detrend: Detrend, scaling: Scaling) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
     if axis >= x.ndim() {
-        return Err(invalid(format!("axis {axis} is out of range for shape {:?}", x.shape())));
+        return Err(SpectralError::invalid(format!("axis {axis} is out of range for shape {:?}", x.shape())));
     }
     let len = x.shape()[axis];
     let (view, nperseg, nfft) = match nfft {
-        Some(n) if n < len => (x.slice_axis(axis, 0..n).map_err(|e| invalid(e.to_string()))?, n, n),
+        Some(n) if n < len => (x.slice_axis(axis, 0..n)?, n, n),
         Some(n) => (x, len, n),
         None => (x, len, len),
     };
@@ -610,20 +615,20 @@ impl Default for IstftOptions {
 pub fn istft<T: Float + Default>(z: NdView<'_, Complex<T>>, fs: f64, options: IstftOptions) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
     let nd = z.ndim();
     if nd < 2 {
-        return Err(invalid("istft needs at least two axes (frequency, time)"));
+        return Err(SpectralError::invalid("istft needs at least two axes (frequency, time)"));
     }
     let (nfreq, nseg) = (z.shape()[nd - 2], z.shape()[nd - 1]);
     let n_default = if options.onesided { 2 * (nfreq - 1) } else { nfreq };
     let nperseg = options.nperseg.unwrap_or(n_default);
     let nfft = match options.nfft {
-        Some(n) if n < nperseg => return Err(invalid("nfft must be at least nperseg")),
+        Some(n) if n < nperseg => return Err(SpectralError::invalid("nfft must be at least nperseg")),
         Some(n) => n,
         None if options.onesided && nperseg == n_default + 1 => nperseg,
         None => n_default,
     };
     let noverlap = options.noverlap.unwrap_or(nperseg / 2);
     if noverlap >= nperseg {
-        return Err(invalid("noverlap must be less than nperseg"));
+        return Err(SpectralError::invalid("noverlap must be less than nperseg"));
     }
     let step = nperseg - noverlap;
     let win = get_window(options.window, nperseg, true);
@@ -640,7 +645,7 @@ pub fn istft<T: Float + Default>(z: NdView<'_, Complex<T>>, fs: f64, options: Is
     }
     let (lo, hi) = if options.boundary { (nperseg / 2, outlen - nperseg / 2) } else { (0, outlen) };
     if norm[lo..hi].iter().any(|&v| v <= 1e-10) {
-        return Err(invalid("the window fails the nonzero overlap-add condition: the STFT is not invertible"));
+        return Err(SpectralError::invalid("the window fails the nonzero overlap-add condition: the STFT is not invertible"));
     }
     let batches: usize = z.shape()[..nd - 2].iter().product();
     let contiguous = z.to_owned();

@@ -683,7 +683,7 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
                 fft.forward(row, bins);
             }
         });
-        *shape.last_mut().unwrap() = m;
+        *shape.last_mut().expect("the shape has a last axis") = m;
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
 
@@ -699,7 +699,7 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
                 fft.inverse(bins, row);
             }
         });
-        *shape.last_mut().unwrap() = n;
+        *shape.last_mut().expect("the shape has a last axis") = n;
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
 }

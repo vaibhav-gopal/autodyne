@@ -278,11 +278,8 @@ crate::processor::forward_processor!(ModulatedDelay, Phaser);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::assert_close;
     use crate::osc::{Impulse, Sine};
-
-    fn assert_close(a: f64, b: f64, tol: f64, what: &str) {
-        assert!((a - b).abs() <= tol, "{what}: {a} vs {b} (tol {tol})");
-    }
 
     /// Steady-state gain for a unit sine at `freq` (RMS over a whole number of cycles).
     fn gain_at(mut process: impl FnMut(&mut [f64]), freq: f64, fs: f64) -> f64 {

@@ -153,7 +153,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                     let mut src = fa.clone();
                     let mut cb_sorted = cb.clone();
                     cb_sorted.sort_unstable();
-                    src.extend(cb_sorted.iter().map(|j| ca[cb.iter().position(|x| x == j).unwrap()]));
+                    src.extend(cb_sorted.iter().map(|j| ca[cb.iter().position(|x| x == j).expect("contracted axes pair up")]));
                     acc(&mut adj, a, r.transpose(&order(&src)));
                 }
                 if live[b as usize] {
@@ -162,7 +162,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                     let r = t(a).conj().dot_general(g, &fa, &g_fa);
                     let mut ca_sorted = ca.clone();
                     ca_sorted.sort_unstable();
-                    let mut src: Vec<usize> = ca_sorted.iter().map(|i| cb[ca.iter().position(|x| x == i).unwrap()]).collect();
+                    let mut src: Vec<usize> = ca_sorted.iter().map(|i| cb[ca.iter().position(|x| x == i).expect("contracted axes pair up")]).collect();
                     src.extend(&fb);
                     acc(&mut adj, b, r.transpose(&order(&src)));
                 }
@@ -170,7 +170,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
             Op::Rfft(a) => {
                 // transpose of the real DFT: n * irfft(w * cotangent), with w = 1 on bins 0 and n/2
                 // (they appear once in the full spectrum) and 1/2 on the others (twice)
-                let n = *shape_of(a).last().unwrap();
+                let n = *shape_of(a).last().expect("the operand has a last axis");
                 let w = Tracer::constant(&weights(n, 1.0, 0.5));
                 acc(&mut adj, a, Tracer::lit(n as f64) * Tracer::irfft_complex(g * w, n));
             }
@@ -182,7 +182,7 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
             // a complex-linear map pulls back by its conjugate transpose: n · ifft for the DFT,
             // fft / n for the inverse
             Op::Fft(a, inverse) => {
-                let n = *shape_of(a).last().unwrap() as f64;
+                let n = *shape_of(a).last().expect("the operand has a last axis") as f64;
                 acc(&mut adj, a, if inverse { g.fft() * Tracer::lit(1.0 / n) } else { g.ifft() * Tracer::lit(n) });
             }
             Op::Complex(a, b) => {

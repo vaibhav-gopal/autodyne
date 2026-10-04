@@ -344,7 +344,7 @@ fn convolve(x: &Bound<'_, PyAny>, kernel: &Bound<'_, PyAny>) -> PyResult<PyTrace
 /// Windows of `length` samples, `hop` apart, along the last axis: `[..., n]` becomes `[..., count, length]`.
 #[pyfunction]
 fn frames(x: &Bound<'_, PyAny>, length: usize, hop: usize) -> PyResult<PyTracer> {
-    Ok(PyTracer(fx::frames(tr(x)?, length, hop)))
+    Ok(PyTracer(autodyne::signal::frames(tr(x)?, length, hop)))
 }
 
 fn resolutions(r: Option<Vec<(usize, usize, usize)>>) -> Vec<StftResolution> {

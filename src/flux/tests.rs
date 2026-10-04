@@ -1,4 +1,5 @@
 use super::*;
+use crate::testing::{noise_f32 as noise, random_f32 as random};
 use crate::signal::frames;
 use crate::filter::OnePole;
 use crate::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
@@ -11,20 +12,6 @@ fn arr(data: &[f32], shape: &[usize]) -> NdArray<f32> {
 }
 
 /// Deterministic values in [-1, 1).
-fn noise(n: usize, seed: u32) -> Vec<f32> {
-    let mut state = seed;
-    (0..n)
-        .map(|_| {
-            state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            (state >> 8) as f32 / (1u32 << 23) as f32 - 1.0
-        })
-        .collect()
-}
-
-fn random(shape: &[usize], seed: u32) -> NdArray<f32> {
-    arr(&noise(shape.iter().product(), seed), shape)
-}
-
 fn close(a: &[f32], b: &[f32], tol: f32) -> bool {
     a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() <= tol * (1.0 + y.abs()))
 }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::testing::random_f64 as random;
 
 fn arr(data: &[f64], shape: &[usize]) -> NdArray<f64> {
     NdArray::from_vec(data.to_vec(), shape).unwrap()
@@ -9,18 +10,6 @@ fn close(a: &[f64], b: &[f64], tol: f64) -> bool {
 }
 
 /// Deterministic values in [-1, 1).
-fn random(shape: &[usize], seed: u64) -> NdArray<f64> {
-    let mut state = seed;
-    let n = shape.iter().product();
-    let data = (0..n)
-        .map(|_| {
-            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-            (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
-        })
-        .collect();
-    NdArray::from_vec(data, shape).unwrap()
-}
-
 fn naive(a: &NdArray<f64>, b: &NdArray<f64>) -> Vec<f64> {
     let (m, k, n) = (a.shape()[0], a.shape()[1], b.shape()[1]);
     let mut out = vec![0.0; m * n];

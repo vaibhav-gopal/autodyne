@@ -73,6 +73,7 @@ pub use scan::{LossGrad, Scan, ScanVjp};
 pub use xla::Xla;
 
 /// Errors from compiling or running programs.
+/// Not `Clone` or `PartialEq`: it can hold an `io::Error`.
 #[derive(Debug, thiserror::Error)]
 pub enum FluxError {
     /// Reading or writing files, or running a tool, failed.

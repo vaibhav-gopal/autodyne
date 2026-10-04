@@ -74,7 +74,7 @@ pub use transform::*;
 use thiserror::Error;
 
 /// Errors from operations that combine or measure signals.
-#[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum SignalError {
     /// Two signals that must have the same length don't (`self`, `other`).
     #[error("signal lengths differ: {0} vs {1}")]

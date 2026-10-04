@@ -28,6 +28,28 @@ mod svf;
 
 #[cfg(feature = "faer")]
 pub use apply::*;
+
+/// Errors from designing filters and from applying designed ones to arrays (feature `faer`).
+#[cfg(feature = "faer")]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FilterError {
+    /// The specifications or coefficients are out of range or inconsistent.
+    #[error("invalid filter: {0}")]
+    Invalid(String),
+    /// An n-d layout error (an axis out of range, a state of the wrong shape).
+    #[error(transparent)]
+    Nd(#[from] crate::signal::NdError),
+    /// A linear algebra failure (a singular system, polynomial roots that don't converge).
+    #[error(transparent)]
+    Linalg(#[from] crate::linalg::LinalgError),
+}
+
+#[cfg(feature = "faer")]
+impl FilterError {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        FilterError::Invalid(message.into())
+    }
+}
 pub use crossover::*;
 pub use eq::*;
 pub use ladder::*;
@@ -556,9 +578,9 @@ impl<T: Float> MultiBiquad<T> {
             };
             let (group, rest) = filters.split_at_mut(lanes);
             match lanes {
-                4 => run_lanes::<T, 4>(group, std::array::from_fn(|_| channels.next().unwrap()), frames),
-                2 => run_lanes::<T, 2>(group, std::array::from_fn(|_| channels.next().unwrap()), frames),
-                _ => run_lanes::<T, 1>(group, std::array::from_fn(|_| channels.next().unwrap()), frames),
+                4 => run_lanes::<T, 4>(group, std::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
+                2 => run_lanes::<T, 2>(group, std::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
+                _ => run_lanes::<T, 1>(group, std::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
             }
             filters = rest;
         }
@@ -605,14 +627,11 @@ crate::processor::forward_processor!(Biquad, Fir);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::assert_close;
     use crate::osc::{Impulse, Noise, Sine};
     use crate::signal::Signal;
 
     const FS: f64 = 48_000.0;
-
-    fn assert_close(a: f64, b: f64, tol: f64, what: &str) {
-        assert!((a - b).abs() <= tol, "{what}: {a} vs {b} (tol {tol})");
-    }
 
     /// Steady-state gain of `process` for a unit sine at `freq`, from RMS (a unit sine has RMS 1/sqrt 2).
     /// RMS rather than peak: at high frequencies the samples straddle the true peak.

@@ -31,6 +31,11 @@
 //! Processors allocate only when constructed; processing runs in place without allocating, so it is
 //! safe inside an audio callback.
 //!
+//! Errors: operations that can fail on their inputs (shapes, designs, files, external tools) return
+//! `Result` with their module's error type (`signal::NdError`, `filter::FilterError`, ...), which wraps
+//! the lower layers' errors rather than flattening them. Processors clamp settings into range instead
+//! of failing; the few constructors that panic say so ("Panics if ...").
+//!
 //! Layering (each module uses only those before it): `units`; `simd`, `fft`, `special`, `processor`;
 //! `signal`; `channels`, `linalg`; `params`; then the processors, instruments and analysis,
 //! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
@@ -82,3 +87,5 @@ pub mod interop;
 pub mod flux;
 pub mod wav;
 pub mod prelude;
+#[cfg(test)]
+mod testing;

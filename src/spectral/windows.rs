@@ -63,8 +63,8 @@ pub enum WindowSpec {
 
 /// The names `FromStr` accepts (parameterless windows).
 impl FromStr for WindowSpec {
-    type Err = String;
-    fn from_str(name: &str) -> Result<Self, String> {
+    type Err = super::SpectralError;
+    fn from_str(name: &str) -> Result<Self, Self::Err> {
         Ok(match name.to_ascii_lowercase().as_str() {
             "boxcar" | "rectangular" | "rect" | "ones" => WindowSpec::Boxcar,
             "triang" | "triangle" | "tri" => WindowSpec::Triang,
@@ -80,7 +80,7 @@ impl FromStr for WindowSpec {
             "cosine" | "halfcosine" => WindowSpec::Cosine,
             "tukey" | "tuk" => WindowSpec::Tukey { alpha: 0.5 },
             "exponential" | "poisson" => WindowSpec::Exponential { tau: 1.0 },
-            other => return Err(format!("unknown window '{other}' (parameterized windows: use the enum)")),
+            other => return Err(super::SpectralError::invalid(format!("unknown window '{other}' (parameterized windows: use the enum)"))),
         })
     }
 }

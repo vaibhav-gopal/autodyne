@@ -161,7 +161,7 @@ pub fn stft_magnitude<A: RealArrayMath>(x: A, resolution: StftResolution) -> A {
     let windowed = framed * A::array(&hann(window), &[window]);
     let fs = windowed.shape();
     let mut hi = vec![0; fs.len()];
-    *hi.last_mut().unwrap() = n_fft - window;
+    *hi.last_mut().expect("the shape has a last axis") = n_fft - window;
     let (re, im) = windowed.pad(&vec![0; fs.len()], &hi, &vec![0; fs.len()]).rfft();
     (re.clone() * re + im.clone() * im).maximum(A::lit(1e-8)).sqrt()
 }

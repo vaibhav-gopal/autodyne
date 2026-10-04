@@ -107,7 +107,7 @@ pub fn convolve<A: RealArrayMath>(x: A, kernel: A) -> A {
     let out = n + k - 1;
     let last = |shape: &[usize], v: usize| {
         let mut a = vec![0; shape.len()];
-        *a.last_mut().unwrap() = v;
+        *a.last_mut().expect("the shape has a last axis") = v;
         a
     };
     if k <= DIRECT_MAX {

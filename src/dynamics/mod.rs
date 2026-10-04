@@ -336,13 +336,10 @@ crate::processor::forward_processor!(Compressor, EnvelopeFollower);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::testing::assert_close;
     use crate::osc::Sine;
 
     const FS: f64 = 48_000.0;
-
-    fn assert_close(a: f64, b: f64, tol: f64, what: &str) {
-        assert!((a - b).abs() <= tol, "{what}: {a} vs {b} (tol {tol})");
-    }
 
     #[test]
     fn follower_attack_and_release_hit_63_percent_at_their_time_constants() {

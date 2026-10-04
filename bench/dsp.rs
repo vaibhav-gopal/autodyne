@@ -1,5 +1,7 @@
-//! Baseline throughput for the core processors, before any SIMD work.
-//! Run with `cargo bench`; criterion reports time per block (512 samples = 10.7 ms of audio at 48 kHz).
+//! Throughput of autodyne's own processors, oscillators and transforms, a 512-sample block at a time
+//! (10.7 ms of audio at 48 kHz). `cargo bench --bench dsp`; criterion keeps the history in
+//! `target/criterion` and reports changes from the last run. Comparisons with other libraries are in
+//! `bench/<suite>` (`bench/README.md`).
 
 use std::hint::black_box;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};

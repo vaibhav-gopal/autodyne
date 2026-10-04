@@ -129,7 +129,7 @@ impl<T: Float> Sample<T> {
         let taps: Vec<f64> = design_lowpass(0.225, 127, 1.0);
         let center = taps.len() / 2;
         while self.levels.len() <= octaves {
-            let prev = self.levels.last().unwrap();
+            let prev = self.levels.last().expect("a sample has its full-resolution level");
             let frames = prev.frames.div_ceil(2);
             if frames < MIN_LEVEL_FRAMES {
                 break;

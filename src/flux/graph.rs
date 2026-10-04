@@ -858,7 +858,7 @@ impl RealArrayMath for Tracer {
         let mut shape = self.real_only("rfft").shape();
         let n = *shape.last().expect("rfft: needs an axis");
         assert!(n >= 1, "rfft: empty axis");
-        *shape.last_mut().unwrap() = n / 2 + 1;
+        *shape.last_mut().expect("the shape has a last axis") = n / 2 + 1;
         Tracer::new(Op::Rfft(self.check()), shape)
     }
 
@@ -866,7 +866,7 @@ impl RealArrayMath for Tracer {
         let z = spectrum.to_complex();
         let mut shape = z.shape();
         assert!(n >= 1 && shape.last() == Some(&(n / 2 + 1)), "irfft: {n} samples need {} bins, got {shape:?}", n / 2 + 1);
-        *shape.last_mut().unwrap() = n;
+        *shape.last_mut().expect("the shape has a last axis") = n;
         Tracer::new(Op::Irfft(z.check(), n), shape)
     }
 

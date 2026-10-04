@@ -23,15 +23,6 @@ mod iir;
 pub use fir::*;
 pub use iir::*;
 
-use thiserror::Error;
-
-/// Errors from filter design.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum DesignError {
-    /// The specifications are out of range or inconsistent.
-    #[error("invalid design: {0}")]
-    Invalid(String),
-}
 
 #[cfg(test)]
 mod tests;

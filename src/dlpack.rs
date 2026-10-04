@@ -137,7 +137,7 @@ pub struct DLManagedTensorVersioned {
 }
 
 /// Errors importing or exporting DLPack tensors.
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DlpackError {
     /// A null tensor pointer.
     #[error("null tensor pointer")]

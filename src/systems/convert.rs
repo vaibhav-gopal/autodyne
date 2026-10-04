@@ -8,7 +8,7 @@ use crate::signal::NdArray;
 /// Drops leading zeros of `den` (and of `num`, below 1e-14) and divides both by `den[0]`
 /// (`scipy.signal.normalize`).
 pub fn normalize(num: &[f64], den: &[f64]) -> Result<(Vec<f64>, Vec<f64>), SystemError> {
-    let start = den.iter().position(|&d| d != 0.0).ok_or_else(|| SystemError::Invalid("the denominator is zero".into()))?;
+    let start = den.iter().position(|&d| d != 0.0).ok_or_else(|| SystemError::invalid("the denominator is zero"))?;
     let den = &den[start..];
     let lead = num.iter().position(|&b| b.abs() > 1e-14).unwrap_or(num.len().saturating_sub(1));
     let num = if num.is_empty() { &[0.0][..] } else { &num[lead..] };
@@ -36,7 +36,7 @@ pub fn tf2ss(num: &[f64], den: &[f64]) -> Result<(NdArray<f64>, NdArray<f64>, Nd
     let (num, den) = normalize(num, den)?;
     let (m, k) = (num.len(), den.len());
     if m > k {
-        return Err(SystemError::Invalid("improper transfer function: the numerator is longer than the denominator".into()));
+        return Err(SystemError::invalid("improper transfer function: the numerator is longer than the denominator"));
     }
     let mut padded = vec![0.0; k - m];
     padded.extend_from_slice(&num);
@@ -58,7 +58,7 @@ pub fn ss2tf(sys: &StateSpace, input: usize) -> Result<(Vec<Vec<f64>>, Vec<f64>)
     let (n, inputs) = (sys.order(), sys.b.shape()[1]);
     let outputs = sys.c.shape()[0];
     if input >= inputs {
-        return Err(SystemError::Invalid(format!("the system has {inputs} inputs, not {}", input + 1)));
+        return Err(SystemError::invalid(format!("the system has {inputs} inputs, not {}", input + 1)));
     }
     let char_poly = |m: &NdArray<f64>| -> Result<Vec<f64>, SystemError> { if n == 0 { Ok(vec![1.0]) } else { Ok(poly(&eigvals(m.view())?)) } };
     let den = char_poly(&sys.a)?;
@@ -92,7 +92,7 @@ pub fn cplxreal(z: &[C64]) -> Result<(Vec<C64>, Vec<f64>), SystemError> {
         }
     }
     if pos.len() != neg.len() {
-        return Err(SystemError::Invalid("a complex value has no matching conjugate".into()));
+        return Err(SystemError::invalid("a complex value has no matching conjugate"));
     }
     // within runs of (nearly) equal real parts, order by |imaginary part|
     let mut start = 0;
@@ -108,7 +108,7 @@ pub fn cplxreal(z: &[C64]) -> Result<(Vec<C64>, Vec<f64>), SystemError> {
     let mut pairs = Vec::with_capacity(pos.len());
     for (p, n) in pos.iter().zip(&neg) {
         if (*p - n.conj()).norm() > tol * n.norm() {
-            return Err(SystemError::Invalid("a complex value has no matching conjugate".into()));
+            return Err(SystemError::invalid("a complex value has no matching conjugate"));
         }
         // average out rounding between the pair
         pairs.push((*p + n.conj()) * 0.5);
@@ -149,7 +149,7 @@ pub fn zpk2sos(zeros: &[C64], poles: &[C64], gain: f64, pairing: Pairing, domain
         }
     } else {
         if p.len() < z.len() {
-            return Err(SystemError::Invalid("minimal pairing needs at least as many poles as zeros".into()));
+            return Err(SystemError::invalid("minimal pairing needs at least as many poles as zeros"));
         }
         n_sections = p.len().div_ceil(2);
     }
@@ -185,7 +185,7 @@ pub fn zpk2sos(zeros: &[C64], poles: &[C64], gain: f64, pairing: Pairing, domain
         s[6 - a.len()..6].copy_from_slice(&a);
         s
     };
-    let missing = || SystemError::Invalid("could not pair the poles with the zeros".into());
+    let missing = || SystemError::invalid("could not pair the poles with the zeros");
     let mut sos = vec![[0.0; 6]; n_sections];
     for si in (0..n_sections).rev() {
         let p1 = p.remove(worst(&p));

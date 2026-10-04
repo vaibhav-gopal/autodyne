@@ -1,4 +1,5 @@
 use super::*;
+use crate::filter::FilterError;
 use crate::systems::sosfreqz;
 
 #[test]
@@ -19,7 +20,7 @@ fn digital_designs_hit_their_specifications() {
     let sos = ellip(4, 0.5, 60.0, Band::Bandpass(500.0, 1_500.0), Design::Digital { fs }).unwrap().to_sos().unwrap();
     assert!((db(&sos, 500.0) + 0.5).abs() < 1e-6 && (db(&sos, 1_500.0) + 0.5).abs() < 1e-6);
     assert!(db(&sos, 100.0) < -59.0 && db(&sos, 3_000.0) < -59.0);
-    assert!(matches!(butter(2, Band::Lowpass(5_000.0), Design::Digital { fs }), Err(DesignError::Invalid(_))));
+    assert!(matches!(butter(2, Band::Lowpass(5_000.0), Design::Digital { fs }), Err(FilterError::Invalid(_))));
 }
 
 #[test]

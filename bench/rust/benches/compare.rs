@@ -153,6 +153,17 @@ fn elementwise(c: &mut Criterion) {
             black_box(out)
         })
     });
+    // a transpose is a view: the kernel runs in memory order and the result keeps the layout
+    let ag_t = ag.transpose();
+    close(ag_t.axpb(2.0, 0.5).to_host().as_slice(), &t_expected, 1e-6, "autodyne gpu transposed");
+    g.bench_function("autodyne gpu (GPU, resident)", |b| {
+        b.iter(|| {
+            let out = ag_t.axpb(2.0, 0.5);
+            autodyne::gpu::sync();
+            black_box(out)
+        })
+    });
+    g.bench_function("autodyne gpu (GPU, round trip)", |b| b.iter(|| black_box(GpuArray::from_host(&ours.view().transpose()).unwrap().axpb(2.0, 0.5).to_host())));
     g.finish();
 
     // broadcasting a row

@@ -66,7 +66,7 @@ pub enum WavLoopKind {
 }
 
 /// Errors reading WAV files.
-#[derive(Error, Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum WavError {
     /// The file isn't RIFF/WAVE.
     #[error("not a RIFF/WAVE file")]

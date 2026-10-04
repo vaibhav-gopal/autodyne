@@ -343,16 +343,7 @@ fn normalize(x: &mut [f64], fallback: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn random(n: usize, seed: u64) -> Vec<f64> {
-        let mut state = seed;
-        (0..n)
-            .map(|_| {
-                state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
-                (state >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
-            })
-            .collect()
-    }
+    use crate::testing::noise_f64 as random;
 
     /// Checks B = U diag(s) V^T: values against dqds, U and V orthogonal, B v = s u.
     fn check(d: &[f64], e: &[f64], what: &str) {

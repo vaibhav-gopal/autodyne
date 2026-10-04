@@ -1,19 +1,5 @@
 use super::*;
-
-fn data(shape: &[usize], seed: u32) -> NdArray<f32> {
-    let n = shape.iter().product();
-    let mut s = seed;
-    NdArray::from_vec(
-        (0..n)
-            .map(|_| {
-                s = s.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-                (s >> 8) as f32 / (1u32 << 24) as f32 * 2.0 - 1.0
-            })
-            .collect(),
-        shape,
-    )
-    .unwrap()
-}
+use crate::testing::random_f32 as data;
 
 fn up(x: &NdArray<f32>) -> GpuArray<f32> {
     GpuArray::from_host(&x.view()).unwrap()

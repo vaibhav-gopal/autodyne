@@ -66,7 +66,7 @@ fn complexes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<C64>> {
 /// SciPy's window argument: a name, or a `(name, parameter)` tuple.
 pub(crate) fn window_spec(obj: &Bound<'_, PyAny>) -> PyResult<WindowSpec> {
     if let Ok(name) = obj.extract::<String>() {
-        return name.parse().map_err(PyValueError::new_err);
+        return name.parse().map_err(|e: spectral::SpectralError| PyValueError::new_err(e.to_string()));
     }
     let t: (String, f64) = obj.extract().map_err(|_| PyTypeError::new_err("window must be a name or a (name, parameter) tuple"))?;
     Ok(match t.0.as_str() {

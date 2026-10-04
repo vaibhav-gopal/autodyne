@@ -62,7 +62,7 @@ impl Domain {
 }
 
 /// Errors from LTI system operations.
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SystemError {
     /// A linear algebra failure (e.g. finding roots).
     #[error(transparent)]
@@ -73,6 +73,12 @@ pub enum SystemError {
     /// Systems in different domains combined.
     #[error("the systems are in different domains")]
     Domain,
+}
+
+impl SystemError {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        SystemError::Invalid(message.into())
+    }
 }
 
 /// A transfer function `num(x) / den(x)` (polynomials, highest power first).
@@ -237,7 +243,7 @@ impl StateSpace {
         let n = a.shape().first().copied().unwrap_or(0);
         let ok = a.shape() == [n, n] && b.ndim() == 2 && b.shape()[0] == n && c.ndim() == 2 && c.shape()[1] == n && d.shape() == [c.shape()[0], b.shape()[1]];
         if !ok {
-            return Err(SystemError::Invalid(format!(
+            return Err(SystemError::invalid(format!(
                 "state-space shapes A {:?}, B {:?}, C {:?}, D {:?} do not agree",
                 a.shape(),
                 b.shape(),
@@ -275,7 +281,7 @@ impl StateSpace {
     pub fn to_tf_siso(&self) -> Result<TransferFunction, SystemError> {
         let (mut num, den) = ss2tf(self, 0)?;
         if num.len() != 1 || self.b.shape()[1] != 1 {
-            return Err(SystemError::Invalid("not a single-input, single-output system".into()));
+            return Err(SystemError::invalid("not a single-input, single-output system"));
         }
         Ok(TransferFunction { num: num.remove(0), den, domain: self.domain })
     }

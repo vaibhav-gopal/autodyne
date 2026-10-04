@@ -83,7 +83,7 @@ const INDEX: &str = "tensor<i32>";
 fn ty(shape: &[usize], elem: &str) -> String {
     let mut s = String::from("tensor<");
     for d in shape {
-        write!(s, "{d}x").unwrap();
+        write!(s, "{d}x").expect("writing to a String cannot fail");
     }
     s.push_str(elem);
     s.push('>');
@@ -128,7 +128,7 @@ impl Writer {
         for &v in data {
             let bytes = if self.dtype == DType::F64 { v.to_le_bytes().to_vec() } else { (v as f32).to_le_bytes().to_vec() };
             for b in bytes {
-                write!(hex, "{b:02X}").unwrap();
+                write!(hex, "{b:02X}").expect("writing to a String cannot fail");
             }
         }
         let t = self.real(shape);
@@ -331,7 +331,7 @@ impl Writer {
                     for &v in data.iter() {
                         let bytes = if self.dtype == DType::F64 { v.to_le_bytes().to_vec() } else { (v as f32).to_le_bytes().to_vec() };
                         for b in bytes {
-                            write!(hex, "{b:02X}").unwrap();
+                            write!(hex, "{b:02X}").expect("writing to a String cannot fail");
                         }
                     }
                     format!("stablehlo.constant dense<\"{hex}\"> : {out}")
@@ -681,9 +681,9 @@ impl Writer {
         let args: Vec<String> = params.iter().map(|(n, s)| format!("{n}: {}", self.real(s))).collect();
         let types: Vec<String> = results.iter().map(|(_, s)| self.real(s)).collect();
         let names: Vec<&str> = results.iter().map(|(n, _)| n.as_str()).collect();
-        writeln!(text, "func.func @main({}) -> ({}) {{", args.join(", "), types.join(", ")).unwrap();
+        writeln!(text, "func.func @main({}) -> ({}) {{", args.join(", "), types.join(", ")).expect("writing to a String cannot fail");
         text.push_str(&self.out);
-        writeln!(text, "  return {} : {}", names.join(", "), types.join(", ")).unwrap();
+        writeln!(text, "  return {} : {}", names.join(", "), types.join(", ")).expect("writing to a String cannot fail");
         text.push_str("}\n");
         Program { text, inputs: params.iter().map(|(_, s)| s.clone()).collect(), outputs: results.iter().map(|(_, s)| s.clone()).collect(), dtype: self.dtype }
     }

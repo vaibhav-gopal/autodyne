@@ -212,7 +212,7 @@ impl<T: Float> SamplerVoice<T> {
 
     /// One stereo frame at position `pos` of the playing sample.
     fn read(&self, pos: f64, looping: Option<super::Loop>) -> (T, T) {
-        let zone = self.zone.as_ref().unwrap();
+        let zone = self.zone.as_ref().expect("reading needs a playing zone");
         let level: &Level<T> = &zone.sample.levels[self.level];
         let scale = (1u64 << self.level) as f64;
         let p = pos / scale;

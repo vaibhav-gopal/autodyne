@@ -33,7 +33,7 @@ pub fn expm<T: LinalgFloat>(a: NdView<'_, T>) -> Result<NdArray<T>, LinalgError>
 
 fn one_norm<T: LinalgFloat>(a: &NdArray<T>) -> f64 {
     let n = a.shape()[1];
-    (0..n).map(|j| a.as_slice().iter().skip(j).step_by(n).map(|x| x.abs().to_f64().unwrap()).sum::<f64>()).fold(0.0, f64::max)
+    (0..n).map(|j| a.as_slice().iter().skip(j).step_by(n).map(|x| x.abs().to_f64().unwrap_or(f64::NAN)).sum::<f64>()).fold(0.0, f64::max)
 }
 
 fn identity<T: LinalgFloat>(n: usize) -> NdArray<T> {

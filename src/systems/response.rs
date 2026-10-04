@@ -122,17 +122,17 @@ impl StateSpace {
     /// `[steps, states]` (`scipy.signal.dlsim`). A continuous system must be discretized first.
     pub fn simulate(&self, u: &NdArray<f64>, x0: Option<&[f64]>) -> Result<(NdArray<f64>, NdArray<f64>), SystemError> {
         if !self.domain.is_discrete() {
-            return Err(SystemError::Invalid("simulate needs a discrete system; use lsim or discretize".into()));
+            return Err(SystemError::invalid("simulate needs a discrete system; use lsim or discretize"));
         }
         let (n, inputs, outputs) = (self.order(), self.b.shape()[1], self.c.shape()[0]);
         let steps = u.shape().first().copied().unwrap_or(0);
         let width = if u.ndim() == 1 { 1 } else { u.shape()[1] };
         if width != inputs || u.ndim() > 2 {
-            return Err(SystemError::Invalid(format!("inputs should be [steps, {inputs}], got {:?}", u.shape())));
+            return Err(SystemError::invalid(format!("inputs should be [steps, {inputs}], got {:?}", u.shape())));
         }
         let mut x = match x0 {
             Some(x0) if x0.len() == n => x0.to_vec(),
-            Some(x0) => return Err(SystemError::Invalid(format!("x0 has {} values for {n} states", x0.len()))),
+            Some(x0) => return Err(SystemError::invalid(format!("x0 has {} values for {n} states", x0.len()))),
             None => vec![0.0; n],
         };
         let (a, b, c, d) = (self.a.as_slice(), self.b.as_slice(), self.c.as_slice(), self.d.as_slice());
@@ -160,7 +160,7 @@ impl StateSpace {
     /// zero-order hold): returns the outputs and states at the sample times.
     pub fn lsim(&self, u: &NdArray<f64>, dt: f64, x0: Option<&[f64]>) -> Result<(NdArray<f64>, NdArray<f64>), SystemError> {
         if self.domain.is_discrete() {
-            return Err(SystemError::Invalid("lsim needs a continuous system; use simulate".into()));
+            return Err(SystemError::invalid("lsim needs a continuous system; use simulate"));
         }
         self.discretize(dt, Method::Zoh)?.simulate(u, x0)
     }
@@ -175,7 +175,7 @@ impl StateSpace {
                 Ok(self.simulate(&u, None)?.0)
             }
             Domain::Continuous => {
-                let dt = dt.ok_or_else(|| SystemError::Invalid("a continuous impulse response needs a time step".into()))?;
+                let dt = dt.ok_or_else(|| SystemError::invalid("a continuous impulse response needs a time step"))?;
                 let phi = expm(self.a.map(|&x| x * dt).view())?;
                 let mut x = NdArray::from_fn(&[states, 1], |i| self.b.as_slice()[i[0] * inputs]).expect("shape");
                 let outputs = self.c.shape()[0];
@@ -197,7 +197,7 @@ impl StateSpace {
         match self.domain {
             Domain::Discrete { .. } => Ok(self.simulate(&u, None)?.0),
             Domain::Continuous => {
-                let dt = dt.ok_or_else(|| SystemError::Invalid("a continuous step response needs a time step".into()))?;
+                let dt = dt.ok_or_else(|| SystemError::invalid("a continuous step response needs a time step"))?;
                 Ok(self.lsim(&u, dt, None)?.0)
             }
         }
