@@ -191,6 +191,19 @@ pub fn concatenate<T: Copy + Default>(arrays: &[NdView<'_, T>], axis: usize) -> 
         }
         shape[axis] += a.shape()[axis];
     }
+    // contiguous parts: for each index of the axes before `axis`, each part's block in turn
+    let slices: Option<Vec<&[T]>> = arrays.iter().map(|a| a.as_slice()).collect();
+    if let Some(slices) = slices {
+        let outer: usize = shape[..axis].iter().product();
+        let blocks: Vec<usize> = arrays.iter().map(|a| a.shape()[axis..].iter().product()).collect();
+        let mut data = Vec::with_capacity(shape.iter().product());
+        for o in 0..outer {
+            for (s, &b) in slices.iter().zip(&blocks) {
+                data.extend_from_slice(&s[o * b..(o + 1) * b]);
+            }
+        }
+        return NdArray::from_vec(data, &shape);
+    }
     let mut out = NdArray::<T>::zeros(&shape)?;
     let mut offset = 0;
     for a in arrays {

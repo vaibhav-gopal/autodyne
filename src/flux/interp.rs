@@ -92,11 +92,7 @@ impl Graph {
             assert_eq!(x.shape(), s.as_slice(), "Graph::eval: input {k} has the wrong shape");
         }
         let plan = self.fusion();
-        let mut remaining = vec![0u32; self.nodes.len()];
-        for (i, node) in self.nodes.iter().enumerate() {
-            plan.reads(i, node).into_iter().for_each(|a| remaining[a as usize] += 1);
-        }
-        self.outputs.iter().for_each(|&o| remaining[o as usize] += 1);
+        let remaining = plan.uses.clone();
         let mut env = Values { values: Vec::with_capacity(self.nodes.len()), remaining };
         let mut inputs: Vec<Option<NdArray<T>>> = inputs.into_iter().map(Some).collect();
         for (i, node) in self.nodes.iter().enumerate() {
@@ -108,17 +104,58 @@ impl Graph {
             let e = &mut env;
             if let Some(group) = &plan.groups[i] {
                 // a fused element-wise group: single values, then arrays of the node's shape
-                let as_numbers = |v: Value<T>| match v {
-                    Value::Real(x) if x.view().is_contiguous() => x,
-                    Value::Real(x) => x.view().to_owned(),
-                    Value::Mask(m) => m.map(|&b| if b { T::_ONE } else { T::_ZERO }),
-                    Value::Complex(_) => unreachable!("complex values are not fused"),
+                // each value it reads, once, borrowed where it can be (a group only reads): real (masks
+                // as 1 / 0) or complex, contiguous
+                enum In<'a, T: FluxFloat> {
+                    Real(&'a [T]),
+                    Complex(&'a [Complex<T>]),
+                    Owned(Vec<T>),
+                    OwnedComplex(Vec<Complex<T>>),
+                }
+                let fetched: Vec<In<'_, T>> = group
+                    .fetch
+                    .iter()
+                    .map(|&a| match e.values[a as usize].as_ref().expect("a value read after its last use") {
+                        Value::Real(x) => match x.view().as_slice() {
+                            Some(s) => In::Real(s),
+                            None => In::Owned(x.view().to_vec()),
+                        },
+                        Value::Mask(m) => In::Owned(m.as_slice().iter().map(|&b| if b { T::_ONE } else { T::_ZERO }).collect()),
+                        Value::Complex(z) => match z.view().as_slice() {
+                            Some(s) => In::Complex(s),
+                            None => In::OwnedComplex(z.view().to_vec()),
+                        },
+                    })
+                    .collect();
+                // as numbers: a real array itself, or a part of a complex one (every other number)
+                let slice = |&(at, part): &(usize, u8)| -> (&[T], usize) {
+                    let complex = |z: &[Complex<T>]| {
+                        // SAFETY: Complex<T> is repr(C) { re, im }: n of them are 2n T's
+                        let flat = unsafe { std::slice::from_raw_parts(z.as_ptr().cast::<T>(), 2 * z.len()) };
+                        (&flat[usize::from(part) - 1..], 2)
+                    };
+                    match &fetched[at] {
+                        In::Real(x) => (*x, 1),
+                        In::Owned(x) => (x.as_slice(), 1),
+                        In::Complex(z) => complex(z),
+                        In::OwnedComplex(z) => complex(z),
+                    }
                 };
-                let uniform: Vec<T> = group.inputs[..group.uniform].iter().map(|&a| as_numbers(e.get(a)).as_slice()[0]).collect();
-                let arrays: Vec<NdArray<T>> = group.inputs[group.uniform..].iter().map(|&a| as_numbers(e.get(a))).collect();
-                let slices: Vec<&[T]> = arrays.iter().map(|a| a.as_slice()).collect();
-                let len = node.shape.iter().product();
-                let values = NdArray::from_vec(group.run(len, &uniform, &slices), &node.shape).expect("the node's shape");
+                let uniform: Vec<T> = group.inputs[..group.uniform].iter().map(|k| slice(k).0[0]).collect();
+                let slices: Vec<(&[T], usize)> = group.inputs[group.uniform..].iter().map(slice).collect();
+                let len: usize = node.shape.iter().product();
+                let out = group.run(len, &uniform, &slices);
+                drop(slices);
+                drop(fetched);
+                // the reads done: values nothing else reads are freed
+                for &a in &group.fetch {
+                    let a = a as usize;
+                    e.remaining[a] -= 1;
+                    if e.remaining[a] == 0 {
+                        e.values[a] = None;
+                    }
+                }
+                let values = NdArray::from_vec(out, &node.shape).expect("the node's shape");
                 let value = if node.kind == Kind::Mask { Value::Mask(values.map(|&v| v != T::_ZERO)) } else { Value::Real(values) };
                 env.values.push(Some(value));
                 continue;
@@ -141,7 +178,9 @@ impl Graph {
             let value = match node.op {
                 Op::Input(n) => Value::Real(inputs[n as usize].take().expect("each input is read by one node")),
                 Op::Const(k) => Value::Real(NdArray::lit(k)),
-                Op::Literal(ref data) => Value::Real(NdArray::array(data, &node.shape)),
+                Op::Literal(ref data) => {
+                    Value::Real(NdArray::from_vec(plan.literals.get::<T>(i, data).as_ref().clone(), &node.shape).expect("the literal's shape"))
+                }
                 Op::Add(a, b) => each2!(v!(a), v!(b), x, y => x + y),
                 Op::Sub(a, b) => each2!(v!(a), v!(b), x, y => x - y),
                 Op::Mul(a, b) => each2!(v!(a), v!(b), x, y => x * y),
@@ -207,6 +246,8 @@ impl Graph {
                 Op::Reduce(a, ref axes, Reduction::Min) => Value::Real(r!(a).min_axes(axes)),
                 Op::Reduce(a, ref axes, Reduction::Prod) => Value::Real(r!(a).prod_axes(axes)),
                 Op::Reverse(a, ref axes) => each!(v!(a), x => x.reverse(axes)),
+                Op::Frames { a, length, hop } => each!(v!(a), x => x.frames(length, hop)),
+                Op::OverlapAdd { a, n, hop } => each!(v!(a), x => x.overlap_add(n, hop)),
                 Op::Take { table, indices } => Value::Real(r!(table).take(r!(indices))),
                 Op::ScatterAdd { indices, updates } => Value::Real(scatter_add(&node.shape, &r!(indices), &r!(updates))),
                 Op::Concat(ref parts, axis) => match self.nodes[parts[0] as usize].kind {

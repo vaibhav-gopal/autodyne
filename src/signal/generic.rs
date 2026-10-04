@@ -15,9 +15,9 @@ fn gcd(a: usize, b: usize) -> usize {
 /// holding samples `f * hop .. f * hop + length`, `count = 1 + (n - length) / hop` (samples after
 /// the last whole frame are left out).
 ///
-/// Built from slices, reshapes and one concatenation (no gather), so it traces to plain StableHLO:
-/// the signal is cut into blocks of `gcd(length, hop)` samples and each frame position takes a
-/// strided slice of them. The work grows with `length / gcd(length, hop)`.
+/// One operation for arrays that have it (`NdArray` copies the windows; a traced program records a
+/// single framing node, emitted as slices, reshapes and one concatenation); otherwise built from
+/// those primitives ([`frames_by_slices`]). Its transpose is [`ArrayMath::overlap_add`].
 ///
 /// ```
 /// use autodyne::signal::{frames, ArrayMath, NdArray};
@@ -28,6 +28,13 @@ fn gcd(a: usize, b: usize) -> usize {
 /// assert_eq!(f.as_slice(), &[0.0, 1.0, 2.0, 3.0, 2.0, 3.0, 4.0, 5.0]);
 /// ```
 pub fn frames<A: ArrayMath>(x: A, length: usize, hop: usize) -> A {
+    x.frames(length, hop)
+}
+
+/// [rames] from slices, reshapes and one concatenation (no gather): the signal is cut into
+/// blocks of `gcd(length, hop)` samples and each frame position takes a strided slice of them.
+/// The work grows with `length / gcd(length, hop)`.
+pub(crate) fn frames_by_slices<A: ArrayMath>(x: A, length: usize, hop: usize) -> A {
     let shape = x.shape();
     let (&n, lead) = shape.split_last().expect("frames: needs an axis");
     assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
@@ -46,6 +53,40 @@ pub fn frames<A: ArrayMath>(x: A, length: usize, hop: usize) -> A {
         })
         .collect();
     A::concatenate(&parts, k + 1).reshape(&[lead, &[count, length]].concat())
+}
+
+/// [`ArrayMath::overlap_add`] from reshapes, slices, pads and additions (the transpose of
+/// [`frames_by_slices`]): each frame position's blocks of `gcd(length, hop)` samples padded into
+/// place, summed, then padded to `n`.
+pub(crate) fn overlap_add_by_pads<A: ArrayMath>(x: A, n: usize, hop: usize) -> A {
+    let shape = x.shape();
+    assert!(shape.len() >= 2, "overlap_add: needs [..., count, length]");
+    let k = shape.len() - 2;
+    let (lead, count, length) = (&shape[..k], shape[k], shape[k + 1]);
+    assert!(count >= 1 && hop >= 1, "overlap_add: needs frames and a positive hop");
+    let used = (count - 1) * hop + length;
+    assert!(n >= used, "overlap_add: {count} frames of {length}, {hop} apart, need {used} samples, not {n}");
+    let g = gcd(length, hop);
+    let (per_frame, per_hop) = (length / g, hop / g);
+    let blocks = x.reshape(&[lead, &[count, per_frame, g]].concat());
+    let mut total: Option<A> = None;
+    for r in 0..per_frame {
+        let (mut start, mut limit) = (vec![0; k + 3], [lead, &[count, per_frame, g]].concat());
+        (start[k + 1], limit[k + 1]) = (r, r + 1);
+        let part = blocks.clone().slice(&start, &limit, &vec![1; k + 3]).reshape(&[lead, &[count, g]].concat());
+        let (mut low, mut high, mut interior) = (vec![0; k + 2], vec![0; k + 2], vec![0; k + 2]);
+        (low[k], interior[k]) = (r, per_hop - 1);
+        high[k] = used / g - (r + (count - 1) * per_hop + 1);
+        let placed = part.pad(&low, &high, &interior);
+        total = Some(match total {
+            None => placed,
+            Some(t) => t + placed,
+        });
+    }
+    let flat = total.expect("at least one frame position").reshape(&[lead, &[used]].concat());
+    let mut high = vec![0; k + 1];
+    high[k] = n - used;
+    flat.pad(&vec![0; k + 1], &high, &vec![0; k + 1])
 }
 
 /// Kernels up to this length are convolved directly; longer ones by FFT.

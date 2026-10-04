@@ -41,7 +41,7 @@ mod analysis;
 mod array_math;
 mod complex;
 mod container;
-mod generic;
+pub(crate) mod generic;
 mod nd_axis;
 mod nd_ops;
 mod ndarray;

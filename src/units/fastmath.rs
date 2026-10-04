@@ -158,6 +158,45 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
+    fn timing() {
+        let x: Vec<f32> = (0..4369).map(|i| 0.01 + i as f32 * 0.37).collect();
+        let mut y = vec![0.0f32; x.len()];
+        let mut best = f64::MAX;
+        for _ in 0..200 {
+            let t = std::time::Instant::now();
+            for (o, &v) in y.iter_mut().zip(&x) {
+                *o = ln(v);
+            }
+            std::hint::black_box(&y);
+            best = best.min(t.elapsed().as_secs_f64() * 1e9 / x.len() as f64);
+        }
+        let mut best_std = f64::MAX;
+        for _ in 0..200 {
+            let t = std::time::Instant::now();
+            for (o, &v) in y.iter_mut().zip(&x) {
+                *o = v.ln();
+            }
+            std::hint::black_box(&y);
+            best_std = best_std.min(t.elapsed().as_secs_f64() * 1e9 / x.len() as f64);
+        }
+        #[target_feature(enable = "avx2,fma")]
+        unsafe fn avx(y: &mut [f32], x: &[f32]) {
+            for (o, &v) in y.iter_mut().zip(x) {
+                *o = ln(v);
+            }
+        }
+        let mut best_avx = f64::MAX;
+        for _ in 0..200 {
+            let t = std::time::Instant::now();
+            unsafe { avx(&mut y, &x) };
+            std::hint::black_box(&y);
+            best_avx = best_avx.min(t.elapsed().as_secs_f64() * 1e9 / x.len() as f64);
+        }
+        eprintln!("TIMING ln {best:.3} ns/elem, avx2 {best_avx:.3}, std {best_std:.3}");
+    }
+
+    #[test]
     fn exp_within_two_ulp() {
         let worst = samples(-103.0, 88.7).into_iter().map(|x| ulps(exp(x), (x as f64).exp())).fold(0.0, f64::max);
         assert!(worst <= 2.0, "exp: {worst} ulp");

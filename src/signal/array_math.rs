@@ -66,6 +66,25 @@ pub trait ArrayMath: Elementwise {
     /// The elements in reverse order along each of `axes` (`numpy.flip`).
     fn reverse(self, axes: &[usize]) -> Self;
 
+    /// Windows of `length` samples along the last axis, `hop` apart, from the start: `[..., n]`
+    /// becomes `[..., 1 + (n - length) / hop, length]` (samples after the last whole window are
+    /// dropped). See [`frames`](super::frames).
+    fn frames(self, length: usize, hop: usize) -> Self
+    where
+        Self: Sized + Clone,
+    {
+        super::generic::frames_by_slices(self, length, hop)
+    }
+
+    /// The transpose of [`frames`](Self::frames): `[..., count, length]` frames `hop` apart summed
+    /// into `[..., n]` (overlap-add; `n >= (count - 1) * hop + length`, the rest zeros).
+    fn overlap_add(self, n: usize, hop: usize) -> Self
+    where
+        Self: Sized + Clone,
+    {
+        super::generic::overlap_add_by_pads(self, n, hop)
+    }
+
     /// `start..end` along `axis`, the other axes whole.
     fn slice_axis(self, axis: usize, start: usize, end: usize) -> Self {
         let shape = self.shape();
@@ -278,6 +297,55 @@ pub(crate) fn pad_any<T: Copy + Default>(a: &NdArray<T>, low: &[usize], high: &[
         }
     }
     NdArray::from_vec(out, &shape).expect("valid shape")
+}
+
+/// [`ArrayMath::frames`] by copying each window.
+pub(crate) fn frames_any<T: Copy + Default>(a: &NdArray<T>, length: usize, hop: usize) -> NdArray<T> {
+    let shape = a.shape();
+    let (&n, lead) = shape.split_last().expect("frames: needs an axis");
+    assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
+    assert!(n >= length, "frames: {n} samples are fewer than one frame of {length}");
+    let count = 1 + (n - length) / hop;
+    let owned;
+    let data = match a.view().as_slice() {
+        Some(s) => s,
+        None => {
+            owned = a.view().to_vec();
+            &owned
+        }
+    };
+    let mut out = Vec::with_capacity(data.len() / n.max(1) * count * length);
+    for row in data.chunks(n) {
+        for f in 0..count {
+            out.extend_from_slice(&row[f * hop..f * hop + length]);
+        }
+    }
+    NdArray::from_vec(out, &[lead, &[count, length]].concat()).expect("valid shape")
+}
+
+/// [`ArrayMath::overlap_add`] by adding each frame into place.
+pub(crate) fn overlap_add_any<T: Copy + Default + Add<Output = T>>(a: &NdArray<T>, n: usize, hop: usize) -> NdArray<T> {
+    let shape = a.shape();
+    assert!(shape.len() >= 2, "overlap_add: needs [..., count, length]");
+    let k = shape.len() - 2;
+    let (count, length) = (shape[k], shape[k + 1]);
+    assert!(count >= 1 && hop >= 1 && n >= (count - 1) * hop + length, "overlap_add: {count} frames of {length}, {hop} apart, do not fit {n} samples");
+    let owned;
+    let data = match a.view().as_slice() {
+        Some(s) => s,
+        None => {
+            owned = a.view().to_vec();
+            &owned
+        }
+    };
+    let lanes = data.len() / (count * length).max(1);
+    let mut out = vec![T::default(); lanes * n];
+    for (frames, row) in data.chunks(count * length).zip(out.chunks_mut(n)) {
+        for (f, frame) in frames.chunks(length).enumerate() {
+            row[f * hop..f * hop + length].iter_mut().zip(frame).for_each(|(o, &x)| *o = *o + x);
+        }
+    }
+    NdArray::from_vec(out, &[&shape[..k], &[n]].concat()).expect("valid shape")
 }
 
 pub(crate) fn concatenate_any<T: Copy + Default>(parts: &[NdArray<T>], axis: usize) -> NdArray<T> {
@@ -560,6 +628,12 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self {
         pad_any(&self, low, high, interior)
     }
+    fn frames(self, length: usize, hop: usize) -> Self {
+        frames_any(&self, length, hop)
+    }
+    fn overlap_add(self, n: usize, hop: usize) -> Self {
+        overlap_add_any(&self, n, hop)
+    }
     fn concatenate(parts: &[Self], axis: usize) -> Self {
         concatenate_any(parts, axis)
     }
@@ -601,11 +675,12 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
         let m = n / 2 + 1;
         let rows = self.len() / n;
         let mut out = vec![Complex::new(T::_ZERO, T::_ZERO); rows * m];
-        let mut fft = RealFft::<T>::new(n);
         let input = if self.view().is_contiguous() { self } else { self.view().to_owned() };
-        for (row, bins) in input.as_slice().chunks(n).zip(out.chunks_mut(m)) {
-            fft.forward(row, bins);
-        }
+        with_plan(n, |fft: &mut RealFft<T>| {
+            for (row, bins) in input.as_slice().chunks(n).zip(out.chunks_mut(m)) {
+                fft.forward(row, bins);
+            }
+        });
         *shape.last_mut().unwrap() = m;
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
@@ -616,11 +691,12 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
         assert!(n >= 1 && shape.last() == Some(&m), "irfft: {n} samples need {m} bins, got {shape:?}");
         let rows = spectrum.len() / m;
         let mut out = vec![T::_ZERO; rows * n];
-        let mut fft = RealFft::<T>::new(n);
         let spectrum = if spectrum.view().is_contiguous() { spectrum } else { spectrum.view().to_owned() };
-        for (bins, row) in spectrum.as_slice().chunks(m).zip(out.chunks_mut(n)) {
-            fft.inverse(bins, row);
-        }
+        with_plan(n, |fft: &mut RealFft<T>| {
+            for (bins, row) in spectrum.as_slice().chunks(m).zip(out.chunks_mut(n)) {
+                fft.inverse(bins, row);
+            }
+        });
         *shape.last_mut().unwrap() = n;
         NdArray::from_vec(out, &shape).expect("valid shape")
     }
@@ -704,6 +780,12 @@ impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
     fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Self {
         pad_any(&self, low, high, interior)
     }
+    fn frames(self, length: usize, hop: usize) -> Self {
+        frames_any(&self, length, hop)
+    }
+    fn overlap_add(self, n: usize, hop: usize) -> Self {
+        overlap_add_any(&self, n, hop)
+    }
     fn concatenate(parts: &[Self], axis: usize) -> Self {
         concatenate_any(parts, axis)
     }
@@ -733,18 +815,51 @@ fn join_complex<T: Float + Default>(re: &NdArray<T>, im: &NdArray<T>) -> NdArray
     NdArray::from_vec(re.as_slice().iter().zip(im.as_slice()).map(|(&r, &i)| Complex::new(r, i)).collect(), re.shape()).expect("same shape")
 }
 
+/// FFT plans (real or complex, by element type and length) kept per thread, so repeated
+/// transforms of one length plan once.
+fn with_plan<P: Plan + 'static, R>(n: usize, f: impl FnOnce(&mut P) -> R) -> R {
+    use std::any::{Any, TypeId};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+    thread_local! {
+        static PLANS: RefCell<HashMap<(TypeId, usize), Box<dyn Any>>> = RefCell::new(HashMap::new());
+    }
+    // taken out while in use, so a transform inside  (none today) could not alias it
+    let key = (TypeId::of::<P>(), n);
+    let mut plan = PLANS.with(|p| p.borrow_mut().remove(&key)).and_then(|b| b.downcast::<P>().ok()).unwrap_or_else(|| Box::new(P::plan(n)));
+    let result = f(&mut plan);
+    PLANS.with(|p| p.borrow_mut().insert(key, plan));
+    result
+}
+
+/// A transform made for one length.
+trait Plan {
+    fn plan(n: usize) -> Self;
+}
+impl<T: Float + 'static> Plan for RealFft<T> {
+    fn plan(n: usize) -> Self {
+        RealFft::new(n)
+    }
+}
+impl<T: Float + 'static> Plan for Fft<T> {
+    fn plan(n: usize) -> Self {
+        Fft::new(n)
+    }
+}
+
 fn complex_fft<T: Float + Default>(a: NdArray<Complex<T>>, inverse: bool) -> NdArray<Complex<T>> {
     let n = *a.shape().last().expect("fft: needs an axis");
     assert!(n >= 1, "fft: empty axis");
-    let mut fft = Fft::<T>::new(n);
     let mut out = if a.view().is_contiguous() { a } else { a.view().to_owned() };
-    for row in out.as_mut_slice().chunks_mut(n) {
-        if inverse {
-            fft.inverse(row);
-        } else {
-            fft.forward(row);
+    with_plan(n, |fft: &mut Fft<T>| {
+        for row in out.as_mut_slice().chunks_mut(n) {
+            if inverse {
+                fft.inverse(row);
+            } else {
+                fft.forward(row);
+            }
         }
-    }
+    });
     out
 }
 #[cfg(test)]

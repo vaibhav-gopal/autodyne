@@ -86,6 +86,10 @@ fn ty(shape: &[usize], elem: &str) -> String {
 }
 
 
+fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
+
 fn list(xs: &[usize]) -> String {
     xs.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
 }
@@ -429,6 +433,120 @@ impl Writer {
                     format!("stablehlo.reduce({} init: {init}) applies stablehlo.{op} across dimensions = [{}] : ({}, {scalar}) -> {out}", n(a), list(axes), t(a))
                 }
                 Op::Reverse(a, ref axes) => format!("stablehlo.reverse {}, dims = [{}] : {out}", n(a), list(axes)),
+                Op::Frames { a, length, hop } => {
+                    // as `frames_by_slices`: blocks of gcd(length, hop) samples, one strided slice of
+                    // them per position in the frame, concatenated
+                    let (shape, el) = (&g.nodes[a as usize].shape, of_kind(g.nodes[a as usize].kind));
+                    let k = shape.len() - 1;
+                    let lead = &shape[..k];
+                    let count = 1 + (shape[k] - length) / hop;
+                    let used = (count - 1) * hop + length;
+                    let gg = gcd(length, hop);
+                    let (per_frame, per_hop) = (length / gg, hop / gg);
+                    let mut cur = n(a);
+                    if used != shape[k] {
+                        let mut limit = shape.clone();
+                        limit[k] = used;
+                        cur = self.emit(&format!(
+                            "\"stablehlo.slice\"({cur}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({}) -> {}",
+                            i64s(&vec![0; k + 1]),
+                            i64s(&limit),
+                            i64s(&vec![1; k + 1]),
+                            t(a),
+                            ty(&limit, &el)
+                        ));
+                    }
+                    let blocks = [lead, &[used / gg, gg]].concat();
+                    let b = self.emit(&format!("stablehlo.reshape {cur} : ({}) -> {}", ty(&[lead, &[used]].concat(), &el), ty(&blocks, &el)));
+                    let part = [lead, &[count, 1, gg]].concat();
+                    let parts: Vec<String> = (0..per_frame)
+                        .map(|r| {
+                            let (mut start, mut limit, mut stride) = (vec![0; k + 2], blocks.clone(), vec![1; k + 2]);
+                            (start[k], limit[k], stride[k]) = (r, r + (count - 1) * per_hop + 1, per_hop);
+                            let s = self.emit(&format!(
+                                "\"stablehlo.slice\"({b}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({}) -> {}",
+                                i64s(&start),
+                                i64s(&limit),
+                                i64s(&stride),
+                                ty(&blocks, &el),
+                                ty(&[lead, &[count, gg]].concat(), &el)
+                            ));
+                            self.emit(&format!("stablehlo.reshape {s} : ({}) -> {}", ty(&[lead, &[count, gg]].concat(), &el), ty(&part, &el)))
+                        })
+                        .collect();
+                    let joined = [lead, &[count, per_frame, gg]].concat();
+                    let cat = if per_frame == 1 {
+                        parts[0].clone()
+                    } else {
+                        self.emit(&format!(
+                            "\"stablehlo.concatenate\"({}) {{dimension = {} : i64}} : ({}) -> {}",
+                            parts.join(", "),
+                            k + 1,
+                            vec![ty(&part, &el); per_frame].join(", "),
+                            ty(&joined, &el)
+                        ))
+                    };
+                    format!("stablehlo.reshape {cat} : ({}) -> {out}", ty(&joined, &el))
+                }
+                Op::OverlapAdd { a, n: total, hop } => {
+                    // the transpose: each position's blocks padded into place, summed, padded to n
+                    let (shape, el) = (&g.nodes[a as usize].shape, of_kind(g.nodes[a as usize].kind));
+                    let k = shape.len() - 2;
+                    let lead = &shape[..k];
+                    let (count, length) = (shape[k], shape[k + 1]);
+                    let used = (count - 1) * hop + length;
+                    let gg = gcd(length, hop);
+                    let (per_frame, per_hop) = (length / gg, hop / gg);
+                    let split = [lead, &[count, per_frame, gg]].concat();
+                    let b = self.emit(&format!("stablehlo.reshape {} : ({}) -> {}", n(a), t(a), ty(&split, &el)));
+                    let zero = self.zero(g.nodes[a as usize].kind);
+                    let placed_shape = [lead, &[used / gg, gg]].concat();
+                    let mut sum: Option<String> = None;
+                    for r in 0..per_frame {
+                        let (mut start, mut limit) = (vec![0; k + 3], split.clone());
+                        (start[k + 1], limit[k + 1]) = (r, r + 1);
+                        let s = self.emit(&format!(
+                            "\"stablehlo.slice\"({b}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({}) -> {}",
+                            i64s(&start),
+                            i64s(&limit),
+                            i64s(&vec![1; k + 3]),
+                            ty(&split, &el),
+                            ty(&[lead, &[count, 1, gg]].concat(), &el)
+                        ));
+                        let rs = self.emit(&format!("stablehlo.reshape {s} : ({}) -> {}", ty(&[lead, &[count, 1, gg]].concat(), &el), ty(&[lead, &[count, gg]].concat(), &el)));
+                        let (mut low, mut high, mut interior) = (vec![0; k + 2], vec![0; k + 2], vec![0; k + 2]);
+                        (low[k], interior[k]) = (r, per_hop - 1);
+                        high[k] = used / gg - (r + (count - 1) * per_hop + 1);
+                        let p = self.emit(&format!(
+                            "\"stablehlo.pad\"({rs}, {zero}) {{edge_padding_low = {}, edge_padding_high = {}, interior_padding = {}}} : ({}, {scalar}) -> {}",
+                            i64s(&low),
+                            i64s(&high),
+                            i64s(&interior),
+                            ty(&[lead, &[count, gg]].concat(), &el),
+                            ty(&placed_shape, &el)
+                        ));
+                        sum = Some(match sum {
+                            None => p,
+                            Some(prev) => self.emit(&format!("stablehlo.add {prev}, {p} : {}", ty(&placed_shape, &el))),
+                        });
+                    }
+                    let sum = sum.expect("at least one frame position");
+                    let flat_shape = [lead, &[used]].concat();
+                    if total == used {
+                        format!("stablehlo.reshape {sum} : ({}) -> {out}", ty(&placed_shape, &el))
+                    } else {
+                        let flat = self.emit(&format!("stablehlo.reshape {sum} : ({}) -> {}", ty(&placed_shape, &el), ty(&flat_shape, &el)));
+                        let mut high = vec![0; k + 1];
+                        high[k] = total - used;
+                        format!(
+                            "\"stablehlo.pad\"({flat}, {zero}) {{edge_padding_low = {}, edge_padding_high = {}, interior_padding = {}}} : ({}, {scalar}) -> {out}",
+                            i64s(&vec![0; k + 1]),
+                            i64s(&high),
+                            i64s(&vec![0; k + 1]),
+                            ty(&flat_shape, &el)
+                        )
+                    }
+                }
                 Op::Take { table, indices } => {
                     let (ts, is) = (&g.nodes[table as usize].shape, &g.nodes[indices as usize].shape);
                     let ix = self.row_indices(&n(indices), is, ts[0]);

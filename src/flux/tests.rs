@@ -838,3 +838,31 @@ fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
         assert_eq!(scan.run(&p64, &x64, &s64), interpreted.run(&p64, &x64, &s64));
     }
 }
+#[test]
+fn framing_and_overlap_add_agree_with_their_constructions() {
+    use crate::signal::generic::{frames_by_slices, overlap_add_by_pads};
+    for &(lanes, n, length, hop) in &[(1usize, 20usize, 4usize, 2usize), (3, 50, 8, 3), (2, 64, 16, 16), (1, 33, 33, 1), (2, 41, 6, 4)] {
+        let x = random(&[lanes, n], 7);
+        let direct = x.clone().frames(length, hop);
+        assert_eq!(direct, frames_by_slices(x.clone(), length, hop), "frames {length} / {hop}");
+        let y = random(direct.shape(), 8);
+        let total = n + 3;
+        let summed = y.clone().overlap_add(total, hop);
+        assert!(close(summed.as_slice(), overlap_add_by_pads(y.clone(), total, hop).as_slice(), 1e-6), "overlap-add {length} / {hop}");
+        // transposes: <frames(x), y> = <x, overlap_add(y)>
+        let lhs: f32 = direct.as_slice().iter().zip(y.as_slice()).map(|(a, b)| a * b).sum();
+        let rhs: f32 = x.as_slice().iter().zip(y.clone().overlap_add(n, hop).as_slice()).map(|(a, b)| a * b).sum();
+        assert!((lhs - rhs).abs() <= 1e-4 * (1.0 + lhs.abs()), "{lhs} vs {rhs}");
+        // complex values too
+        let z = NdArray::complex(x.clone(), random(&[lanes, n], 9));
+        assert_eq!(z.clone().frames(length, hop), frames_by_slices(z, length, hop));
+        // traced: one node each, evaluated and differentiated
+        let g = trace(&[&[lanes, n]], |v| vec![v[0].frames(length, hop)]);
+        assert_eq!(g.eval(std::slice::from_ref(&x))[0], direct);
+    }
+    check_gradient(&[&[2, 30]], 0.1, 1e-4, |v| (v[0].frames(8, 3) * v[0].frames(8, 3)).sum_all());
+    check_gradient(&[&[2, 7, 8]], 0.1, 1e-4, |v| {
+        let s = v[0].overlap_add(30, 3);
+        (s * s).sum_all()
+    });
+}

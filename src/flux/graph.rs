@@ -14,7 +14,7 @@ use crate::units::{DType, Elementwise, Float, RealValued};
 
 /// The element types traced programs compute in: `f32` and `f64`. A trace has no precision of its
 /// own (constants are kept as `f64`); it is chosen when the graph is evaluated or emitted.
-pub trait FluxFloat: Float + Default + sealed::Sealed {
+pub trait FluxFloat: Float + Default + Send + Sync + sealed::Sealed {
     const DTYPE: DType;
     #[doc(hidden)]
     fn host_ref(a: &NdArray<Self>) -> HostRef<'_>;
@@ -160,6 +160,12 @@ pub enum Op {
     /// Zeros of the node's shape with each row of `updates` added at the row `indices` names (rounded
     /// down and clamped): the transpose of [`Take`](Op::Take) (`stablehlo.scatter`).
     ScatterAdd { indices: Id, updates: Id },
+    /// Windows of `length` along the last axis, `hop` apart: `[..., n]` to `[..., count, length]`
+    /// (`ArrayMath::frames`; emitted as slices, reshapes and a concatenation).
+    Frames { a: Id, length: usize, hop: usize },
+    /// Its transpose: frames `hop` apart summed into `[..., n]` (`ArrayMath::overlap_add`;
+    /// emitted as pads and additions).
+    OverlapAdd { a: Id, n: usize, hop: usize },
 }
 
 impl Op {
@@ -172,7 +178,16 @@ impl Op {
             Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
             Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) | Op::Floor(a) => (Some(a), None, None),
             Op::Rfft(a) | Op::Irfft(a, _) | Op::Fft(a, _) | Op::Re(a) | Op::Im(a) | Op::Conj(a) | Op::ToComplex(a) => (Some(a), None, None),
-            Op::Broadcast(a, _) | Op::Reshape(a) | Op::Transpose(a, _) | Op::Sum(a, _) | Op::Slice { a, .. } | Op::Pad { a, .. } | Op::Reduce(a, ..) | Op::Reverse(a, _) => {
+            Op::Broadcast(a, _)
+            | Op::Reshape(a)
+            | Op::Transpose(a, _)
+            | Op::Sum(a, _)
+            | Op::Slice { a, .. }
+            | Op::Pad { a, .. }
+            | Op::Reduce(a, ..)
+            | Op::Reverse(a, _)
+            | Op::Frames { a, .. }
+            | Op::OverlapAdd { a, .. } => {
                 (Some(a), None, None)
             }
             Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
@@ -229,6 +244,8 @@ impl Op {
             Op::Reverse(a, axes) => Op::Reverse(f(a), axes),
             Op::Take { table, indices } => Op::Take { table: f(table), indices: f(indices) },
             Op::ScatterAdd { indices, updates } => Op::ScatterAdd { indices: f(indices), updates: f(updates) },
+            Op::Frames { a, length, hop } => Op::Frames { a: f(a), length, hop },
+            Op::OverlapAdd { a, n, hop } => Op::OverlapAdd { a: f(a), n, hop },
         }
     }
 }
@@ -707,6 +724,24 @@ impl ArrayMath for Tracer {
             return self;
         }
         Tracer::new(Op::Pad { a: self.check(), low: low.to_vec(), high: high.to_vec(), interior: interior.to_vec() }, shape)
+    }
+
+    fn frames(self, length: usize, hop: usize) -> Tracer {
+        let own = self.shape();
+        let (&n, lead) = own.split_last().expect("frames: needs an axis");
+        assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
+        assert!(n >= length, "frames: {n} samples are fewer than one frame of {length}");
+        let count = 1 + (n - length) / hop;
+        Tracer::new(Op::Frames { a: self.check(), length, hop }, [lead, &[count, length]].concat())
+    }
+
+    fn overlap_add(self, n: usize, hop: usize) -> Tracer {
+        let own = self.shape();
+        assert!(own.len() >= 2, "overlap_add: needs [..., count, length]");
+        let k = own.len() - 2;
+        let (count, length) = (own[k], own[k + 1]);
+        assert!(count >= 1 && hop >= 1 && n >= (count - 1) * hop + length, "overlap_add: {count} frames of {length}, {hop} apart, do not fit {n} samples");
+        Tracer::new(Op::OverlapAdd { a: self.check(), n, hop }, [&own[..k], &[n]].concat())
     }
 
     fn prod_axes(self, axes: &[usize]) -> Tracer {

@@ -15,9 +15,35 @@ use super::scalar::{Binary, Inst, Program, Unary};
 
 const BLOCK: usize = 256;
 
+/// Constant arrays converted to an element type, per node: made on first use.
+#[derive(Default)]
+pub(crate) struct Literals(std::sync::Mutex<std::collections::HashMap<(usize, std::any::TypeId), std::sync::Arc<dyn std::any::Any + Send + Sync>>>);
+
+impl std::fmt::Debug for Literals {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Literals")
+    }
+}
+
+impl Literals {
+    /// Node `i`'s constant `data` in `T`, converted once.
+    pub fn get<T: FluxFloat>(&self, i: usize, data: &[f64]) -> std::sync::Arc<Vec<T>> {
+        let key = (i, std::any::TypeId::of::<T>());
+        let mut map = self.0.lock().expect("the literal cache is not poisoned");
+        let entry = map.entry(key).or_insert_with(|| std::sync::Arc::new(data.iter().map(|&v| T::_lit(v)).collect::<Vec<T>>()));
+        entry.clone().downcast::<Vec<T>>().expect("cached under its own type")
+    }
+}
+
 /// The fusion plan of a graph.
 #[derive(Debug, Default)]
 pub(crate) struct Fusion {
+    /// constant arrays already converted, per element type
+    pub literals: Literals,
+    /// per node: the values its evaluation reads (none if absorbed)
+    pub reads: Vec<Vec<Id>>,
+    /// per node: how many times evaluating the graph reads it (outputs count once each)
+    pub uses: Vec<u32>,
     /// per node: a group computing it (roots), or nothing
     pub groups: Vec<Option<Group>>,
     /// per node: computed inside a group, never on its own
@@ -31,9 +57,14 @@ pub(crate) struct Fusion {
 #[derive(Debug)]
 pub(crate) struct Group {
     pub program: Program,
-    /// the values it reads: single values first (`uniform` of them), then arrays of the root's shape
-    pub inputs: Vec<Id>,
+    /// the values it reads, each once
+    pub fetch: Vec<Id>,
+    /// its inputs as (index into `fetch`, part: 0 the value itself, 1 / 2 the real / imaginary part
+    /// of a complex value): single values first (`uniform` of them), then arrays of the root's shape
+    pub inputs: Vec<(usize, u8)>,
     pub uniform: usize,
+    /// per register: whether it changes from element to element
+    varying: Vec<bool>,
 }
 
 fn single(shape: &[usize]) -> bool {
@@ -84,6 +115,17 @@ impl Fusion {
             .iter()
             .map(|node| matches!(node.op, Op::Broadcast(a, _) if single(&nodes[a as usize].shape) && nodes[a as usize].kind == Kind::Real) && !single(&node.shape))
             .collect();
+        // the real or imaginary part of a complex array: folded into element-wise readers too, which
+        // read it in place from the complex values (1: real, 2: imaginary)
+        let part: Vec<u8> = nodes
+            .iter()
+            .map(|node| match node.op {
+                Op::Re(a) if !single(&node.shape) && nodes[a as usize].shape == node.shape => 1,
+                Op::Im(a) if !single(&node.shape) && nodes[a as usize].shape == node.shape => 2,
+                _ => 0,
+            })
+            .collect();
+        let leaf: Vec<bool> = (0..n).map(|i| splat[i] || part[i] != 0).collect();
         let mut readers: Vec<Vec<Id>> = vec![Vec::new(); n];
         for (i, node) in nodes.iter().enumerate() {
             let mut ops: Vec<Id> = node.op.operands().collect();
@@ -101,7 +143,7 @@ impl Fusion {
                 let all_fusible = |rs: &[Id]| !rs.is_empty() && rs.iter().all(|&r| fusible[r as usize] && nodes[r as usize].shape == nodes[i].shape);
                 if output[i] {
                     false
-                } else if splat[i] {
+                } else if leaf[i] {
                     all_fusible(&readers[i])
                 } else if readers[i].len() == 1 {
                     fusible[i] && all_fusible(&readers[i])
@@ -109,22 +151,22 @@ impl Fusion {
                     // read several times: recomputed in each reader when it is one cheap operation
                     // on values from outside (cheaper than a pass and an array of its own)
                     let cheap = matches!(nodes[i].op, Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Neg(_) | Op::Abs(_));
-                    let leaf = nodes[i].op.operands().all(|a| !fusible[a as usize] || splat[a as usize]);
-                    fusible[i] && cheap && leaf && all_fusible(&readers[i])
+                    let outside = nodes[i].op.operands().all(|a| !fusible[a as usize] || leaf[a as usize]);
+                    fusible[i] && cheap && outside && all_fusible(&readers[i])
                 }
             })
             .collect();
         let mut groups: Vec<Option<Group>> = (0..n).map(|_| None).collect();
         for i in 0..n {
             if fusible[i] && !absorbed[i] {
-                groups[i] = group(nodes, i, &absorbed, &splat);
+                groups[i] = group(nodes, i, &absorbed, &splat, &part);
             }
         }
         // a node folded into a root that could not be compiled must be computed after all
         let mut absorbed_ok = vec![false; n];
         for (i, g) in groups.iter().enumerate() {
             if g.is_some() {
-                mark(nodes, i, &absorbed, &splat, &mut absorbed_ok);
+                mark(nodes, i, &absorbed, &leaf, &mut absorbed_ok);
             }
         }
         let lazy = (0..n)
@@ -140,15 +182,21 @@ impl Fusion {
                     })
             })
             .collect();
-        Fusion { groups, absorbed: absorbed_ok, lazy }
+        let mut plan = Fusion { groups, absorbed: absorbed_ok, lazy, literals: Literals::default(), reads: Vec::new(), uses: vec![0; n] };
+        plan.reads = (0..n).map(|i| plan.reads_of(i, &nodes[i])).collect();
+        for r in &plan.reads {
+            r.iter().for_each(|&a| plan.uses[a as usize] += 1);
+        }
+        graph.outputs.iter().for_each(|&o| plan.uses[o as usize] += 1);
+        plan
     }
 
     /// The values node `i` reads when the graph is evaluated with this plan (none if absorbed).
-    pub fn reads(&self, i: usize, node: &Node) -> Vec<Id> {
+    fn reads_of(&self, i: usize, node: &Node) -> Vec<Id> {
         if self.absorbed[i] {
             Vec::new()
         } else if let Some(g) = &self.groups[i] {
-            g.inputs.clone()
+            g.fetch.clone()
         } else {
             node.op.operands().collect()
         }
@@ -156,23 +204,28 @@ impl Fusion {
 }
 
 /// Marks the nodes folded into root `i`.
-fn mark(nodes: &[Node], i: usize, absorbed: &[bool], splat: &[bool], out: &mut [bool]) {
+fn mark(nodes: &[Node], i: usize, absorbed: &[bool], leaf: &[bool], out: &mut [bool]) {
     for a in nodes[i].op.operands() {
         let a = a as usize;
         if absorbed[a] && !out[a] {
             out[a] = true;
-            if !splat[a] {
-                mark(nodes, a, absorbed, splat, out);
+            if !leaf[a] {
+                mark(nodes, a, absorbed, leaf, out);
             }
         }
     }
 }
 
 /// Root `i`'s group: the nodes folded into it, in order, as a program over single elements.
-fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool]) -> Option<Group> {
-    // members (folded nodes and the root), external inputs
+fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool], part: &[u8]) -> Option<Group> {
+    // members (folded nodes and the root), external inputs as (node, part)
     let mut members = Vec::new();
-    let mut external: Vec<Id> = Vec::new();
+    let mut external: Vec<(Id, u8)> = Vec::new();
+    let add = |key: (Id, u8), external: &mut Vec<(Id, u8)>| {
+        if !external.contains(&key) {
+            external.push(key);
+        }
+    };
     let mut stack = vec![root];
     let mut seen = std::collections::HashSet::new();
     while let Some(i) = stack.pop() {
@@ -180,56 +233,68 @@ fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool]) -> Opti
             continue;
         }
         members.push(i);
-        if splat[i] {
+        if splat[i] || part[i] != 0 {
             continue;
         }
         for a in nodes[i].op.operands() {
-            let a = a as usize;
-            if absorbed[a] {
-                stack.push(a);
-            } else if !external.contains(&(a as Id)) {
-                external.push(a as Id);
+            if absorbed[a as usize] {
+                stack.push(a as usize);
+            } else {
+                add((a, 0), &mut external);
             }
         }
     }
-    // a splat reads its single value from outside
+    // a splat reads its single value from outside, a part its complex array
     for &m in &members {
-        if splat[m] {
-            if let Op::Broadcast(a, _) = nodes[m].op {
-                if !external.contains(&a) {
-                    external.push(a);
-                }
-            }
+        match nodes[m].op {
+            Op::Broadcast(a, _) if splat[m] => add((a, 0), &mut external),
+            Op::Re(a) | Op::Im(a) if part[m] != 0 => add((a, part[m]), &mut external),
+            _ => {}
         }
     }
     members.sort_unstable();
-    let (uniform, arrays): (Vec<Id>, Vec<Id>) = external.into_iter().partition(|&a| single(&nodes[a as usize].shape));
-    let inputs: Vec<Id> = uniform.iter().chain(&arrays).copied().collect();
+    type Keys = Vec<(Id, u8)>;
+    let (uniform, arrays): (Keys, Keys) = external.into_iter().partition(|&(a, _)| single(&nodes[a as usize].shape));
+    let keys: Vec<(Id, u8)> = uniform.iter().chain(&arrays).copied().collect();
     // the group as a graph over single elements: inputs, then the members
-    let mut map = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<(Id, u8), Id> = std::collections::HashMap::new();
     let mut sub = Graph::default();
-    for (k, &a) in inputs.iter().enumerate() {
-        map.insert(a, k as Id);
+    for (k, &(a, p)) in keys.iter().enumerate() {
+        map.insert((a, p), k as Id);
         sub.inputs.push(Vec::new());
-        let kind = if nodes[a as usize].kind == Kind::Mask { Kind::Mask } else { Kind::Real };
+        let kind = if p == 0 && nodes[a as usize].kind == Kind::Mask { Kind::Mask } else { Kind::Real };
         sub.nodes.push(Node { op: Op::Input(k as u32), shape: Vec::new(), kind });
     }
     for &m in &members {
         let id = sub.nodes.len() as Id;
-        let op = if splat[m] {
-            let Op::Broadcast(a, _) = nodes[m].op else { unreachable!() };
-            Op::Reshape(map[&a])
-        } else {
-            nodes[m].op.map(|a| map[&a])
+        let op = match nodes[m].op {
+            Op::Broadcast(a, _) if splat[m] => Op::Reshape(map[&(a, 0)]),
+            Op::Re(a) | Op::Im(a) if part[m] != 0 => Op::Reshape(map[&(a, part[m])]),
+            ref op => op.map(|a| map[&(a, 0)]),
         };
         sub.nodes.push(Node { op, shape: Vec::new(), kind: nodes[m].kind });
-        map.insert(m as Id, id);
+        map.insert((m as Id, 0), id);
     }
-    sub.outputs = vec![map[&(root as Id)]];
+    sub.outputs = vec![map[&(root as Id, 0)]];
     let program = Program::compile(&sub, uniform.len())?;
-    Some(Group { program, inputs, uniform: uniform.len() })
+    let mut varying = vec![false; program.registers];
+    (uniform.len()..program.inputs).for_each(|k| varying[k] = true);
+    for inst in &program.body {
+        varying[inst.dst() as usize] = true;
+    }
+    let mut fetch: Vec<Id> = Vec::new();
+    let inputs = keys
+        .iter()
+        .map(|&(a, p)| {
+            let at = fetch.iter().position(|&f| f == a).unwrap_or_else(|| {
+                fetch.push(a);
+                fetch.len() - 1
+            });
+            (at, p)
+        })
+        .collect();
+    Some(Group { program, fetch, inputs, uniform: uniform.len(), varying })
 }
-
 /// An operand of one block: varying (a slice) or the same for every element.
 #[derive(Clone, Copy)]
 enum Src<T> {
@@ -283,17 +348,30 @@ fn binary<T: Copy>(dst: &mut [T], a: Src<T>, b: Src<T>, f: impl Fn(T, T) -> T) {
 impl Group {
     /// Runs the group over `len` elements: `uniform` holds the single-value inputs, `arrays` the
     /// others (each `len` long, masks as 1 / 0). Returns the root's values.
-    pub fn run<T: FluxFloat>(&self, len: usize, uniform: &[T], arrays: &[&[T]]) -> Vec<T> {
+    pub fn run<T: FluxFloat>(&self, len: usize, uniform: &[T], arrays: &[(&[T], usize)]) -> Vec<T> {
+        #[cfg(target_arch = "x86_64")]
+        if crate::simd::avx2_available() {
+            // SAFETY: AVX2 support was just checked
+            return unsafe { self.run_avx2(len, uniform, arrays) };
+        }
+        self.run_body(len, uniform, arrays)
+    }
+
+    /// The same loops compiled for AVX2 (wider vectors, and the transcendentals vectorize there).
+    /// Plain IEEE operations only, nothing contracted: the results are the baseline build's.
+    #[cfg(target_arch = "x86_64")]
+    #[target_feature(enable = "avx2")]
+    unsafe fn run_avx2<T: FluxFloat>(&self, len: usize, uniform: &[T], arrays: &[(&[T], usize)]) -> Vec<T> {
+        self.run_body(len, uniform, arrays)
+    }
+
+    #[inline(always)]
+    fn run_body<T: FluxFloat>(&self, len: usize, uniform: &[T], arrays: &[(&[T], usize)]) -> Vec<T> {
         let p = &self.program;
         let mut scalars = vec![T::_ZERO; p.registers];
         scalars[..uniform.len()].copy_from_slice(uniform);
         Program::exec(&p.prologue, &mut scalars);
-        // which registers vary from element to element
-        let mut varying = vec![false; p.registers];
-        (self.uniform..p.inputs).for_each(|k| varying[k] = true);
-        for inst in &p.body {
-            varying[inst.dst() as usize] = true;
-        }
+        let varying = &self.varying;
         let out_reg = p.outputs[0] as usize;
         let mut out = Vec::with_capacity(len);
         if !varying[out_reg] {
@@ -304,14 +382,23 @@ impl Group {
         let mut start = 0;
         while start < len {
             let m = BLOCK.min(len - start);
+            // strided inputs (parts of complex arrays) gathered into their registers' blocks
+            for (k, &(a, stride)) in arrays.iter().enumerate() {
+                if stride != 1 {
+                    let r = self.uniform + k;
+                    for (slot, &v) in block[r * BLOCK..r * BLOCK + m].iter_mut().zip(a[start * stride..].iter().step_by(stride)) {
+                        *slot = v;
+                    }
+                }
+            }
             let base = block.as_mut_ptr();
             let src = |r: u32| {
                 let r = r as usize;
                 if !varying[r] {
                     Src::Uniform(scalars[r])
-                } else if r < p.inputs {
+                } else if r < p.inputs && arrays[r - self.uniform].1 == 1 {
                     // an input array, read in place
-                    Src::Varying(arrays[r - self.uniform][start..].as_ptr())
+                    Src::Varying(arrays[r - self.uniform].0[start..].as_ptr())
                 } else {
                     // SAFETY: register r's block lies inside `block`
                     Src::Varying(unsafe { base.add(r * BLOCK) } as *const T)
@@ -364,8 +451,8 @@ impl Group {
                     }
                 }
             }
-            if out_reg < p.inputs {
-                out.extend_from_slice(&arrays[out_reg - self.uniform][start..start + m]);
+            if out_reg < p.inputs && arrays[out_reg - self.uniform].1 == 1 {
+                out.extend_from_slice(&arrays[out_reg - self.uniform].0[start..start + m]);
             } else {
                 out.extend_from_slice(&block[out_reg * BLOCK..out_reg * BLOCK + m]);
             }

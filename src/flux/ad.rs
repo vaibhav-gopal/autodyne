@@ -227,6 +227,19 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 }
             }
             Op::Reverse(a, axes) => acc(&mut adj, a, g.reverse(&axes)),
+            // framing and overlap-add are each other's transposes
+            Op::Frames { a, hop, .. } => {
+                let n = *shape_of(a).last().expect("frames have an axis");
+                acc(&mut adj, a, g.overlap_add(n, hop));
+            }
+            Op::OverlapAdd { a, hop, .. } => {
+                // frames of the samples the frames covered (the rest, zeros, read nothing)
+                let from = shape_of(a);
+                let (count, length) = (from[from.len() - 2], from[from.len() - 1]);
+                let used = (count - 1) * hop + length;
+                let last = g.shape().len() - 1;
+                acc(&mut adj, a, g.slice_axis(last, 0, used).frames(length, hop));
+            }
             // indices are piecewise constant: no gradient
             Op::Take { table, indices } => acc(&mut adj, table, Tracer::scatter_add(&shape_of(table), t(indices), g)),
             Op::ScatterAdd { indices, updates } => acc(&mut adj, updates, g.take(t(indices))),
