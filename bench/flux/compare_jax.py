@@ -5,7 +5,7 @@ are compiled from their StableHLO text by JAX's XLA backend; the same models wri
 `jax.numpy` are traced, lowered and compiled by `jax.jit`. Inputs are on the device before timing,
 both outputs are checked against flux's interpreter, and run times are medians.
 
-    python compare_jax.py DIR [RESULTS.md] [--platform cpu|cuda]
+    python bench/flux/compare_jax.py DIR [--out bench/flux/RESULTS.md] [--platform cpu|cuda]
 """
 
 import argparse
@@ -159,7 +159,7 @@ def fmt(seconds):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("dir")
-    parser.add_argument("results", nargs="?")
+    parser.add_argument("--out", type=Path, help="also write the Markdown table to this file")
     parser.add_argument("--platform", default="cpu")
     parser.add_argument("--repeats", type=int, default=20)
     args = parser.parse_args()
@@ -229,8 +229,8 @@ def main():
         "  it first. Both compiles include XLA's own; JAX's compilation cache is cleared before each.",
     ]
     text = "\n".join(out) + "\n"
-    if args.results:
-        Path(args.results).write_text(text, encoding="utf-8")
+    if args.out:
+        args.out.write_text(text, encoding="utf-8")
     print(text)
 
 

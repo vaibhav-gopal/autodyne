@@ -29,7 +29,7 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-targets
       - name: Test the portable FFT (without the rustfft backend)
-        run: cargo test -p autodyne --no-default-features --lib spectral
+        run: cargo test -p autodyne --no-default-features --lib fft
       - name: Test with the ndarray interop
         run: cargo test -p autodyne --features ndarray --lib
       - name: Doc tests

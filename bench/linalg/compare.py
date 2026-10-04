@@ -5,12 +5,13 @@ Rust (autodyne, faer, nalgebra, Burn) runs from ``bench/rust/examples/linalg.rs`
 NumPy (OpenBLAS's LAPACK), PyTorch (its LAPACK, MKL in the Windows / x86 wheels) and JAX (XLA)
 in-process. Timings are the best of repeated runs (at least 5, up to a second), like the Rust side.
 
-    python compare.py [RESULTS.md]
+    python bench/linalg/compare.py [--out bench/linalg/RESULTS.md]
 
 Run it on one core so no library can use more than one thread (some ignore thread settings): on
 Windows, `start /affinity 1 python compare.py`; on Linux, `taskset -c 0 python compare.py`.
 """
 
+import argparse
 import json
 import os
 import platform
@@ -232,6 +233,9 @@ def fmt(seconds):
 
 
 def main():
+    parser = argparse.ArgumentParser(description="Linear algebra across languages and libraries")
+    parser.add_argument("--out", type=Path, help="also write the Markdown table to this file")
+    args = parser.parse_args()
     with tempfile.TemporaryDirectory() as tmp:
         d = Path(tmp)
         generate(d)
@@ -289,8 +293,8 @@ def main():
         ]
     text = "\n".join(lines) + "\n"
     print(text)
-    if len(sys.argv) > 1:
-        Path(sys.argv[1]).write_text(text, encoding="utf-8")
+    if args.out:
+        args.out.write_text(text, encoding="utf-8")
 
 
 if __name__ == "__main__":

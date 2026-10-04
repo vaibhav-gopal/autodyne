@@ -100,9 +100,9 @@ VIRTUAL_ENV=$PWD/.venv .venv/bin/maturin develop --release --uv   # (Scripts\ on
 .venv/bin/python -m pytest tests
 ```
 ### Benchmarks against NumPy / SciPy
-`bindings/python/bench/compare.py` runs the same work in NumPy / SciPy and autodyne on the same arrays (checking the
+`bench/numpy/compare.py` runs the same work in NumPy / SciPy and autodyne on the same arrays (checking the
 results agree), single-threaded, end to end: autodyne's times include crossing into Rust and back through DLPack. Latest
-results are in [`bindings/python/bench/RESULTS.md`](bindings/python/bench/RESULTS.md). On a Ryzen 9 7900:
+results are in [`bench/numpy/RESULTS.md`](bench/numpy/RESULTS.md). On a Ryzen 9 7900:
 
 - the extension module allocates with mimalloc (autodyne's `mimalloc` feature), which reuses freed pages: a large new
   array costs no page faults on first touch, most of the time of a large element-wise operation otherwise

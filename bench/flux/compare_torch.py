@@ -2,7 +2,7 @@
 against flux's interpreter: autograd eager, and compiled (`torch.compile` of the loss, its backward
 through AOTAutograd; the recurrences through PyTorch's `scan` operator so they are not unrolled).
 
-    python compare_torch.py DIR
+    python bench/flux/compare_torch.py DIR [--out FILE] [--no-compile]
 
 Prints one Markdown row per model and mode: median run time and the largest difference from flux's
 outputs relative to the largest output. `torch.compile` needs a C++ compiler (gcc on Linux).
@@ -186,15 +186,22 @@ def fmt(seconds):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("dir")
-    parser.add_argument("--no-compile", action="store_true")
+    parser.add_argument("--out", type=Path, help="also write the Markdown table to this file")
+    parser.add_argument("--no-compile", action="store_true", help="eager mode only")
     args = parser.parse_args()
     root = Path(args.dir)
     print(f"PyTorch {torch.__version__}, one thread, scan operator {'available' if hop_scan else 'missing'}", file=sys.stderr)
     modes = [("eager", pieces(one_pole_loop, eq_drive_loop))]
     if not args.no_compile and hop_scan is not None:
         modes.append(("torch.compile", compiled_pieces()))
-    print("| Model | Mode | Time | Error vs flux |")
-    print("|---|---|---:|---:|")
+    rows = []
+
+    def emit(line):
+        print(line, flush=True)
+        rows.append(line)
+
+    emit("| Model | Mode | Time | Error vs flux |")
+    emit("|---|---|---:|---:|")
     for name, (title, model) in MODELS.items():
         n_in = sum(1 for _ in root.glob(f"{name}_in*.npy"))
         n_out = sum(1 for _ in root.glob(f"{name}_out*.npy"))
@@ -208,10 +215,12 @@ def main():
                 err = max(error(g, w) for g, w in zip(out, want))
                 run = median_time(lambda: model(fns, *inputs))
                 note = f" (first call {fmt(first)})" if mode != "eager" else ""
-                print(f"| {title} | {mode}{note} | {fmt(run)} | {err:.1e} |", flush=True)
+                emit(f"| {title} | {mode}{note} | {fmt(run)} | {err:.1e} |")
             except Exception as e:  # noqa: BLE001
-                print(f"| {title} | {mode} | failed: {type(e).__name__} | — |", flush=True)
+                emit(f"| {title} | {mode} | failed: {type(e).__name__} | — |")
                 print(f"{name} {mode}: {str(e)[:400]}", file=sys.stderr)
+    if args.out:
+        args.out.write_text("\n".join(rows) + "\n", encoding="utf-8")
 
 
 if __name__ == "__main__":

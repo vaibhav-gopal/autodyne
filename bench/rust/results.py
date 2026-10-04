@@ -1,11 +1,16 @@
-"""Collects criterion's estimates from target/criterion into RESULTS.md.
+"""Collects criterion's estimates from bench/rust/target/criterion into a Markdown table.
 
-    cargo bench --bench compare && python results.py
+    cd bench/rust && cargo bench --bench compare && python results.py [--out RESULTS.md]
 """
 
+import argparse
 import json
 import pathlib
 import platform
+
+parser = argparse.ArgumentParser(description="criterion's estimates as a Markdown table")
+parser.add_argument("--out", type=pathlib.Path, help="also write the Markdown table to this file")
+args = parser.parse_args()
 
 root = pathlib.Path(__file__).parent
 groups = {}
@@ -40,5 +45,7 @@ for group, rows in groups.items():
         rel = f"{ours / t:.2f}x" if ours else ""
         lines.append(f"| {name} | {fmt(t)} | {rate} | {rel} |")
     lines.append("")
-(root / "RESULTS.md").write_text("\n".join(lines), encoding="utf-8")
-print("\n".join(lines))
+text = "\n".join(lines)
+print(text)
+if args.out:
+    args.out.write_text(text, encoding="utf-8")

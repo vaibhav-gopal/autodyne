@@ -53,8 +53,10 @@ gpu = ["dep:cubecl"]
 # on first touch: 2000 x 2000 f32 `a * x + b` into a new array, 2.2 ms with the Windows heap, 0.35 ms
 mimalloc = ["dep:mimalloc"]
 
+# autodyne's own criterion benchmarks; comparisons with other libraries are in bench/ (bench/README.md)
 [[bench]]
 name = "dsp"
+path = "bench/dsp.rs"
 harness = false
 
 [[example]]
