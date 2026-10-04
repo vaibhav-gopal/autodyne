@@ -3,7 +3,7 @@
 
 use std::f64::consts::PI;
 
-use super::special::{arc_jac_sc1, ellipj, ellipk, ellipkm1};
+use crate::special::{arc_jac_sc1, ellipj, ellipk, ellipkm1};
 use super::DesignError;
 use crate::systems::{bilinear_zpk, Domain, Zpk, C64};
 

@@ -16,7 +16,7 @@
 //! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`fft`],
 //!   [`spectral`], [`iq`], [`gain`] (levels, pan, width), [`delay`], [`dynamics`], [`envelope`],
 //!   [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
-//! - Maths: [`linalg`] (matrix products, solves, least squares, eigen / SVD, polynomials) and
+//! - Maths: [`special`] (Bessel and elliptic functions), [`linalg`] (matrix products, solves, least squares, eigen / SVD, polynomials) and
 //!   [`systems`] (LTI systems: transfer functions, zeros-poles-gain, state space, responses,
 //!   discretization); feature `faer`, on by default.
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
@@ -31,7 +31,7 @@
 //! Processors allocate only when constructed; processing runs in place without allocating, so it is
 //! safe inside an audio callback.
 //!
-//! Layering (each module uses only those before it): `units`; `simd`, `fft`, `processor`;
+//! Layering (each module uses only those before it): `units`; `simd`, `fft`, `special`, `processor`;
 //! `signal`; `channels`, `linalg`; `params`; then the processors, instruments and analysis,
 //! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
 
@@ -49,6 +49,7 @@ pub mod simd;
 pub mod processor;
 pub mod channels;
 pub mod fft;
+pub mod special;
 pub mod osc;
 pub mod filter;
 pub mod spectral;

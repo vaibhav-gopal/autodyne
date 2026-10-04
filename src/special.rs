@@ -1,10 +1,25 @@
-//! Special functions for filter design: complete elliptic integrals, Jacobi elliptic functions and
-//! their inverses (elliptic filters), and the modified Bessel function I₀ (Kaiser windows).
+//! Special functions (`scipy.special` names): the modified Bessel function I₀ (Kaiser windows and
+//! the sampler's interpolation kernel), complete elliptic integrals, and Jacobi elliptic functions
+//! and their inverses (elliptic filter design).
 
-pub use crate::spectral::bessel_i0;
 use crate::units::Complex;
 
 type C64 = Complex<f64>;
+
+/// The modified Bessel function of the first kind, order 0 (power series; exact to rounding for the
+/// arguments Kaiser windows use).
+pub fn bessel_i0(x: f64) -> f64 {
+    let y = x * x / 4.0;
+    let mut term = 1.0;
+    let mut sum = 1.0;
+    let mut k = 1.0;
+    while term > sum * 1e-17 {
+        term *= y / (k * k);
+        sum += term;
+        k += 1.0;
+    }
+    sum
+}
 
 /// The arithmetic-geometric mean of `a` and `b`.
 fn agm(mut a: f64, mut b: f64) -> f64 {

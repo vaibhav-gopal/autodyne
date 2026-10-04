@@ -4,6 +4,7 @@ use super::sample::{Level, PAD};
 use super::{LoopMode, SampleMap, Zone};
 use crate::envelope::Adsr;
 use crate::synth::Voice;
+use crate::special::bessel_i0;
 use crate::units::*;
 
 /// How a [`SamplerVoice`] reads between recorded frames when playing at another pitch.
@@ -42,16 +43,6 @@ const MAX_TAPS: usize = 2 * (SINC_ZEROS * MAX_STRETCH as usize + 2);
 fn sinc_table() -> &'static [f64] {
     static TABLE: OnceLock<Vec<f64>> = OnceLock::new();
     TABLE.get_or_init(|| {
-        let bessel_i0 = |x: f64| {
-            // power series; converges fast for the arguments a Kaiser window uses
-            let (mut sum, mut term, mut k) = (1.0, 1.0, 1.0);
-            while term > 1e-12 * sum {
-                term *= (x / (2.0 * k)).powi(2);
-                sum += term;
-                k += 1.0;
-            }
-            sum
-        };
         let beta = 9.0;
         let len = SINC_ZEROS * SINC_RES;
         (0..=len + 1)

@@ -1,4 +1,5 @@
 use super::*;
+use crate::signal::frames;
 use crate::filter::OnePole;
 use crate::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
 use crate::units::{Elementwise, RealValued};

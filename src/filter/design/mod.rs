@@ -19,11 +19,9 @@
 
 mod fir;
 mod iir;
-mod special;
 
 pub use fir::*;
 pub use iir::*;
-pub use special::{arc_jac_sn, bessel_i0, ellipj, ellipk, ellipkm1};
 
 use thiserror::Error;
 
