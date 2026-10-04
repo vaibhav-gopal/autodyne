@@ -222,6 +222,25 @@ fn scan_gradient_matches_finite_differences() {
 }
 
 #[test]
+fn unrolled_scans_match_one_step_per_iteration() {
+    // 7 steps per iteration over 512: 73 iterations and 1 step left over after the loop
+    let xs = noise(N, 3);
+    let targets = concrete(1_200.0, &xs);
+    let inputs = [scalar(700.0), vector(&xs), vector(&targets), scalar(0.0)];
+    for backend in backends() {
+        let one = compile(&*backend, &one_pole().grad_program_with(N, &Loss::mse(&[N]), &Emit::f32().scan_unroll(1)));
+        let seven = compile(&*backend, &one_pole().grad_program_with(N, &Loss::mse(&[N]), &Emit::f32().scan_unroll(7)));
+        let (a, b) = (one.run(&inputs).unwrap(), seven.run(&inputs).unwrap());
+        for (k, (x, y)) in a.iter().zip(&b).enumerate() {
+            assert_close(&format!("{} output {k}", backend.name()), y, x, 1e-6);
+        }
+        let forward = compile(&*backend, &one_pole().forward_program_with(N, &Emit::f32().scan_unroll(7)));
+        let out = forward.run(&[scalar(700.0), vector(&xs), scalar(0.0)]).unwrap();
+        assert_close(&format!("{} unrolled forward", backend.name()), &out[0], &vector(&concrete(700.0, &xs)), 1e-5);
+    }
+}
+
+#[test]
 fn shaped_scans_match_the_interpreter() {
     // a bank of four one-poles, and a state space model with dot products
     let bank = Scan::trace(&[&[4]], &[&[4]], &[4], |p, s, x| {
@@ -507,22 +526,16 @@ fn double_precision_programs_run_on_every_backend() {
     let interpreted = one_pole().loss_grad(std::slice::from_ref(&p), &x, &targets, std::slice::from_ref(&s0));
     for backend in backends() {
         let name = backend.name();
-        let forward = match backend.compile(&one_pole().forward_program_as::<f64>(N)) {
-            Ok(exe) => exe,
-            // IREE 3.11 has no f64 transcendentals on the CPU (no libm in its modules) or on Vulkan
-            Err(e) if name.starts_with("iree") => {
-                eprintln!("skipping {name}: no f64 on this target: {}", e.to_string().lines().next().unwrap_or_default());
-                continue;
-            }
-            Err(e) => panic!("{name}: {e}"),
-        };
+        // written for the backend: IREE's CPU and Vulkan targets get f64 maths out of arithmetic
+        let emit = Emit::f64().for_backend(&*backend);
+        let forward = compile(&*backend, &one_pole().forward_program_with(N, &emit));
         let out = forward.run(&[p.clone(), x.clone(), s0.clone()]).unwrap();
         for (i, (g, w)) in out[0].as_slice().iter().zip(&want).enumerate() {
             assert!((g - w).abs() < 1e-12, "{name} sample {i}: {g} vs {w}");
         }
         // f32 data is refused by an f64 program
         assert!(forward.run(&[scalar(900.0), vector(&[0.0; N]), scalar(0.0)]).is_err(), "{name}");
-        let grad = compile(&*backend, &one_pole().grad_program_as::<f64>(N, &Loss::mse(&[N])));
+        let grad = compile(&*backend, &one_pole().grad_program_with(N, &Loss::mse(&[N]), &emit));
         let out = grad.run(&[p.clone(), x.clone(), targets.clone(), s0.clone()]).unwrap();
         assert!((out[0].as_slice()[0] - interpreted.loss).abs() < 1e-12 * (1.0 + interpreted.loss), "{name} loss");
         assert!((out[1].as_slice()[0] - interpreted.params[0].as_slice()[0]).abs() < 1e-9 * (1.0 + interpreted.params[0].as_slice()[0].abs()), "{name} gradient");
@@ -558,6 +571,65 @@ fn long_ffts_built_from_short_ones_match_the_interpreter() {
             let got = compile(&*backend, &program).run(&inputs).unwrap();
             for (k, (g, w)) in got.iter().zip(&want).enumerate() {
                 assert_close(&format!("{} n {n} output {k}", backend.name()), g, w, 2e-4);
+            }
+        }
+    }
+}
+#[test]
+fn f64_maths_written_out_of_arithmetic_match_the_cpu() {
+    // exp, log, sin, cos, tanh and pow over wide ranges, specials included, on every backend, with
+    // and without the arithmetic versions (a backend with its own f64 maths runs both)
+    let n = 64;
+    let x: Vec<f64> = (0..n).map(|i| -30.0 + 60.0 * i as f64 / (n - 1) as f64 + 0.123).collect();
+    let mut pos: Vec<f64> = (0..n - 6).map(|i| 10f64.powf(-300.0 + 600.0 * i as f64 / (n - 7) as f64)).collect();
+    // (no subnormals: IREE's CPU runtime flushes them to zero)
+    pos.extend([0.0, -1.0, f64::INFINITY, 1.0, 1e-307, 2.2250738585072014e-308]);
+    let big: Vec<f64> = (0..n).map(|i| (i as f64 - 32.0) * 1234.567).collect();
+    let graph = trace(&[&[n], &[n], &[n]], |v| {
+        let (x, p, b) = (v[0], v[1], v[2]);
+        vec![x.exp(), p.ln(), b.sin(), b.cos(), x.tanh(), p.powf(x * Tracer::lit(0.1))]
+    });
+    let inputs = [NdArray::<f64>::array(&x, &[n]), NdArray::<f64>::array(&pos, &[n]), NdArray::<f64>::array(&big, &[n])];
+    let want: [Vec<f64>; 6] = [
+        x.iter().map(|v| v.exp()).collect(),
+        pos.iter().map(|v| v.ln()).collect(),
+        big.iter().map(|v| v.sin()).collect(),
+        big.iter().map(|v| v.cos()).collect(),
+        x.iter().map(|v| v.tanh()).collect(),
+        pos.iter().zip(&x).map(|(p, x)| p.powf(x * 0.1)).collect(),
+    ];
+    // the arguments each function scales its error by on Vulkan (see below)
+    let args = [&x, &pos, &big, &big, &x, &pos];
+    for backend in backends() {
+        // Vulkan drivers reassociate f64 arithmetic, folding the parts of the range reductions
+        // together: sin and cos are then accurate to ulps of their argument, not of their value
+        let reordered = backend.name() == "iree-vulkan";
+        for soft in [true, false] {
+            let emit = Emit::f64().for_backend(&*backend).soft_f64(soft || backend.soft_f64());
+            let program = graph.program_with(&emit);
+            let got = compile(&*backend, &program).run(&inputs).unwrap();
+            for (k, (g, w)) in got.iter().zip(&want).enumerate() {
+                // the worst error in units of the last place (specials must match exactly)
+                let (mut worst, mut at) = (0.0f64, 0);
+                for (i, (g, w)) in g.as_slice().iter().zip(w).enumerate() {
+                    if g.is_nan() || w.is_nan() || w.is_infinite() || *w == 0.0 {
+                        assert!((g.is_nan() && w.is_nan()) || g == w || (w.abs() < 1e-300 && g.abs() < 1e-300), "{} (soft {soft}) function {k} element {i}: {g:e} vs {w:e}", backend.name());
+                        continue;
+                    }
+                    // (pow's double-double steps collapse too: its error grows with |ln result|)
+                    let scale = match k {
+                        2 | 3 if reordered => w.abs().max(args[k][i].abs()),
+                        5 if reordered => w.abs() * (1.0 + w.abs().ln().abs()),
+                        _ => w.abs(),
+                    };
+                    let ulp = f64::EPSILON * scale.max(f64::MIN_POSITIVE);
+                    if (g - w).abs() / ulp > worst {
+                        (worst, at) = ((g - w).abs() / ulp, i);
+                    }
+                }
+                eprintln!("{} (soft {soft}) function {k}: within {worst:.1} ulp", backend.name());
+                // GPUs may contract or reorder the range reduction (StableHLO has no fused multiply-add)
+                assert!(worst <= 16.0, "{} (soft {soft}) function {k}: {worst} ulp at element {at}: {:e} vs {:e}", backend.name(), g.as_slice()[at], w[at]);
             }
         }
     }

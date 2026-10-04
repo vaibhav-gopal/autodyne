@@ -10,6 +10,9 @@ use super::loss::Loss;
 use super::scan::Scan;
 use crate::units::{gcd, DType};
 
+#[path = "soft.rs"]
+mod soft;
+
 /// A StableHLO module with one function, `@main`, the shapes of its inputs and outputs, and their
 /// element type (`DType::F32` or `DType::F64`).
 #[derive(Clone, Debug, PartialEq)]
@@ -42,6 +45,12 @@ pub struct Emit {
     /// FFTs longer than this are built from shorter ones (a four-step decomposition), for backends
     /// that cannot compile long FFTs; `None` emits every FFT as one operation.
     pub max_fft: Option<usize>,
+    /// f64 `exp`, `log`, `sin`, `cos`, `tanh` and `pow` written out of arithmetic (range
+    /// reduction and series), for backends that compile f64 programs but not those functions (or
+    /// not accurately).
+    pub soft_f64: bool,
+    /// Steps of a scan per loop iteration (1: one), for backends that drive loops from the host.
+    pub scan_unroll: usize,
 }
 
 impl Default for Emit {
@@ -53,26 +62,37 @@ impl Default for Emit {
 impl Emit {
     /// Single precision, FFTs emitted whole.
     pub fn f32() -> Self {
-        Emit { dtype: DType::F32, max_fft: None }
+        Emit { dtype: DType::F32, max_fft: None, soft_f64: false, scan_unroll: 1 }
     }
     /// Double precision, FFTs emitted whole.
     pub fn f64() -> Self {
-        Emit { dtype: DType::F64, max_fft: None }
+        Emit { dtype: DType::F64, max_fft: None, soft_f64: false, scan_unroll: 1 }
     }
     /// Computing in `T`.
     pub fn of<T: FluxFloat>() -> Self {
-        Emit { dtype: T::DTYPE, max_fft: None }
+        Emit { dtype: T::DTYPE, max_fft: None, soft_f64: false, scan_unroll: 1 }
     }
     /// FFTs of at most `n` points (at least 2).
     pub fn max_fft(self, n: usize) -> Self {
         assert!(n >= 2, "Emit::max_fft: at least 2 points");
         Emit { max_fft: Some(n), ..self }
     }
-    /// With the limits `backend` needs (see [`Backend::max_fft`](super::Backend::max_fft)).
+    /// `steps` steps of a scan per loop iteration (see [`scan_unroll`](Self::scan_unroll)).
+    pub fn scan_unroll(self, steps: usize) -> Self {
+        Emit { scan_unroll: steps.max(1), ..self }
+    }
+    /// f64 transcendentals written out of arithmetic (see [`soft_f64`](Self::soft_f64)).
+    pub fn soft_f64(self, soft: bool) -> Self {
+        Emit { soft_f64: soft, ..self }
+    }
+    /// With the limits `backend` needs (see [`Backend::max_fft`](super::Backend::max_fft),
+    /// [`Backend::soft_f64`](super::Backend::soft_f64) and
+    /// [`Backend::scan_unroll`](super::Backend::scan_unroll)).
     pub fn for_backend(self, backend: &dyn super::Backend) -> Self {
+        let emit = Emit { soft_f64: self.soft_f64 || backend.soft_f64(), scan_unroll: self.scan_unroll.max(backend.scan_unroll()), ..self };
         match backend.max_fft() {
-            Some(n) => self.max_fft(self.max_fft.map_or(n, |m| m.min(n))),
-            None => self,
+            Some(n) => emit.max_fft(emit.max_fft.map_or(n, |m| m.min(n))),
+            None => emit,
         }
     }
 }
@@ -112,13 +132,15 @@ struct Writer {
     depth: usize,
     dtype: DType,
     max_fft: Option<usize>,
+    soft_f64: bool,
+    unroll: usize,
 }
 
 impl Writer {
     fn new(emit: &Emit) -> Self {
         let dtype = emit.dtype;
         assert!(matches!(dtype, DType::F32 | DType::F64), "flux: programs are f32 or f64, not {dtype:?}");
-        Writer { out: String::new(), next: 0, depth: 1, dtype, max_fft: emit.max_fft }
+        Writer { out: String::new(), next: 0, depth: 1, dtype, max_fft: emit.max_fft, soft_f64: emit.soft_f64 && dtype == DType::F64, unroll: emit.scan_unroll }
     }
 
     /// A real constant array (bit-exact hex).
@@ -309,6 +331,23 @@ impl Writer {
             Kind::Mask => "i1".to_string(),
         };
         for node in &g.nodes {
+            // f64 transcendentals out of arithmetic, for backends without them
+            if self.soft_f64 && node.kind == Kind::Real {
+                let arg = |i: u32| names[i as usize].clone();
+                let soft = match node.op {
+                    Op::Exp(a) => Some(self.soft_exp(&arg(a), &node.shape)),
+                    Op::Log(a) => Some(self.soft_log(&arg(a), &node.shape)),
+                    Op::Sin(a) => Some(self.soft_sin_cos(&arg(a), &node.shape, false)),
+                    Op::Cos(a) => Some(self.soft_sin_cos(&arg(a), &node.shape, true)),
+                    Op::Tanh(a) => Some(self.soft_tanh(&arg(a), &node.shape)),
+                    Op::Pow(a, b) => Some(self.soft_pow(&arg(a), &arg(b), &node.shape)),
+                    _ => None,
+                };
+                if let Some(name) = soft {
+                    names.push(name);
+                    continue;
+                }
+            }
             let n = |i: u32| names[i as usize].clone();
             let t = |i: u32| {
                 let node = &g.nodes[i as usize];
@@ -642,37 +681,62 @@ impl Writer {
         ))
     }
 
-    /// A `stablehlo.while` carrying `init` (value, type) pairs. Iterates `for i in 0..len` with the
-    /// counter as the first carried value; `body` gets the counter and the carried values and returns
-    /// the next carried values. Returns the final carried values (without the counter).
-    fn for_loop(&mut self, len: usize, init: &[(String, String)], body: impl FnOnce(&mut Self, &str, &[String]) -> Vec<String>) -> Vec<String> {
-        let zero = self.index(0);
-        let counter = self.fresh();
-        let args: Vec<String> = init.iter().map(|_| self.fresh()).collect();
-        let types: Vec<&str> = std::iter::once(INDEX).chain(init.iter().map(|(_, t)| t.as_str())).collect();
-        let types = types.join(", ");
-        let result = self.fresh();
-        let bindings: Vec<String> = std::iter::once(format!("{counter} = {zero}"))
-            .chain(args.iter().zip(init).map(|(a, (v, _))| format!("{a} = {v}")))
-            .collect();
-        self.line(&format!("{result}:{} = stablehlo.while({}) : {types}", init.len() + 1, bindings.join(", ")));
-        self.line("cond {");
-        self.depth += 1;
-        let n = self.index(len as i32);
-        let more = self.emit(&format!("stablehlo.compare LT, {counter}, {n}, SIGNED : ({INDEX}, {INDEX}) -> tensor<i1>"));
-        self.line(&format!("stablehlo.return {more} : tensor<i1>"));
-        self.depth -= 1;
-        self.line("} do {");
-        self.depth += 1;
-        let next = body(self, &counter, &args);
-        assert_eq!(next.len(), init.len());
-        let one = self.index(1);
-        let step = self.emit(&format!("stablehlo.add {counter}, {one} : {INDEX}"));
-        let values: Vec<&str> = std::iter::once(step.as_str()).chain(next.iter().map(String::as_str)).collect();
-        self.line(&format!("stablehlo.return {} : {types}", values.join(", ")));
-        self.depth -= 1;
-        self.line("}");
-        (1..=init.len()).map(|k| format!("{result}#{k}")).collect()
+    /// A `stablehlo.while` carrying `init` (value, type) pairs. Runs `body` for `i in 0..len` in
+    /// order; `body` gets the step's index and the carried values and returns the next carried
+    /// values. Returns the final carried values.
+    ///
+    /// With an unroll factor `u > 1` each iteration of the loop runs `u` steps (indices
+    /// `counter u + j`), and the `len mod u` left over are written after the loop: backends that
+    /// drive the loop from the host (IREE on GPUs) then pay for a `u`-th of the round trips.
+    fn for_loop(&mut self, len: usize, init: &[(String, String)], mut body: impl FnMut(&mut Self, &str, &[String]) -> Vec<String>) -> Vec<String> {
+        let u = self.unroll.clamp(1, len.max(1));
+        let (chunks, rest) = (len / u, len % u);
+        let mut values: Vec<String> = init.iter().map(|(v, _)| v.clone()).collect();
+        if chunks > 0 {
+            let zero = self.index(0);
+            let counter = self.fresh();
+            let args: Vec<String> = init.iter().map(|_| self.fresh()).collect();
+            let types: Vec<&str> = std::iter::once(INDEX).chain(init.iter().map(|(_, t)| t.as_str())).collect();
+            let types = types.join(", ");
+            let result = self.fresh();
+            let bindings: Vec<String> = std::iter::once(format!("{counter} = {zero}"))
+                .chain(args.iter().zip(init).map(|(a, (v, _))| format!("{a} = {v}")))
+                .collect();
+            self.line(&format!("{result}:{} = stablehlo.while({}) : {types}", init.len() + 1, bindings.join(", ")));
+            self.line("cond {");
+            self.depth += 1;
+            let n = self.index(chunks as i32);
+            let more = self.emit(&format!("stablehlo.compare LT, {counter}, {n}, SIGNED : ({INDEX}, {INDEX}) -> tensor<i1>"));
+            self.line(&format!("stablehlo.return {more} : tensor<i1>"));
+            self.depth -= 1;
+            self.line("} do {");
+            self.depth += 1;
+            let mut next = args.clone();
+            for j in 0..u {
+                let i = if u == 1 {
+                    counter.clone()
+                } else {
+                    let factor = self.index(u as i32);
+                    let base = self.emit(&format!("stablehlo.multiply {counter}, {factor} : {INDEX}"));
+                    let offset = self.index(j as i32);
+                    self.emit(&format!("stablehlo.add {base}, {offset} : {INDEX}"))
+                };
+                next = body(self, &i, &next);
+                assert_eq!(next.len(), init.len());
+            }
+            let one = self.index(1);
+            let step = self.emit(&format!("stablehlo.add {counter}, {one} : {INDEX}"));
+            let carried: Vec<&str> = std::iter::once(step.as_str()).chain(next.iter().map(String::as_str)).collect();
+            self.line(&format!("stablehlo.return {} : {types}", carried.join(", ")));
+            self.depth -= 1;
+            self.line("}");
+            values = (1..=init.len()).map(|k| format!("{result}#{k}")).collect();
+        }
+        for j in 0..rest {
+            let i = self.index((chunks * u + j) as i32);
+            values = body(self, &i, &values);
+        }
+        values
     }
 
     /// Wraps the body into `func.func @main`.

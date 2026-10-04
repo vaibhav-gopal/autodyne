@@ -163,14 +163,17 @@ Backends, all found at run time (nothing is linked at build time, and the real-t
 
 - IREE: `iree-compile` / `iree-run-module`, for the CPU, Vulkan, CUDA, ROCm or Metal; modules can be saved (`.vmfb`)
   and loaded elsewhere. Backends state their limits and programs are written for them (`Emit::for_backend`): on
-  Vulkan, long FFTs are built from 64-point ones
+  Vulkan, long FFTs are built from 64-point ones; f64 `exp`, `log`, `sin`, `cos`, `tanh` and `pow`, which IREE
+  lacks on the CPU and Vulkan (and its CUDA `pow` misses by hundreds of ulps), are written out of arithmetic
+  (`Emit::soft_f64`; within 4 ulps on the CPU and CUDA); and since IREE drives loops from the host, a round trip per iteration, scans run 32
+  steps per iteration (`Emit::scan_unroll`: a 4096-sample gradient 13x faster on Vulkan, 2-3x on the CPU and CUDA)
 - PJRT: a plugin library (XLA CPU, CUDA, ...) loaded in-process through the PJRT C API, no Python; arrays can stay
   on the device between runs (`upload` / `run_resident` / `download`). The test suite passes on XLA's CUDA plugin
 - XLA through JAX in a long-lived Python process, for platforms without a plugin (Windows)
 
-Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 20-40%
-sooner and run at 0.96-1.24x JAX's speed: on par for a one-pole's gradient, ahead on spectral models and on an EQ
-chain's STFT-loss gradient. Against other automatic differentiation ([`AUTODIFF.md`](bench/flux/AUTODIFF.md), one core), in process
+Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 8-46%
+sooner and run at 0.97-1.28x JAX's speed: ahead on scans (a one-pole 1.07-1.24x, an EQ chain's STFT-loss gradient
+1.16-1.28x), on par for a spectral model's gradient. Against other automatic differentiation ([`AUTODIFF.md`](bench/flux/AUTODIFF.md), one core), in process
 (feature `jit`: scalar scans compiled with Cranelift, array graphs interpreted with fused element-wise chains): a
 one-pole's gradient over 48k samples in 163 µs (135 µs with `Scan::contracted`; Enzyme 160 µs, XLA 0.48 ms, candle
 0.59 s, dfdx 0.70 s, PyTorch 1.04 s, `torch.compile` fails on the recurrence), its forward pass in 53 µs (36 µs;

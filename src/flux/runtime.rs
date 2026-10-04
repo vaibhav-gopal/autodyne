@@ -21,6 +21,17 @@ pub trait Backend {
     fn max_fft(&self) -> Option<usize> {
         None
     }
+    /// Whether this backend compiles f64 programs but not f64 `exp`, `log`, `sin`, `cos`,
+    /// `tanh` or `pow` (or not accurately): write programs for it with
+    /// [`Emit::for_backend`](super::Emit::for_backend), which builds them from arithmetic.
+    fn soft_f64(&self) -> bool {
+        false
+    }
+    /// How many steps of a scan to run per loop iteration: backends that drive loops from the host
+    /// (a round trip per iteration) want several. Applied by [`Emit::for_backend`](super::Emit::for_backend).
+    fn scan_unroll(&self) -> usize {
+        1
+    }
 }
 
 /// A host array going into a program: `f32` or `f64` (the program's element type).

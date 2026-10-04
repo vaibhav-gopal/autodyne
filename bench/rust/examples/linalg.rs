@@ -26,7 +26,7 @@ fn read_npy(path: &Path) -> (Vec<f64>, Vec<usize>) {
     assert!(header.contains("'<f8'") && header.contains("'fortran_order': False"), "{}: expected C-order f64", path.display());
     let dims = header.split("'shape': (").nth(1).unwrap().split(')').next().unwrap();
     let shape: Vec<usize> = dims.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| d.parse().unwrap()).collect();
-    let data = bytes[10 + len..].chunks_exact(8).map(|b| f64::from_le_bytes(b.try_into().unwrap())).collect();
+    let data = bytes[10 + len..].as_chunks::<8>().0.iter().map(|&b| f64::from_le_bytes(b)).collect();
     (data, shape)
 }
 

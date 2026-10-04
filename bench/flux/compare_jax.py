@@ -225,6 +225,8 @@ def main():
         "- Scan gradients save each step's intermediate values by default, as JAX does; the \"checkpointed\" rows",
         "  recompute each step in the reverse loop instead (`Scan::checkpointed(true)`), which keeps only the state",
         "  per step: less memory, more arithmetic. It costs little when the step is small (the one-pole).",
+        "- Scans run one step per loop iteration, as `Emit::for_backend` leaves them for XLA: eight per iteration",
+        "  (`flux_programs DIR 8`) speed the one-pole's forward pass up (87 µs) but slow every gradient 9-12x.",
         "- flux compiles sooner: its programs come straight from the trace, while `jax.jit` traces Python and lowers",
         "  it first. Both compiles include XLA's own; JAX's compilation cache is cleared before each.",
     ]

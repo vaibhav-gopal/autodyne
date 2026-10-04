@@ -3,7 +3,7 @@
 //! took.
 //!
 //! ```text
-//! cargo run --release --features flux --example flux_programs -- <out dir>
+//! cargo run --release --features flux --example flux_programs -- <out dir> [scan steps per loop iteration]
 //! ```
 
 use std::io::Write;
@@ -12,7 +12,7 @@ use std::time::Instant;
 
 use autodyne::distortion::Shape;
 use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
-use autodyne::flux::{scalar, trace, vector, vjp, Loss, Program, Scan, StftResolution, Tracer};
+use autodyne::flux::{scalar, trace, vector, vjp, Emit, Loss, Program, Scan, StftResolution, Tracer};
 use autodyne::signal::{ArrayMath, NdArray, RealArrayMath};
 use autodyne::units::Elementwise;
 
@@ -74,6 +74,9 @@ fn one_pole() -> Scan {
 fn main() {
     let dir = std::env::args().nth(1).expect("usage: flux_programs <out dir>");
     let dir = Path::new(&dir);
+    // scans: steps per loop iteration (1: one)
+    let unroll: usize = std::env::args().nth(2).map_or(1, |u| u.parse().expect("a number of steps"));
+    let emit = Emit::f32().scan_unroll(unroll);
     std::fs::create_dir_all(dir).unwrap();
     let mut index = std::fs::File::create(dir.join("cases.tsv")).unwrap();
     let mut cases = Vec::new();
@@ -83,7 +86,7 @@ fn main() {
     let xs = vector(&noise(n, 1));
     let start = Instant::now();
     let scan = one_pole();
-    let program = scan.forward_program(n);
+    let program = scan.forward_program_with(n, &emit);
     let build_ms = start.elapsed().as_secs_f64() * 1e3;
     let inputs = vec![scalar(1_000.0), xs.clone(), scalar(0.0)];
     let (ys, last) = scan.run(&[scalar(1_000.0)], &xs, &[scalar(0.0)]);
@@ -92,7 +95,7 @@ fn main() {
     // 2. its MSE gradient (cutoff, initial state and input)
     let (targets, _) = scan.run(&[scalar(1_500.0)], &xs, &[scalar(0.0)]);
     let start = Instant::now();
-    let program = one_pole().loss_grad_program(n);
+    let program = one_pole().grad_program_with(n, &Loss::mse(&[n]), &emit);
     let build_ms = start.elapsed().as_secs_f64() * 1e3;
     let g = scan.loss_grad(&[scalar(1_000.0)], &xs, &targets, &[scalar(0.0)]);
     let outputs = vec![scalar(g.loss), g.params[0].clone(), g.state[0].clone(), g.input.clone()];
@@ -100,7 +103,7 @@ fn main() {
     cases.push(Case { name: "one_pole_grad", program, inputs: inputs.clone(), outputs: outputs.clone(), build_ms });
     // the same gradient recomputing each step instead of saving residuals
     let start = Instant::now();
-    let program = one_pole().checkpointed(true).loss_grad_program(n);
+    let program = one_pole().checkpointed(true).grad_program_with(n, &Loss::mse(&[n]), &emit);
     let build_ms = start.elapsed().as_secs_f64() * 1e3;
     cases.push(Case { name: "one_pole_grad_checkpointed", program, inputs, outputs, build_ms });
 
@@ -114,7 +117,7 @@ fn main() {
         (vec![a, b], Shape::Tanh.apply(y * p[2]))
     });
     let loss = Loss::stft(&[n], &[StftResolution::overlapping(512), StftResolution::overlapping(128), StftResolution::overlapping(32)]);
-    let program = chain.grad_program(n, &loss);
+    let program = chain.grad_program_with(n, &loss, &emit);
     let build_ms = start.elapsed().as_secs_f64() * 1e3;
     let s0 = [scalar(0.0), scalar(0.0)];
     let (target, _) = chain.run(&[scalar(3_000f32.ln()), scalar(0.9), scalar(2.0)], &xs, &s0);
@@ -127,7 +130,7 @@ fn main() {
     let inputs = [params.to_vec(), vec![xs, target], s0.to_vec()].concat();
     cases.push(Case { name: "eq_drive_stft_grad", program, inputs: inputs.clone(), outputs: outputs.clone(), build_ms });
     let start = Instant::now();
-    let program = chain.clone().checkpointed(true).grad_program(n, &loss);
+    let program = chain.clone().checkpointed(true).grad_program_with(n, &loss, &emit);
     let build_ms = start.elapsed().as_secs_f64() * 1e3;
     cases.push(Case { name: "eq_drive_stft_grad_checkpointed", program, inputs, outputs, build_ms });
 

@@ -573,10 +573,11 @@ impl PyGraph {
         }
     }
     /// The StableHLO program, in `dtype` ("float32" or "float64"), with FFTs of at most `max_fft`
-    /// points if given (see `Backend.max_fft`).
-    #[pyo3(signature = (dtype="float32", max_fft=None))]
-    fn program(&self, dtype: &str, max_fft: Option<usize>) -> PyResult<PyProgram> {
-        Ok(PyProgram(self.0.program_with(&emit(dtype, max_fft)?)))
+    /// points if given (see `Backend.max_fft`), written for `backend` if given (its FFT limit, and
+    /// f64 maths out of arithmetic where it has none).
+    #[pyo3(signature = (dtype="float32", max_fft=None, backend=None))]
+    fn program(&self, dtype: &str, max_fft: Option<usize>, backend: Option<PyRef<'_, PyBackend>>) -> PyResult<PyProgram> {
+        Ok(PyProgram(self.0.program_with(&emit(dtype, max_fft, backend.as_deref())?)))
     }
     #[getter]
     fn input_shapes(&self) -> Vec<Vec<usize>> {
@@ -600,13 +601,17 @@ impl PyGraph {
     }
 }
 
-fn emit(dtype: &str, max_fft: Option<usize>) -> PyResult<Emit> {
+fn emit(dtype: &str, max_fft: Option<usize>, backend: Option<&PyBackend>) -> PyResult<Emit> {
     let e = if wide(dtype)? { Emit::f64() } else { Emit::f32() };
-    match max_fft {
-        Some(n) if n < 2 => Err(PyValueError::new_err("max_fft must be at least 2")),
-        Some(n) => Ok(e.max_fft(n)),
-        None => Ok(e),
-    }
+    let e = match max_fft {
+        Some(n) if n < 2 => return Err(PyValueError::new_err("max_fft must be at least 2")),
+        Some(n) => e.max_fft(n),
+        None => e,
+    };
+    Ok(match backend {
+        Some(b) => e.for_backend(&*b.0),
+        None => e,
+    })
 }
 
 fn wide(dtype: &str) -> PyResult<bool> {
@@ -819,10 +824,11 @@ impl PyScan {
         Ok(dict.into_any().unbind())
     }
 
-    /// The forward program over `len` steps: `(params..., xs, s0...) -> (ys, final state...)`.
-    #[pyo3(signature = (len, dtype="float32", max_fft=None))]
-    fn forward_program(&self, len: usize, dtype: &str, max_fft: Option<usize>) -> PyResult<PyProgram> {
-        Ok(PyProgram(self.0.forward_program_with(len, &emit(dtype, max_fft)?)))
+    /// The forward program over `len` steps: `(params..., xs, s0...) -> (ys, final state...)`,
+    /// written for `backend` if given (IREE's loops run 32 steps per iteration).
+    #[pyo3(signature = (len, dtype="float32", max_fft=None, backend=None))]
+    fn forward_program(&self, len: usize, dtype: &str, max_fft: Option<usize>, backend: Option<PyRef<'_, PyBackend>>) -> PyResult<PyProgram> {
+        Ok(PyProgram(self.0.forward_program_with(len, &emit(dtype, max_fft, backend.as_deref())?)))
     }
 
     /// The same scan with gradients that recompute each step (`True`: the least memory) or save the
@@ -845,9 +851,10 @@ impl PyScan {
     }
 
     /// The gradient program over `len` steps: `(params..., xs, aux..., s0...) -> (loss, d params...,
-    /// d s0..., d xs)`; mean squared error against a target without `loss`.
-    #[pyo3(signature = (len, loss=None, dtype="float32", max_fft=None))]
-    fn grad_program(&self, len: usize, loss: Option<PyRef<'_, PyLoss>>, dtype: &str, max_fft: Option<usize>) -> PyResult<PyProgram> {
+    /// d s0..., d xs)`; mean squared error against a target without `loss`. Written for `backend`
+    /// if given, as `forward_program` is.
+    #[pyo3(signature = (len, loss=None, dtype="float32", max_fft=None, backend=None))]
+    fn grad_program(&self, len: usize, loss: Option<PyRef<'_, PyLoss>>, dtype: &str, max_fft: Option<usize>, backend: Option<PyRef<'_, PyBackend>>) -> PyResult<PyProgram> {
         let mse;
         let loss = match &loss {
             Some(l) => &l.0,
@@ -856,7 +863,7 @@ impl PyScan {
                 &mse
             }
         };
-        Ok(PyProgram(self.0.grad_program_with(len, loss, &emit(dtype, max_fft)?)))
+        Ok(PyProgram(self.0.grad_program_with(len, loss, &emit(dtype, max_fft, backend.as_deref())?)))
     }
 }
 
@@ -942,7 +949,7 @@ impl PyBackend {
     fn name(&self) -> &'static str {
         self.0.name()
     }
-    /// The longest FFT this backend compiles, if limited: pass it as `max_fft` when writing programs.
+    /// The longest FFT this backend compiles, if limited (programs written with `backend=` respect it).
     #[getter]
     fn max_fft(&self) -> Option<usize> {
         self.0.max_fft()

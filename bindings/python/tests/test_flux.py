@@ -85,12 +85,21 @@ def test_programs_and_a_backend():
         pytest.skip("IREE tools not configured")
     xs = noise(64, 7).astype(np.float32)
     targets, _ = scan.run([1_500.0], xs, [0.0])
-    exe = flux.Backend.iree().compile(program)
+    iree = flux.Backend.iree()
+    exe = iree.compile(program)
     loss, d_cutoff, d_state, d_xs = exe(1_000.0, xs, targets, 0.0)
     want = scan.grad([np.float32(1_000.0)], xs, [0.0], [targets])
     np.testing.assert_allclose(loss, want["loss"], rtol=1e-5)
     np.testing.assert_allclose(d_cutoff, want["params"][0], rtol=1e-4)
     np.testing.assert_allclose(d_xs, want["input"], rtol=1e-4, atol=1e-9)
+    # written for IREE: f64 maths out of arithmetic (its CPU modules have no libm), 32 steps per loop
+    wide = scan.grad_program(64, dtype="float64", backend=iree)
+    assert "stablehlo.exponential" not in wide.text
+    loss, d_cutoff, _, d_xs = iree.compile(wide)(1_000.0, xs.astype(np.float64), targets.astype(np.float64), 0.0)
+    want = scan.grad([1_000.0], xs.astype(np.float64), [0.0], [targets.astype(np.float64)])
+    np.testing.assert_allclose(loss, want["loss"], rtol=1e-12)
+    np.testing.assert_allclose(d_cutoff, want["params"][0], rtol=1e-9)
+    np.testing.assert_allclose(d_xs, want["input"], rtol=1e-9, atol=1e-15)
 
 
 def test_complex_spectra_and_checkpointing():

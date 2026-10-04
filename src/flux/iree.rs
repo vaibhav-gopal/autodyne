@@ -2,11 +2,14 @@
 //!
 //! The tools are found at run time: in `AUTODYNE_IREE_DIR` if set, else on `PATH`
 //! (`pip install iree-base-compiler iree-base-runtime` provides both). Arrays cross as `.npy` files.
-//! Each run starts `iree-run-module` (tens of milliseconds). On GPUs, IREE drives a scan's loop
-//! from the host, one dispatch per step: long scans of a single channel run far faster on the CPU,
-//! and GPUs pay off when each step is wide (many channels, or frames). f64 programs need a target
-//! with f64 maths: IREE 3.11 compiles f64 transcendentals (`exp`, `sin`, ...) for CUDA but not for
-//! the CPU or Vulkan.
+//! Each run starts `iree-run-module` (tens of milliseconds). IREE drives a scan's loop from the
+//! host, a round trip per iteration, so `Emit::for_backend` runs 32 steps per iteration; still,
+//! long scans of a single channel run far faster in process, and GPUs pay off when each step is
+//! wide (many channels, or frames). IREE 3.11 compiles f64 transcendentals (`exp`, `sin`, ...) for
+//! CUDA (with a `pow` off by hundreds of ulps) but not for the CPU or Vulkan, so `Emit::for_backend`
+//! writes them out of arithmetic for every IREE target: within 4 ulps, except on Vulkan, whose
+//! drivers reorder f64 arithmetic (there `exp` is within 6 ulps, `sin` and `cos` accurate to ulps
+//! of their argument and `pow` to ulps times `|ln result|`).
 //!
 //! An [`IreeTarget`] picks the hardware: the host CPU (the default), Vulkan, CUDA, ROCm or Metal.
 //! Compiled modules (`.vmfb`) can be saved with [`Iree::compile_to`] and run later, or elsewhere,
@@ -174,6 +177,20 @@ impl Backend for Iree {
     /// IREE 3.11's Vulkan backend fails on FFTs of 128 points or more.
     fn max_fft(&self) -> Option<usize> {
         matches!(self.target, IreeTarget::Vulkan { .. }).then_some(64)
+    }
+
+    /// IREE 3.11 has no f64 transcendentals on the CPU (no libm in its modules) or on Vulkan
+    /// (SPIR-V's are 32-bit), and its CUDA `pow` is off by hundreds of ulps for large results:
+    /// flux's arithmetic versions are used on every target (within 4 ulps where the arithmetic is
+    /// kept in order).
+    fn soft_f64(&self) -> bool {
+        true
+    }
+
+    /// IREE drives a `while` loop from the host, a round trip per iteration: 32 steps per
+    /// iteration make a 4096-step gradient 13x faster on Vulkan, 2-3x on CUDA and the CPU.
+    fn scan_unroll(&self) -> usize {
+        32
     }
 
     fn compile(&self, program: &Program) -> Result<Box<dyn Executable>, FluxError> {
