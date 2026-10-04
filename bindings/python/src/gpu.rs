@@ -100,6 +100,14 @@ mod enabled {
     }
 
     impl PyGpuArray {
+        fn complex(&self, py: Python<'_>, inverse: bool) -> PyResult<Py<PyAny>> {
+            let shape = with!(&self.0, g => g.shape());
+            if shape.len() < 2 || shape[shape.len() - 1] != 2 || shape[shape.len() - 2] == 0 {
+                return Err(PyValueError::new_err(format!("GpuArray.fft: interleaved complex data [..., n, 2], got {shape:?}")));
+            }
+            wrap(py, map!(&self.0, g => if inverse { g.ifft() } else { g.fft() }))
+        }
+
         fn combine(&self, py: Python<'_>, other: &Bound<'_, PyAny>, op: Op, reflected: bool) -> PyResult<Py<PyAny>> {
             if let Ok(o) = other.cast::<PyGpuArray>() {
                 let inner = match (&self.0, &o.get().0) {
@@ -289,6 +297,53 @@ mod enabled {
                     }
                 }
             }
+        }
+
+        /// The matrix product with another GpuArray of the same dtype (two matrices).
+        fn matmul(&self, py: Python<'_>, other: &Bound<'_, PyGpuArray>) -> PyResult<Py<PyAny>> {
+            let (a, b) = (&self.0, &other.get().0);
+            let (sa, sb) = (with!(a, g => g.shape()), with!(b, g => g.shape()));
+            if sa.len() != 2 || sb.len() != 2 || sa[1] != sb[0] {
+                return Err(PyValueError::new_err(format!("GpuArray.matmul: matrices with matching inner dimensions, got {sa:?} @ {sb:?}")));
+            }
+            let inner = match (a, b) {
+                (Inner::F32(a), Inner::F32(b)) => Inner::F32(a.matmul(b)),
+                (Inner::F64(a), Inner::F64(b)) => Inner::F64(a.matmul(b)),
+                _ => return Err(PyTypeError::new_err("GpuArray.matmul: the operands have different dtypes")),
+            };
+            wrap(py, inner)
+        }
+
+        fn __matmul__(&self, py: Python<'_>, other: &Bound<'_, PyGpuArray>) -> PyResult<Py<PyAny>> {
+            self.matmul(py, other)
+        }
+
+        /// The real FFT along the last axis: `[..., n]` to interleaved complex bins `[..., n // 2 + 1, 2]`.
+        fn rfft(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+            if with!(&self.0, g => g.shape()).last().is_none_or(|&n| n == 0) {
+                return Err(PyValueError::new_err("GpuArray.rfft: a non-empty last axis"));
+            }
+            wrap(py, map!(&self.0, g => g.rfft()))
+        }
+
+        /// The inverse of `rfft`: interleaved bins `[..., n // 2 + 1, 2]` to `[..., n]`.
+        fn irfft(&self, py: Python<'_>, n: usize) -> PyResult<Py<PyAny>> {
+            let shape = with!(&self.0, g => g.shape());
+            let ok = n >= 1 && shape.len() >= 2 && shape[shape.len() - 1] == 2 && shape[shape.len() - 2] == n / 2 + 1;
+            if !ok {
+                return Err(PyValueError::new_err(format!("GpuArray.irfft: bins [..., n // 2 + 1, 2] for n = {n}, got {shape:?}")));
+            }
+            wrap(py, map!(&self.0, g => g.irfft(n)))
+        }
+
+        /// The FFT along the next-to-last axis of interleaved complex data `[..., n, 2]`.
+        fn fft(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+            self.complex(py, false)
+        }
+
+        /// The inverse FFT of interleaved complex data `[..., n, 2]` (scaled by `1 / n`).
+        fn ifft(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+            self.complex(py, true)
         }
 
         /// A causal FIR filter with `taps` along the last axis (each lane starts from silence).

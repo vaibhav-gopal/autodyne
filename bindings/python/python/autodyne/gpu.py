@@ -2,8 +2,9 @@
 
 A :class:`GpuArray` keeps float32 or float64 values on the GPU between operations: arithmetic with
 other GpuArrays and with Python numbers, ``exp``/``log``/``tanh``/``sin``/``cos``/``sqrt``/``abs``,
-sums (all, or along an axis of a matrix) and FIR filtering all give new GpuArrays without a round
-trip; ``.numpy()`` (or ``numpy.asarray``) brings the values back. ``.T`` and ``transpose`` are
+sums (all, or along an axis of a matrix), FIR filtering, matrix products (`a @ b`) and FFTs
+(`rfft` / `irfft`; `fft` / `ifft` on interleaved complex data `[..., n, 2]`) all give new
+GpuArrays without a round trip; ``.numpy()`` (or ``numpy.asarray``) brings the values back. ``.T`` and ``transpose`` are
 views, and a transposed NumPy array goes up as it lies in memory.
 
     >>> import numpy as np

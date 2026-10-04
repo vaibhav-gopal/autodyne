@@ -53,6 +53,14 @@ NVIDIA GeForce RTX 5070 Ti for the GPU rows (wgpu). Every case first checks that
 | autodyne Fir per lane (CPU, 1 thread) | 1.50 ms | 0.51 Gelem/s | 1.00x |
 | burn flex conv1d (CPU) | 3.57 ms | 0.22 Gelem/s | 0.42x |
 
+## matmul 1024 x 1024 f32
+
+| Library | Time | Throughput | Relative to autodyne |
+|---|---:|---:|---:|
+| autodyne gpu (GPU, resident) | 691.4 µs | 3,105.89 Gelem/s | 1.00x |
+| burn wgpu (GPU, resident) | 729.4 µs | 2,944.33 Gelem/s | 0.95x |
+| autodyne linalg (CPU, all cores) | 3.42 ms | 628.33 Gelem/s | 0.20x |
+
 ## matrix + row (broadcast), 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
@@ -62,6 +70,13 @@ NVIDIA GeForce RTX 5070 Ti for the GPU rows (wgpu). Every case first checks that
 | autodyne (CPU, 1 thread) | 604.4 µs | 6.62 Gelem/s | 1.00x |
 | ndarray (CPU, 1 thread) | 713.2 µs | 5.61 Gelem/s | 0.85x |
 | burn flex (CPU) | 4.83 ms | 0.83 Gelem/s | 0.13x |
+
+## rfft 256 x 4096 f32
+
+| Library | Time | Throughput | Relative to autodyne |
+|---|---:|---:|---:|
+| autodyne gpu rfft (GPU, resident) | 196.8 µs | 5.33 Gelem/s | 1.00x |
+| autodyne RealFft (CPU, 1 thread) | 707.9 µs | 1.48 Gelem/s | 0.28x |
 
 ## row sums, 2000x2000 f32
 

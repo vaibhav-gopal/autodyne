@@ -212,3 +212,62 @@ fn double_precision_where_supported() {
         Err(e) => assert_eq!(e, GpuError::Unsupported("f64")),
     }
 }
+
+#[test]
+fn matrix_products_match_the_cpu() {
+    if !available() {
+        return;
+    }
+    for (m, k, n) in [(1, 1, 1), (3, 5, 2), (64, 64, 64), (65, 33, 70), (130, 257, 17)] {
+        let (a, b) = (data(&[m, k], 3), data(&[k, n], 4));
+        let want: Vec<f32> = (0..m * n).map(|ij| (0..k).map(|l| a.as_slice()[ij / n * k + l] * b.as_slice()[l * n + ij % n]).sum()).collect();
+        close(&up(&a).matmul(&up(&b)).to_host(), &want, 1e-5 * k as f32, &format!("matmul {m}x{k}x{n}"));
+    }
+    // transposed views are made contiguous first
+    let (a, b) = (data(&[40, 30], 5), data(&[40, 20], 6));
+    let want: Vec<f32> = (0..30 * 20).map(|ij| (0..40).map(|l| a.as_slice()[l * 30 + ij / 20] * b.as_slice()[l * 20 + ij % 20]).sum()).collect();
+    close(&up(&a).transpose().matmul(&up(&b)).to_host(), &want, 1e-4, "matmul of a transposed view");
+    if supports::<f64>() {
+        let a = crate::testing::random_f64(&[50, 60], 7);
+        let b = crate::testing::random_f64(&[60, 40], 8);
+        let want: Vec<f64> = (0..50 * 40).map(|ij| (0..60).map(|l| a.as_slice()[ij / 40 * 60 + l] * b.as_slice()[l * 40 + ij % 40]).sum()).collect();
+        let got = GpuArray::from_host(&a.view()).unwrap().matmul(&GpuArray::from_host(&b.view()).unwrap()).to_host();
+        assert!(got.as_slice().iter().zip(&want).all(|(g, w)| (g - w).abs() < 1e-12), "f64 matmul");
+    }
+}
+
+#[test]
+fn ffts_match_the_cpu() {
+    if !available() {
+        return;
+    }
+    use crate::fft::RealFft;
+    for n in [1usize, 2, 8, 64, 1024, 1000, 1031, 4095] {
+        let x = data(&[3, n], n as u32);
+        let got = up(&x).rfft().to_host();
+        assert_eq!(got.shape(), [3, n / 2 + 1, 2]);
+        let bins = n / 2 + 1;
+        let mut plan = RealFft::<f64>::new(n);
+        let mut spec = vec![crate::units::Complex::<f64>::zero(); bins];
+        for lane in 0..3 {
+            let row: Vec<f64> = x.as_slice()[lane * n..(lane + 1) * n].iter().map(|&v| v as f64).collect();
+            plan.forward(&row, &mut spec);
+            let scale = (n as f64).sqrt();
+            for (k, z) in spec.iter().enumerate() {
+                let (gr, gi) = (got.as_slice()[(lane * bins + k) * 2] as f64, got.as_slice()[(lane * bins + k) * 2 + 1] as f64);
+                assert!((gr - z.re).abs() < 1e-4 * scale && (gi - z.im).abs() < 1e-4 * scale, "rfft n {n} lane {lane} bin {k}: ({gr}, {gi}) vs {z:?}");
+            }
+        }
+        // back again
+        let back = up(&x).rfft().irfft(n).to_host();
+        close(&back, x.as_slice(), 1e-4, &format!("irfft(rfft) n {n}"));
+        // complex: ifft(fft(z)) = z
+        let z = data(&[2, n, 2], 9);
+        close(&up(&z).fft().ifft().to_host(), z.as_slice(), 1e-4, &format!("ifft(fft) n {n}"));
+    }
+    if supports::<f64>() {
+        let x = crate::testing::random_f64(&[2, 1000], 10);
+        let g = GpuArray::from_host(&x.view()).unwrap().rfft().irfft(1000).to_host();
+        assert!(g.as_slice().iter().zip(x.as_slice()).all(|(a, b)| (a - b).abs() < 1e-12), "f64 round trip");
+    }
+}

@@ -1,6 +1,6 @@
 //! Arrays on the GPU (feature `gpu`): [`GpuArray`] keeps `f32` or `f64` data in device memory
-//! between operations, so a chain of element-wise work, reductions and filtering never crosses the
-//! bus until [`GpuArray::to_host`]. Kernels are CubeCL's, run through wgpu (Vulkan, Metal,
+//! between operations, so a chain of element-wise work, reductions, filtering, matrix products and
+//! FFTs never crosses the bus until [`GpuArray::to_host`]. Kernels are CubeCL's, run through wgpu (Vulkan, Metal,
 //! DirectX 12).
 //!
 //! Like `NdView` on the CPU, a `GpuArray` is a view: [`transpose`](GpuArray::transpose) and
@@ -90,12 +90,20 @@ mod sealed {
 pub trait GpuFloat: Float + CubeElement + Copy + Default + Send + Sync + sealed::Sealed + 'static {
     /// The element type's name ("f32", "f64").
     const NAME: &'static str;
+    /// `v` rounded to this type (host-side constants: twiddles, scales).
+    fn of(v: f64) -> Self;
 }
 impl GpuFloat for f32 {
     const NAME: &'static str = "f32";
+    fn of(v: f64) -> Self {
+        v as f32
+    }
 }
 impl GpuFloat for f64 {
     const NAME: &'static str = "f64";
+    fn of(v: f64) -> Self {
+        v
+    }
 }
 
 const THREADS: u32 = 256;
@@ -106,6 +114,172 @@ mod wide;
 mod tests;
 
 use kernels::*;
+
+// FFT =============================================================================================
+
+/// `e^(-2 pi i t / n)` for `t` in `0..n / 2`, interleaved, computed in f64 and kept on the GPU
+/// for the life of the process (one table per length and type).
+fn twiddles<T: GpuFloat>(n: usize) -> Handle {
+    static CACHE: OnceLock<std::sync::Mutex<std::collections::HashMap<(&'static str, usize), Handle>>> = OnceLock::new();
+    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    cache
+        .entry((T::NAME, n))
+        .or_insert_with(|| {
+            let tw: Vec<T> = (0..n / 2)
+                .flat_map(|t| {
+                    let a = -std::f64::consts::TAU * t as f64 / n as f64;
+                    [T::of(a.cos()), T::of(a.sin())]
+                })
+                .collect();
+            client().create(Bytes::from_elems(if tw.is_empty() { vec![T::of(0.0); 2] } else { tw }))
+        })
+        .clone()
+}
+
+/// The longest row transformed in shared memory: 32 KiB of interleaved complex values.
+fn shared_fft_max<T: GpuFloat>() -> usize {
+    32 * 1024 / (2 * size_of::<T>())
+}
+
+/// Transforms of `lanes` rows of power-of-two length `n <= shared_fft_max` in one launch (one cube
+/// per row, see `fft_shared_kernel`): real input when `real_input`, the first `bins` values out,
+/// scaled by `scale`.
+fn fft_shared<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, real_input: bool, bins: usize, inverse: bool, scale: f64) -> Handle {
+    let out = client().empty((2 * lanes * bins).max(1) * size_of::<T>());
+    let tw = twiddles::<T>(n);
+    let input_len = if real_input { lanes * n } else { 2 * lanes * n };
+    let threads = (n / 2).clamp(1, 256) as u32;
+    // SAFETY: x holds `input_len` values, out lanes * bins complex ones, the twiddles n / 2; each
+    // cube's shared buffer holds its row (2 n <= cap values)
+    unsafe {
+        fft_shared_kernel::launch_unchecked::<T, WgpuRuntime>(
+            client(),
+            CubeCount::Static(lanes as u32, 1, 1),
+            CubeDim::new_1d(threads),
+            ArrayArg::from_raw_parts(x.clone(), input_len),
+            ArrayArg::from_raw_parts(out.clone(), 2 * lanes * bins),
+            ArrayArg::from_raw_parts(tw, n.max(2)),
+            n,
+            n.trailing_zeros(),
+            bins,
+            T::of(if inverse { -1.0 } else { 1.0 }),
+            T::of(scale),
+            real_input,
+            2 * shared_fft_max::<T>(),
+        )
+    };
+    out
+}
+
+/// Unscaled radix-2 transforms of `lanes` interleaved complex lanes of `n` (a power of two) in
+/// `x`: log2(n) Stockham passes ping-ponging between two buffers. `x` itself is left untouched.
+fn radix2<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> Handle {
+    let len = 2 * lanes * n;
+    let tw = twiddles::<T>(n);
+    let sign = T::of(if inverse { -1.0 } else { 1.0 });
+    // pass p writes buffer p mod 2 and reads the previous one (the input for the first): the
+    // input is never written, and a one-point transform (no passes) is the input itself
+    let buffers = [client().empty(len * size_of::<T>()), client().empty(len * size_of::<T>())];
+    let mut src = x.clone();
+    let (mut ns, mut pass) = (1, 0);
+    while ns < n {
+        let dst = buffers[pass % 2].clone();
+        // SAFETY: src and dst hold `len` values; the twiddle table n / 2 complex ones
+        unsafe {
+            stockham_kernel::launch_unchecked::<T, WgpuRuntime>(
+                client(),
+                CubeCount::Static(((n / 2) as u32).div_ceil(THREADS), lanes as u32, 1),
+                CubeDim::new_1d(THREADS),
+                ArrayArg::from_raw_parts(src.clone(), len),
+                ArrayArg::from_raw_parts(dst.clone(), len),
+                ArrayArg::from_raw_parts(tw.clone(), n.max(2)),
+                n,
+                ns,
+                sign,
+            )
+        };
+        src = dst;
+        ns *= 2;
+        pass += 1;
+    }
+    src
+}
+
+/// Unscaled transforms of `lanes` interleaved complex lanes of any length `n` by Bluestein's
+/// algorithm: `X[k] = c[k] sum_j (x[j] c[j]) conj(c[k - j])` with `c[k] = e^(-i pi k² / n)`, the
+/// convolution done by radix-2 transforms of length `m >= 2n - 1` (the filter's spectrum from the
+/// CPU FFT, in f64).
+fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> Handle {
+    let m = (2 * n - 1).next_power_of_two();
+    let sign = if inverse { 1.0 } else { -1.0 };
+    // the chirp, k² reduced modulo 2n so the angle stays exact
+    let chirp: Vec<(f64, f64)> = (0..n)
+        .map(|k| {
+            let a = sign * std::f64::consts::PI * ((k as u128 * k as u128) % (2 * n as u128)) as f64 / n as f64;
+            (a.cos(), a.sin())
+        })
+        .collect();
+    let mut filter = vec![crate::units::Complex::<f64>::zero(); m];
+    filter[0] = crate::units::Complex::new(chirp[0].0, -chirp[0].1);
+    for k in 1..n {
+        let c = crate::units::Complex::new(chirp[k].0, -chirp[k].1);
+        filter[k] = c;
+        filter[m - k] = c;
+    }
+    crate::fft::Fft::<f64>::new(m).forward(&mut filter);
+    let to_gpu = |v: Vec<(f64, f64)>| client().create(Bytes::from_elems(v.into_iter().flat_map(|(a, b)| [T::of(a), T::of(b)]).collect::<Vec<T>>()));
+    let chirp_gpu = to_gpu(chirp);
+    let filter_gpu = to_gpu(filter.iter().map(|z| (z.re, z.im)).collect());
+    let padded = client().empty(2 * lanes * m * size_of::<T>());
+    // SAFETY: x holds lanes * n complex values, padded lanes * m, the chirp n
+    unsafe {
+        chirp_kernel::launch_unchecked::<T, WgpuRuntime>(
+            client(),
+            CubeCount::Static((m as u32).div_ceil(THREADS), lanes as u32, 1),
+            CubeDim::new_1d(THREADS),
+            ArrayArg::from_raw_parts(x.clone(), 2 * lanes * n),
+            ArrayArg::from_raw_parts(chirp_gpu.clone(), 2 * n),
+            ArrayArg::from_raw_parts(padded.clone(), 2 * lanes * m),
+            n,
+            n,
+            m,
+        )
+    };
+    // the convolution: forward, times the filter's spectrum, inverse (scaled by 1 / m)
+    let spectrum = radix2::<T>(&padded, lanes, m, false);
+    // SAFETY: spectrum holds lanes * m complex values, the filter m
+    unsafe {
+        complex_mul_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(lanes * m), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(spectrum.clone(), 2 * lanes * m), ArrayArg::from_raw_parts(filter_gpu, 2 * m), m)
+    };
+    let conv = radix2::<T>(&spectrum, lanes, m, true);
+    let out = client().empty(2 * lanes * n * size_of::<T>());
+    // the chirp again on the first n values, with the inverse transform's 1 / m folded in
+    let chirp_scaled: Vec<T> = {
+        let s = 1.0 / m as f64;
+        (0..n)
+            .flat_map(|k| {
+                let a = sign * std::f64::consts::PI * ((k as u128 * k as u128) % (2 * n as u128)) as f64 / n as f64;
+                [T::of(a.cos() * s), T::of(a.sin() * s)]
+            })
+            .collect()
+    };
+    let chirp_scaled = client().create(Bytes::from_elems(chirp_scaled));
+    // SAFETY: conv holds lanes * m complex values, out lanes * n
+    unsafe {
+        chirp_kernel::launch_unchecked::<T, WgpuRuntime>(
+            client(),
+            CubeCount::Static((n as u32).div_ceil(THREADS), lanes as u32, 1),
+            CubeDim::new_1d(THREADS),
+            ArrayArg::from_raw_parts(conv, 2 * lanes * m),
+            ArrayArg::from_raw_parts(chirp_scaled, 2 * n),
+            ArrayArg::from_raw_parts(out.clone(), 2 * lanes * n),
+            m,
+            n,
+            n,
+        )
+    };
+    out
+}
 
 // ARRAYS ==========================================================================================
 
@@ -627,6 +801,165 @@ impl<T: GpuFloat> GpuArray<T> {
             );
         }
         out
+    }
+
+    /// The matrix product `self @ other` of two matrices (m x k and k x n), still on the GPU: a
+    /// register-tiled kernel, each cube computing a 64 x 64 block of the result through shared
+    /// memory. Transposed views are made contiguous first. Panics unless the inner dimensions agree.
+    pub fn matmul(&self, other: &GpuArray<T>) -> GpuArray<T> {
+        let (a, b) = (self.contiguous(), other.contiguous());
+        assert!(a.ndim() == 2 && b.ndim() == 2 && a.memory[1] == b.memory[0], "GpuArray::matmul: {:?} @ {:?}", self.shape(), other.shape());
+        let (m, k, n) = (a.memory[0], a.memory[1], b.memory[1]);
+        let out = GpuArray::empty(&[m, n], vec![0, 1]);
+        if m == 0 || n == 0 {
+            return out;
+        }
+        if k == 0 {
+            return out.mul_scalar(T::of(0.0));
+        }
+        let tiles = |d: usize| d.div_ceil(MM_TILE) as u32;
+        // SAFETY: a holds m * k values, b k * n, out m * n; every access is bounds-checked against them
+        unsafe {
+            matmul_kernel::launch_unchecked::<T, WgpuRuntime>(
+                client(),
+                CubeCount::Static(tiles(n), tiles(m), 1),
+                CubeDim::new_2d(MM_THREADS, MM_THREADS),
+                ArrayArg::from_raw_parts(a.handle.clone(), m * k),
+                ArrayArg::from_raw_parts(b.handle.clone(), k * n),
+                ArrayArg::from_raw_parts(out.handle.clone(), m * n),
+                m,
+                k,
+                n,
+            )
+        };
+        out
+    }
+
+    /// The discrete Fourier transform along the next-to-last axis of interleaved complex data
+    /// (`[..., n, 2]`: real and imaginary parts last), any `n >= 1`: radix-2 Stockham passes for
+    /// powers of two, Bluestein's algorithm (a chirp convolution by power-of-two transforms)
+    /// otherwise. Twiddles are computed on the host in f64. Same sign convention as `fft::Fft`.
+    pub fn fft(&self) -> GpuArray<T> {
+        self.complex_transform(false)
+    }
+
+    /// The inverse of [`fft`](Self::fft) (scaled by `1 / n`).
+    pub fn ifft(&self) -> GpuArray<T> {
+        self.complex_transform(true)
+    }
+
+    /// The spectrum of real lanes along the last axis (`[..., n]` to `[..., n / 2 + 1, 2]`,
+    /// interleaved complex bins), as `numpy.fft.rfft`.
+    pub fn rfft(&self) -> GpuArray<T> {
+        let x = self.contiguous();
+        let mut shape = x.memory.clone();
+        let n = shape.pop().expect("GpuArray::rfft: an axis to transform");
+        let lanes = x.len() / n.max(1);
+        let bins = n / 2 + 1;
+        if lanes > 0 && n.is_power_of_two() && n <= shared_fft_max::<T>() {
+            // one launch: packed, transformed and cut to the bins in shared memory
+            let out = fft_shared::<T>(&x.handle, lanes, n, true, bins, false, 1.0);
+            shape.extend([bins, 2]);
+            return GpuArray::new(out, shape.clone(), identity(shape.len()));
+        }
+        let z = GpuArray::<T>::empty(&[lanes, n, 2], vec![0, 1, 2]);
+        if !x.is_empty() {
+            // SAFETY: x holds lanes * n values, z twice as many
+            unsafe {
+                real_to_complex_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(x.len()), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(x.handle.clone(), x.len()), ArrayArg::from_raw_parts(z.handle.clone(), 2 * x.len()))
+            };
+        }
+        let spectrum = z.complex_transform(false);
+        let out = GpuArray::<T>::empty(&[lanes, bins, 2], vec![0, 1, 2]);
+        if lanes > 0 {
+            // SAFETY: spectrum holds lanes * n complex values, out lanes * bins
+            unsafe {
+                bins_kernel::launch_unchecked::<T, WgpuRuntime>(
+                    client(),
+                    CubeCount::Static((bins as u32).div_ceil(THREADS), lanes as u32, 1),
+                    CubeDim::new_1d(THREADS),
+                    ArrayArg::from_raw_parts(spectrum.handle.clone(), 2 * lanes * n),
+                    ArrayArg::from_raw_parts(out.handle.clone(), 2 * lanes * bins),
+                    n,
+                    bins,
+                    T::of(1.0),
+                )
+            };
+        }
+        shape.extend([bins, 2]);
+        GpuArray::new(out.handle, shape.clone(), identity(shape.len()))
+    }
+
+    /// Real lanes of length `n` from their bins (`[..., n / 2 + 1, 2]` to `[..., n]`), as
+    /// `numpy.fft.irfft`: the Hermitian spectrum completed, inverted, the real parts kept.
+    pub fn irfft(&self, n: usize) -> GpuArray<T> {
+        let x = self.contiguous();
+        let mut shape = x.memory.clone();
+        assert!(shape.len() >= 2 && shape[shape.len() - 1] == 2 && shape[shape.len() - 2] == n / 2 + 1 && n >= 1, "GpuArray::irfft: bins [..., n / 2 + 1, 2] for n = {n}, got {shape:?}");
+        shape.truncate(shape.len() - 2);
+        let bins = n / 2 + 1;
+        let lanes = x.len() / (2 * bins);
+        let full = GpuArray::<T>::empty(&[lanes, n, 2], vec![0, 1, 2]);
+        if lanes > 0 {
+            // SAFETY: x holds lanes * bins complex values, full lanes * n
+            unsafe {
+                hermitian_kernel::launch_unchecked::<T, WgpuRuntime>(
+                    client(),
+                    CubeCount::Static((n as u32).div_ceil(THREADS), lanes as u32, 1),
+                    CubeDim::new_1d(THREADS),
+                    ArrayArg::from_raw_parts(x.handle.clone(), 2 * lanes * bins),
+                    ArrayArg::from_raw_parts(full.handle.clone(), 2 * lanes * n),
+                    n,
+                    bins,
+                )
+            };
+        }
+        let z = full.complex_transform(true);
+        let out = GpuArray::<T>::empty(&[lanes * n], vec![0]);
+        if lanes > 0 {
+            // SAFETY: z holds lanes * n complex values, out lanes * n
+            unsafe {
+                real_part_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(lanes * n), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(z.handle.clone(), 2 * lanes * n), ArrayArg::from_raw_parts(out.handle.clone(), lanes * n), T::of(1.0))
+            };
+        }
+        shape.push(n);
+        GpuArray::new(out.handle, shape.clone(), identity(shape.len()))
+    }
+
+    /// `[..., n, 2]` complex lanes transformed along `n` (inverse scaled by `1 / n`).
+    fn complex_transform(&self, inverse: bool) -> GpuArray<T> {
+        let x = self.contiguous();
+        assert!(x.ndim() >= 2 && x.memory[x.ndim() - 1] == 2, "GpuArray::fft: interleaved complex data [..., n, 2], got {:?}", self.shape());
+        let n = x.memory[x.ndim() - 2];
+        let lanes = x.len() / (2 * n.max(1));
+        if lanes == 0 || n == 0 {
+            return x;
+        }
+        if n.is_power_of_two() && n <= shared_fft_max::<T>() {
+            let out = fft_shared::<T>(&x.handle, lanes, n, false, n, inverse, if inverse { 1.0 / n as f64 } else { 1.0 });
+            return GpuArray::new(out, x.memory.clone(), identity(x.ndim()));
+        }
+        let z = if n.is_power_of_two() { radix2::<T>(&x.handle, lanes, n, inverse) } else { bluestein::<T>(&x.handle, lanes, n, inverse) };
+        let z = if inverse {
+            let scaled = GpuArray::<T>::empty(&[lanes, n, 2], vec![0, 1, 2]);
+            // SAFETY: z and scaled hold lanes * n complex values
+            unsafe {
+                bins_kernel::launch_unchecked::<T, WgpuRuntime>(
+                    client(),
+                    CubeCount::Static((n as u32).div_ceil(THREADS), lanes as u32, 1),
+                    CubeDim::new_1d(THREADS),
+                    ArrayArg::from_raw_parts(z.clone(), 2 * lanes * n),
+                    ArrayArg::from_raw_parts(scaled.handle.clone(), 2 * lanes * n),
+                    n,
+                    n,
+                    T::of(1.0 / n as f64),
+                )
+            };
+            scaled.handle
+        } else {
+            z
+        };
+        GpuArray::new(z, x.memory.clone(), identity(x.ndim()))
     }
 
     /// A causal FIR with `taps` along the last axis (each lane starts from silence).

@@ -311,9 +311,71 @@ fn convolution(c: &mut Criterion) {
     g.finish();
 }
 
+fn matmul_and_fft(c: &mut Criterion) {
+    const N: usize = 1024;
+    let a: Vec<f32> = (0..N * N).map(|i| ((i * 7919) % 1000) as f32 / 1000.0 - 0.5).collect();
+    let b: Vec<f32> = (0..N * N).map(|i| ((i * 104729) % 1000) as f32 / 1000.0 - 0.5).collect();
+    let (an, bn) = (NdArray::from_vec(a.clone(), &[N, N]).unwrap(), NdArray::from_vec(b.clone(), &[N, N]).unwrap());
+    let cpu = autodyne::linalg::matmul(an.view(), bn.view()).unwrap();
+    let (ag, bg) = (GpuArray::from_host(&an.view()).unwrap(), GpuArray::from_host(&bn.view()).unwrap());
+    close(ag.matmul(&bg).to_host().as_slice(), cpu.as_slice(), 1e-3, "autodyne gpu matmul");
+    let gpu_device = Default::default();
+    let (ta, tb) = (burn_tensor::<Wgpu>(&a, [N, N], &gpu_device), burn_tensor::<Wgpu>(&b, [N, N], &gpu_device));
+    close(&to_vec(ta.clone().matmul(tb.clone())), cpu.as_slice(), 1e-3, "burn wgpu matmul");
+
+    let mut g = c.benchmark_group("matmul 1024 x 1024 f32");
+    g.throughput(Throughput::Elements((2 * N * N * N) as u64));
+    g.bench_function("autodyne linalg (CPU, all cores)", |bch| bch.iter(|| black_box(autodyne::linalg::matmul(an.view(), bn.view()).unwrap())));
+    g.bench_function("autodyne gpu (GPU, resident)", |bch| {
+        bch.iter(|| {
+            let out = ag.matmul(&bg);
+            autodyne::gpu::sync();
+            black_box(out)
+        })
+    });
+    g.bench_function("burn wgpu (GPU, resident)", |bch| {
+        bch.iter(|| {
+            let out = ta.clone().matmul(tb.clone());
+            <Wgpu as Backend>::sync(&gpu_device).unwrap();
+            black_box(out)
+        })
+    });
+    g.finish();
+
+    // real FFTs of 256 rows of 4096
+    let (rows, len) = (256, 4096);
+    let x: Vec<f32> = (0..rows * len).map(|i| ((i * 7919) % 1000) as f32 / 1000.0 - 0.5).collect();
+    let xn = NdArray::from_vec(x.clone(), &[rows, len]).unwrap();
+    let xg = GpuArray::from_host(&xn.view()).unwrap();
+    let mut plan = autodyne::fft::RealFft::<f32>::new(len);
+    let mut spec = vec![autodyne::units::Complex::<f32>::zero(); len / 2 + 1];
+    plan.forward(&x[..len], &mut spec);
+    let gpu_first = xg.rfft().to_host();
+    let flat: Vec<f32> = spec.iter().flat_map(|z| [z.re, z.im]).collect();
+    close(&gpu_first.as_slice()[..flat.len()], &flat, 1e-2, "autodyne gpu rfft");
+    let mut g = c.benchmark_group("rfft 256 x 4096 f32");
+    g.throughput(Throughput::Elements((rows * len) as u64));
+    g.bench_function("autodyne RealFft (CPU, 1 thread)", |bch| {
+        bch.iter(|| {
+            for row in x.chunks(len) {
+                plan.forward(row, &mut spec);
+            }
+            black_box(&spec);
+        })
+    });
+    g.bench_function("autodyne gpu rfft (GPU, resident)", |bch| {
+        bch.iter(|| {
+            let out = xg.rfft();
+            autodyne::gpu::sync();
+            black_box(out)
+        })
+    });
+    g.finish();
+}
+
 criterion_group! {
     name = benches;
     config = Criterion::default().sample_size(30).warm_up_time(std::time::Duration::from_secs(1)).measurement_time(std::time::Duration::from_secs(3));
-    targets = elementwise, reductions, convolution
+    targets = elementwise, reductions, convolution, matmul_and_fft
 }
 criterion_main!(benches);

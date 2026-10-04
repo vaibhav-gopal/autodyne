@@ -67,3 +67,24 @@ def test_fir_and_conversions():
         assert gpu.asarray([1, 2, 3]).dtype == "float64"
         with pytest.raises(TypeError):
             gpu.asarray(x) + gpu.asarray(x.astype(np.float64))
+
+
+def test_matmul_and_ffts():
+    if not gpu.available():
+        pytest.skip("no GPU")
+    rng = np.random.default_rng(3)
+    a = rng.standard_normal((70, 33)).astype(np.float32)
+    b = rng.standard_normal((33, 50)).astype(np.float32)
+    np.testing.assert_allclose((gpu.asarray(a) @ gpu.asarray(b)).numpy(), a @ b, rtol=1e-4, atol=1e-4)
+    np.testing.assert_allclose(gpu.asarray(a).T.matmul(gpu.asarray(a)).numpy(), a.T @ a, rtol=1e-4, atol=1e-4)
+    for n in (8, 1000, 4096, 8192):
+        x = rng.standard_normal((3, n)).astype(np.float32)
+        spec = gpu.asarray(x).rfft().numpy()
+        want = np.fft.rfft(x)
+        np.testing.assert_allclose(spec[..., 0] + 1j * spec[..., 1], want, rtol=1e-3, atol=1e-3 * np.sqrt(n))
+        np.testing.assert_allclose(gpu.asarray(x).rfft().irfft(n).numpy(), x, rtol=1e-4, atol=1e-4)
+        z = np.stack([x, x[::-1]], axis=-1)
+        f = gpu.asarray(z).fft().numpy()
+        np.testing.assert_allclose(f[..., 0] + 1j * f[..., 1], np.fft.fft(x + 1j * x[::-1]), rtol=1e-3, atol=1e-3 * np.sqrt(n))
+    with pytest.raises(ValueError):
+        gpu.asarray(a) @ gpu.asarray(a)
