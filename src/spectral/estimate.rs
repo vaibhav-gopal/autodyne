@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use super::{get_window, WindowSpec};
 use crate::fft::{Fft, RealFft};
-use crate::signal::{extended, Edge, NdArray, NdView};
+use crate::signal::{extended, lanes_f64, Edge, NdArray, NdView};
 use crate::units::*;
 
 /// Errors from spectral estimation.
@@ -266,10 +266,7 @@ fn detrend(x: &mut [f64], kind: Detrend) {
 
 /// The lanes of `x` along `axis` as f64 vectors.
 fn lanes<T: Float>(x: NdView<'_, T>, axis: usize) -> Result<Vec<Vec<f64>>, SpectralError> {
-    if axis >= x.ndim() {
-        return Err(invalid(format!("axis {axis} is out of range for shape {:?}", x.shape())));
-    }
-    Ok(x.lanes(axis).map_err(|e| invalid(e.to_string()))?.map(|l| l.iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect()).collect())
+    lanes_f64(&x, axis).map_err(|e| invalid(e.to_string()))
 }
 
 /// Assembles per-lane results (`[nfreq * extra]`, frequency-major) into the shape of `x` with

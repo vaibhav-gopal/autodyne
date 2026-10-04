@@ -8,6 +8,13 @@ use super::ndarray::{check_axis, NdArray, NdError, NdView};
 use super::Storage;
 use crate::units::*;
 
+/// The lanes of `x` along `axis` as `f64` vectors (contiguous lanes copy as slices).
+pub(crate) fn lanes_f64<T: Float>(x: &NdView<'_, T>, axis: usize) -> Result<Vec<Vec<f64>>, NdError> {
+    check_axis(axis, x.ndim())?;
+    let f = |v: &T| v.to_f64().unwrap_or(f64::NAN);
+    Ok(x.lanes(axis)?.map(|l| match l.as_slice() { Some(s) => s.iter().map(f).collect(), None => l.iter().map(f).collect() }).collect())
+}
+
 /// Runs `f` on every lane along `axis` (copied out when strided), writing `out_len` results per
 /// lane; the result has `axis` of length `out_len` (removed when `keep` is false and `out_len` is 1).
 fn lanes_to<T: Copy, R: Copy + Default>(v: &NdView<'_, T>, axis: usize, out_len: usize, keep: bool, mut f: impl FnMut(&[T], &mut [R])) -> Result<NdArray<R>, NdError> {

@@ -7,7 +7,7 @@
 //! recursions of different lanes (and of a cascade's sections) overlap instead of each waiting on
 //! its own previous output.
 
-use crate::signal::{extended, Edge, NdArray, NdView};
+use crate::signal::{extended, lanes_f64, Edge, NdArray, NdView};
 use crate::systems::SystemError;
 use crate::units::*;
 
@@ -124,14 +124,6 @@ fn nd(e: crate::signal::NdError) -> SystemError {
     invalid(e.to_string())
 }
 
-/// The lanes of `x` along `axis` as f64 vectors.
-fn lanes_f64<T: Float>(x: &NdView<'_, T>, axis: usize) -> Result<Vec<Vec<f64>>, SystemError> {
-    check_axis(x.shape(), axis)?;
-    let f = |v: &T| v.to_f64().unwrap_or(f64::NAN);
-    // contiguous lanes copy as slices; strided ones through the n-d iterator
-    Ok(x.lanes(axis).map_err(nd)?.map(|l| match l.as_slice() { Some(s) => s.iter().map(f).collect(), None => l.iter().map(f).collect() }).collect())
-}
-
 /// Interleaves up to [`LANES`] equal-length lanes (missing ones are zero).
 fn interleave(group: &[&[f64]], n: usize) -> Vec<f64> {
     let mut out = vec![0.0; n * LANES];
@@ -152,7 +144,7 @@ fn map_groups<T: Float + Default>(
     out_len: usize,
     mut f: impl FnMut(usize, &[&[f64]]) -> Vec<f64>,
 ) -> Result<NdArray<T>, SystemError> {
-    let lanes = lanes_f64(&x, axis)?;
+    let lanes = lanes_f64(&x, axis).map_err(nd)?;
     let mut shape = x.shape().to_vec();
     shape[axis] = out_len;
     let mut out = NdArray::<T>::zeros(&shape).map_err(nd)?;
@@ -203,7 +195,7 @@ pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_
     if zi.shape() != expected.as_slice() {
         return Err(invalid(format!("zi should have shape {expected:?}, got {:?}", zi.shape())));
     }
-    let states = lanes_f64(&zi, axis)?;
+    let states = lanes_f64(&zi, axis).map_err(nd)?;
     let mut finals = states.clone();
     let n = x.shape()[axis];
     let y = map_groups(x, axis, n, |first, group| {
@@ -289,7 +281,7 @@ pub fn sosfilt_with_state<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>
     }
     let per_section: usize = x.shape().iter().enumerate().filter(|&(i, _)| i != axis).map(|(_, &n)| n).product();
     // zi lanes along axis + 1, section-major
-    let states = lanes_f64(&zi, axis + 1)?;
+    let states = lanes_f64(&zi, axis + 1).map_err(nd)?;
     let mut finals = states.clone();
     let n = x.shape()[axis];
     let y = map_groups(x, axis, n, |first, group| {
