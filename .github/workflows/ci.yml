@@ -44,6 +44,7 @@ jobs:
       # `live` needs a sound device, so CI only builds it (via --all-targets above)
       - name: Examples run
         run: |
+          cargo run --release --example simple
           cargo run --release --example tone
           cargo run --release --example fm_radio
           cargo run --release --example effects

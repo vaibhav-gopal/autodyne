@@ -77,6 +77,7 @@ width, limiter), rendered live in the audio callback. MIDI reaches the audio thr
 
 The others write WAV files to `target/examples-out/`:
 
+- `cargo run --example simple`: the smallest program, a mix of two sines low-passed as it is generated, levels printed
 - `cargo run --release --example tone`: a 440 Hz tone, the same tone with noise, and the noisy one low-passed; prints the noise reduction and the FFT peak
 - `cargo run --release --example fm_radio`: an FM radio link (modulate, 12 kHz carrier, noisy channel, demodulate); prints the audio SNR
 - `cargo run --release --example effects`: a melody through a processor chain (EQ, compressor, echo, limiter), rendered at 48 kHz and resampled to 44.1 kHz
