@@ -16,9 +16,12 @@
 //! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`fft`],
 //!   [`spectral`], [`iq`], [`gain`] (levels, pan, width), [`delay`], [`dynamics`], [`envelope`],
 //!   [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
-//! - Maths: [`special`] (Bessel and elliptic functions), [`linalg`] (matrix products, solves, least squares, eigen / SVD, polynomials) and
-//!   [`systems`] (LTI systems: transfer functions, zeros-poles-gain, state space, responses,
-//!   discretization); feature `faer`, on by default.
+//! - Maths: [`special`] (gamma, error and normal functions, Bessel and elliptic functions),
+//!   [`random`] (generators, distributions, random processes), [`stats`] (order statistics,
+//!   moments, histograms, covariance, autocorrelation and AR fits), [`linalg`] (matrix products,
+//!   solves, least squares, eigen / SVD, polynomials) and [`systems`] (LTI systems: transfer
+//!   functions, zeros-poles-gain, state space, responses, discretization); `linalg` and `systems`
+//!   need the feature `faer`, on by default.
 //! - Measurement: [`analysis`] (spectrum, loudness and true peak, pitch, onsets).
 //! - Instruments: [`synth`] (MIDI, voices, polyphony), [`sampler`] (multisampled playback), [`control`] (LFOs, modulation matrix, transport).
 //! - Differentiable programs: `flux` (feature `flux`) traces code written over [`units::Real`],
@@ -37,7 +40,7 @@
 //! of failing; the few constructors that panic say so ("Panics if ...").
 //!
 //! Layering (each module uses only those before it): `units`; `simd`, `fft`, `special`, `processor`;
-//! `signal`; `channels`, `linalg`; `params`; then the processors, instruments and analysis,
+//! `signal`; `random`, `channels`, `linalg`; `stats`; `params`; then the processors, instruments and analysis,
 //! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
 
 #![warn(missing_docs)]
@@ -56,6 +59,8 @@ pub mod channels;
 pub mod fft;
 pub mod special;
 pub mod osc;
+pub mod random;
+pub mod stats;
 pub mod filter;
 pub mod spectral;
 pub mod iq;

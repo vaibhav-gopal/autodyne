@@ -22,7 +22,9 @@ use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 
 mod flux;
 mod gpu;
+mod random;
 mod science;
+mod stats;
 
 const VERSIONED: &CStr = c"dltensor_versioned";
 const USED_VERSIONED: &CStr = c"used_dltensor_versioned";
@@ -420,5 +422,7 @@ fn _autodyne(m: &Bound<'_, PyModule>) -> PyResult<()> {
     science::register(m)?;
     flux::register(m)?;
     gpu::register(m)?;
+    random::register(m)?;
+    stats::register(m)?;
     Ok(())
 }

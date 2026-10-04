@@ -150,8 +150,15 @@ pub fn matmul_into<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, mut out: 
     }
     // SAFETY: `out` is a validated view of the product's shape, borrowed mutably for the call
     let dst = unsafe { MatMut::from_raw_parts_mut(out.as_mut_ptr(), m, n, rs, cs) };
-    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, T::_ONE, faer::get_global_parallelism());
+    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, T::_ONE, product_parallelism(m, n, k));
     Ok(())
+}
+
+/// The global parallelism for products big enough to share out, else sequential: a small output
+/// (a 50 x 50 Gram matrix of long rows, say) or little work runs several times slower on a thread
+/// pool than on one core, the hand-offs costing more than the arithmetic.
+fn product_parallelism(m: usize, n: usize, k: usize) -> faer::Par {
+    if m * n < 64 * 64 || m * n * k < 1 << 24 { faer::Par::Seq } else { faer::get_global_parallelism() }
 }
 
 /// The operands of a product as matrices, and the product's shape.

@@ -419,6 +419,70 @@ fn signal_tools_match_scipy() {
 }
 
 #[test]
+fn statistics_match_numpy_scipy_and_statsmodels() {
+    use autodyne::stats::*;
+
+    let s = &fixtures()["stats"];
+    let x = array(&s["x"]);
+    let q = f64s(&s["q"]);
+    for (method, key) in [(QuantileMethod::Linear, "linear"), (QuantileMethod::Lower, "lower"), (QuantileMethod::Higher, "higher"), (QuantileMethod::Nearest, "nearest"), (QuantileMethod::Midpoint, "midpoint")] {
+        // NumPy puts the quantiles first; ours replace the axis: compare transposed
+        let got = quantile_axis(x.view(), &q, 1, method, true).unwrap();
+        let got = got.view().transpose().to_owned();
+        assert_close(&format!("quantile {key}"), got.as_slice(), &nd(&s["quantiles"][key]).0, 1e-14);
+    }
+    assert_close("median", median_axis(x.view(), 1).unwrap().as_slice(), &f64s(&s["median"]), 1e-15);
+    let even = x.view().slice_axis(1, 0..100).unwrap();
+    assert_close("median, even length", median_axis(even, 1).unwrap().as_slice(), &f64s(&s["median_even"]), 1e-15);
+    assert_close("skew", skew_axis(x.view(), 1, true).unwrap().as_slice(), &f64s(&s["skew"]), 1e-12);
+    assert_close("skew unbiased", skew_axis(x.view(), 1, false).unwrap().as_slice(), &f64s(&s["skew_unbiased"]), 1e-12);
+    assert_close("kurtosis", kurtosis_axis(x.view(), 1, true, true).unwrap().as_slice(), &f64s(&s["kurtosis"]), 1e-12);
+    assert_close("kurtosis Pearson unbiased", kurtosis_axis(x.view(), 1, false, false).unwrap().as_slice(), &f64s(&s["kurtosis_pearson_unbiased"]), 1e-12);
+    assert_close("moment 4", moment_axis(x.view(), 4, 1).unwrap().as_slice(), &f64s(&s["moment4"]), 1e-12);
+    assert_close("zscore", zscore_axis(x.view(), 1, 1).unwrap().as_slice(), &nd(&s["zscore"]).0, 1e-12);
+    assert_close("cov", cov(x.view(), true, 1).unwrap().as_slice(), &nd(&s["cov"]).0, 1e-12);
+    let xt = x.view().transpose().to_owned();
+    assert_close("cov of columns, ddof 0", cov(xt.view(), false, 0).unwrap().as_slice(), &nd(&s["cov_ddof0_cols"]).0, 1e-12);
+    assert_close("corrcoef", corrcoef(x.view(), true).unwrap().as_slice(), &nd(&s["corrcoef"]).0, 1e-12);
+
+    let rows: Vec<Vec<f64>> = (0..3).map(|i| x.as_slice()[i * 101..(i + 1) * 101].to_vec()).collect();
+    let h = &s["histogram"];
+    for (key, bins) in [
+        ("10", Bins::Count(10)),
+        ("auto", Bins::Rule(BinRule::Auto)),
+        ("fd", Bins::Rule(BinRule::Fd)),
+        ("sturges", Bins::Rule(BinRule::Sturges)),
+        ("scott", Bins::Rule(BinRule::Scott)),
+        ("rice", Bins::Rule(BinRule::Rice)),
+        ("sqrt", Bins::Rule(BinRule::Sqrt)),
+    ] {
+        let (counts, edges) = histogram(&rows[2], &bins, None, None, false).unwrap();
+        assert_close(&format!("histogram {key} edges"), &edges, &f64s(&h[key]["e"]), 1e-14);
+        assert_eq!(counts, f64s(&h[key]["h"]), "histogram {key}");
+    }
+    let (counts, _) = histogram(&rows[1], &Bins::Edges(vec![2.0, 4.0, 4.5, 7.0]), None, None, false).unwrap();
+    assert_eq!(counts, f64s(&h["edges"]["h"]));
+    let weights: Vec<f64> = rows[1].iter().map(|v| v.abs()).collect();
+    let (dens, _) = histogram(&rows[0], &Bins::Count(8), Some((-1.0, 1.0)), Some(&weights), true).unwrap();
+    assert_close("weighted density", &dens, &f64s(&h["weighted_density"]["h"]), 1e-13);
+
+    let y = f64s(&s["ts"]);
+    assert_close("acovf", &acovf(&y, 12, false, true).unwrap(), &f64s(&s["acovf"]), 1e-12);
+    assert_close("acovf adjusted", &acovf(&y, 12, true, true).unwrap(), &f64s(&s["acovf_adjusted"]), 1e-12);
+    assert_close("acf", &acf(&y, 12, false).unwrap(), &f64s(&s["acf"]), 1e-12);
+    assert_close("pacf yw", &pacf(&y, 10, YuleWalker::Adjusted).unwrap(), &f64s(&s["pacf_yw"]), 1e-10);
+    assert_close("pacf ywm", &pacf(&y, 10, YuleWalker::Mle).unwrap(), &f64s(&s["pacf_ywm"]), 1e-10);
+    for (method, key) in [(YuleWalker::Adjusted, "yule_walker"), (YuleWalker::Mle, "yule_walker_mle")] {
+        let fit = yule_walker(&y, 3, method).unwrap();
+        assert_close(key, &fit.ar, &f64s(&s[key]["ar"]), 1e-10);
+        assert!((fit.sigma2.sqrt() - s[key]["sigma"].as_f64().unwrap()).abs() < 1e-10, "{key} sigma");
+    }
+    let fit = burg(&y, 4).unwrap();
+    assert_close("burg", &fit.ar, &f64s(&s["burg"]["ar"]), 1e-10);
+    assert!((fit.sigma2 - s["burg"]["sigma2"].as_f64().unwrap()).abs() < 1e-10 * fit.sigma2, "burg sigma2 {} vs {}", fit.sigma2, s["burg"]["sigma2"]);
+}
+
+#[test]
 fn spectral_estimates_match_scipy() {
     let s = &fixtures()["spectral"];
     let (x, y) = (array(&s["x"]), array(&s["y"]));

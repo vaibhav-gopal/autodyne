@@ -23,11 +23,14 @@ import timeit
 import numpy as np
 import scipy
 from scipy import signal
+from scipy import stats as sstats
 
 import autodyne
 from autodyne import fft as afft
 from autodyne import linalg as al
+from autodyne import random as ar
 from autodyne import signal as asg
+from autodyne import stats as ast
 
 parser = argparse.ArgumentParser(description="autodyne vs NumPy / SciPy")
 parser.add_argument("--out", type=pathlib.Path, help="also write the Markdown table to this file")
@@ -55,8 +58,15 @@ def check(a, b, tol):
 cases = []
 
 
-def case(group, name, numpy_fn, autodyne_fn, tol=1e-6):
-    check(autodyne_fn(), numpy_fn(), tol)
+def same_distribution(a, b, tol):
+    """Random draws: the streams differ, so compare shapes and means (to ``tol`` standard deviations)."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    assert a.shape == b.shape, (a.shape, b.shape)
+    assert abs(a.mean() - b.mean()) <= tol * b.std(), (a.mean(), b.mean())
+
+
+def case(group, name, numpy_fn, autodyne_fn, tol=1e-6, compare=check):
+    compare(autodyne_fn(), numpy_fn(), tol)
     t_np, t_ad = best(numpy_fn), best(autodyne_fn)
     cases.append((group, name, t_np, t_ad))
     print(f"{group:<22} {name:<46} numpy {t_np * 1e6:10.1f} us   autodyne {t_ad * 1e6:10.1f} us   {t_np / t_ad:5.2f}x")
@@ -160,6 +170,44 @@ wave = np.sin(np.arange(1_000_000) * 0.01) + 0.1 * rng.standard_normal(1_000_000
 case("peaks (scipy.signal)", "find_peaks 1M samples", lambda: signal.find_peaks(wave)[0], lambda: asg.find_peaks(wave)[0], 0)
 case("peaks (scipy.signal)", "find_peaks 1M, prominence + width", lambda: signal.find_peaks(wave, prominence=1.0, width=10)[0],
      lambda: asg.find_peaks(wave, prominence=1.0, width=10)[0], 0)
+
+# random numbers vs numpy.random.Generator (PCG64; autodyne: xoshiro256++), 1M draws
+g, h = np.random.default_rng(0), ar.default_rng(0)
+N = 1_000_000
+for name, numpy_fn, autodyne_fn in [
+    ("random", lambda: g.random(N), lambda: h.random(N)),
+    ("standard_normal f64", lambda: g.standard_normal(N), lambda: h.standard_normal(N)),
+    ("standard_normal f32", lambda: g.standard_normal(N, dtype=np.float32), lambda: h.standard_normal(N, dtype=np.float32)),
+    ("exponential", lambda: g.exponential(1.0, N), lambda: h.exponential(1.0, N)),
+    ("gamma(2.5)", lambda: g.gamma(2.5, 1.0, N), lambda: h.gamma(2.5, 1.0, N)),
+    ("poisson(5)", lambda: g.poisson(5.0, N), lambda: h.poisson(5.0, N)),
+    ("poisson(100)", lambda: g.poisson(100.0, N), lambda: h.poisson(100.0, N)),
+    ("binomial(100, 0.3)", lambda: g.binomial(100, 0.3, N), lambda: h.binomial(100, 0.3, N)),
+    ("integers [0, 1000)", lambda: g.integers(0, 1000, N), lambda: h.integers(0, 1000, N)),
+]:
+    case("random (numpy.random)", f"{name}, 1M draws", numpy_fn, autodyne_fn, 0.01, same_distribution)
+
+# statistics vs NumPy / scipy.stats / statsmodels
+case("statistics (numpy)", "median 16 x 48000, axis 1", lambda: np.median(sig, axis=1), lambda: ast.median(sig, axis=1), 1e-12)
+case("statistics (numpy)", "quantile [.1, .5, .9], 16 x 48000", lambda: np.quantile(sig, [0.1, 0.5, 0.9], axis=1),
+     lambda: ast.quantile(sig, [0.1, 0.5, 0.9], axis=1), 1e-12)
+case("statistics (scipy.stats)", "skew, 16 x 48000", lambda: sstats.skew(sig, axis=1), lambda: ast.skew(sig, axis=1), 1e-10)
+case("statistics (scipy.stats)", "kurtosis, 16 x 48000", lambda: sstats.kurtosis(sig, axis=1), lambda: ast.kurtosis(sig, axis=1), 1e-10)
+case("statistics (numpy)", "histogram 1M, 100 bins", lambda: np.histogram(long_x, 100)[0], lambda: ast.histogram(long_x, 100)[0], 0)
+case("statistics (numpy)", "histogram 1M, bins='auto'", lambda: np.histogram(long_x, "auto")[0], lambda: ast.histogram(long_x, "auto")[0], 0)
+gram = rng.standard_normal((50, 10_000))
+case("statistics (numpy)", "cov 50 x 10000", lambda: np.cov(gram), lambda: ast.cov(gram), 1e-10)
+case("statistics (numpy)", "corrcoef 50 x 10000", lambda: np.corrcoef(gram), lambda: ast.corrcoef(gram), 1e-10)
+try:
+    from statsmodels.regression.linear_model import burg as sm_burg
+    from statsmodels.tsa import stattools
+
+    series = signal.lfilter([1.0], [1.0, -0.6, 0.3], long_x[:100_000])
+    case("time series (statsmodels)", "acf 100k, 50 lags", lambda: stattools.acf(series, nlags=50), lambda: ast.acf(series, nlags=50), 1e-10)
+    case("time series (statsmodels)", "pacf 100k, 40 lags", lambda: stattools.pacf(series, nlags=40), lambda: ast.pacf(series, nlags=40), 1e-8)
+    case("time series (statsmodels)", "burg 100k, order 10", lambda: sm_burg(series, 10)[0], lambda: ast.burg(series, 10)[0], 1e-8)
+except ImportError:
+    print("statsmodels not installed: time-series rows skipped")
 
 lines = [
     "# autodyne vs NumPy / SciPy",

@@ -273,6 +273,52 @@ for name, kw in peak_cases.items():
 sig["peaks"] = peaks
 fx["signal"] = sig
 
+# ---- statistics: NumPy, scipy.stats, statsmodels ------------------------------------------------
+from scipy import stats as sstats
+from statsmodels.regression.linear_model import burg as sm_burg, yule_walker as sm_yule_walker
+from statsmodels.tsa import stattools
+
+xs3 = rng.standard_normal((3, 101)) * np.array([[1.0], [3.0], [0.2]]) + np.array([[0.0], [5.0], [-1.0]])
+xs3[2] = xs3[2] ** 3  # skewed
+st = {"x": r(xs3)}
+qs = [0.0, 0.1, 0.25, 0.5, 0.73, 1.0]
+st["quantiles"] = {m: r(np.quantile(xs3, qs, axis=1, method=m)) for m in ["linear", "lower", "higher", "nearest", "midpoint"]}
+st["q"] = qs
+st["median"] = r(np.median(xs3, axis=1))
+st["median_even"] = r(np.median(xs3[:, :100], axis=1))
+st["skew"] = r(sstats.skew(xs3, axis=1))
+st["skew_unbiased"] = r(sstats.skew(xs3, axis=1, bias=False))
+st["kurtosis"] = r(sstats.kurtosis(xs3, axis=1))
+st["kurtosis_pearson_unbiased"] = r(sstats.kurtosis(xs3, axis=1, fisher=False, bias=False))
+st["moment4"] = r(sstats.moment(xs3, 4, axis=1))
+st["zscore"] = r(sstats.zscore(xs3, axis=1, ddof=1))
+st["cov"] = r(np.cov(xs3))
+st["cov_ddof0_cols"] = r(np.cov(xs3.T, rowvar=False, ddof=0))
+st["corrcoef"] = r(np.corrcoef(xs3))
+hist = {}
+for name, bins in [("10", 10), ("auto", "auto"), ("fd", "fd"), ("sturges", "sturges"), ("scott", "scott"), ("rice", "rice"), ("sqrt", "sqrt")]:
+    h, e = np.histogram(xs3[2], bins=bins)
+    hist[name] = dict(h=r(h), e=r(e))
+h, e = np.histogram(xs3[1], bins=[2.0, 4.0, 4.5, 7.0])
+hist["edges"] = dict(h=r(h), e=r(e))
+h, e = np.histogram(xs3[0], bins=8, range=(-1.0, 1.0), weights=np.abs(xs3[1]), density=True)
+hist["weighted_density"] = dict(h=r(h), e=r(e))
+st["histogram"] = hist
+y = signal.lfilter([1.0], [1.0, -0.6, 0.3], rng.standard_normal(400))
+st["ts"] = r(y)
+st["acovf"] = r(stattools.acovf(y, nlag=12))
+st["acovf_adjusted"] = r(stattools.acovf(y, adjusted=True, nlag=12))
+st["acf"] = r(stattools.acf(y, nlags=12))
+st["pacf_yw"] = r(stattools.pacf(y, nlags=10, method="yw"))
+st["pacf_ywm"] = r(stattools.pacf(y, nlags=10, method="ywm"))
+rho, sigma = sm_yule_walker(y, order=3, method="adjusted", result_object=False)
+st["yule_walker"] = dict(ar=r(rho), sigma=float(sigma))
+rho, sigma = sm_yule_walker(y, order=3, method="mle", result_object=False)
+st["yule_walker_mle"] = dict(ar=r(rho), sigma=float(sigma))
+ar, s2 = sm_burg(y, order=4)
+st["burg"] = dict(ar=r(ar), sigma2=float(s2))
+fx["stats"] = st
+
 out = pathlib.Path(__file__).with_name("fixtures.json")
 out.write_text(json.dumps(fx))
 print(f"wrote {out} ({out.stat().st_size // 1024} KiB), SciPy {scipy.__version__}")
