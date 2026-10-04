@@ -1,4 +1,4 @@
-use super::SignalError;
+use super::{convolve_with, correlate_with, ConvMethod, ConvMode, SignalError};
 use crate::units::*;
 
 /// Read-only analysis of a real-valued signal. Implemented for `[T]`, so it works on anything that
@@ -142,16 +142,17 @@ pub trait Signal {
 
     // Length-changing operations (allocate) ======================================================
 
-    /// Full linear convolution with `kernel`: `len + kernel.len() - 1` samples.
+    /// Full linear convolution with `kernel`: `len + kernel.len() - 1` samples, by direct sums,
+    /// FFT or overlap-add, whichever is cheapest for the lengths (see [`convolve_with`] for modes
+    /// and a chosen method).
     fn convolved(&self, kernel: &[Self::Sample]) -> Vec<Self::Sample> {
-        convolve_direct(self.samples(), kernel)
+        convolve_with(self.samples(), kernel, ConvMode::Full, ConvMethod::Auto)
     }
     /// Full cross-correlation with `other`. Element `k` corresponds to lag `k - (other.len() - 1)`:
     /// the sum over n of `self[n + lag] * other[n]`. The peak's position shows how far `self` is
-    /// delayed relative to `other`.
+    /// delayed relative to `other`. Computed as [`convolved`](Self::convolved) is.
     fn correlated(&self, other: &[Self::Sample]) -> Vec<Self::Sample> {
-        let reversed: Vec<_> = other.iter().rev().copied().collect();
-        convolve_direct(self.samples(), &reversed)
+        correlate_with(self.samples(), other, ConvMode::Full, ConvMethod::Auto)
     }
 }
 
@@ -174,20 +175,6 @@ impl<T: Float, const N: usize> Signal for [T; N] {
     fn samples(&self) -> &[T] {
         self
     }
-}
-
-/// Full linear convolution, direct form: `a.len() + b.len() - 1` samples (empty if either is).
-fn convolve_direct<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
-    if a.is_empty() || b.is_empty() {
-        return Vec::new();
-    }
-    let mut out = vec![T::_ZERO; a.len() + b.len() - 1];
-    for (i, &x) in a.iter().enumerate() {
-        for (o, &h) in out[i..].iter_mut().zip(b) {
-            *o = *o + x * h;
-        }
-    }
-    out
 }
 
 fn same_len<T>(a: &[T], b: &[T]) -> Result<(), SignalError> {

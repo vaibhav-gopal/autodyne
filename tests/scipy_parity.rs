@@ -328,6 +328,97 @@ fn systems_match_scipy() {
 }
 
 #[test]
+fn signal_tools_match_scipy() {
+    use autodyne::filter::{savgol_filter, SavgolMode};
+    use autodyne::resample::{resample_poly, upfirdn};
+    use autodyne::signal::{convolve_with, correlate_with, find_peaks, Bounds, ConvMethod, ConvMode, PeakOptions};
+    use autodyne::spectral::hilbert;
+
+    let s = &fixtures()["signal"];
+    let (a, k) = (f64s(&s["a"]), f64s(&s["k"]));
+    for (mode, key) in [(ConvMode::Full, "full"), (ConvMode::Same, "same"), (ConvMode::Valid, "valid")] {
+        for method in [ConvMethod::Direct, ConvMethod::Fft, ConvMethod::OverlapAdd] {
+            let name = format!("convolve {key} {method:?}");
+            assert_close(&name, &convolve_with(&a, &k, mode, method), &f64s(&s[format!("convolve_{key}")]), 1e-12);
+            assert_close(&format!("{name}, swapped"), &convolve_with(&k, &a, mode, method), &f64s(&s[format!("convolve_swapped_{key}")]), 1e-12);
+            assert_close(&format!("correlate {key} {method:?}"), &correlate_with(&a, &k, mode, method), &f64s(&s[format!("correlate_{key}")]), 1e-12);
+        }
+    }
+
+    let x = array(&s["x2"]);
+    for (w, p, d) in [(11, 3, 0), (10, 2, 1), (7, 4, 2)] {
+        for (mode, key) in [(SavgolMode::Interp, "interp"), (SavgolMode::Mirror, "mirror"), (SavgolMode::Nearest, "nearest"), (SavgolMode::Constant(1.5), "constant"), (SavgolMode::Wrap, "wrap")] {
+            let got = savgol_filter(x.view(), w, p, d, 0.5, 1, mode).unwrap();
+            assert_close(&format!("savgol {w} {p} {d} {key}"), got.as_slice(), &nd(&s["savgol"][format!("{w}_{p}_{d}_{key}")]).0, 1e-10);
+        }
+    }
+    let xt = x.view().transpose().to_owned();
+    assert_close("savgol axis 0", savgol_filter(xt.view(), 9, 2, 0, 1.0, 0, SavgolMode::Interp).unwrap().as_slice(), &nd(&s["savgol_axis0"]).0, 1e-10);
+
+    let flat = |v: &[autodyne::units::Complex<f64>]| v.iter().flat_map(|z| [z.re, z.im]).collect::<Vec<_>>();
+    assert_close("hilbert", &flat(hilbert(x.view(), 1, None).unwrap().as_slice()), &flat(&complexes(&s["hilbert"])), 1e-12);
+    assert_close("hilbert n=97", &flat(hilbert(x.view(), 1, Some(97)).unwrap().as_slice()), &flat(&complexes(&s["hilbert_n"])), 1e-12);
+    assert_close("hilbert n=131", &flat(hilbert(x.view(), 1, Some(131)).unwrap().as_slice()), &flat(&complexes(&s["hilbert_n_odd"])), 1e-12);
+
+    let taps = f64s(&s["upfirdn_taps"]);
+    for (u, d) in [(1, 1), (3, 2), (2, 7), (5, 1), (1, 4)] {
+        let got = upfirdn(&taps, x.view(), u, d, 1).unwrap();
+        let (want, shape) = nd(&s["upfirdn"][format!("{u}_{d}")]);
+        assert_eq!(got.shape(), shape.as_slice(), "upfirdn {u}/{d} shape");
+        assert_close(&format!("upfirdn {u}/{d}"), got.as_slice(), &want, 1e-12);
+    }
+    for (u, d) in [(3, 2), (2, 3), (1, 4), (160, 147), (7, 1)] {
+        let got = resample_poly(x.view(), u, d, 1, WindowSpec::Kaiser { beta: 5.0 }).unwrap();
+        let (want, shape) = nd(&s["resample_poly"][format!("{u}_{d}")]);
+        assert_eq!(got.shape(), shape.as_slice(), "resample_poly {u}/{d} shape");
+        assert_close(&format!("resample_poly {u}/{d}"), got.as_slice(), &want, 1e-12);
+    }
+    let got = resample_poly(x.view(), 5, 3, 1, WindowSpec::Kaiser { beta: 8.0 }).unwrap();
+    assert_close("resample_poly kaiser 8", got.as_slice(), &nd(&s["resample_poly_kaiser8"]).0, 1e-12);
+
+    let xp = f64s(&s["xp"]);
+    let bounds = |v: &Value| match v {
+        Value::Array(p) => Bounds { min: p[0].as_f64(), max: p[1].as_f64() },
+        v => Bounds::at_least(v.as_f64().unwrap()),
+    };
+    for (name, case) in s["peaks"].as_object().unwrap() {
+        let kw = &case["kw"];
+        let options = PeakOptions {
+            height: kw.get("height").map(bounds),
+            threshold: kw.get("threshold").map(bounds),
+            distance: kw.get("distance").and_then(Value::as_f64),
+            prominence: kw.get("prominence").map(bounds),
+            width: kw.get("width").map(bounds),
+            wlen: kw.get("wlen").and_then(Value::as_u64).map(|w| w as usize),
+            rel_height: kw.get("rel_height").and_then(Value::as_f64).unwrap_or(0.5),
+            plateau_size: kw.get("plateau_size").map(bounds),
+        };
+        let p = find_peaks(&xp, &options).unwrap();
+        let as_f64 = |v: &[usize]| v.iter().map(|&i| i as f64).collect::<Vec<_>>();
+        assert_eq!(as_f64(&p.indices), f64s(&case["indices"]), "peaks {name}");
+        let props = &case["props"];
+        let check = |key: &str, got: Option<Vec<f64>>| match (props.get(key), got) {
+            (Some(want), Some(got)) => assert_close(&format!("peaks {name} {key}"), &got, &f64s(want), 1e-12),
+            (None, None) => {}
+            (want, got) => panic!("peaks {name} {key}: SciPy has {want:?}, autodyne {got:?}"),
+        };
+        check("plateau_sizes", p.plateaus.as_ref().map(|t| as_f64(&t.sizes)));
+        check("left_edges", p.plateaus.as_ref().map(|t| as_f64(&t.left_edges)));
+        check("right_edges", p.plateaus.as_ref().map(|t| as_f64(&t.right_edges)));
+        check("peak_heights", p.peak_heights.clone());
+        check("left_thresholds", p.left_thresholds.clone());
+        check("right_thresholds", p.right_thresholds.clone());
+        check("prominences", p.prominences.as_ref().map(|q| q.prominences.clone()));
+        check("left_bases", p.prominences.as_ref().map(|q| as_f64(&q.left_bases)));
+        check("right_bases", p.prominences.as_ref().map(|q| as_f64(&q.right_bases)));
+        check("widths", p.widths.as_ref().map(|w| w.widths.clone()));
+        check("width_heights", p.widths.as_ref().map(|w| w.width_heights.clone()));
+        check("left_ips", p.widths.as_ref().map(|w| w.left_ips.clone()));
+        check("right_ips", p.widths.as_ref().map(|w| w.right_ips.clone()));
+    }
+}
+
+#[test]
 fn spectral_estimates_match_scipy() {
     let s = &fixtures()["spectral"];
     let (x, y) = (array(&s["x"]), array(&s["y"]));

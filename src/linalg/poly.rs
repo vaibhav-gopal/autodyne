@@ -80,3 +80,45 @@ pub fn polyadd<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
     let at = |p: &[T], i: usize| if i + p.len() >= n { p[i + p.len() - n] } else { T::_ZERO };
     (0..n).map(|i| at(a, i) + at(b, i)).collect()
 }
+
+/// The `m`-th derivative of `p` (highest power first), like `numpy.polyder`; a constant's
+/// derivative is `[0]`.
+pub fn polyder<T: Float>(p: &[T], m: usize) -> Vec<T> {
+    let mut p = p.to_vec();
+    for _ in 0..m {
+        let n = p.len().saturating_sub(1);
+        if n == 0 {
+            return vec![T::_ZERO];
+        }
+        p = p[..n].iter().enumerate().map(|(i, &c)| c * T::_lit((n - i) as f64)).collect();
+    }
+    p
+}
+
+/// The least-squares polynomial of degree `deg` through the points `(x[i], y[i])`, highest power
+/// first, like `numpy.polyfit`: the Vandermonde system's columns are scaled to unit norm before
+/// solving, which keeps high degrees well conditioned. Errors unless `x` and `y` have the same
+/// length, or if the solve fails.
+pub fn polyfit<T: LinalgFloat>(x: &[T], y: &[T], deg: usize) -> Result<Vec<T>, LinalgError> {
+    if x.len() != y.len() {
+        return Err(LinalgError::Mismatch(vec![x.len()], vec![y.len()]));
+    }
+    let cols = deg + 1;
+    // column j holds x^(deg - j)
+    let mut v = NdArray::from_fn(&[x.len(), cols], |i| (0..deg - i[1]).fold(T::_ONE, |p, _| p * x[i[0]])).expect("rows x cols");
+    let data = v.as_mut_slice();
+    let scale: Vec<T> = (0..cols)
+        .map(|j| {
+            let norm = (0..x.len()).fold(T::_ZERO, |s, i| s + data[i * cols + j] * data[i * cols + j])._sqrt();
+            if norm == T::_ZERO { T::_ONE } else { norm }
+        })
+        .collect();
+    for i in 0..x.len() {
+        for j in 0..cols {
+            data[i * cols + j] /= scale[j];
+        }
+    }
+    let rhs = NdArray::from_vec(y.to_vec(), &[y.len()]).expect("a vector");
+    let fit = super::lstsq(v.view(), rhs.view())?;
+    Ok(fit.solution.as_slice().iter().zip(&scale).map(|(&c, &s)| c / s).collect())
+}

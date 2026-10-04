@@ -137,6 +137,29 @@ case("filter design (scipy.signal)", "remez, 101 taps", lambda: signal.remez(101
      lambda: asg.remez(101, [0, 0.2, 0.25, 0.5], [1, 0]), 1e-8)
 case("spectral (scipy.signal)", "welch, 16 x 48000, nperseg 1024", lambda: signal.welch(sig, nperseg=1024)[1], lambda: asg.welch(sig, nperseg=1024)[1], 1e-8)
 case("spectral (scipy.signal)", "stft, 16 x 48000, nperseg 512", lambda: signal.stft(sig, nperseg=512)[2], lambda: asg.stft(sig, nperseg=512)[2], 1e-8)
+case("spectral (scipy.signal)", "hilbert, 16 x 48000", lambda: signal.hilbert(sig), lambda: asg.hilbert(sig), 1e-8)
+
+# convolution: each library's automatic choice, then the explicit methods
+long_x, taps32, taps1k = rng.standard_normal(1_000_000), rng.standard_normal(32), rng.standard_normal(1_000)
+case("convolution (scipy.signal)", "convolve 48000 x 32 taps (auto)", lambda: signal.convolve(sig[0], taps32), lambda: asg.convolve(sig[0], taps32), 1e-9)
+case("convolution (scipy.signal)", "convolve 1M x 1000 taps (auto)", lambda: signal.convolve(long_x, taps1k), lambda: asg.convolve(long_x, taps1k), 1e-8)
+case("convolution (scipy.signal)", "oaconvolve 1M x 1000 taps", lambda: signal.oaconvolve(long_x, taps1k), lambda: asg.oaconvolve(long_x, taps1k), 1e-8)
+case("convolution (scipy.signal)", "fftconvolve 100k x 50k", lambda: signal.fftconvolve(long_x[:100_000], long_x[:50_000]),
+     lambda: asg.fftconvolve(long_x[:100_000], long_x[:50_000]), 1e-8)
+case("convolution (scipy.signal)", "correlate 48000 x 4800 (auto)", lambda: signal.correlate(sig[0], sig[1, :4_800]),
+     lambda: asg.correlate(sig[0], sig[1, :4_800]), 1e-8)
+
+# smoothing, resampling, peaks
+case("smoothing (scipy.signal)", "savgol_filter 16 x 48000, window 31, order 3", lambda: signal.savgol_filter(sig, 31, 3),
+     lambda: asg.savgol_filter(sig, 31, 3), 1e-8)
+case("resampling (scipy.signal)", "resample_poly 48k -> 44.1k, 16 x 48000", lambda: signal.resample_poly(sig, 147, 160, axis=-1),
+     lambda: asg.resample_poly(sig, 147, 160, axis=-1), 1e-8)
+case("resampling (scipy.signal)", "upfirdn 4/3, 64 taps, 16 x 48000", lambda: signal.upfirdn(taps1k[:64], sig, 4, 3),
+     lambda: asg.upfirdn(taps1k[:64], sig, 4, 3), 1e-8)
+wave = np.sin(np.arange(1_000_000) * 0.01) + 0.1 * rng.standard_normal(1_000_000)
+case("peaks (scipy.signal)", "find_peaks 1M samples", lambda: signal.find_peaks(wave)[0], lambda: asg.find_peaks(wave)[0], 0)
+case("peaks (scipy.signal)", "find_peaks 1M, prominence + width", lambda: signal.find_peaks(wave, prominence=1.0, width=10)[0],
+     lambda: asg.find_peaks(wave, prominence=1.0, width=10)[0], 0)
 
 lines = [
     "# autodyne vs NumPy / SciPy",

@@ -166,6 +166,24 @@ fn polynomial_roots_and_expansion() {
     assert_eq!(polyadd(&[1.0, 2.0, 3.0], &[1.0, 1.0]), vec![1.0, 3.0, 4.0]);
 }
 
+#[test]
+fn polynomial_fits_and_derivatives() {
+    // numpy.polyfit(arange(6), [1, 2.5, 2, 4.5, 7, 9.5], 2)
+    let x = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0];
+    let fit = polyfit(&x, &[1.0, 2.5, 2.0, 4.5, 7.0, 9.5], 2).unwrap();
+    assert!(close(&fit, &[0.3035714285714289, 0.1535714285714276, 1.250000000000002], 1e-12));
+    // an exact cubic is recovered, also far from the origin
+    let p = [0.5, -2.0, 0.25, 3.0];
+    let xs: Vec<f64> = (0..20).map(|i| 1000.0 + i as f64 * 0.1).collect();
+    let ys: Vec<f64> = xs.iter().map(|&x| polyval(&p, x)).collect();
+    let fit = polyfit(&xs, &ys, 3).unwrap();
+    assert!(xs.iter().all(|&x| (polyval(&fit, x) - polyval(&p, x)).abs() < 1e-6 * polyval(&p, x).abs()));
+    assert!(polyfit(&x, &[1.0], 1).is_err());
+    assert_eq!(polyder(&[1.0, -3.0, 2.0, 5.0], 1), vec![3.0, -6.0, 2.0]);
+    assert_eq!(polyder(&[1.0, -3.0, 2.0, 5.0], 2), vec![6.0, -6.0]);
+    assert_eq!(polyder(&[4.0], 1), vec![0.0]);
+}
+
 /// The largest difference relative to the largest value.
 fn spread(a: &[f64], b: &[f64]) -> f64 {
     assert_eq!(a.len(), b.len());

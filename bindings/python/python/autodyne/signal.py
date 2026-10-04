@@ -1,5 +1,6 @@
 """Signal processing with ``scipy.signal``'s names, arguments and defaults: IIR and FIR design,
-filtering along any axis, frequency responses, windows and spectral estimation."""
+filtering along any axis, convolution, Savitzky-Golay smoothing, resampling, peak finding, the
+analytic signal, frequency responses, windows and spectral estimation."""
 
 import numpy as _np
 
@@ -7,8 +8,9 @@ from . import _autodyne as _native
 
 __all__ = ["iirfilter", "butter", "cheby1", "cheby2", "ellip", "bessel", "firwin", "firwin2", "firls", "remez",
            "kaiserord", "get_window", "zpk2sos", "tf2zpk", "freqz", "sosfreqz", "group_delay", "lfilter", "lfilter_zi",
-           "sosfilt", "sosfilt_zi", "filtfilt", "sosfiltfilt", "welch", "periodogram", "csd", "coherence", "spectrogram",
-           "stft", "istft"]
+           "sosfilt", "sosfilt_zi", "filtfilt", "sosfiltfilt", "convolve", "correlate", "fftconvolve", "oaconvolve",
+           "choose_conv_method", "savgol_coeffs", "savgol_filter", "hilbert", "upfirdn", "resample_poly", "find_peaks",
+           "peak_prominences", "peak_widths", "welch", "periodogram", "csd", "coherence", "spectrogram", "stft", "istft"]
 
 
 # ---- IIR design ------------------------------------------------------------------------------
@@ -166,6 +168,102 @@ def filtfilt(b, a, x, axis=-1, padtype="odd", padlen=None, method="pad"):
 def sosfiltfilt(sos, x, axis=-1, padtype="odd", padlen=None):
     """Forward-backward (zero-phase) filtering with second-order sections, like ``scipy.signal.sosfiltfilt``."""
     return _native.sosfiltfilt(_np.asarray(sos, dtype=float), _data(x), axis, padtype, padlen)
+
+
+# ---- convolution, smoothing, resampling ------------------------------------------------------------
+
+def _pair(in1, in2):
+    in1, in2 = _data(in1), _data(in2)
+    if in1.ndim != 1 or in2.ndim != 1:
+        raise ValueError("autodyne.signal convolves 1-D arrays (use axis-wise filtering for n-d data)")
+    return in1, in2
+
+
+def convolve(in1, in2, mode="full", method="auto"):
+    """1-D convolution, like ``scipy.signal.convolve``: ``mode`` full, same or valid; ``method`` auto
+    (the cheapest of direct, fft and overlap-add for the lengths), direct, fft or oa."""
+    return _native.convolve(*_pair(in1, in2), mode, method)
+
+
+def correlate(in1, in2, mode="full", method="auto"):
+    """1-D cross-correlation, like ``scipy.signal.correlate`` (real inputs)."""
+    return _native.convolve(*_pair(in1, in2), mode, method, True)
+
+
+def fftconvolve(in1, in2, mode="full"):
+    """1-D convolution by one FFT product, like ``scipy.signal.fftconvolve``."""
+    return _native.convolve(*_pair(in1, in2), mode, "fft")
+
+
+def oaconvolve(in1, in2, mode="full"):
+    """1-D convolution by overlap-add, like ``scipy.signal.oaconvolve``."""
+    return _native.convolve(*_pair(in1, in2), mode, "oa")
+
+
+def choose_conv_method(in1, in2, mode="full"):
+    """``'direct'``, ``'fft'`` or ``'oa'``: what :func:`convolve` with ``method='auto'`` uses."""
+    return _native.choose_conv_method(_np.size(in1), _np.size(in2))
+
+
+def savgol_coeffs(window_length, polyorder, deriv=0, delta=1.0, pos=None, use="conv"):
+    """Savitzky-Golay FIR coefficients, like ``scipy.signal.savgol_coeffs``."""
+    c = _native.savgol_coeffs(window_length, polyorder, deriv, delta, pos)
+    return c if use == "conv" else c[::-1]
+
+
+def savgol_filter(x, window_length, polyorder, deriv=0, delta=1.0, axis=-1, mode="interp", cval=0.0):
+    """Savitzky-Golay smoothing (or differentiation) along ``axis``, like ``scipy.signal.savgol_filter``."""
+    return _native.savgol_filter(_data(x), window_length, polyorder, deriv, delta, axis, mode, cval)
+
+
+def hilbert(x, N=None, axis=-1):
+    """The analytic signal ``x + i H[x]`` along ``axis``, like ``scipy.signal.hilbert``."""
+    return _native.hilbert(_data(x), N, axis)
+
+
+def upfirdn(h, x, up=1, down=1, axis=-1):
+    """Upsample, FIR filter, downsample in one polyphase pass, like ``scipy.signal.upfirdn``."""
+    return _native.upfirdn(_np.atleast_1d(_np.asarray(h, dtype=float)), _data(x), up, down, axis)
+
+
+def resample_poly(x, up, down, axis=0, window=("kaiser", 5.0), padtype="constant", cval=None):
+    """Polyphase resampling by ``up / down``, like ``scipy.signal.resample_poly`` (``padtype='constant'``)."""
+    if padtype != "constant" or cval not in (None, 0, 0.0):
+        raise NotImplementedError("only padtype='constant' with cval 0")
+    return _native.resample_poly(_data(x), up, down, axis, window)
+
+
+# ---- peaks ---------------------------------------------------------------------------------------
+
+def _range(v):
+    if v is None:
+        return None
+    if _np.ndim(v) == 0:
+        return (float(v), None)
+    lo, hi = v
+    return (None if lo is None else float(lo), None if hi is None else float(hi))
+
+
+def find_peaks(x, height=None, threshold=None, distance=None, prominence=None, width=None, wlen=None,
+               rel_height=0.5, plateau_size=None):
+    """``(peaks, properties)``: local maxima of a 1-D signal filtered by the given criteria (a minimum,
+    or a ``(min, max)`` pair), like ``scipy.signal.find_peaks``."""
+    if wlen is not None:
+        wlen = int(_np.ceil(wlen))
+    return _native.find_peaks(_data(x), _range(height), _range(threshold), distance, _range(prominence),
+                              _range(width), wlen, rel_height, _range(plateau_size))
+
+
+def peak_prominences(x, peaks, wlen=None):
+    """``(prominences, left_bases, right_bases)``, like ``scipy.signal.peak_prominences``."""
+    return _native.peak_prominences(_data(x), [int(p) for p in peaks], None if wlen is None else int(_np.ceil(wlen)))
+
+
+def peak_widths(x, peaks, rel_height=0.5, prominence_data=None, wlen=None):
+    """``(widths, width_heights, left_ips, right_ips)``, like ``scipy.signal.peak_widths``."""
+    if prominence_data is not None:
+        raise NotImplementedError("prominence_data is computed from x and wlen")
+    return _native.peak_widths(_data(x), [int(p) for p in peaks], rel_height, None if wlen is None else int(_np.ceil(wlen)))
 
 
 # ---- spectral estimation -----------------------------------------------------------------------

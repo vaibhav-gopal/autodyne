@@ -41,10 +41,12 @@ mod analysis;
 mod array_math;
 mod complex;
 mod container;
+mod convolution;
 pub(crate) mod generic;
 mod nd_axis;
 mod nd_ops;
 mod ndarray;
+mod peaks;
 mod source;
 mod storage;
 mod stream;
@@ -61,11 +63,15 @@ pub(crate) use array_math::{
 pub(crate) use array_math::{clamp_index, concat_shape, pad_shape, slice_shape};
 pub use complex::*;
 pub use container::*;
+pub use convolution::*;
+#[cfg(feature = "faer")]
+pub(crate) use convolution::correlate_valid;
 pub(crate) use container::{extended, Edge};
 pub(crate) use nd_axis::lanes_f64;
 pub use nd_axis::{concatenate, stack};
 pub use nd_ops::*;
 pub use ndarray::*;
+pub use peaks::*;
 pub use source::*;
 pub use storage::*;
 pub use stream::*;
@@ -74,7 +80,7 @@ pub use transform::*;
 use thiserror::Error;
 
 /// Errors from operations that combine or measure signals.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SignalError {
     /// Two signals that must have the same length don't (`self`, `other`).
     #[error("signal lengths differ: {0} vs {1}")]
@@ -85,4 +91,13 @@ pub enum SignalError {
     /// The signal is all zeros where a direction is needed.
     #[error("the operation is undefined for a signal with zero norm")]
     ZeroNorm,
+    /// An argument is out of range.
+    #[error("invalid argument: {0}")]
+    Invalid(String),
+}
+
+impl SignalError {
+    pub(crate) fn invalid(message: impl Into<String>) -> Self {
+        SignalError::Invalid(message.into())
+    }
 }

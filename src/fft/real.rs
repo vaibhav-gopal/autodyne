@@ -148,7 +148,7 @@ impl<T: Float> RealFft<T> {
 #[cfg(feature = "rustfft")]
 mod fast {
     use std::any::TypeId;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
     use realfft::num_complex::Complex as Rc;
     use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
@@ -174,7 +174,10 @@ mod fast {
 
     macro_rules! plan {
         ($V:ident, $F:ty, $len:expr) => {{
-            let mut planner = RealFftPlanner::<$F>::new();
+            // one planner per element type for the whole process: it keeps every plan it made, so
+            // a length planned before (twiddles, factorization) costs only the buffers below
+            static PLANNER: OnceLock<Mutex<RealFftPlanner<$F>>> = OnceLock::new();
+            let mut planner = PLANNER.get_or_init(|| Mutex::new(RealFftPlanner::new())).lock().unwrap_or_else(PoisonError::into_inner);
             let (forward, inverse) = (planner.plan_fft_forward($len), planner.plan_fft_inverse($len));
             let scratch = vec![Rc::new(0.0, 0.0); forward.get_scratch_len().max(inverse.get_scratch_len())];
             Some(Plan::$V { input: forward.make_input_vec(), spectrum: inverse.make_input_vec(), forward, inverse, scratch })

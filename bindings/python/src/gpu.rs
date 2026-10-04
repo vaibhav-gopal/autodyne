@@ -175,6 +175,8 @@ mod enabled {
             }
         }
         /// The single value of a one-element array.
+        // the cast widens f32; for f64 it is a no-op
+        #[allow(clippy::unnecessary_cast)]
         fn __float__(&self) -> PyResult<f64> {
             if self.size() != 1 {
                 return Err(PyTypeError::new_err("only one-element GpuArrays convert to float"));

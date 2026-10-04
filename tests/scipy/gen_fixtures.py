@@ -225,6 +225,54 @@ t, xr = signal.istft(z, fs=1000.0, nperseg=64)
 spec["istft"] = dict(t=r(t), x=r(xr))
 fx["spectral"] = spec
 
+# ---- 1-D signal tools: convolution, Savitzky-Golay, analytic signal, resampling, peaks ---------
+a1 = rng.standard_normal(300)
+k1 = rng.standard_normal(41)
+sig = {"a": r(a1), "k": r(k1)}
+for mode in ["full", "same", "valid"]:
+    sig["convolve_" + mode] = r(signal.convolve(a1, k1, mode=mode))
+    sig["convolve_swapped_" + mode] = r(signal.convolve(k1, a1, mode=mode))
+    sig["correlate_" + mode] = r(signal.correlate(a1, k1, mode=mode))
+xs2 = rng.standard_normal((2, 120)).cumsum(axis=1)
+sig["x2"] = r(xs2)
+sig["savgol"] = {
+    f"{w}_{p}_{d}_{mode}": r(signal.savgol_filter(xs2, w, p, deriv=d, delta=0.5, mode=mode, cval=1.5, axis=1))
+    for (w, p, d) in [(11, 3, 0), (10, 2, 1), (7, 4, 2)]
+    for mode in ["interp", "mirror", "nearest", "constant", "wrap"]
+}
+sig["savgol_axis0"] = r(signal.savgol_filter(xs2.T, 9, 2, axis=0))
+h = signal.hilbert(xs2, axis=1)
+sig["hilbert"] = c(h)
+sig["hilbert_n"] = c(signal.hilbert(xs2, N=97, axis=1))
+sig["hilbert_n_odd"] = c(signal.hilbert(xs2, N=131, axis=1))
+taps = signal.firwin(31, 0.3)
+sig["upfirdn_taps"] = r(taps)
+sig["upfirdn"] = {f"{u}_{d}": r(signal.upfirdn(taps, xs2, u, d, axis=1)) for u, d in [(1, 1), (3, 2), (2, 7), (5, 1), (1, 4)]}
+sig["resample_poly"] = {f"{u}_{d}": r(signal.resample_poly(xs2, u, d, axis=1)) for u, d in [(3, 2), (2, 3), (1, 4), (160, 147), (7, 1)]}
+sig["resample_poly_kaiser8"] = r(signal.resample_poly(xs2, 5, 3, axis=1, window=("kaiser", 8.0)))
+xp = np.sin(np.arange(400) * 0.07) * (1 + 0.5 * np.sin(np.arange(400) * 0.011)) + 0.3 * rng.standard_normal(400)
+xp[200:204] = xp[200:204].max() + 1.0  # a plateau
+sig["xp"] = r(xp)
+peak_cases = {
+    "plain": {},
+    "height": dict(height=0.5),
+    "height_range": dict(height=(0.2, 1.2)),
+    "threshold": dict(threshold=(0.05, 2.0)),
+    "distance": dict(distance=20),
+    "prominence": dict(prominence=0.8),
+    "prominence_wlen": dict(prominence=(0.3, None), wlen=31),
+    "width": dict(width=(3, 40), rel_height=0.7),
+    "plateau": dict(plateau_size=2),
+    "all": dict(height=0.0, threshold=0.0, distance=5, prominence=0.2, width=1.0, wlen=61, plateau_size=(1, 10)),
+}
+peaks = {}
+for name, kw in peak_cases.items():
+    idx, props = signal.find_peaks(xp, **kw)
+    peaks[name] = dict(kw={k: (list(v) if isinstance(v, tuple) else v) for k, v in kw.items()}, indices=r(idx),
+                       props={k: r(v) for k, v in props.items()})
+sig["peaks"] = peaks
+fx["signal"] = sig
+
 out = pathlib.Path(__file__).with_name("fixtures.json")
 out.write_text(json.dumps(fx))
 print(f"wrote {out} ({out.stat().st_size // 1024} KiB), SciPy {scipy.__version__}")

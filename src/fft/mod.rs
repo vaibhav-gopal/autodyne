@@ -32,6 +32,31 @@ pub fn bin_frequency<T: Float>(bin: usize, fft_len: usize, sample_rate: T) -> T 
     T::_lit(bin as f64) * sample_rate / T::_lit(fft_len as f64)
 }
 
+/// The smallest length `>= n` whose only prime factors are 2, 3 and 5: the transforms are fastest
+/// at such lengths, so zero-padding to one (for a convolution, say) is cheaper than an awkward
+/// length (`scipy.fft.next_fast_len` for real transforms).
+pub fn next_fast_len(n: usize) -> usize {
+    if n <= 6 {
+        return n.max(1);
+    }
+    let mut best = n.next_power_of_two();
+    let mut p5 = 1;
+    while p5 < best {
+        let mut p35 = p5;
+        while p35 < best {
+            // the smallest power of two taking p35 to at least n
+            let mut m = p35;
+            while m < n {
+                m *= 2;
+            }
+            best = best.min(m);
+            p35 *= 3;
+        }
+        p5 *= 5;
+    }
+    best
+}
+
 /// FFT of a fixed length (any length >= 1), planned once so transforms run in place without
 /// allocating.
 ///
@@ -40,7 +65,8 @@ pub fn bin_frequency<T: Float>(bin: usize, fft_len: usize, sample_rate: T) -> T 
 /// lengths; AVX / SSE / NEON chosen at runtime). Otherwise (or for other element types) a portable
 /// path: an iterative radix-2 Cooley-Tukey kernel for powers of two, and Bluestein's algorithm (the
 /// transform as a chirp convolution, done with a power-of-two FFT) for every other length.
-/// Twiddle factors, tables and scratch space are made in `new`.
+/// Twiddle factors, tables and scratch space are made in `new`; rustfft plans are cached for the
+/// life of the process, so planning a length again costs only its scratch space.
 #[derive(Debug, Clone)]
 pub struct Fft<T: Float> {
     len: usize,
@@ -198,7 +224,7 @@ fn radix2<T: Float>(buf: &mut [Complex<T>], twiddles: &[Complex<T>], bit_reverse
 #[cfg(feature = "rustfft")]
 mod fast {
     use std::any::TypeId;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
     use rustfft::num_complex::Complex as Rc;
     use rustfft::FftPlanner;
@@ -223,7 +249,10 @@ mod fast {
 
     macro_rules! plan {
         ($V:ident, $F:ty, $len:expr) => {{
-            let mut planner = FftPlanner::<$F>::new();
+            // one planner per element type for the whole process: it keeps every plan it made, so
+            // a length planned before costs only the scratch below
+            static PLANNER: OnceLock<Mutex<FftPlanner<$F>>> = OnceLock::new();
+            let mut planner = PLANNER.get_or_init(|| Mutex::new(FftPlanner::new())).lock().unwrap_or_else(PoisonError::into_inner);
             let (forward, inverse) = (planner.plan_fft_forward($len), planner.plan_fft_inverse($len));
             let scratch = vec![Rc::new(0.0, 0.0); forward.get_inplace_scratch_len().max(inverse.get_inplace_scratch_len())];
             Some(Plan::$V { forward, inverse, scratch })
@@ -355,6 +384,23 @@ mod tests {
         Fft::new(1024).forward(&mut b);
         let err = a.iter().zip(&b).map(|(x, y)| (*x - C::new(y.re as f64, y.im as f64)).norm()).fold(0.0, f64::max);
         assert!(err < 1e-3, "f32 vs f64 max error {err}");
+    }
+
+    #[test]
+    fn fast_lengths_are_5_smooth_and_minimal() {
+        let smooth = |mut m: usize| {
+            for p in [2, 3, 5] {
+                while m.is_multiple_of(p) {
+                    m /= p;
+                }
+            }
+            m == 1
+        };
+        for n in 1..2000 {
+            let f = next_fast_len(n);
+            assert!(f >= n && smooth(f), "{n} -> {f}");
+            assert!((n..f).all(|m| !smooth(m)), "{n} -> {f} is not the smallest");
+        }
     }
 
     #[test]

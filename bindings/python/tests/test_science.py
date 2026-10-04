@@ -129,6 +129,53 @@ def test_filtering_along_axes(dtype):
     close(asg.sosfiltfilt(sos, x[:, ::2]), ss.sosfiltfilt(sos, x[:, ::2]), tol * 10)  # strided input
 
 
+# ---- convolution, smoothing, resampling, peaks -----------------------------------------------------
+
+@pytest.mark.parametrize("method", ["auto", "direct", "fft", "oa"])
+@pytest.mark.parametrize("mode", ["full", "same", "valid"])
+def test_convolution(mode, method):
+    a, k = rng.standard_normal(1000), rng.standard_normal(57)
+    close(asg.convolve(a, k, mode, method), ss.convolve(a, k, mode, "direct" if method == "oa" else method))
+    close(asg.convolve(k, a, mode, method), ss.convolve(k, a, mode))
+    close(asg.correlate(a, k, mode, method), ss.correlate(a, k, mode))
+    close(asg.fftconvolve(a, k, mode), ss.fftconvolve(a, k, mode))
+    close(asg.oaconvolve(a, k, mode), ss.oaconvolve(a, k, mode))
+    assert asg.convolve(a.astype(np.float32), k, mode, method).dtype == np.float32
+    with pytest.raises(ValueError):
+        asg.convolve(a.reshape(10, 100), k)
+
+
+def test_savgol_hilbert_resampling():
+    x = rng.standard_normal((3, 200)).cumsum(axis=1)
+    close(asg.savgol_coeffs(9, 3, deriv=1), ss.savgol_coeffs(9, 3, deriv=1))
+    close(asg.savgol_coeffs(9, 3, use="dot"), ss.savgol_coeffs(9, 3, use="dot"))
+    for mode in ["interp", "mirror", "nearest", "constant", "wrap"]:
+        close(asg.savgol_filter(x, 11, 3, mode=mode, cval=0.5), ss.savgol_filter(x, 11, 3, mode=mode, cval=0.5))
+    close(asg.savgol_filter(x.T, 8, 2, deriv=2, delta=0.1, axis=0), ss.savgol_filter(x.T, 8, 2, deriv=2, delta=0.1, axis=0), 1e-8)
+    close(asg.hilbert(x), ss.hilbert(x))
+    close(asg.hilbert(x.T, N=150, axis=0), ss.hilbert(x.T, N=150, axis=0))
+    h = ss.firwin(25, 0.2)
+    close(asg.upfirdn(h, x, 4, 3), ss.upfirdn(h, x, 4, 3))
+    close(asg.resample_poly(x, 147, 160, axis=-1), ss.resample_poly(x, 147, 160, axis=-1))
+    close(asg.resample_poly(x, 2, 1), ss.resample_poly(x, 2, 1))  # SciPy's default axis is 0
+    close(asg.resample_poly(x.T, 3, 1, axis=0, window="hamming"), ss.resample_poly(x.T, 3, 1, axis=0, window="hamming"))
+
+
+def test_peaks():
+    t = np.arange(2000)
+    x = np.sin(t * 0.05) * (1 + 0.5 * np.sin(t * 0.003)) + 0.2 * rng.standard_normal(2000)
+    for kw in [{}, dict(height=0.5), dict(height=(0.0, 1.0), distance=10), dict(prominence=0.5, wlen=101),
+               dict(width=(2, None), rel_height=0.8), dict(threshold=0.1), dict(plateau_size=1)]:
+        p, props = asg.find_peaks(x, **kw)
+        pr, propsr = ss.find_peaks(x, **kw)
+        np.testing.assert_array_equal(p, pr)
+        assert props.keys() == propsr.keys(), kw
+        for key in props:
+            close(props[key], propsr[key])
+    close(asg.peak_prominences(x, pr, wlen=51), ss.peak_prominences(x, pr, wlen=51))
+    close(asg.peak_widths(x, pr, rel_height=1.0), ss.peak_widths(x, pr, rel_height=1.0))
+
+
 # ---- spectral estimation -----------------------------------------------------------------------
 
 def test_spectral_estimates():

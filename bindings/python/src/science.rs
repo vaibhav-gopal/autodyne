@@ -3,9 +3,10 @@
 //! `autodyne.signal` and `autodyne.fft` supply its defaults.
 
 use autodyne::filter::design::{self, Band, BesselNorm, Design, IirKind, RemezType};
-use autodyne::filter::{self, Pad};
+use autodyne::filter::{self, Pad, SavgolMode};
 use autodyne::linalg::{self, LinalgFloat};
-use autodyne::signal::{NdArray, NdView};
+use autodyne::resample;
+use autodyne::signal::{self, convolve_with, correlate_with, Bounds, ConvMethod, ConvMode, NdArray, NdView, PeakOptions};
 use autodyne::fft::Fft;
 use autodyne::spectral::{self, Average, Boundary, Detrend, IstftOptions, Scaling, Segments, SpectrogramMode, StftOptions, WindowSpec};
 use autodyne::systems::{self, Domain, Pairing, Zpk, C64};
@@ -478,6 +479,204 @@ fn sosfiltfilt(py: Python<'_>, sos: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axi
     })
 }
 
+fn conv_mode(mode: &str) -> PyResult<ConvMode> {
+    match mode {
+        "full" => Ok(ConvMode::Full),
+        "same" => Ok(ConvMode::Same),
+        "valid" => Ok(ConvMode::Valid),
+        other => Err(PyValueError::new_err(format!("unknown mode {other:?} (full, same or valid)"))),
+    }
+}
+
+fn conv_method(method: &str) -> PyResult<ConvMethod> {
+    match method {
+        "auto" => Ok(ConvMethod::Auto),
+        "direct" => Ok(ConvMethod::Direct),
+        "fft" => Ok(ConvMethod::Fft),
+        "oa" | "overlap-add" => Ok(ConvMethod::OverlapAdd),
+        other => Err(PyValueError::new_err(format!("unknown method {other:?} (auto, direct, fft or oa)"))),
+    }
+}
+
+/// A 1-D float input as a contiguous `T` vector.
+fn samples_as<T: Float + Default>(obj: &Bound<'_, PyAny>) -> PyResult<Vec<T>> {
+    let a = state_as::<T>(obj)?;
+    if a.ndim() != 1 {
+        return Err(PyValueError::new_err(format!("expected a 1-D array, got {} dimensions", a.ndim())));
+    }
+    Ok(a.into_vec())
+}
+
+/// 1-D convolution (or correlation) with SciPy's modes and methods; the output has the first
+/// input's dtype.
+#[pyfunction]
+#[pyo3(signature = (in1, in2, mode="full", method="auto", correlate=false))]
+fn convolve(py: Python<'_>, in1: &Bound<'_, PyAny>, in2: &Bound<'_, PyAny>, mode: &str, method: &str, correlate: bool) -> PyResult<Obj> {
+    let (mode, method) = (conv_mode(mode)?, conv_method(method)?);
+    float_view!(in1, T, v => {
+        if v.ndim() != 1 {
+            return Err(PyValueError::new_err(format!("expected 1-D inputs, got {} dimensions", v.ndim())));
+        }
+        let (a, b) = (v.to_owned().into_vec(), samples_as::<T>(in2)?);
+        let y = if correlate { correlate_with(&a, &b, mode, method) } else { convolve_with(&a, &b, mode, method) };
+        let n = y.len();
+        numpy_out(py, y, &[n], None)
+    })
+}
+
+#[pyfunction]
+fn choose_conv_method(n: usize, k: usize) -> &'static str {
+    match signal::choose_conv_method(n, k) {
+        ConvMethod::Direct => "direct",
+        ConvMethod::Fft => "fft",
+        _ => "oa",
+    }
+}
+
+#[pyfunction]
+#[pyo3(signature = (window_length, polyorder, deriv=0, delta=1.0, pos=None))]
+fn savgol_coeffs(py: Python<'_>, window_length: usize, polyorder: usize, deriv: usize, delta: f64, pos: Option<f64>) -> PyResult<Obj> {
+    vec_out(py, design::savgol_coeffs(window_length, polyorder, deriv, delta, pos).map_err(value_error)?)
+}
+
+#[pyfunction]
+#[pyo3(signature = (x, window_length, polyorder, deriv=0, delta=1.0, axis=-1, mode="interp", cval=0.0))]
+#[allow(clippy::too_many_arguments)]
+fn savgol_filter(py: Python<'_>, x: &Bound<'_, PyAny>, window_length: usize, polyorder: usize, deriv: usize, delta: f64, axis: isize, mode: &str, cval: f64) -> PyResult<Obj> {
+    let mode = match mode {
+        "interp" => SavgolMode::Interp,
+        "mirror" => SavgolMode::Mirror,
+        "nearest" => SavgolMode::Nearest,
+        "constant" => SavgolMode::Constant(cval),
+        "wrap" => SavgolMode::Wrap,
+        other => return Err(PyValueError::new_err(format!("unknown mode {other:?}"))),
+    };
+    float_view!(x, T, v => {
+        let axis = axis_index(axis, v.ndim())?;
+        numpy_array(py, filter::savgol_filter(v, window_length, polyorder, deriv, delta, axis, mode).map_err(value_error)?)
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (x, n=None, axis=-1))]
+fn hilbert(py: Python<'_>, x: &Bound<'_, PyAny>, n: Option<usize>, axis: isize) -> PyResult<Obj> {
+    float_view!(x, T, v => {
+        let axis = axis_index(axis, v.ndim())?;
+        numpy_complex(py, spectral::hilbert(v, axis, n).map_err(value_error)?)
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (h, x, up=1, down=1, axis=-1))]
+fn upfirdn(py: Python<'_>, h: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, up: usize, down: usize, axis: isize) -> PyResult<Obj> {
+    let h = coeffs(h)?;
+    float_view!(x, T, v => {
+        let axis = axis_index(axis, v.ndim())?;
+        numpy_array(py, resample::upfirdn(&h, v, up, down, axis).map_err(value_error)?)
+    })
+}
+
+#[pyfunction]
+#[pyo3(signature = (x, up, down, axis=-1, window=None))]
+fn resample_poly(py: Python<'_>, x: &Bound<'_, PyAny>, up: usize, down: usize, axis: isize, window: Option<&Bound<'_, PyAny>>) -> PyResult<Obj> {
+    let window = match window {
+        Some(w) => window_spec(w)?,
+        None => WindowSpec::Kaiser { beta: 5.0 },
+    };
+    float_view!(x, T, v => {
+        let axis = axis_index(axis, v.ndim())?;
+        numpy_array(py, resample::resample_poly(v, up, down, axis, window).map_err(value_error)?)
+    })
+}
+
+/// Runs `$body` with `$s` a slice of the 1-D float input `$obj`: its own memory when contiguous,
+/// else a copy.
+macro_rules! with_samples {
+    ($obj:expr, $s:ident => $body:expr) => {
+        float_view!($obj, T, v => {
+            if v.ndim() != 1 {
+                return Err(PyValueError::new_err(format!("expected a 1-D array, got {} dimensions", v.ndim())));
+            }
+            let owned;
+            let $s: &[T] = match v.as_slice() {
+                Some(s) => s,
+                None => {
+                    owned = v.to_owned().into_vec();
+                    &owned
+                }
+            };
+            $body
+        })
+    };
+}
+
+type Range = Option<(Option<f64>, Option<f64>)>;
+
+fn bounds(r: Range) -> Option<Bounds> {
+    r.map(|(min, max)| Bounds { min, max })
+}
+
+fn index_out(py: Python<'_>, v: &[usize]) -> PyResult<Obj> {
+    numpy_out(py, v.iter().map(|&i| i as i64).collect(), &[v.len()], None)
+}
+
+/// `(peaks, properties)` as `scipy.signal.find_peaks` returns them; bounds come in as
+/// `(min, max)` pairs (either `None`).
+#[pyfunction]
+#[pyo3(signature = (x, height=None, threshold=None, distance=None, prominence=None, width=None, wlen=None, rel_height=0.5, plateau_size=None))]
+#[allow(clippy::too_many_arguments)]
+fn find_peaks(py: Python<'_>, x: &Bound<'_, PyAny>, height: Range, threshold: Range, distance: Option<f64>, prominence: Range, width: Range, wlen: Option<usize>, rel_height: f64, plateau_size: Range) -> PyResult<Obj> {
+    let options = PeakOptions { height: bounds(height), threshold: bounds(threshold), distance, prominence: bounds(prominence), width: bounds(width), wlen, rel_height, plateau_size: bounds(plateau_size) };
+    let p = with_samples!(x, s => signal::find_peaks(s, &options).map_err(value_error))?;
+    let props = pyo3::types::PyDict::new(py);
+    if let Some(t) = &p.plateaus {
+        props.set_item("plateau_sizes", index_out(py, &t.sizes)?)?;
+        props.set_item("left_edges", index_out(py, &t.left_edges)?)?;
+        props.set_item("right_edges", index_out(py, &t.right_edges)?)?;
+    }
+    for (key, v) in [("peak_heights", &p.peak_heights), ("left_thresholds", &p.left_thresholds), ("right_thresholds", &p.right_thresholds)] {
+        if let Some(v) = v {
+            props.set_item(key, vec_out(py, v.clone())?)?;
+        }
+    }
+    if let Some(q) = &p.prominences {
+        props.set_item("prominences", vec_out(py, q.prominences.clone())?)?;
+        props.set_item("left_bases", index_out(py, &q.left_bases)?)?;
+        props.set_item("right_bases", index_out(py, &q.right_bases)?)?;
+    }
+    if let Some(w) = &p.widths {
+        props.set_item("widths", vec_out(py, w.widths.clone())?)?;
+        props.set_item("width_heights", vec_out(py, w.width_heights.clone())?)?;
+        props.set_item("left_ips", vec_out(py, w.left_ips.clone())?)?;
+        props.set_item("right_ips", vec_out(py, w.right_ips.clone())?)?;
+    }
+    tuple(py, vec![index_out(py, &p.indices)?, props.into_any().unbind()])
+}
+
+fn peak_indices(obj: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
+    let v: Vec<i64> = obj.extract()?;
+    v.into_iter().map(|i| usize::try_from(i).map_err(|_| PyValueError::new_err(format!("peak index {i} is negative")))).collect()
+}
+
+#[pyfunction]
+#[pyo3(signature = (x, peaks, wlen=None))]
+fn peak_prominences(py: Python<'_>, x: &Bound<'_, PyAny>, peaks: &Bound<'_, PyAny>, wlen: Option<usize>) -> PyResult<Obj> {
+    let peaks = peak_indices(peaks)?;
+    let q = with_samples!(x, s => signal::peak_prominences(s, &peaks, wlen).map_err(value_error))?;
+    tuple(py, vec![vec_out(py, q.prominences)?, index_out(py, &q.left_bases)?, index_out(py, &q.right_bases)?])
+}
+
+#[pyfunction]
+#[pyo3(signature = (x, peaks, rel_height=0.5, wlen=None))]
+fn peak_widths(py: Python<'_>, x: &Bound<'_, PyAny>, peaks: &Bound<'_, PyAny>, rel_height: f64, wlen: Option<usize>) -> PyResult<Obj> {
+    let peaks = peak_indices(peaks)?;
+    let w = with_samples!(x, s => {
+        let q = signal::peak_prominences(s, &peaks, wlen).map_err(value_error)?;
+        signal::peak_widths(s, &peaks, rel_height, &q).map_err(value_error)
+    })?;
+    tuple(py, vec![vec_out(py, w.widths)?, vec_out(py, w.width_heights)?, vec_out(py, w.left_ips)?, vec_out(py, w.right_ips)?])
+}
+
 // SPECTRAL ESTIMATION =============================================================================
 
 #[allow(clippy::too_many_arguments)]
@@ -712,6 +911,16 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
         wrap_pyfunction!(sosfilt_zi, m)?,
         wrap_pyfunction!(filtfilt, m)?,
         wrap_pyfunction!(sosfiltfilt, m)?,
+        wrap_pyfunction!(convolve, m)?,
+        wrap_pyfunction!(choose_conv_method, m)?,
+        wrap_pyfunction!(savgol_coeffs, m)?,
+        wrap_pyfunction!(savgol_filter, m)?,
+        wrap_pyfunction!(hilbert, m)?,
+        wrap_pyfunction!(upfirdn, m)?,
+        wrap_pyfunction!(resample_poly, m)?,
+        wrap_pyfunction!(find_peaks, m)?,
+        wrap_pyfunction!(peak_prominences, m)?,
+        wrap_pyfunction!(peak_widths, m)?,
         wrap_pyfunction!(welch, m)?,
         wrap_pyfunction!(csd, m)?,
         wrap_pyfunction!(coherence, m)?,

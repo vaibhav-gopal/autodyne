@@ -1,6 +1,7 @@
 //! Filter design, as in `scipy.signal`: IIR filters from analog prototypes ([`butter`],
 //! [`cheby1`], [`cheby2`], [`ellip`], [`bessel`], [`iirfilter`]) returned as zeros-poles-gain
-//! (convert with `to_sos()`), and FIR filters ([`firwin`], [`firwin2`], [`firls`], [`remez`]).
+//! (convert with `to_sos()`), FIR filters ([`firwin`], [`firwin2`], [`firls`], [`remez`]) and
+//! Savitzky-Golay filters ([`savgol_coeffs`]; `filter::savgol_filter` applies them).
 //!
 //! ```
 //! use autodyne::filter::design::{ellip, firwin, Band, Design};
@@ -19,10 +20,11 @@
 
 mod fir;
 mod iir;
+mod savgol;
 
 pub use fir::*;
 pub use iir::*;
-
+pub use savgol::*;
 
 #[cfg(test)]
 mod tests;

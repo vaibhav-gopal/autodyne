@@ -1,7 +1,8 @@
 //! Filtering n-d data along an axis with designed coefficients, as in `scipy.signal`: direct form
 //! II transposed (`lfilter`), cascaded second-order sections (`sosfilt`), zero-phase forward-backward
-//! filtering (`filtfilt`, `sosfiltfilt`), and steady-state initial conditions (`lfilter_zi`,
-//! `sosfilt_zi`). Inputs are views with any strides; computation is in f64.
+//! filtering (`filtfilt`, `sosfiltfilt`), steady-state initial conditions (`lfilter_zi`,
+//! `sosfilt_zi`), and Savitzky-Golay smoothing (`savgol_filter`). Inputs are views with any
+//! strides; computation is in f64.
 //!
 //! Lanes are filtered [`LANES`] at a time, interleaved sample by sample, so the independent
 //! recursions of different lanes (and of a cascade's sections) overlap instead of each waiting on
@@ -385,6 +386,83 @@ pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis
         reverse_samples(&mut y);
         y[edge * LANES..(edge + n) * LANES].to_vec()
     })
+}
+
+/// How [`savgol_filter`] handles the ends of the signal (`mode` in `scipy.signal.savgol_filter`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum SavgolMode {
+    /// The last `window_length / 2` outputs at each end come from a polynomial fitted to the first
+    /// (or last) `window_length` samples (SciPy's default). Needs `window_length <= len`.
+    #[default]
+    Interp,
+    /// The signal reflected about its end samples, which are not repeated (`d c b | a b c d | c b a`).
+    Mirror,
+    /// The end samples repeated.
+    Nearest,
+    /// This value past both ends.
+    Constant(f64),
+    /// The signal repeated periodically.
+    Wrap,
+}
+
+/// Savitzky-Golay filtering along `axis` (`scipy.signal.savgol_filter`): each output is the value
+/// (or `deriv`-th derivative, for samples `delta` apart) at the window's centre of the degree
+/// `polyorder` polynomial fitted by least squares to the `window_length` samples around it; `mode`
+/// handles the ends. Smooths while keeping peaks' heights and widths better than a moving average.
+pub fn savgol_filter<T: Float + Default>(x: NdView<'_, T>, window_length: usize, polyorder: usize, deriv: usize, delta: f64, axis: usize, mode: SavgolMode) -> Result<NdArray<T>, FilterError> {
+    check_axis(x.shape(), axis)?;
+    let coeffs = super::design::savgol_coeffs(window_length, polyorder, deriv, delta, None)?;
+    let n = x.shape()[axis];
+    if mode == SavgolMode::Interp && window_length > n {
+        return Err(invalid(format!("mode Interp needs window_length ({window_length}) <= the signal length ({n})")));
+    }
+    let w = window_length;
+    let half = w / 2;
+    // y[i] = sum_j c[j] x[i + half - j] = sum_m c[w - 1 - m] ext[i + m], ext[k] = x[k - (w - 1 - half)]
+    let reversed: Vec<f64> = coeffs.iter().rev().copied().collect();
+    let before = w - 1 - half;
+    let lanes = lanes_f64(&x, axis)?;
+    let mut out = Vec::with_capacity(lanes.len());
+    for lane in &lanes {
+        let at = |k: isize| -> f64 {
+            let len = n as isize;
+            if (0..len).contains(&k) {
+                return lane[k as usize];
+            }
+            match mode {
+                SavgolMode::Interp => 0.0,
+                SavgolMode::Constant(c) => c,
+                SavgolMode::Nearest => lane[k.clamp(0, len - 1) as usize],
+                SavgolMode::Wrap => lane[k.rem_euclid(len) as usize],
+                SavgolMode::Mirror if len == 1 => lane[0],
+                SavgolMode::Mirror => {
+                    let period = 2 * (len - 1);
+                    let r = k.rem_euclid(period);
+                    lane[(if r < len { r } else { period - r }) as usize]
+                }
+            }
+        };
+        // only the ends need the extension rule
+        let mut ext = Vec::with_capacity(n + w - 1);
+        ext.extend((0..before).map(|k| at(k as isize - before as isize)));
+        ext.extend_from_slice(lane);
+        ext.extend((n..n + w - 1 - before).map(|k| at(k as isize)));
+        let mut y = crate::signal::correlate_valid(&ext, &reversed);
+        if mode == SavgolMode::Interp {
+            // polynomials fitted to the first and last windows, evaluated at the ends' positions
+            let positions: Vec<f64> = (0..w).map(|t| t as f64).collect();
+            let scale = delta.powi(deriv as i32);
+            for (start, from, to) in [(0, 0, half), (n - w, n - half, n)] {
+                let fit = crate::linalg::polyfit(&positions, &lane[start..start + w], polyorder)?;
+                let fit = crate::linalg::polyder(&fit, deriv);
+                for (i, v) in y[from..to].iter_mut().enumerate() {
+                    *v = crate::linalg::polyval(&fit, (from + i - start) as f64) / scale;
+                }
+            }
+        }
+        out.push(y);
+    }
+    assemble_states(x.shape(), axis, &out)
 }
 
 /// Zero-phase filtering through second-order sections (`scipy.signal.sosfiltfilt`).
