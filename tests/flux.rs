@@ -15,7 +15,8 @@
 use autodyne::distortion::Shape;
 use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
 use autodyne::flux::optim::{Adam, Optimizer};
-use autodyne::flux::{frames, multi_resolution_stft, scalar, trace, vector, vjp, Backend, Emit, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::signal::frames;
+use autodyne::flux::{multi_resolution_stft, scalar, trace, vector, vjp, Backend, Emit, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
 use autodyne::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
 use autodyne::units::{Elementwise, RealValued};
 

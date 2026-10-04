@@ -9,8 +9,9 @@
 //! sums, products, maxima and minima, `dot_general`, real and complex FFTs, and gathers (`take`, for
 //! wavetables and modulated delays) with their scatter. From there:
 //!
-//! - [`Graph::eval`] interprets it (f32, the reference semantics; values are
-//!   [`NdArray`](crate::signal::NdArray)s);
+//! - [`Graph::eval`] runs it in process, in `f32` or `f64` (values are
+//!   [`NdArray`](crate::signal::NdArray)s): an interpreter that fuses element-wise chains into
+//!   single passes, the reference the compiled backends are checked against;
 //! - [`vjp`] differentiates it in reverse mode, recording the backward pass into the same trace
 //!   ([`jvp`], forward mode, transposes it);
 //! - [`Scan`] runs a traced step over a whole signal, and its gradient as a reverse scan, with
@@ -21,9 +22,11 @@
 //!   compiles and runs: [`Iree`] (its command-line tools), [`Pjrt`] (a PJRT plugin such as XLA's,
 //!   loaded in-process through the PJRT C API) or [`Xla`] (XLA through JAX, where no plugin exists).
 //!
-//! flux is a front end only: no IR of its own beyond the trace, no code generation, nothing linked;
-//! the compilers are external tools found at run time. The real-time path is unchanged: the same
-//! generic code monomorphized for `f32` / `f64`, never touching a trace.
+//! In process, a scan whose state is scalars runs as a register program, or (feature `jit`) as
+//! machine code compiled with Cranelift on first use. For whole programs flux is a front end: no IR
+//! of its own beyond the trace, the compilers (IREE, XLA) external tools or plugins found at run
+//! time. The real-time path is unchanged: the same generic code monomorphized for `f32` / `f64`,
+//! never touching a trace.
 //!
 //! ```
 //! use autodyne::filter::OnePole;
@@ -65,7 +68,6 @@ pub use hlo::{Emit, Program};
 pub use iree::{Iree, IreeTarget};
 pub use pjrt::{Pjrt, PjrtOption};
 pub use runtime::{Backend, DeviceArray, Executable, ExecutableExt, HostArray, HostRef};
-pub use crate::signal::frames;
 pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
 pub use scan::{LossGrad, Scan, ScanVjp};
 pub use xla::Xla;
@@ -76,8 +78,8 @@ pub enum FluxError {
     /// Reading or writing files, or running a tool, failed.
     #[error("i/o: {0}")]
     Io(#[from] std::io::Error),
-    #[error("{tool} failed: {message}")]
     /// An external tool (`iree-compile`, a Python with JAX, ...) failed.
+    #[error("{tool} failed: {message}")]
     Tool {
         /// Which tool.
         tool: &'static str,
