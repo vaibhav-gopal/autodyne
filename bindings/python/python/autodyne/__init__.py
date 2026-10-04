@@ -55,10 +55,12 @@ def add(x, y, keep_float=False):
 
 
 def sub(x, y, keep_float=False):
+    """``x - y`` for any numeric dtypes, broadcast (promotion as in :func:`add`)."""
     return _binary("sub", x, y, keep_float)
 
 
 def mul(x, y, keep_float=False):
+    """``x * y`` for any numeric dtypes, broadcast (promotion as in :func:`add`)."""
     return _binary("mul", x, y, keep_float)
 
 
@@ -68,10 +70,12 @@ def div(x, y, keep_float=False):
 
 
 def minimum(x, y, keep_float=False):
+    """Element-wise minimum, broadcast (NaN if either is NaN; promotion as in :func:`add`)."""
     return _binary("min", x, y, keep_float)
 
 
 def maximum(x, y, keep_float=False):
+    """Element-wise maximum, broadcast (NaN if either is NaN; promotion as in :func:`add`)."""
     return _binary("max", x, y, keep_float)
 
 

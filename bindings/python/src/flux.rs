@@ -301,6 +301,7 @@ fn where_(mask: PyRef<'_, PyMask>, if_true: &Bound<'_, PyAny>, if_false: &Bound<
     Ok(PyTracer(Tracer::select(mask.0, tr(if_true)?, tr(if_false)?)))
 }
 
+/// Joins tracers along `axis` (`numpy.concatenate`).
 #[pyfunction]
 #[pyo3(signature = (parts, axis=0))]
 fn concatenate(parts: Vec<Bound<'_, PyAny>>, axis: usize) -> PyResult<PyTracer> {
@@ -308,6 +309,7 @@ fn concatenate(parts: Vec<Bound<'_, PyAny>>, axis: usize) -> PyResult<PyTracer> 
     Ok(PyTracer(Tracer::concatenate(&parts, axis)))
 }
 
+/// The inverse real FFT along the last axis from `(real, imaginary)` bins: `n` samples, scaled by `1 / n`.
 #[pyfunction]
 fn irfft(re: &Bound<'_, PyAny>, im: &Bound<'_, PyAny>, n: usize) -> PyResult<PyTracer> {
     Ok(PyTracer(Tracer::irfft(tr(re)?, tr(im)?, n)))
@@ -333,11 +335,13 @@ fn fft(re: &Bound<'_, PyAny>, im: &Bound<'_, PyAny>, inverse: bool) -> PyResult<
     Ok((PyTracer(a), PyTracer(b)))
 }
 
+/// Full linear convolution along the last axis (`numpy.convolve` mode `full`), batched over the leading axes.
 #[pyfunction]
 fn convolve(x: &Bound<'_, PyAny>, kernel: &Bound<'_, PyAny>) -> PyResult<PyTracer> {
     Ok(PyTracer(autodyne::signal::convolve(tr(x)?, tr(kernel)?)))
 }
 
+/// Windows of `length` samples, `hop` apart, along the last axis: `[..., n]` becomes `[..., count, length]`.
 #[pyfunction]
 fn frames(x: &Bound<'_, PyAny>, length: usize, hop: usize) -> PyResult<PyTracer> {
     Ok(PyTracer(fx::frames(tr(x)?, length, hop)))
@@ -347,6 +351,7 @@ fn resolutions(r: Option<Vec<(usize, usize, usize)>>) -> Vec<StftResolution> {
     r.map(|r| r.into_iter().map(|(n, h, w)| StftResolution::new(n, h, w)).collect()).unwrap_or_else(|| StftResolution::DEFAULT.to_vec())
 }
 
+/// STFT magnitudes along the last axis: Hann frames of `window` samples, `hop` apart, zero-padded to `n_fft`.
 #[pyfunction]
 fn stft_magnitude(x: &Bound<'_, PyAny>, n_fft: usize, hop: usize, window: usize) -> PyResult<PyTracer> {
     Ok(PyTracer(fx::stft_magnitude(tr(x)?, StftResolution::new(n_fft, hop, window))))

@@ -33,10 +33,12 @@ def solve(a, b):
 
 
 def inv(a):
+    """The inverse of a square matrix (``LinAlgError``-style ``ValueError`` if singular)."""
     return _native.inv(_float(a))
 
 
 def det(a):
+    """The determinant of a square matrix."""
     return _native.det(_float(a))
 
 
@@ -51,6 +53,7 @@ def eig(a):
 
 
 def eigvals(a):
+    """The eigenvalues of a general square matrix, complex, in no particular order."""
     return _native.eigvals(_float(a))
 
 
@@ -67,6 +70,7 @@ def svd(a, full_matrices=True, compute_uv=True):
 
 
 def pinv(a):
+    """The Moore-Penrose pseudo-inverse (through the SVD)."""
     return _native.pinv(_float(a))
 
 

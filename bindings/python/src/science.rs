@@ -114,6 +114,7 @@ pub(crate) trait DynElementBridge: Copy + Default + numpy::Element {}
 impl DynElementBridge for f32 {}
 impl DynElementBridge for f64 {}
 
+/// Matrix product of 1-D or 2-D arrays, `numpy.matmul` style (lists and integer arrays become float64).
 #[pyfunction]
 fn matmul<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, b: &Bound<'py, PyAny>) -> PyResult<Obj> {
     let float = |x: &Bound<'_, PyAny>| x.cast::<numpy::PyArrayDyn<f64>>().is_ok() || x.cast::<numpy::PyArrayDyn<f32>>().is_ok();
