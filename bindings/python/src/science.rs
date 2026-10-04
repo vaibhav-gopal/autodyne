@@ -66,7 +66,7 @@ fn complexes(obj: &Bound<'_, PyAny>) -> PyResult<Vec<C64>> {
 /// SciPy's window argument: a name, or a `(name, parameter)` tuple.
 pub(crate) fn window_spec(obj: &Bound<'_, PyAny>) -> PyResult<WindowSpec> {
     if let Ok(name) = obj.extract::<String>() {
-        return name.parse().map_err(|e: spectral::SpectralError| PyValueError::new_err(e.to_string()));
+        return name.parse::<WindowSpec>().map_err(value_error);
     }
     let t: (String, f64) = obj.extract().map_err(|_| PyTypeError::new_err("window must be a name or a (name, parameter) tuple"))?;
     Ok(match t.0.as_str() {
@@ -87,10 +87,6 @@ macro_rules! float_view {
         let held = input($obj)?;
         crate::with_float_input!(held, $T, $v => $body)
     }};
-}
-
-fn linalg_error(e: linalg::LinalgError) -> PyErr {
-    PyValueError::new_err(e.to_string())
 }
 
 /// Calls `f` with the second of two float inputs as a view of the first's dtype: read in place when
@@ -137,7 +133,7 @@ fn matmul<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, b: &Bound<'py, PyAny>) ->
 fn matmul_floats(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
     // the product written straight into a new NumPy array, as NumPy's own does
     float_view!(a, T, va => with_pair::<T, _>(b, |vb| {
-        let shape = linalg::matmul_shape(va.shape(), vb.shape()).map_err(linalg_error)?;
+        let shape = linalg::matmul_shape(va.shape(), vb.shape()).map_err(value_error)?;
         // SAFETY: matmul_into overwrites every element before the array is returned
         let out = unsafe { numpy::PyArray::<T, numpy::ndarray::IxDyn>::new(py, numpy::ndarray::IxDyn(&shape), false) };
         let mut strides = vec![1isize; shape.len()];
@@ -146,31 +142,31 @@ fn matmul_floats(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> 
         }
         // SAFETY: a fresh C-ordered array of `shape`, borrowed by nothing else
         let view = unsafe { autodyne::signal::NdViewMut::from_raw_parts(numpy::PyArrayMethods::data(&out), &shape, &strides) }.map_err(value_error)?;
-        linalg::matmul_into(va, vb, view).map_err(linalg_error)?;
+        linalg::matmul_into(va, vb, view).map_err(value_error)?;
         Ok(out.into_any().unbind())
     }))
 }
 
 #[pyfunction]
 fn solve(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => with_pair::<T, _>(b, |vb| numpy_array(py, linalg::solve(va, vb).map_err(linalg_error)?)))
+    float_view!(a, T, va => with_pair::<T, _>(b, |vb| numpy_array(py, linalg::solve(va, vb).map_err(value_error)?)))
 }
 
 #[pyfunction]
 fn inv(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => numpy_array(py, linalg::inv(va).map_err(linalg_error)?))
+    float_view!(a, T, va => numpy_array(py, linalg::inv(va).map_err(value_error)?))
 }
 
 #[pyfunction]
 fn det(a: &Bound<'_, PyAny>) -> PyResult<f64> {
-    float_view!(a, T, va => Ok(linalg::det(va).map_err(linalg_error)?.to_f64().unwrap_or(f64::NAN)))
+    float_view!(a, T, va => Ok(linalg::det(va).map_err(value_error)?.to_f64().unwrap_or(f64::NAN)))
 }
 
 /// `(x, rank, singular values)`.
 #[pyfunction]
 fn lstsq(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => with_pair::<T, _>(b, |vb| {
-        let r = linalg::lstsq(va, vb).map_err(linalg_error)?;
+        let r = linalg::lstsq(va, vb).map_err(value_error)?;
         let s: Vec<f64> = r.singular_values.iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect();
         tuple(py, vec![numpy_array(py, r.solution)?, r.rank.into_pyobject(py)?.into_any().unbind(), vec_out(py, s)?])
     }))
@@ -180,7 +176,7 @@ fn lstsq(py: Python<'_>, a: &Bound<'_, PyAny>, b: &Bound<'_, PyAny>) -> PyResult
 #[pyfunction]
 fn eig(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => {
-        let e = linalg::eig(va).map_err(linalg_error)?;
+        let e = linalg::eig(va).map_err(value_error)?;
         let w = NdArray::from_vec(e.values.clone(), &[e.values.len()]).map_err(value_error)?;
         tuple(py, vec![numpy_complex(py, w)?, numpy_complex(py, e.vectors)?])
     })
@@ -189,7 +185,7 @@ fn eig(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
 #[pyfunction]
 fn eigvals(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => {
-        let w = linalg::eigvals(va).map_err(linalg_error)?;
+        let w = linalg::eigvals(va).map_err(value_error)?;
         let n = w.len();
         numpy_complex(py, NdArray::from_vec(w, &[n]).map_err(value_error)?)
     })
@@ -199,7 +195,7 @@ fn eigvals(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
 #[pyfunction]
 fn eigh(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => {
-        let (w, v) = linalg::eigh(va).map_err(linalg_error)?;
+        let (w, v) = linalg::eigh(va).map_err(value_error)?;
         let n = w.len();
         tuple(py, vec![numpy_array(py, NdArray::from_vec(w, &[n]).map_err(value_error)?)?, numpy_array(py, v)?])
     })
@@ -210,7 +206,7 @@ fn eigh(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
 #[pyo3(signature = (a, full_matrices=true))]
 fn svd(py: Python<'_>, a: &Bound<'_, PyAny>, full_matrices: bool) -> PyResult<Obj> {
     float_view!(a, T, va => {
-        let r = linalg::svd(va, full_matrices).map_err(linalg_error)?;
+        let r = linalg::svd(va, full_matrices).map_err(value_error)?;
         let n = r.s.len();
         tuple(py, vec![numpy_array(py, r.u)?, numpy_array(py, NdArray::from_vec(r.s, &[n]).map_err(value_error)?)?, numpy_array(py, r.vt)?])
     })
@@ -219,7 +215,7 @@ fn svd(py: Python<'_>, a: &Bound<'_, PyAny>, full_matrices: bool) -> PyResult<Ob
 #[pyfunction]
 fn svdvals(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => {
-        let s = linalg::svdvals(va).map_err(linalg_error)?;
+        let s = linalg::svdvals(va).map_err(value_error)?;
         let n = s.len();
         numpy_array(py, NdArray::from_vec(s, &[n]).map_err(value_error)?)
     })
@@ -227,38 +223,34 @@ fn svdvals(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
 
 #[pyfunction]
 fn pinv(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => numpy_array(py, linalg::pinv(va).map_err(linalg_error)?))
+    float_view!(a, T, va => numpy_array(py, linalg::pinv(va).map_err(value_error)?))
 }
 
 /// Reduced `(q, r)`.
 #[pyfunction]
 fn qr(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     float_view!(a, T, va => {
-        let (q, r) = linalg::qr(va).map_err(linalg_error)?;
+        let (q, r) = linalg::qr(va).map_err(value_error)?;
         tuple(py, vec![numpy_array(py, q)?, numpy_array(py, r)?])
     })
 }
 
 #[pyfunction]
 fn cholesky(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => numpy_array(py, linalg::cholesky(va).map_err(linalg_error)?))
+    float_view!(a, T, va => numpy_array(py, linalg::cholesky(va).map_err(value_error)?))
 }
 
 #[pyfunction]
 fn expm(py: Python<'_>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    float_view!(a, T, va => numpy_array(py, linalg::expm(va).map_err(linalg_error)?))
+    float_view!(a, T, va => numpy_array(py, linalg::expm(va).map_err(value_error)?))
 }
 
 #[pyfunction]
 fn roots(py: Python<'_>, p: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    complex_vec_out(py, linalg::roots(&coeffs(p)?).map_err(linalg_error)?)
+    complex_vec_out(py, linalg::roots(&coeffs(p)?).map_err(value_error)?)
 }
 
 // FILTER DESIGN ===================================================================================
-
-fn design_error(e: impl std::fmt::Display) -> PyErr {
-    PyValueError::new_err(e.to_string())
-}
 
 /// `zpk` in SciPy's requested `output` form.
 fn design_out(py: Python<'_>, zpk: Zpk, output: &str) -> PyResult<Obj> {
@@ -270,7 +262,7 @@ fn design_out(py: Python<'_>, zpk: Zpk, output: &str) -> PyResult<Obj> {
         }
         "sos" => {
             let pairing = if zpk.domain.is_discrete() { Pairing::Nearest } else { Pairing::Minimal };
-            sos_out(py, &systems::zpk2sos(&zpk.zeros, &zpk.poles, zpk.gain, pairing, zpk.domain).map_err(design_error)?)
+            sos_out(py, &systems::zpk2sos(&zpk.zeros, &zpk.poles, zpk.gain, pairing, zpk.domain).map_err(value_error)?)
         }
         other => Err(PyValueError::new_err(format!("unknown output {other:?}"))),
     }
@@ -309,13 +301,13 @@ fn iirfilter(py: Python<'_>, n: usize, wn: &Bound<'_, PyAny>, rp: Option<f64>, r
         other => return Err(PyValueError::new_err(format!("unknown ftype {other:?}"))),
     };
     let design = if analog { Design::Analog } else { Design::Digital { fs } };
-    design_out(py, design::iirfilter(n, band, kind, design).map_err(design_error)?, output)
+    design_out(py, design::iirfilter(n, band, kind, design).map_err(value_error)?, output)
 }
 
 #[pyfunction]
 #[pyo3(signature = (numtaps, cutoff, window, pass_zero, scale, fs))]
 fn firwin(py: Python<'_>, numtaps: usize, cutoff: &Bound<'_, PyAny>, window: &Bound<'_, PyAny>, pass_zero: bool, scale: bool, fs: f64) -> PyResult<Obj> {
-    vec_out(py, design::firwin(numtaps, &coeffs(cutoff)?, window_spec(window)?, pass_zero, scale, fs).map_err(design_error)?)
+    vec_out(py, design::firwin(numtaps, &coeffs(cutoff)?, window_spec(window)?, pass_zero, scale, fs).map_err(value_error)?)
 }
 
 #[pyfunction]
@@ -323,7 +315,7 @@ fn firwin(py: Python<'_>, numtaps: usize, cutoff: &Bound<'_, PyAny>, window: &Bo
 #[allow(clippy::too_many_arguments)]
 fn firwin2(py: Python<'_>, numtaps: usize, freq: &Bound<'_, PyAny>, gain: &Bound<'_, PyAny>, nfreqs: Option<usize>, window: Option<&Bound<'_, PyAny>>, antisymmetric: bool, fs: f64) -> PyResult<Obj> {
     let window = window.map(window_spec).transpose()?;
-    vec_out(py, design::firwin2(numtaps, &coeffs(freq)?, &coeffs(gain)?, nfreqs, window, antisymmetric, fs).map_err(design_error)?)
+    vec_out(py, design::firwin2(numtaps, &coeffs(freq)?, &coeffs(gain)?, nfreqs, window, antisymmetric, fs).map_err(value_error)?)
 }
 
 fn pairs(v: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
@@ -337,7 +329,7 @@ fn pairs(v: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
 #[pyo3(signature = (numtaps, bands, desired, weight, fs))]
 fn firls(py: Python<'_>, numtaps: usize, bands: &Bound<'_, PyAny>, desired: &Bound<'_, PyAny>, weight: Option<&Bound<'_, PyAny>>, fs: f64) -> PyResult<Obj> {
     let weight = weight.map(coeffs).transpose()?;
-    vec_out(py, design::firls(numtaps, &pairs(coeffs(bands)?)?, &pairs(coeffs(desired)?)?, weight.as_deref(), fs).map_err(design_error)?)
+    vec_out(py, design::firls(numtaps, &pairs(coeffs(bands)?)?, &pairs(coeffs(desired)?)?, weight.as_deref(), fs).map_err(value_error)?)
 }
 
 #[pyfunction]
@@ -351,12 +343,12 @@ fn remez(py: Python<'_>, numtaps: usize, bands: &Bound<'_, PyAny>, desired: &Bou
         other => return Err(PyValueError::new_err(format!("unknown type {other:?}"))),
     };
     let weight = weight.map(coeffs).transpose()?;
-    vec_out(py, design::remez(numtaps, &pairs(coeffs(bands)?)?, &coeffs(desired)?, weight.as_deref(), kind, maxiter, grid_density, fs).map_err(design_error)?)
+    vec_out(py, design::remez(numtaps, &pairs(coeffs(bands)?)?, &coeffs(desired)?, weight.as_deref(), kind, maxiter, grid_density, fs).map_err(value_error)?)
 }
 
 #[pyfunction]
 fn kaiserord(ripple: f64, width: f64) -> PyResult<(usize, f64)> {
-    design::kaiserord(ripple, width).map_err(design_error)
+    design::kaiserord(ripple, width).map_err(value_error)
 }
 
 #[pyfunction]
@@ -375,12 +367,12 @@ fn zpk2sos(py: Python<'_>, z: &Bound<'_, PyAny>, p: &Bound<'_, PyAny>, k: f64, p
         other => return Err(PyValueError::new_err(format!("unknown pairing {other:?}"))),
     };
     let domain = if analog { Domain::Continuous } else { Domain::Discrete { dt: 1.0 } };
-    sos_out(py, &systems::zpk2sos(&complexes(z)?, &complexes(p)?, k, pairing, domain).map_err(design_error)?)
+    sos_out(py, &systems::zpk2sos(&complexes(z)?, &complexes(p)?, k, pairing, domain).map_err(value_error)?)
 }
 
 #[pyfunction]
 fn tf2zpk(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    let (z, p, k) = systems::tf2zpk(&coeffs(b)?, &coeffs(a)?).map_err(design_error)?;
+    let (z, p, k) = systems::tf2zpk(&coeffs(b)?, &coeffs(a)?).map_err(value_error)?;
     tuple(py, vec![complex_vec_out(py, z)?, complex_vec_out(py, p)?, k.into_pyobject(py)?.into_any().unbind()])
 }
 
@@ -416,10 +408,10 @@ fn lfilter(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Bound
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
         match zi {
-            None => numpy_array(py, filter::lfilter(&b, &a, v, axis).map_err(design_error)?),
+            None => numpy_array(py, filter::lfilter(&b, &a, v, axis).map_err(value_error)?),
             Some(zi) => {
                 let zi = state_as::<T>(zi)?;
-                let (y, zf) = filter::lfilter_with_state(&b, &a, v, axis, zi.view()).map_err(design_error)?;
+                let (y, zf) = filter::lfilter_with_state(&b, &a, v, axis, zi.view()).map_err(value_error)?;
                 tuple(py, vec![numpy_array(py, y)?, numpy_array(py, zf)?])
             }
         }
@@ -428,7 +420,7 @@ fn lfilter(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Bound
 
 #[pyfunction]
 fn lfilter_zi(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    vec_out(py, filter::lfilter_zi(&coeffs(b)?, &coeffs(a)?).map_err(design_error)?)
+    vec_out(py, filter::lfilter_zi(&coeffs(b)?, &coeffs(a)?).map_err(value_error)?)
 }
 
 #[pyfunction]
@@ -438,10 +430,10 @@ fn sosfilt(py: Python<'_>, sos: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axis: i
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
         match zi {
-            None => numpy_array(py, filter::sosfilt(&sos, v, axis).map_err(design_error)?),
+            None => numpy_array(py, filter::sosfilt(&sos, v, axis).map_err(value_error)?),
             Some(zi) => {
                 let zi = state_as::<T>(zi)?;
-                let (y, zf) = filter::sosfilt_with_state(&sos, v, axis, zi.view()).map_err(design_error)?;
+                let (y, zf) = filter::sosfilt_with_state(&sos, v, axis, zi.view()).map_err(value_error)?;
                 tuple(py, vec![numpy_array(py, y)?, numpy_array(py, zf)?])
             }
         }
@@ -450,7 +442,7 @@ fn sosfilt(py: Python<'_>, sos: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axis: i
 
 #[pyfunction]
 fn sosfilt_zi(py: Python<'_>, sos: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    let zi = filter::sosfilt_zi(&sos_in(sos)?).map_err(design_error)?;
+    let zi = filter::sosfilt_zi(&sos_in(sos)?).map_err(value_error)?;
     let n = zi.len();
     numpy_out(py, zi.concat(), &[n, 2], None)
 }
@@ -472,7 +464,7 @@ fn filtfilt(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Boun
     let (b, a, pad) = (coeffs(b)?, coeffs(a)?, pad(padtype, padlen)?);
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
-        numpy_array(py, filter::filtfilt(&b, &a, v, axis, pad).map_err(design_error)?)
+        numpy_array(py, filter::filtfilt(&b, &a, v, axis, pad).map_err(value_error)?)
     })
 }
 
@@ -482,7 +474,7 @@ fn sosfiltfilt(py: Python<'_>, sos: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axi
     let (sos, pad) = (sos_in(sos)?, pad(padtype, padlen)?);
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
-        numpy_array(py, filter::sosfiltfilt(&sos, v, axis, pad).map_err(design_error)?)
+        numpy_array(py, filter::sosfiltfilt(&sos, v, axis, pad).map_err(value_error)?)
     })
 }
 

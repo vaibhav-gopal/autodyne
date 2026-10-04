@@ -29,8 +29,18 @@ const USED_VERSIONED: &CStr = c"used_dltensor_versioned";
 const LEGACY: &CStr = c"dltensor";
 const USED_LEGACY: &CStr = c"used_dltensor";
 
+// Errors cross into Python as: ValueError for invalid inputs (shapes, dtypes, out-of-range settings, the
+// library's `Invalid` errors), TypeError for wrong argument kinds, RuntimeError for the environment (no GPU,
+// tools or plugins missing or failing). Every conversion goes through these functions.
+
+/// An invalid input.
 pub(crate) fn value_error(e: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(e.to_string())
+}
+
+/// A failure of the environment: a missing device, tool or plugin, or one that failed.
+pub(crate) fn runtime_error(e: impl std::fmt::Display) -> PyErr {
+    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
 }
 
 /// Takes the DLPack tensor of any object with `__dlpack__` (versioned when the producer offers it).

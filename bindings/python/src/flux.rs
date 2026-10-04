@@ -15,7 +15,7 @@ use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PySlice, PyTuple};
 
-use crate::{input, numpy_array, typed, value_error, Input};
+use crate::{input, numpy_array, typed, runtime_error, value_error, Input};
 
 type Obj = Py<PyAny>;
 
@@ -302,6 +302,14 @@ fn where_(mask: PyRef<'_, PyMask>, if_true: &Bound<'_, PyAny>, if_false: &Bound<
 }
 
 /// Joins tracers along `axis` (`numpy.concatenate`).
+/// A backend's error: wrong shapes are the caller's (ValueError), the rest the environment's.
+fn flux_error(e: autodyne::flux::FluxError) -> PyErr {
+    match e {
+        autodyne::flux::FluxError::Shape(_) => value_error(e),
+        _ => runtime_error(e),
+    }
+}
+
 #[pyfunction]
 #[pyo3(signature = (parts, axis=0))]
 fn concatenate(parts: Vec<Bound<'_, PyAny>>, axis: usize) -> PyResult<PyTracer> {
@@ -893,7 +901,7 @@ impl PyBackend {
     #[staticmethod]
     #[pyo3(signature = (target="cpu"))]
     fn iree(target: &str) -> PyResult<Self> {
-        let iree = Iree::find().ok_or_else(|| PyValueError::new_err("IREE tools not found (set AUTODYNE_IREE_DIR or put iree-compile on PATH)"))?;
+        let iree = Iree::find().ok_or_else(|| runtime_error("IREE tools not found (set AUTODYNE_IREE_DIR or put iree-compile on PATH)"))?;
         let (api, arch) = target.split_once(':').map_or((target, None), |(a, b)| (a, Some(b.to_string())));
         let target = match (api, arch) {
             ("cpu", None) => IreeTarget::Cpu,
@@ -909,7 +917,7 @@ impl PyBackend {
     /// XLA through JAX in a Python process of its own (`AUTODYNE_XLA_PYTHON` or `python`).
     #[staticmethod]
     fn xla() -> PyResult<Self> {
-        Ok(PyBackend(Box::new(Xla::start().map_err(value_error)?)))
+        Ok(PyBackend(Box::new(Xla::start().map_err(flux_error)?)))
     }
     /// A PJRT plugin loaded in-process, with client options (e.g. `{"preallocate": False}`).
     #[staticmethod]
@@ -928,7 +936,7 @@ impl PyBackend {
             };
             opts.push((k.extract::<String>()?, value));
         }
-        Ok(PyBackend(Box::new(Pjrt::load_with_options(&path, &opts).map_err(value_error)?)))
+        Ok(PyBackend(Box::new(Pjrt::load_with_options(&path, &opts).map_err(flux_error)?)))
     }
     #[getter]
     fn name(&self) -> &'static str {
@@ -940,7 +948,7 @@ impl PyBackend {
         self.0.max_fft()
     }
     fn compile(&self, program: PyRef<'_, PyProgram>) -> PyResult<PyExecutable> {
-        Ok(PyExecutable(self.0.compile(&program.0).map_err(value_error)?))
+        Ok(PyExecutable(self.0.compile(&program.0).map_err(flux_error)?))
     }
 }
 
@@ -954,8 +962,8 @@ impl PyExecutable {
     #[pyo3(signature = (*inputs))]
     fn __call__(&self, py: Python<'_>, inputs: Vec<Bound<'_, PyAny>>) -> PyResult<Vec<Obj>> {
         match batch(&inputs, Some(self.0.program().dtype))? {
-            Batch::F32(a) => numpy_list(py, self.0.run(&a).map_err(value_error)?),
-            Batch::F64(a) => numpy_list(py, self.0.run(&a).map_err(value_error)?),
+            Batch::F32(a) => numpy_list(py, self.0.run(&a).map_err(flux_error)?),
+            Batch::F64(a) => numpy_list(py, self.0.run(&a).map_err(flux_error)?),
         }
     }
 }

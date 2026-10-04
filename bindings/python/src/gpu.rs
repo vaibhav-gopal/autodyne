@@ -7,7 +7,7 @@ mod enabled {
     use autodyne::gpu::{self, GpuArray, GpuError, GpuFloat};
     use autodyne::signal::NdView;
     use autodyne::units::*;
-    use pyo3::exceptions::{PyRuntimeError, PyTypeError, PyValueError};
+    use pyo3::exceptions::{PyTypeError, PyValueError};
     use pyo3::prelude::*;
 
     use crate::{axis_index, input, numpy_array, typed, value_error, Input};
@@ -50,7 +50,7 @@ mod enabled {
     }
 
     fn gpu_error(e: GpuError) -> PyErr {
-        PyRuntimeError::new_err(e.to_string())
+        crate::runtime_error(e)
     }
 
     #[derive(Clone, Copy)]
