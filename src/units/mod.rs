@@ -44,24 +44,12 @@ pub use decibel::*;
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
-    fn test_add() {
-        let a = 2f32;
-        let b = 3f32;
-        assert_eq!(a + b, 5f32)
-    }
-    
-    #[test]
-    fn test_constants() {
-        let pi = f32::_PI;
-        let tau = f32::_TAU;
-        assert_eq!(pi * 2.0, tau);
-        
-        let pi6 = f64::_PI;
-        let tau6 = f64::_TAU;
-        assert_eq!(pi6 * 2.0, tau6);
-        
-        assert_eq!(pi, pi6 as f32);
+    fn float_constants_agree_across_precisions() {
+        assert_eq!(f32::_PI * 2.0, f32::_TAU);
+        assert_eq!(f64::_PI * 2.0, f64::_TAU);
+        assert_eq!(f32::_PI, f64::_PI as f32);
+        assert_eq!(f32::_E, f64::_E as f32);
     }
 }
