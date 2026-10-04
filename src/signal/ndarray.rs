@@ -115,7 +115,7 @@ pub enum NdError {
     Overlapping,
 }
 
-fn check_axis(axis: usize, ndim: usize) -> Result<(), NdError> {
+pub(super) fn check_axis(axis: usize, ndim: usize) -> Result<(), NdError> {
     if axis < ndim { Ok(()) } else { Err(NdError::AxisOutOfRange { axis, ndim }) }
 }
 

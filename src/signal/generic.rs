@@ -3,14 +3,7 @@
 //! axis, built from the array primitives alone.
 
 use super::array_math::{ArrayMath, RealArrayMath};
-fn gcd(a: usize, b: usize) -> usize {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
-}
-
+use crate::units::gcd;
 /// Overlapping frames along the last axis: `[..., n]` becomes `[..., count, length]`, frame `f`
 /// holding samples `f * hop .. f * hop + length`, `count = 1 + (n - length) / hop` (samples after
 /// the last whole frame are left out).

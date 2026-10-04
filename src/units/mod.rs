@@ -18,6 +18,7 @@ pub use unit::*;
 
 mod integer;
 pub use integer::*;
+pub(crate) use integer::gcd;
 
 mod float;
 pub use float::*;

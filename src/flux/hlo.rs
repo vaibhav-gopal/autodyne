@@ -8,7 +8,7 @@ use std::fmt::Write;
 use super::graph::{Cmp, FluxFloat, Graph, Kind, Op, Reduction};
 use super::loss::Loss;
 use super::scan::Scan;
-use crate::units::DType;
+use crate::units::{gcd, DType};
 
 /// A StableHLO module with one function, `@main`, the shapes of its inputs and outputs, and their
 /// element type (`DType::F32` or `DType::F64`).
@@ -90,10 +90,6 @@ fn ty(shape: &[usize], elem: &str) -> String {
     s
 }
 
-
-fn gcd(a: usize, b: usize) -> usize {
-    if b == 0 { a } else { gcd(b, a % b) }
-}
 
 fn list(xs: &[usize]) -> String {
     xs.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")

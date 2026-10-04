@@ -7,7 +7,7 @@
 //! recursions of different lanes (and of a cascade's sections) overlap instead of each waiting on
 //! its own previous output.
 
-use crate::signal::{NdArray, NdView};
+use crate::signal::{extended, Edge, NdArray, NdView};
 use crate::systems::SystemError;
 use crate::units::*;
 
@@ -341,26 +341,6 @@ pub enum Pad {
     None,
 }
 
-/// `x` extended by `n` samples at both ends.
-fn extend(x: &[f64], n: usize, pad: Pad) -> Vec<f64> {
-    if n == 0 {
-        return x.to_vec();
-    }
-    let len = x.len();
-    let (first, last) = (x[0], x[len - 1]);
-    let left = (1..=n).rev().map(|i| match pad {
-        Pad::Odd(_) => 2.0 * first - x[i],
-        Pad::Even(_) => x[i],
-        _ => first,
-    });
-    let right = (1..=n).map(|i| match pad {
-        Pad::Odd(_) => 2.0 * last - x[len - 1 - i],
-        Pad::Even(_) => x[len - 1 - i],
-        _ => last,
-    });
-    left.chain(x.iter().copied()).chain(right).collect()
-}
-
 fn pad_len(pad: Pad, default: usize, len: usize) -> Result<usize, SystemError> {
     let n = match pad {
         Pad::Odd(n) | Pad::Even(n) | Pad::Constant(n) => n.unwrap_or(default),
@@ -384,7 +364,12 @@ fn reverse_samples(x: &mut [f64]) {
 
 /// The group's lanes extended at both ends, interleaved.
 fn extended_group(group: &[&[f64]], edge: usize, pad: Pad) -> (Vec<f64>, usize) {
-    let ext: Vec<Vec<f64>> = group.iter().map(|lane| extend(lane, edge, pad)).collect();
+    let ext_edge = match pad {
+            Pad::Odd(_) => Edge::Odd,
+            Pad::Even(_) => Edge::Even,
+            _ => Edge::Constant,
+        };
+        let ext: Vec<Vec<f64>> = group.iter().map(|lane| extended(lane, edge, ext_edge)).collect();
     let len = ext[0].len();
     let refs: Vec<&[f64]> = ext.iter().map(Vec::as_slice).collect();
     (interleave(&refs, len), len)

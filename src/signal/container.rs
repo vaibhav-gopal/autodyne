@@ -257,6 +257,44 @@ pub trait SigResizeOps: SignalResizable {
 
 impl<S: SignalResizable> SigResizeOps for S {}
 
+// EDGE EXTENSION ==================================================================================
+
+/// How [`extended`] continues a signal past its ends (SciPy's `odd_ext`, `even_ext`, `const_ext`,
+/// zeros).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Edge {
+    /// Point reflection about the end sample.
+    Odd,
+    /// Mirror image, without repeating the end sample.
+    Even,
+    /// The end sample repeated.
+    Constant,
+    /// Zeros.
+    Zeros,
+}
+
+/// `x` extended by `n` samples at both ends (reflections stop at the far end when `n >= len`).
+pub(crate) fn extended(x: &[f64], n: usize, edge: Edge) -> Vec<f64> {
+    if n == 0 || x.is_empty() {
+        return x.to_vec();
+    }
+    let len = x.len();
+    let (first, last) = (x[0], x[len - 1]);
+    let at = |i: usize| x[i.min(len - 1)];
+    let left = (1..=n).rev().map(|i| match edge {
+        Edge::Odd => 2.0 * first - at(i),
+        Edge::Even => at(i),
+        Edge::Constant => first,
+        Edge::Zeros => 0.0,
+    });
+    let right = (1..=n).map(|i| match edge {
+        Edge::Odd => 2.0 * last - x[len - 1 - i.min(len - 1)],
+        Edge::Even => x[len - 1 - i.min(len - 1)],
+        Edge::Constant => last,
+        Edge::Zeros => 0.0,
+    });
+    left.chain(x.iter().copied()).chain(right).collect()
+}
 #[cfg(test)]
 mod tests {
     use super::*;

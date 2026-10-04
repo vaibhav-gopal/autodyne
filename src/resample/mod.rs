@@ -19,10 +19,6 @@ pub use oversample::*;
 /// Input samples per chunk in `Resampler::process`.
 const RESAMPLE_CHUNK: usize = 128;
 
-fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 { a } else { gcd(b, a % b) }
-}
-
 /// Streaming rational resampler. Allocates in `new`; `process` does not.
 ///
 /// Each output is one SIMD dot product of a polyphase branch (stored reversed) with the recent input,
@@ -55,7 +51,7 @@ impl<T: Float> Resampler<T> {
     pub fn with_quality(input_rate: u32, output_rate: u32, taps_per_phase: usize) -> Self {
         assert!(input_rate > 0 && output_rate > 0, "sample rates must be positive");
         assert!(taps_per_phase > 0, "need at least one tap per phase");
-        let g = gcd(input_rate as u64, output_rate as u64);
+        let g = gcd(input_rate as usize, output_rate as usize) as u64;
         let (up, down) = ((output_rate as u64 / g) as usize, (input_rate as u64 / g) as usize);
 
         // Prototype runs at input_rate * up. Its cutoff sits below the lower of the two Nyquists,

@@ -61,6 +61,7 @@ pub(crate) use array_math::{
 pub(crate) use array_math::{clamp_index, concat_shape, pad_shape, slice_shape};
 pub use complex::*;
 pub use container::*;
+pub(crate) use container::{extended, Edge};
 pub use nd_axis::{concatenate, stack};
 pub use nd_ops::*;
 pub use ndarray::*;

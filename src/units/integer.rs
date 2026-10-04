@@ -1,4 +1,9 @@
-﻿use super::*;
+use super::*;
+
+/// Greatest common divisor (Euclid).
+pub(crate) fn gcd(a: usize, b: usize) -> usize {
+    if b == 0 { a } else { gcd(b, a % b) }
+}
 
 /// A primitive integer: totally ordered, bounded, with bit operations, integer powers and checked
 /// casts.

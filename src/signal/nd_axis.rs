@@ -4,13 +4,9 @@
 
 use std::cmp::Ordering;
 
-use super::ndarray::{NdArray, NdError, NdView};
+use super::ndarray::{check_axis, NdArray, NdError, NdView};
 use super::Storage;
 use crate::units::*;
-
-fn check_axis(axis: usize, ndim: usize) -> Result<(), NdError> {
-    if axis < ndim { Ok(()) } else { Err(NdError::AxisOutOfRange { axis, ndim }) }
-}
 
 /// Runs `f` on every lane along `axis` (copied out when strided), writing `out_len` results per
 /// lane; the result has `axis` of length `out_len` (removed when `keep` is false and `out_len` is 1).

@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use super::{get_window, WindowSpec};
 use crate::fft::{Fft, RealFft};
-use crate::signal::{NdArray, NdView};
+use crate::signal::{extended, Edge, NdArray, NdView};
 use crate::units::*;
 
 /// Errors from spectral estimation.
@@ -262,29 +262,6 @@ fn detrend(x: &mut [f64], kind: Detrend) {
             }
         }
     }
-}
-
-/// `x` extended by `n` samples at both ends.
-fn extend(x: &[f64], n: usize, boundary: Boundary) -> Vec<f64> {
-    if n == 0 || x.is_empty() || boundary == Boundary::None {
-        return x.to_vec();
-    }
-    let len = x.len();
-    let (first, last) = (x[0], x[len - 1]);
-    let at = |i: usize| x[i.min(len - 1)];
-    let left = (1..=n).rev().map(|i| match boundary {
-        Boundary::Odd => 2.0 * first - at(i),
-        Boundary::Even => at(i),
-        Boundary::Constant => first,
-        _ => 0.0,
-    });
-    let right = (1..=n).map(|i| match boundary {
-        Boundary::Odd => 2.0 * last - x[len - 1 - i.min(len - 1)],
-        Boundary::Even => x[len - 1 - i.min(len - 1)],
-        Boundary::Constant => last,
-        _ => 0.0,
-    });
-    left.chain(x.iter().copied()).chain(right).collect()
 }
 
 /// The lanes of `x` along `axis` as f64 vectors.
@@ -570,7 +547,14 @@ pub fn stft<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Se
     let nfreq = plan.nfreq();
     let step = plan.nperseg - plan.noverlap;
     let prepare = |lane: &[f64]| -> Vec<f64> {
-        let mut v = extend(lane, plan.nperseg / 2, options.boundary);
+        let edge = match options.boundary {
+                Boundary::Odd => Some(Edge::Odd),
+                Boundary::Even => Some(Edge::Even),
+                Boundary::Constant => Some(Edge::Constant),
+                Boundary::Zeros => Some(Edge::Zeros),
+                Boundary::None => None,
+            };
+            let mut v = edge.map_or_else(|| lane.to_vec(), |e| extended(lane, plan.nperseg / 2, e));
         if options.padded {
             let rem = (v.len() as isize - plan.nperseg as isize).rem_euclid(step as isize) as usize;
             let nadd = ((step - rem) % step) % plan.nperseg;
