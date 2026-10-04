@@ -404,7 +404,7 @@ impl<T: Float> Voice for SamplerVoice<T> {
 mod tests {
     use super::super::{Sample, SampleMap, Zone};
     use super::*;
-    use crate::spectral::RealFft;
+    use crate::fft::RealFft;
 
     const FS: f64 = 48_000.0;
 

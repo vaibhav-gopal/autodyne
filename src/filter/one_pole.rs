@@ -69,6 +69,8 @@ impl<T: Float> OnePole<T> {
     }
 }
 
+crate::processor::forward_processor!(OnePole);
+
 #[cfg(test)]
 mod tests {
     use super::*;

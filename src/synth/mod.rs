@@ -16,6 +16,7 @@
 //! Everything is allocated when built; handling events and rendering never allocate, so both can run
 //! inside an audio callback.
 
+mod params;
 mod fm;
 mod midi;
 mod voice;

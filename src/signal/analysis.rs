@@ -1,6 +1,4 @@
 use super::SignalError;
-use crate::gain::gain_to_db;
-use crate::resample::Resampler;
 use crate::units::*;
 
 /// Read-only analysis of a real-valued signal. Implemented for `[T]`, so it works on anything that
@@ -138,38 +136,14 @@ pub trait Signal {
 
     /// Full linear convolution with `kernel`: `len + kernel.len() - 1` samples.
     fn convolved(&self, kernel: &[Self::Sample]) -> Vec<Self::Sample> {
-        crate::filter::convolve(self.samples(), kernel)
+        convolve_direct(self.samples(), kernel)
     }
     /// Full cross-correlation with `other`. Element `k` corresponds to lag `k - (other.len() - 1)`:
     /// the sum over n of `self[n + lag] * other[n]`. The peak's position shows how far `self` is
     /// delayed relative to `other`.
     fn correlated(&self, other: &[Self::Sample]) -> Vec<Self::Sample> {
         let reversed: Vec<_> = other.iter().rev().copied().collect();
-        crate::filter::convolve(self.samples(), &reversed)
-    }
-    /// The whole signal converted from `from_rate` to `to_rate` with the streaming `Resampler`,
-    /// aligned to the input (its filter delay removed) and `ceil(len * to / from)` samples long.
-    fn resampled(&self, from_rate: u32, to_rate: u32) -> Vec<Self::Sample> {
-        let input = self.samples();
-        let mut rs = Resampler::new(from_rate, to_rate);
-        let (up, down) = rs.ratio();
-        let wanted = (input.len() * up).div_ceil(down);
-        let delay = rs.delay() as usize;
-        let mut out = Vec::with_capacity(wanted + delay + up);
-        let chunk = 4096;
-        let mut scratch = vec![Self::Sample::_ZERO; rs.max_output_len(chunk)];
-        let zeros = vec![Self::Sample::_ZERO; chunk];
-        let mut fed = 0;
-        while out.len() < wanted + delay {
-            // the input, then silence to flush the filter's delay
-            let block = if fed < input.len() { &input[fed..(fed + chunk).min(input.len())] } else { &zeros[..] };
-            fed += block.len();
-            let n = rs.process(block, &mut scratch);
-            out.extend_from_slice(&scratch[..n]);
-        }
-        out.drain(..delay);
-        out.truncate(wanted);
-        out
+        convolve_direct(self.samples(), &reversed)
     }
 }
 
@@ -192,6 +166,20 @@ impl<T: Float, const N: usize> Signal for [T; N] {
     fn samples(&self) -> &[T] {
         self
     }
+}
+
+/// Full linear convolution, direct form: `a.len() + b.len() - 1` samples (empty if either is).
+fn convolve_direct<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
+    if a.is_empty() || b.is_empty() {
+        return Vec::new();
+    }
+    let mut out = vec![T::_ZERO; a.len() + b.len() - 1];
+    for (i, &x) in a.iter().enumerate() {
+        for (o, &h) in out[i..].iter_mut().zip(b) {
+            *o = *o + x * h;
+        }
+    }
+    out
 }
 
 fn same_len<T>(a: &[T], b: &[T]) -> Result<(), SignalError> {
@@ -282,20 +270,5 @@ mod tests {
         let lag = corr.argmax().unwrap() as isize - (pulse.len() as isize - 1);
         assert_eq!(lag, 2);
         assert_eq!([1.0, 2.0].convolved(&[1.0, 1.0]), [1.0, 3.0, 2.0]);
-    }
-
-    #[test]
-    fn resampled_is_aligned_and_sized() {
-        for (from, to) in [(48_000u32, 44_100u32), (44_100, 48_000), (48_000, 16_000), (48_000, 96_000)] {
-            let tone: Vec<f64> = Sine::new(1_000.0, from as f64).take(from as usize / 10).collect();
-            let out = tone.resampled(from, to);
-            assert_eq!(out.len(), (tone.len() * to as usize).div_ceil(from as usize));
-            // away from the edges (filter start-up and the flushed tail) it is the same sine at the new rate
-            let margin = out.len() / 10;
-            for (n, &y) in out.iter().enumerate().take(out.len() - margin).skip(margin) {
-                let ideal = (std::f64::consts::TAU * 1_000.0 * n as f64 / to as f64).sin();
-                assert!(close(y, ideal, 2e-3), "{from} -> {to} sample {n}: {y} vs {ideal}");
-            }
-        }
     }
 }

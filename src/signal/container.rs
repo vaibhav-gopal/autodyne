@@ -12,7 +12,8 @@
 //! - [`SigOwnedOps`] (needs `SignalOwned + Clone`): return a transformed copy of the same type
 //!   (`normalized_peak`, `differenced`, `reversed`, ...).
 //! - [`SigResizeOps`] (needs `SignalResizable`): length-changing operations in place (`convolve`,
-//!   `resample`, `pad`, `trim_silence`, ...).
+//!   `pad`, `trim_silence`, ...). Sample-rate conversion is `resample::Resample` (`resampled`,
+//!   `resample`), in the prelude.
 //!
 //! Naming: past tense returns new data (`convolved`), imperative mutates (`convolve`).
 
@@ -205,11 +206,6 @@ pub trait SigResizeOps: SignalResizable {
         let out = self.correlated(other);
         self.replace_with(&out);
     }
-    /// Converts the sample rate in place (see `Signal::resampled`).
-    fn resample(&mut self, from_rate: u32, to_rate: u32) {
-        let out = self.resampled(from_rate, to_rate);
-        self.replace_with(&out);
-    }
     /// Adds `before` samples at the start and `after` at the end, all equal to `value`.
     fn pad(&mut self, before: usize, after: usize, value: Self::Sample) {
         let len = self.samples().len();
@@ -284,10 +280,7 @@ mod tests {
         assert_eq!(quiet.trim_silence(0.1), (2, 0));
         assert!(quiet.is_empty());
 
-        let mut tone: Vec<f64> = (0..4_800).map(|n| (n as f64 * 0.1).sin()).collect();
-        tone.resample(48_000, 16_000);
-        assert_eq!(tone.len(), 1_600);
-        SignalResizable::push(&mut tone, 1.0);
-        assert_eq!(tone.len(), 1_601);
+        SignalResizable::push(&mut x, 1.0);
+        assert_eq!(x.len(), 4);
     }
 }

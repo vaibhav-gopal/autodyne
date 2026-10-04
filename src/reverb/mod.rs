@@ -5,6 +5,7 @@
 //! - [`Convolver`]: partitioned FFT convolution with any impulse response (a recorded room, a
 //!   cabinet, [`synthetic_ir`]), with a fixed latency of one block.
 
+mod params;
 mod convolver;
 mod fdn;
 

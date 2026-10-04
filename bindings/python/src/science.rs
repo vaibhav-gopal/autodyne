@@ -6,7 +6,8 @@ use autodyne::filter::design::{self, Band, BesselNorm, Design, IirKind, RemezTyp
 use autodyne::filter::{self, Pad};
 use autodyne::linalg::{self, LinalgFloat};
 use autodyne::signal::{NdArray, NdView};
-use autodyne::spectral::{self, Average, Boundary, Detrend, Fft, IstftOptions, Scaling, Segments, SpectrogramMode, StftOptions, WindowSpec};
+use autodyne::fft::Fft;
+use autodyne::spectral::{self, Average, Boundary, Detrend, IstftOptions, Scaling, Segments, SpectrogramMode, StftOptions, WindowSpec};
 use autodyne::systems::{self, Domain, Pairing, Zpk, C64};
 use autodyne::units::*;
 use numpy::PyReadonlyArrayDyn;
@@ -657,7 +658,7 @@ fn irfft(py: Python<'_>, x: &Bound<'_, PyAny>, n: Option<usize>) -> PyResult<Obj
         return Err(PyValueError::new_err("irfft needs at least one output sample"));
     }
     let bins = n / 2 + 1;
-    let mut plan = spectral::RealFft::<f64>::new(n);
+    let mut plan = autodyne::fft::RealFft::<f64>::new(n);
     let rows = z.len() / m.max(1);
     let mut out = Vec::with_capacity(rows * n);
     let mut spec = vec![Complex::zero(); bins];

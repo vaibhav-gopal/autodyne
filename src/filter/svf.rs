@@ -202,6 +202,8 @@ impl<T: Float> Svf<T> {
     }
 }
 
+crate::processor::forward_processor!(Svf);
+
 #[cfg(test)]
 mod tests {
     use super::*;

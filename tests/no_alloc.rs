@@ -7,13 +7,13 @@ use std::cell::Cell;
 use std::sync::Arc;
 
 use autodyne::analysis::{LoudnessMeter, OnsetDetector, PitchDetector, SpectrumAnalyzer, TruePeak};
-use autodyne::channels::{AudioBuffer, Linked, Panner, PerChannel, StereoWidth};
+use autodyne::channels::{AudioBuffer, Linked, PerChannel};
 use autodyne::control::{Lfo, LfoShape, Modulated, Route, Transport};
 use autodyne::delay::Echo;
 use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
 use autodyne::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, MultibandCompressor, TransientShaper};
 use autodyne::filter::{Biquad, Crossover, Fir, MultiBiquad, ParametricEq, BUTTERWORTH_Q, MAX_BANDS};
-use autodyne::gain::Gain;
+use autodyne::gain::{Gain, Panner, StereoWidth};
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::distortion::{Bitcrusher, Shape, Waveshaper};
@@ -24,7 +24,8 @@ use autodyne::prelude::*;
 use autodyne::resample::{Oversampled, Resampler};
 use autodyne::sampler::{Interpolation, LoopMode, Sample, SampleMap, SamplerVoice, Zone};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
-use autodyne::spectral::{Fft, PitchShifter, RealFft};
+use autodyne::fft::{Fft, RealFft};
+use autodyne::spectral::PitchShifter;
 use autodyne::synth::{FmVoice, MidiMessage, Poly, SynthVoice, TimedEvent};
 use autodyne::units::{Complex, DType};
 

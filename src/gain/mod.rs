@@ -1,19 +1,14 @@
-//! Levels and click-free parameter changes.
+//! Levels: [`Gain`], constant-power panning ([`Panner`]), mid/side stereo width ([`StereoWidth`]),
+//! and click-free parameter changes.
 //!
 //! Jumping a gain (or any parameter) from one value to another between two samples produces an audible
-//! click; `SmoothedValue` ramps to each new target over a fixed time instead.
+//! click; [`SmoothedValue`] ramps to each new target over a fixed time instead. Decibel conversions
+//! are `units::{db_to_gain, gain_to_db}`.
 
+mod params;
+
+use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
-
-/// Decibels to linear amplitude: 0 dB -> 1.0, +6.02 dB -> 2.0, -20 dB -> 0.1.
-pub fn db_to_gain<T: Real>(db: T) -> T {
-    T::lit(10.0).powf(db / T::lit(20.0))
-}
-
-/// Linear amplitude to decibels; 0.0 gives negative infinity.
-pub fn gain_to_db<T: Real>(gain: T) -> T {
-    T::lit(20.0) * gain.log10()
-}
 
 /// A value that moves linearly to each new target over a fixed number of samples
 /// (the same idea as JUCE's `LinearSmoothedValue`). Call `next_value` once per sample.
@@ -121,20 +116,82 @@ impl<T: Float> Gain<T> {
     }
 }
 
+// STEREO ==========================================================================================
+
+/// Mid/side stereo width: 0 = mono, 1 = unchanged, above 1 = wider. Needs a 2-channel buffer.
+#[derive(Debug, Clone, Copy)]
+pub struct StereoWidth<T: Float> {
+    width: SmoothedValue<T>,
+}
+
+impl<T: Float> StereoWidth<T> {
+    pub fn new(width: T, sample_rate: T) -> Self {
+        Self { width: SmoothedValue::new(width).with_ramp_seconds(T::_lit(0.02), sample_rate) }
+    }
+    pub fn set_width(&mut self, width: T) {
+        self.width.set_target(width._max(T::_ZERO));
+    }
+    pub fn width(&self) -> T {
+        self.width.target()
+    }
+}
+
+impl<T: Float> MultiProcessor<T> for StereoWidth<T> {
+    fn process(&mut self, buffer: &mut AudioBuffer<T>) {
+        let half = T::_lit(0.5);
+        let (left, right) = buffer.stereo_mut();
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            let (mid, side) = ((*l + *r) * half, (*l - *r) * half * self.width.next_value());
+            *l = mid + side;
+            *r = mid - side;
+        }
+    }
+    fn reset(&mut self) {
+        let w = self.width.target();
+        self.width.set_immediate(w);
+    }
+}
+
+/// Places a mono signal in a stereo field with the constant-power pan law: -1 = hard left, 0 = center
+/// (each side at -3 dB), 1 = hard right. The total power stays the same wherever it is panned.
+#[derive(Debug, Clone, Copy)]
+pub struct Panner<T: Float> {
+    position: SmoothedValue<T>,
+}
+
+impl<T: Float> Panner<T> {
+    pub fn new(position: T, sample_rate: T) -> Self {
+        Self { position: SmoothedValue::new(position._clamp(-T::_ONE, T::_ONE)).with_ramp_seconds(T::_lit(0.02), sample_rate) }
+    }
+    pub fn set_position(&mut self, position: T) {
+        self.position.set_target(position._clamp(-T::_ONE, T::_ONE));
+    }
+    pub fn position(&self) -> T {
+        self.position.target()
+    }
+    /// (left gain, right gain) for a pan position.
+    pub fn gains(position: T) -> (T, T) {
+        let angle = (position + T::_ONE) * T::_PI / T::_lit(4.0);
+        let (s, c) = angle._sin_cos();
+        (c, s)
+    }
+    /// Writes `mono` panned into a stereo buffer (overwriting it; frames set to `mono.len()`).
+    pub fn process(&mut self, mono: &[T], out: &mut AudioBuffer<T>) {
+        out.set_frames(mono.len());
+        let (left, right) = out.stereo_mut();
+        for ((l, r), &x) in left.iter_mut().zip(right.iter_mut()).zip(mono) {
+            let (gl, gr) = Self::gains(self.position.next_value());
+            *l = x * gl;
+            *r = x * gr;
+        }
+    }
+}
+
+crate::processor::forward_processor!(Gain);
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn decibel_conversions() {
-        assert_eq!(db_to_gain(0.0), 1.0);
-        assert!((db_to_gain(-20.0f64) - 0.1).abs() < 1e-12);
-        assert!((db_to_gain(20.0 * 2f64.log10()) - 2.0).abs() < 1e-12);
-        for g in [0.001f64, 0.5, 1.0, 3.0] {
-            assert!((db_to_gain(gain_to_db(g)) - g).abs() < 1e-12);
-        }
-        assert_eq!(gain_to_db(0.0f64), f64::NEG_INFINITY);
-    }
 
     #[test]
     fn smoother_ramps_linearly_and_lands_exactly() {
@@ -177,5 +234,46 @@ mod tests {
         assert_eq!(buf, [0.875, 0.75, 0.625, 0.5, 0.5, 0.5]);
         g.set_gain_db(0.0);
         assert_eq!(g.gain(), 1.0);
+    }
+
+    const FS: f64 = 48_000.0;
+
+    fn stereo_noise(frames: usize) -> AudioBuffer<f64> {
+        let mut buf = AudioBuffer::new(2, frames);
+        crate::osc::Noise::new(1).fill(buf.channel_mut(0));
+        crate::osc::Noise::new(2).fill(buf.channel_mut(1));
+        buf
+    }
+
+    #[test]
+    fn width_zero_is_mono_and_one_is_transparent() {
+        let original = stereo_noise(256);
+        let mut same = original.clone();
+        StereoWidth::new(1.0, FS).process(&mut same);
+        assert_eq!(same.channel(0), original.channel(0));
+        assert_eq!(same.channel(1), original.channel(1));
+
+        let mut mono = original.clone();
+        StereoWidth::new(0.0, FS).process(&mut mono);
+        for f in 0..256 {
+            let mid = (original.channel(0)[f] + original.channel(1)[f]) / 2.0;
+            assert!((mono.channel(0)[f] - mid).abs() < 1e-15 && (mono.channel(1)[f] - mid).abs() < 1e-15);
+        }
+    }
+
+    #[test]
+    fn constant_power_pan_law() {
+        for p in [-1.0, -0.5, 0.0, 0.3, 1.0] {
+            let (l, r) = Panner::gains(p);
+            assert!((l * l + r * r - 1.0f64).abs() < 1e-12, "power at {p}");
+        }
+        let (l, r) = Panner::gains(0.0f64);
+        assert!((l - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12 && (l - r).abs() < 1e-12, "center is -3 dB each side");
+        let (l, r) = Panner::gains(-1.0f64);
+        assert!((l - 1.0).abs() < 1e-12 && r.abs() < 1e-12, "hard left");
+
+        let mut out = AudioBuffer::new(2, 4);
+        Panner::new(1.0, FS).process(&[1.0; 4], &mut out);
+        assert!(out.channel(0).iter().all(|s| s.abs() < 1e-12) && out.channel(1).iter().all(|&s| (s - 1.0).abs() < 1e-12));
     }
 }

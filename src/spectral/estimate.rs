@@ -9,7 +9,8 @@ use std::f64::consts::PI;
 
 use thiserror::Error;
 
-use super::{get_window, Fft, RealFft, WindowSpec};
+use super::{get_window, WindowSpec};
+use crate::fft::{Fft, RealFft};
 use crate::signal::{NdArray, NdView};
 use crate::units::*;
 

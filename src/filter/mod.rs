@@ -1,4 +1,4 @@
-//! Filters: plain convolution, FIR (with windowed-sinc low-pass design), biquad IIR (RBJ cookbook),
+//! Filters: FIR (with windowed-sinc low-pass design), biquad IIR (RBJ cookbook),
 //! and two filters built for modulation: the state-variable [`Svf`] and the 4-pole [`Ladder`].
 //!
 //! Filters are stateful block processors: construct (allocates once), then `process(&mut [T])`
@@ -16,6 +16,7 @@ use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
 
 #[cfg(feature = "faer")]
+mod params;
 mod apply;
 mod crossover;
 #[cfg(feature = "faer")]
@@ -32,21 +33,6 @@ pub use eq::*;
 pub use ladder::*;
 pub use one_pole::*;
 pub use svf::*;
-
-/// Full linear convolution of `a` and `b`; the result has `a.len() + b.len() - 1` samples
-/// (empty if either input is empty). Allocates; for streaming use `Fir`.
-pub fn convolve<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
-    if a.is_empty() || b.is_empty() {
-        return Vec::new();
-    }
-    let mut out = vec![T::_ZERO; a.len() + b.len() - 1];
-    for (i, &x) in a.iter().enumerate() {
-        for (o, &h) in out[i..].iter_mut().zip(b) {
-            *o = *o + x * h;
-        }
-    }
-    out
-}
 
 /// |H(e^(i*w))| of the transfer function b(z) / a(z) at `frequency`,
 /// with `b` and `a` given as coefficients of z^0, z^-1, z^-2, ...
@@ -218,7 +204,7 @@ impl<T: Real> BiquadCoeffs<T> {
         let (cos_w, alpha) = Self::rbj_real(frequency, sample_rate, q);
         let (one, two) = (T::lit(1.0), T::lit(2.0));
         // the cookbook's A = 10^(dB/40): the square root of the linear gain
-        let shelf_amplitude = |db: T| crate::gain::db_to_gain(db).sqrt();
+        let shelf_amplitude = |db: T| crate::units::db_to_gain(db).sqrt();
         match kind {
             BiquadKind::Lowpass => {
                 let b = (one - cos_w) / two;
@@ -577,10 +563,13 @@ impl<T: Float> MultiProcessor<T> for MultiBiquad<T> {
     }
 }
 
+crate::processor::forward_processor!(Biquad, Fir);
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::osc::{Impulse, Noise, Sine};
+    use crate::signal::Signal;
 
     const FS: f64 = 48_000.0;
 
@@ -601,8 +590,8 @@ mod tests {
 
     #[test]
     fn convolve_known_answer() {
-        assert_eq!(convolve(&[1.0, 2.0, 3.0], &[0.0, 1.0, 0.5]), [0.0, 1.0, 2.5, 4.0, 1.5]);
-        assert!(convolve::<f64>(&[], &[1.0]).is_empty());
+        assert_eq!([1.0, 2.0, 3.0].convolved(&[0.0, 1.0, 0.5]), [0.0, 1.0, 2.5, 4.0, 1.5]);
+        assert!(Vec::<f64>::new().convolved(&[1.0]).is_empty());
     }
 
     #[test]
@@ -611,7 +600,7 @@ mod tests {
         let input: Vec<f64> = Noise::new(7).take(64).collect();
         let mut out = input.clone();
         Fir::new(taps.clone()).process(&mut out);
-        let reference = convolve(&input, &taps);
+        let reference = input.convolved(&taps);
         for (a, b) in out.iter().zip(&reference) {
             assert_close(*a, *b, 1e-12, "fir vs convolve");
         }
@@ -660,7 +649,7 @@ mod tests {
         // blocks smaller than, larger than and straddling the internal chunk size, plus single samples
         let taps: Vec<f64> = Noise::new(11).take(67).collect();
         let input: Vec<f64> = Noise::new(12).take(1_000).collect();
-        let reference = convolve(&input, &taps);
+        let reference = input.convolved(&taps);
         let mut fir = Fir::new(taps.clone());
         let mut out = input.clone();
         let mut start = 0;

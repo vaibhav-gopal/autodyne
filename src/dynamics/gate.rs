@@ -1,7 +1,7 @@
 //! Noise gate and downward expander.
 
 use super::{time_coeff, GainComputer};
-use crate::gain::{db_to_gain, gain_to_db};
+
 use crate::units::*;
 
 /// Detector release: fast, so the gate closes promptly; the hold time rides over the dips between

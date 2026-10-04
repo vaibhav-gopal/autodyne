@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::band_limited_increment;
 use crate::signal::Source;
-use crate::spectral::RealFft;
+use crate::fft::RealFft;
 use crate::units::*;
 
 /// The most harmonics a table keeps (its full-bandwidth level, used for the lowest notes).
@@ -314,7 +314,7 @@ fn harmonics_of<T: Float>(frame: &[T]) -> Vec<Complex<f64>> {
 mod tests {
     use super::*;
     use crate::signal::Signal;
-    use crate::spectral::Fft;
+    use crate::fft::Fft;
 
     const FS: f64 = 48_000.0;
 

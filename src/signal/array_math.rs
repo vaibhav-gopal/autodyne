@@ -5,7 +5,7 @@ use std::ops::{Add, Mul};
 
 use super::nd_ops::{broadcast_shapes, Zip};
 use super::ndarray::NdArray;
-use crate::spectral::{Fft, RealFft};
+use crate::fft::{Fft, RealFft};
 use crate::units::*;
 
 /// Array maths on top of [`Elementwise`]: shapes, broadcasting, reductions and tensor products.
@@ -485,7 +485,7 @@ fn dot_in_place<T: Copy + 'static>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize],
     let bv = b.view().permute(&[cb, fb.as_slice()].concat()).ok()?;
     let ma = merged(av.shape(), av.strides(), fa.len())?;
     let mb = merged(bv.shape(), bv.strides(), cb.len())?;
-    let out = crate::linalg::gemm_strided(av.as_ptr(), ma, bv.as_ptr(), mb)?;
+    let out = crate::gemm::gemm_strided(av.as_ptr(), ma, bv.as_ptr(), mb)?;
     let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
     NdArray::from_vec(out, &shape).ok()
 }
@@ -617,7 +617,7 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
         }
         let (a, b, m, k, n, shape) = dot_operands(&self, &rhs, ca, cb);
         #[cfg(feature = "faer")]
-        if let Some(out) = crate::linalg::gemm_any(&a, &b, m, k, n) {
+        if let Some(out) = crate::gemm::gemm_any(&a, &b, m, k, n) {
             return NdArray::from_vec(out, &shape).expect("valid shape");
         }
         NdArray::from_vec(matmul_naive(&a, &b, m, k, n), &shape).expect("valid shape")

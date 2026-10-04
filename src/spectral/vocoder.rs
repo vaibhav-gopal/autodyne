@@ -1,6 +1,6 @@
 //! Phase vocoder: pitch shifting and time stretching.
 
-use super::RealFft;
+use crate::fft::RealFft;
 use crate::processor::Processor;
 use crate::units::*;
 

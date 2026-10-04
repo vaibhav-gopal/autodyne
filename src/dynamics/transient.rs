@@ -1,7 +1,7 @@
 //! Transient shaper.
 
 use super::{time_coeff, GainComputer};
-use crate::gain::{db_to_gain, SmoothedValue};
+use crate::gain::SmoothedValue;
 use crate::units::*;
 
 /// Boosts or cuts the attacks and the sustain of sounds, independently of their level.

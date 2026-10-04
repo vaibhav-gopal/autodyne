@@ -1,7 +1,7 @@
 //! Monophonic pitch detection (YIN).
 
 use crate::processor::Processor;
-use crate::spectral::RealFft;
+use crate::fft::RealFft;
 use crate::units::*;
 
 /// One pitch estimate.

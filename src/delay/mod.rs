@@ -3,6 +3,8 @@
 //! `DelayLine` is the building block (echo, chorus, flanger, comb filters, reverbs); `Echo` is a
 //! feedback delay built on it.
 
+mod params;
+
 use crate::gain::SmoothedValue;
 use crate::units::*;
 
@@ -152,6 +154,8 @@ impl<T: Float> Echo<T> {
         }
     }
 }
+
+crate::processor::forward_processor!(Echo);
 
 #[cfg(test)]
 mod tests {

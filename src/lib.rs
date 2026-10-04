@@ -13,8 +13,9 @@
 //!
 //! - Data: [`units`] (number traits, `Complex`, `DType` reflection), [`signal`] (the signal traits,
 //!   capability tiers, sources, streams, n-d arrays), [`channels`] (multichannel buffers).
-//! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`spectral`],
-//!   [`iq`], [`gain`], [`delay`], [`dynamics`], [`envelope`], [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
+//! - Processing: [`processor`] (the shared trait and chains), [`osc`], [`filter`], [`fft`],
+//!   [`spectral`], [`iq`], [`gain`] (levels, pan, width), [`delay`], [`dynamics`], [`envelope`],
+//!   [`distortion`], [`reverb`], [`modulation`], [`resample`], [`simd`].
 //! - Maths: [`linalg`] (matrix products, solves, least squares, eigen / SVD, polynomials) and
 //!   [`systems`] (LTI systems: transfer functions, zeros-poles-gain, state space, responses,
 //!   discretization); feature `faer`, on by default.
@@ -29,6 +30,10 @@
 //!
 //! Processors allocate only when constructed; processing runs in place without allocating, so it is
 //! safe inside an audio callback.
+//!
+//! Layering (each module uses only those before it): `units`; `simd`, `fft`, `processor`;
+//! `signal`; `channels`, `linalg`; `params`; then the processors, instruments and analysis,
+//! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
 
 /// With the `mimalloc` feature, mimalloc allocates for the whole program (see the feature's note in
 /// `Cargo.toml`): new arrays reuse freed pages instead of faulting fresh ones in.
@@ -41,6 +46,7 @@ pub mod signal;
 pub mod simd;
 pub mod processor;
 pub mod channels;
+pub mod fft;
 pub mod osc;
 pub mod filter;
 pub mod spectral;
@@ -59,6 +65,8 @@ pub mod control;
 pub mod resample;
 pub mod params;
 pub mod dynamic;
+#[cfg(feature = "faer")]
+mod gemm;
 #[cfg(feature = "faer")]
 pub mod linalg;
 #[cfg(feature = "faer")]

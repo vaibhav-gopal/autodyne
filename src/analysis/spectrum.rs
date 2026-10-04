@@ -1,7 +1,7 @@
 //! A running spectrum for analyzers and GUIs.
 
 use crate::processor::Processor;
-use crate::spectral::RealFft;
+use crate::fft::RealFft;
 use crate::units::*;
 
 /// Analysis window: trades frequency resolution (main-lobe width) against leakage (side lobes).

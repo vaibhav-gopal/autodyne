@@ -4,7 +4,8 @@
 use std::f64::consts::PI;
 
 use super::DesignError;
-use crate::spectral::{get_window, RealFft, WindowSpec};
+use crate::fft::RealFft;
+use crate::spectral::{get_window, WindowSpec};
 use crate::units::Complex;
 
 fn sinc(x: f64) -> f64 {

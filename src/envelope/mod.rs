@@ -8,6 +8,8 @@
 //! Use it as a `Processor` (multiplies audio by the envelope, a VCA) or as a `Source` (produces the
 //! envelope itself, e.g. to modulate a filter's frequency).
 
+mod params;
+
 use crate::signal::Source;
 use crate::units::*;
 
@@ -158,6 +160,8 @@ impl<T: Float> Source for Adsr<T> {
         self.next_value()
     }
 }
+
+crate::processor::forward_processor!(Adsr);
 
 #[cfg(test)]
 mod tests {

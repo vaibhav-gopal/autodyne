@@ -16,7 +16,7 @@ use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::osc::{Noise, Oscillator, Sine, Waveform};
 use autodyne::channels::{AudioBuffer, MultiProcessor};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
-use autodyne::spectral::{Fft, RealFft};
+use autodyne::fft::{Fft, RealFft};
 use autodyne::units::Complex;
 
 const FS: f32 = 48_000.0;

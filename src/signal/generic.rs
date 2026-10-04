@@ -148,7 +148,7 @@ mod tests {
     fn convolution_matches_the_direct_sum_on_both_paths() {
         for (n, k) in [(1, 1), (7, 3), (50, 32), (50, 33), (40, 90), (300, 64)] {
             let (x, h) = (ramp(n, 0.1), ramp(k, 0.7));
-            let want = crate::filter::convolve(&x, &h);
+            let want = crate::signal::Signal::convolved(&x[..], &h);
             // rows of a batch against one kernel, and against a kernel per row
             let batch = NdArray::<f64>::array(&[x.clone(), x.iter().map(|v| v * 2.0).collect()].concat(), &[2, n]);
             let got = convolve(batch.clone(), NdArray::array(&h, &[k]));

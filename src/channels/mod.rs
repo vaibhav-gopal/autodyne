@@ -5,13 +5,10 @@
 //!   offset LFOs, ...).
 //! - `Linked` processors look at all channels together so the image doesn't shift:
 //!   `Linked(compressor)` reacts to the loudest channel and turns every channel down equally.
-//! - `StereoWidth` and `Panner` work on the stereo pair itself.
 //!
 //! Audio APIs usually deliver interleaved frames (L R L R ...); `AudioBuffer::copy_from_interleaved`
 //! and `copy_to_interleaved` convert without allocating.
 
-use crate::dynamics::GainComputer;
-use crate::gain::SmoothedValue;
 use crate::processor::Processor;
 use crate::signal::{Axis, NdView, NdViewMut};
 use crate::units::*;
@@ -110,6 +107,18 @@ impl<T: Float> AudioBuffer<T> {
             }
         }
     }
+    /// Linked gain: for each current frame, `gain(peak)` with the frame's largest absolute sample
+    /// across the channels, applied to every channel of that frame (what linked dynamics do).
+    pub fn apply_frame_gain(&mut self, mut gain: impl FnMut(T) -> T) {
+        let (n, max, offset) = (self.channels, self.max_frames, self.offset);
+        for f in offset..offset + self.frames {
+            let peak = (0..n).fold(T::_ZERO, |m, ch| m._max(self.data[ch * max + f]._abs()));
+            let g = gain(peak);
+            for ch in 0..n {
+                self.data[ch * max + f] = self.data[ch * max + f] * g;
+            }
+        }
+    }
     /// Writes the current frames interleaved. Panics unless `out.len() == frames * channels`.
     pub fn copy_to_interleaved(&self, out: &mut [T]) {
         assert_eq!(out.len(), self.frames * self.channels, "output must hold exactly frames * channels samples");
@@ -168,29 +177,13 @@ impl<T: Float, P: Processor<T>> MultiProcessor<T> for PerChannel<P> {
 }
 
 /// Runs a processor *linked* across channels: one detector sees every channel and one gain is applied
-/// to all of them, so the stereo image doesn't lean when one side is louder. A separate wrapper (rather
+/// to all of them, so the stereo image doesn't lean when one side is louder (dynamics implements it
+/// for every GainComputer). A separate wrapper (rather
 /// than implementing both traits on the processor) keeps every type either mono (`Processor`) or
 /// multichannel (`MultiProcessor`), so calls are never ambiguous.
 #[derive(Debug, Clone, Copy)]
 pub struct Linked<P>(pub P);
 
-/// Linked dynamics (compressor, gate, transient shaper, ...): the loudest channel drives one gain
-/// applied to all channels.
-impl<T: Float, G: GainComputer<T>> MultiProcessor<T> for Linked<G> {
-    fn process(&mut self, buffer: &mut AudioBuffer<T>) {
-        let (n, max, offset) = (buffer.channels, buffer.max_frames, buffer.offset);
-        for f in offset..offset + buffer.frames {
-            let level = (0..n).fold(T::_ZERO, |m, ch| m._max(buffer.data[ch * max + f]._abs()));
-            let g = self.0.gain_for_level(level);
-            for ch in 0..n {
-                buffer.data[ch * max + f] = buffer.data[ch * max + f] * g;
-            }
-        }
-    }
-    fn reset(&mut self) {
-        self.0.reset()
-    }
-}
 
 impl<T: Float, M: MultiProcessor<T> + ?Sized> MultiProcessor<T> for Box<M> {
     fn process(&mut self, buffer: &mut AudioBuffer<T>) {
@@ -234,81 +227,11 @@ impl_multi_chain!(A.0, B.1, C.2, D.3, E.4, F.5);
 impl_multi_chain!(A.0, B.1, C.2, D.3, E.4, F.5, G.6);
 impl_multi_chain!(A.0, B.1, C.2, D.3, E.4, F.5, G.6, H.7);
 
-// STEREO ==========================================================================================
-
-/// Mid/side stereo width: 0 = mono, 1 = unchanged, above 1 = wider. Needs a 2-channel buffer.
-#[derive(Debug, Clone, Copy)]
-pub struct StereoWidth<T: Float> {
-    width: SmoothedValue<T>,
-}
-
-impl<T: Float> StereoWidth<T> {
-    pub fn new(width: T, sample_rate: T) -> Self {
-        Self { width: SmoothedValue::new(width).with_ramp_seconds(T::_lit(0.02), sample_rate) }
-    }
-    pub fn set_width(&mut self, width: T) {
-        self.width.set_target(width._max(T::_ZERO));
-    }
-    pub fn width(&self) -> T {
-        self.width.target()
-    }
-}
-
-impl<T: Float> MultiProcessor<T> for StereoWidth<T> {
-    fn process(&mut self, buffer: &mut AudioBuffer<T>) {
-        let half = T::_lit(0.5);
-        let (left, right) = buffer.stereo_mut();
-        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
-            let (mid, side) = ((*l + *r) * half, (*l - *r) * half * self.width.next_value());
-            *l = mid + side;
-            *r = mid - side;
-        }
-    }
-    fn reset(&mut self) {
-        let w = self.width.target();
-        self.width.set_immediate(w);
-    }
-}
-
-/// Places a mono signal in a stereo field with the constant-power pan law: -1 = hard left, 0 = center
-/// (each side at -3 dB), 1 = hard right. The total power stays the same wherever it is panned.
-#[derive(Debug, Clone, Copy)]
-pub struct Panner<T: Float> {
-    position: SmoothedValue<T>,
-}
-
-impl<T: Float> Panner<T> {
-    pub fn new(position: T, sample_rate: T) -> Self {
-        Self { position: SmoothedValue::new(position._clamp(-T::_ONE, T::_ONE)).with_ramp_seconds(T::_lit(0.02), sample_rate) }
-    }
-    pub fn set_position(&mut self, position: T) {
-        self.position.set_target(position._clamp(-T::_ONE, T::_ONE));
-    }
-    pub fn position(&self) -> T {
-        self.position.target()
-    }
-    /// (left gain, right gain) for a pan position.
-    pub fn gains(position: T) -> (T, T) {
-        let angle = (position + T::_ONE) * T::_PI / T::_lit(4.0);
-        let (s, c) = angle._sin_cos();
-        (c, s)
-    }
-    /// Writes `mono` panned into a stereo buffer (overwriting it; frames set to `mono.len()`).
-    pub fn process(&mut self, mono: &[T], out: &mut AudioBuffer<T>) {
-        out.set_frames(mono.len());
-        let (left, right) = out.stereo_mut();
-        for ((l, r), &x) in left.iter_mut().zip(right.iter_mut()).zip(mono) {
-            let (gl, gr) = Self::gains(self.position.next_value());
-            *l = x * gl;
-            *r = x * gr;
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::filter::Biquad;
+    use crate::gain::StereoWidth;
     use crate::modulation::ModulatedDelay;
     use crate::osc::Noise;
 
@@ -395,38 +318,6 @@ mod tests {
             assert!((buf.channel(0)[f] / 0.9 - buf.channel(1)[f] / 0.05).abs() < 1e-12, "frame {f}");
         }
         assert!(buf.channel(1)[4_799] < 0.05 * 0.8, "quiet side is pulled down with the loud one");
-    }
-
-    #[test]
-    fn width_zero_is_mono_and_one_is_transparent() {
-        let original = stereo_noise(256);
-        let mut same = original.clone();
-        StereoWidth::new(1.0, FS).process(&mut same);
-        assert_eq!(same.channel(0), original.channel(0));
-        assert_eq!(same.channel(1), original.channel(1));
-
-        let mut mono = original.clone();
-        StereoWidth::new(0.0, FS).process(&mut mono);
-        for f in 0..256 {
-            let mid = (original.channel(0)[f] + original.channel(1)[f]) / 2.0;
-            assert!((mono.channel(0)[f] - mid).abs() < 1e-15 && (mono.channel(1)[f] - mid).abs() < 1e-15);
-        }
-    }
-
-    #[test]
-    fn constant_power_pan_law() {
-        for p in [-1.0, -0.5, 0.0, 0.3, 1.0] {
-            let (l, r) = Panner::gains(p);
-            assert!((l * l + r * r - 1.0f64).abs() < 1e-12, "power at {p}");
-        }
-        let (l, r) = Panner::gains(0.0f64);
-        assert!((l - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12 && (l - r).abs() < 1e-12, "center is -3 dB each side");
-        let (l, r) = Panner::gains(-1.0f64);
-        assert!((l - 1.0).abs() < 1e-12 && r.abs() < 1e-12, "hard left");
-
-        let mut out = AudioBuffer::new(2, 4);
-        Panner::new(1.0, FS).process(&[1.0; 4], &mut out);
-        assert!(out.channel(0).iter().all(|s| s.abs() < 1e-12) && out.channel(1).iter().all(|&s| (s - 1.0).abs() < 1e-12));
     }
 
     #[test]

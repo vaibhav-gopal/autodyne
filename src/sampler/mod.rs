@@ -10,6 +10,7 @@
 //!
 //! Samples live in memory; everything is prepared when loading, so playing never allocates.
 
+mod params;
 mod sample;
 mod voice;
 

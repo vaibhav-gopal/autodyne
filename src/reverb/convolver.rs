@@ -1,5 +1,5 @@
 use crate::gain::SmoothedValue;
-use crate::spectral::RealFft;
+use crate::fft::RealFft;
 use crate::units::*;
 
 /// Convolution with a long impulse response (convolution reverb, cabinet or room simulation, long
@@ -128,10 +128,12 @@ impl<T: Float> Convolver<T> {
     }
 }
 
+crate::processor::forward_processor!(Convolver);
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filter::convolve;
+    use crate::signal::Signal;
     use crate::osc::Noise;
 
     #[test]
@@ -139,7 +141,7 @@ mod tests {
         let input: Vec<f64> = Noise::new(1).take(3_000).collect();
         for (ir_len, block) in [(1, 64), (5, 64), (64, 64), (1_000, 64), (300, 256), (37, 8)] {
             let ir: Vec<f64> = Noise::new(ir_len as u64).take(ir_len).collect();
-            let reference = convolve(&input, &ir);
+            let reference = input.convolved(&ir);
             let mut conv = Convolver::new(&ir, block, 48_000.0);
             let mut out = input.clone();
             // uneven host block sizes, crossing the internal block boundaries

@@ -17,12 +17,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use autodyne::channels::{AudioBuffer, Linked, MultiProcessor, Panner, PerChannel, StereoWidth};
+use autodyne::channels::{AudioBuffer, Linked, MultiProcessor, PerChannel};
 use autodyne::delay::Echo;
 use autodyne::distortion::{Shape, Waveshaper};
 use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, MultiBiquad, BUTTERWORTH_Q};
-use autodyne::gain::Gain;
+use autodyne::gain::{Gain, Panner, StereoWidth};
 use autodyne::modulation::ModulatedDelay;
 use autodyne::params::Parameterized;
 use autodyne::resample::Oversampled;

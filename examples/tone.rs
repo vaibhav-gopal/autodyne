@@ -10,7 +10,7 @@ use std::path::Path;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::osc::{Noise, Sine};
 use autodyne::signal::{ComplexSignal, Signal};
-use autodyne::spectral::{bin_frequency, Fft};
+use autodyne::fft::{bin_frequency, Fft};
 use autodyne::units::Complex;
 
 const SAMPLE_RATE: u32 = 48_000;

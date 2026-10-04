@@ -36,6 +36,9 @@ pub use reflection::*;
 mod complex;
 pub use complex::*;
 
+mod decibel;
+pub use decibel::*;
+
 #[cfg(test)]
 mod tests {
     use super::*;

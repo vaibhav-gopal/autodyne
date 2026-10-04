@@ -6,11 +6,12 @@
 //!
 //! A [`Bitcrusher`] reduces bit depth and sample rate for lo-fi textures (aliasing included).
 
+mod params;
 mod bitcrusher;
 
 pub use bitcrusher::*;
 
-use crate::gain::{db_to_gain, SmoothedValue};
+use crate::gain::SmoothedValue;
 use crate::units::*;
 
 /// The transfer curve of a [`Waveshaper`].
@@ -78,14 +79,14 @@ impl<T: Float> Waveshaper<T> {
         self.drive.set_target(db_to_gain(db));
     }
     pub fn drive_db(&self) -> T {
-        crate::gain::gain_to_db(self.drive.target())
+        crate::units::gain_to_db(self.drive.target())
     }
     /// Level after the curve, in dB (to compensate for drive).
     pub fn set_output_db(&mut self, db: T) {
         self.output.set_target(db_to_gain(db));
     }
     pub fn output_db(&self) -> T {
-        crate::gain::gain_to_db(self.output.target())
+        crate::units::gain_to_db(self.output.target())
     }
     /// 0 = dry, 1 = fully shaped.
     pub fn set_mix(&mut self, mix: T) {
@@ -113,6 +114,8 @@ impl<T: Float> Waveshaper<T> {
         }
     }
 }
+
+crate::processor::forward_processor!(Waveshaper);
 
 #[cfg(test)]
 mod tests {

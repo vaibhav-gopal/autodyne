@@ -325,7 +325,7 @@ impl<T: Float> MultiProcessor<T> for Reverb<T> {
 mod tests {
     use super::*;
     use crate::signal::Signal;
-    use crate::spectral::RealFft;
+    use crate::fft::RealFft;
 
     const FS: f64 = 48_000.0;
 

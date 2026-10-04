@@ -393,7 +393,7 @@ impl<T: Float> Voice for SynthVoice<T> {
 mod tests {
     use super::*;
     use crate::signal::{ComplexSignal, Signal};
-    use crate::spectral::{bin_frequency, Fft};
+    use crate::fft::{bin_frequency, Fft};
     use crate::units::Complex;
 
     const FS: f64 = 48_000.0;

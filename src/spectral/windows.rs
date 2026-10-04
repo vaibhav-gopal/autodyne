@@ -3,7 +3,7 @@
 use std::f64::consts::PI;
 use std::str::FromStr;
 
-use crate::spectral::Fft;
+use crate::fft::Fft;
 use crate::units::Complex;
 
 /// A window shape and its parameters (`scipy.signal.get_window`'s `window` argument).

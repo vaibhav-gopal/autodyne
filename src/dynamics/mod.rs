@@ -11,6 +11,7 @@
 //! - [`LookaheadLimiter`] (with true-peak detection) and [`MultibandCompressor`] (Linkwitz-Riley
 //!   bands) are multichannel (linked) by nature.
 
+mod params;
 mod gate;
 mod limiter;
 mod multiband;
@@ -21,7 +22,8 @@ pub use limiter::*;
 pub use multiband::*;
 pub use transient::*;
 
-use crate::gain::{db_to_gain, gain_to_db, SmoothedValue};
+use crate::channels::{AudioBuffer, Linked, MultiProcessor};
+use crate::gain::SmoothedValue;
 use crate::units::*;
 
 /// A level-driven gain stage: given a detector level (the loudest channel's, for linked
@@ -30,7 +32,19 @@ use crate::units::*;
 pub trait GainComputer<T: Float> {
     /// Advances one sample at detector `level` (a linear peak, >= 0) and returns the linear gain.
     fn gain_for_level(&mut self, level: T) -> T;
+    /// Clears the detector and gain state.
     fn reset(&mut self);
+}
+
+/// Linked dynamics (compressor, gate, transient shaper, ...): the loudest channel drives one gain
+/// applied to all channels.
+impl<T: Float, G: GainComputer<T>> MultiProcessor<T> for Linked<G> {
+    fn process(&mut self, buffer: &mut AudioBuffer<T>) {
+        buffer.apply_frame_gain(|peak| self.0.gain_for_level(peak));
+    }
+    fn reset(&mut self) {
+        self.0.reset()
+    }
 }
 
 /// One-pole coefficient for a time constant: after `seconds`, a step response has covered
@@ -294,6 +308,8 @@ impl<T: Float> GainComputer<T> for Compressor<T> {
         Compressor::reset(self)
     }
 }
+
+crate::processor::forward_processor!(Compressor, EnvelopeFollower);
 
 #[cfg(test)]
 mod tests {

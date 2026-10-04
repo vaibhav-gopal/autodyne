@@ -168,6 +168,8 @@ impl<T: Float> Ladder<T> {
     }
 }
 
+crate::processor::forward_processor!(Ladder);
+
 #[cfg(test)]
 mod tests {
     use super::*;

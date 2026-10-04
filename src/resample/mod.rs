@@ -6,10 +6,13 @@
 //! multiply-adds regardless of L.
 //!
 //! [`Oversampled`] uses a pair of resamplers to run any processor at a multiple of the sample rate.
+//! [`Resample`] converts whole signals (`x.resampled(48_000, 44_100)`), aligned to the input.
 
 use crate::filter::design_lowpass;
+use crate::signal::{SigResizeOps, Signal, SignalResizable};
 use crate::units::*;
 
+mod params;
 mod oversample;
 pub use oversample::*;
 
@@ -152,6 +155,44 @@ impl<T: Float> Resampler<T> {
     }
 }
 
+/// Sample-rate conversion of whole signals: the streaming [`Resampler`] run over a signal, aligned to
+/// it. Implemented for every [`Signal`] (in the prelude).
+pub trait Resample: Signal {
+    /// The whole signal converted from `from_rate` to `to_rate`, aligned to the input (the filter
+    /// delay removed) and `ceil(len * to / from)` samples long.
+    fn resampled(&self, from_rate: u32, to_rate: u32) -> Vec<Self::Sample> {
+        let input = self.samples();
+        let mut rs = Resampler::new(from_rate, to_rate);
+        let (up, down) = rs.ratio();
+        let wanted = (input.len() * up).div_ceil(down);
+        let delay = rs.delay() as usize;
+        let mut out = Vec::with_capacity(wanted + delay + up);
+        let chunk = 4096;
+        let mut scratch = vec![Self::Sample::_ZERO; rs.max_output_len(chunk)];
+        let zeros = vec![Self::Sample::_ZERO; chunk];
+        let mut fed = 0;
+        while out.len() < wanted + delay {
+            // the input, then silence to flush the filter's delay
+            let block = if fed < input.len() { &input[fed..(fed + chunk).min(input.len())] } else { &zeros[..] };
+            fed += block.len();
+            let n = rs.process(block, &mut scratch);
+            out.extend_from_slice(&scratch[..n]);
+        }
+        out.drain(..delay);
+        out.truncate(wanted);
+        out
+    }
+    /// Converts the sample rate in place (see [`resampled`](Self::resampled)).
+    fn resample(&mut self, from_rate: u32, to_rate: u32)
+    where
+        Self: SignalResizable,
+    {
+        let out = self.resampled(from_rate, to_rate);
+        self.replace_with(&out);
+    }
+}
+
+impl<S: Signal + ?Sized> Resample for S {}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -249,5 +290,24 @@ mod tests {
         let n = rs.process(&input, &mut out);
         let peak = out[1_000..n].iter().fold(0.0f64, |m, s| m.max(s.abs()));
         assert!(peak < 1e-3, "aliased energy leaked through: peak {peak}");
+    }
+
+    #[test]
+    fn resampled_is_aligned_and_sized() {
+        use crate::osc::Sine;
+        for (from, to) in [(48_000u32, 44_100u32), (44_100, 48_000), (48_000, 16_000), (48_000, 96_000)] {
+            let tone: Vec<f64> = Sine::new(1_000.0, from as f64).take(from as usize / 10).collect();
+            let out = tone.resampled(from, to);
+            assert_eq!(out.len(), (tone.len() * to as usize).div_ceil(from as usize));
+            // away from the edges (filter start-up and the flushed tail) it is the same sine at the new rate
+            let margin = out.len() / 10;
+            for (n, &y) in out.iter().enumerate().take(out.len() - margin).skip(margin) {
+                let ideal = (std::f64::consts::TAU * 1_000.0 * n as f64 / to as f64).sin();
+                assert!((y - ideal).abs() <= 2e-3, "{from} -> {to} sample {n}: {y} vs {ideal}");
+            }
+        }
+        let mut v: Vec<f64> = vec![0.5; 480];
+        v.resample(48_000, 96_000);
+        assert_eq!(v.len(), 960);
     }
 }

@@ -84,7 +84,7 @@ mod tests {
     use crate::distortion::{Shape, Waveshaper};
     use crate::gain::Gain;
     use crate::osc::Sine;
-    use crate::spectral::Fft;
+    use crate::fft::Fft;
 
     const FS: f64 = 48_000.0;
     const N: usize = 8_192;

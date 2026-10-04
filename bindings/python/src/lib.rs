@@ -11,7 +11,7 @@ use autodyne::dlpack::{DLManagedTensor, DLManagedTensorVersioned, DlpackTensor, 
 use autodyne::dynamic::{BinaryOp, CastMode, DynArray, DynElement, Promotion};
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::signal::{NdArray, NdView, Zip};
-use autodyne::spectral::RealFft;
+use autodyne::fft::RealFft;
 use autodyne::units::*;
 use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::ffi;

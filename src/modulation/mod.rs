@@ -8,6 +8,8 @@
 //!
 //! For stereo width, run one instance per channel with LFO phases half a cycle apart (`with_lfo_phase`).
 
+mod params;
+
 use crate::delay::DelayLine;
 use crate::gain::SmoothedValue;
 use crate::osc::Sine;
@@ -254,6 +256,8 @@ impl<T: Float> Phaser<T> {
         }
     }
 }
+
+crate::processor::forward_processor!(ModulatedDelay, Phaser);
 
 #[cfg(test)]
 mod tests {

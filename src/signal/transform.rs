@@ -1,5 +1,4 @@
 use super::{Signal, SignalError};
-use crate::gain::db_to_gain;
 use crate::units::*;
 
 /// How a pointwise operation treats `other` when it is shorter or longer than `self`.

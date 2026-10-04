@@ -2,7 +2,7 @@
 
 use crate::analysis::TruePeak;
 use crate::channels::{AudioBuffer, MultiProcessor};
-use crate::gain::{db_to_gain, gain_to_db};
+
 use crate::units::*;
 
 /// Brickwall limiter with lookahead: the gain starts falling *before* a peak arrives, in a smooth

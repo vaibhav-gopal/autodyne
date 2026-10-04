@@ -72,10 +72,11 @@ impl_chain!(A.0, B.1, C.2, D.3, E.4, F.5);
 impl_chain!(A.0, B.1, C.2, D.3, E.4, F.5, G.6);
 impl_chain!(A.0, B.1, C.2, D.3, E.4, F.5, G.6, H.7);
 
-/// Implements `Processor` by forwarding to a type's inherent `process` and `reset`.
+/// Implements `Processor` by forwarding to a type's inherent `process` and `reset` (invoked next
+/// to each processor type, so this module depends on nothing but `units`).
 macro_rules! forward_processor {
     ($($Ty:ident),+) => {$(
-        impl<T: Float> Processor<T> for $Ty<T> {
+        impl<T: $crate::units::Float> $crate::processor::Processor<T> for $Ty<T> {
             fn process(&mut self, block: &mut [T]) {
                 $Ty::process(self, block)
             }
@@ -85,22 +86,14 @@ macro_rules! forward_processor {
         }
     )+};
 }
-
-use crate::delay::Echo;
-use crate::dynamics::{Compressor, EnvelopeFollower};
-use crate::distortion::Waveshaper;
-use crate::envelope::Adsr;
-use crate::reverb::Convolver;
-use crate::filter::{Biquad, Fir, Ladder, OnePole, Svf};
-use crate::gain::Gain;
-use crate::modulation::{ModulatedDelay, Phaser};
-
-forward_processor!(Biquad, Fir, OnePole, Svf, Ladder, Gain, Echo, Compressor, EnvelopeFollower, ModulatedDelay, Phaser, Adsr, Waveshaper, Convolver);
+pub(crate) use forward_processor;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::filter::BUTTERWORTH_Q;
+    use crate::delay::Echo;
+    use crate::filter::{Biquad, Fir, BUTTERWORTH_Q};
+    use crate::gain::Gain;
     use crate::osc::Noise;
 
     fn noise(len: usize) -> Vec<f64> {
