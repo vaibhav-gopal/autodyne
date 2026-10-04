@@ -167,10 +167,12 @@ Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)
 sooner and run at 0.96-1.24x JAX's speed: on par for a one-pole's gradient, ahead on spectral models and on an EQ
 chain's STFT-loss gradient. Against other automatic differentiation ([`AUTODIFF.md`](bench/flux/AUTODIFF.md), one core), in process
 (feature `jit`: scalar scans compiled with Cranelift, array graphs interpreted with fused element-wise chains): a
-one-pole's gradient over 48k samples in 172 µs (146 µs with `Scan::contracted`; Enzyme 160 µs, XLA 0.5 ms, candle
-0.59 s, PyTorch 1.26 s), its forward pass in 53 µs (36 µs; C 64 µs), a spectral model's gradient in 1.46 ms (PyTorch
-1.68 ms, XLA 3.36 ms), the EQ chain's STFT-loss gradient in 0.35 ms (JAX 0.39 ms, Enzyme 3.5 ms; 0.27 ms on XLA). From Python, `autodyne.flux` traces functions written with NumPy-style operators on
-tracers, with the same scans, losses, processors and backends.
+one-pole's gradient over 48k samples in 163 µs (135 µs with `Scan::contracted`; Enzyme 160 µs, XLA 0.48 ms, candle
+0.59 s, dfdx 0.70 s, PyTorch 1.04 s, `torch.compile` fails on the recurrence), its forward pass in 53 µs (36 µs;
+C 64 µs), a spectral model's gradient in 1.40 ms (PyTorch 1.73 ms eager, 1.79 ms compiled, XLA 4.8 ms), the EQ
+chain's STFT-loss gradient in 0.26 ms (flux on XLA 0.28 ms, JAX 0.41 ms, Enzyme 3.5 ms). From Python,
+`autodyne.flux` traces functions written with NumPy-style operators on tracers, with the same scans, losses,
+processors and backends.
 
 ```sh
 pip install iree-base-compiler iree-base-runtime jax   # tools on PATH, or AUTODYNE_IREE_DIR / AUTODYNE_XLA_PYTHON

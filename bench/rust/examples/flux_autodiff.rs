@@ -1,4 +1,4 @@
-//! flux against Burn's and candle's autodiff on the models of `bench/flux`: the same inputs (the `.npy` files
+//! flux against Burn's, candle's and dfdx's autodiff on the models of `bench/flux`: the same inputs (the `.npy` files
 //! `examples/flux_programs.rs` writes), the results checked against flux's interpreter, times printed
 //! as a Markdown table.
 //!
@@ -9,7 +9,8 @@
 //!
 //! Burn has no compiled loop (scan): a recurrence is one small tensor op per sample, recorded on its
 //! autodiff tape. Its `rfft` / `irfft` have no autodiff rules yet (`todo!`), so the spectral model's
-//! transforms are matrix products with DFT matrices, which is what a Burn user writes today.
+//! transforms are matrix products with DFT matrices, which is what a Burn user writes today (candle and dfdx
+//! have no FFT at all).
 
 use std::f64::consts::TAU;
 use std::path::Path;
@@ -214,6 +215,102 @@ fn candle_rows(dir: &Path, rows: &mut Vec<Row>) -> candle_core::Result<()> {
     Ok(())
 }
 
+// THE MODELS, IN DFDX =============================================================================
+
+/// The one-pole in dfdx: one chain of scalar tensor ops per sample, recorded on `T`'s tape (none
+/// for the forward pass). A value used twice in a step is `retaped` (same id, so both uses add to
+/// its gradient); tapes merge when taped operands meet.
+fn dfdx_one_pole<T: dfdx::tensor::Tape<f32, dfdx::tensor::Cpu> + dfdx::tensor::Merge<T>>(
+    cutoff: dfdx::tensor::Tensor<(), f32, dfdx::tensor::Cpu, T>,
+    xs: dfdx::tensor::Tensor<(usize,), f32, dfdx::tensor::Cpu, T>,
+    s0: dfdx::tensor::Tensor<(), f32, dfdx::tensor::Cpu, T>,
+) -> dfdx::tensor::Tensor<(usize,), f32, dfdx::tensor::Cpu, T> {
+    use dfdx::prelude::*;
+    let n = xs.shape().0;
+    // a = 1 - exp(-2π fc / fs)
+    let a = (cutoff * (-TAU / FS) as f32).exp().negate() + 1.0;
+    let a_copy = a.retaped::<T>();
+    let mut a = Some(a);
+    let mut s = s0;
+    let mut ys = Vec::with_capacity(n);
+    let dev = xs.device().clone();
+    for i in 0..n {
+        let x = xs.retaped::<T>().select(dev.tensor(i));
+        let d = x - s.retaped::<T>();
+        // the first step takes `a` with the tape that computed it; later ones a fresh copy
+        let a_i = a.take().unwrap_or_else(|| a_copy.retaped::<T>());
+        s = s + a_i * d;
+        ys.push(s.retaped::<T>());
+    }
+    // the last state carries every step's tape: merge it into the stacked outputs
+    let (_, tape) = s.split_tape();
+    let (stacked, rest) = ys.stack().split_tape();
+    stacked.put_tape(rest.merge(tape))
+}
+
+fn dfdx_rows(dir: &Path, rows: &mut Vec<Row>) {
+    use dfdx::prelude::*;
+    let dev: Cpu = Default::default();
+    let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
+    let name = "dfdx (autodiff)".to_string();
+
+    let (cutoff, xs, s0) = (load("one_pole_forward", "in0"), load("one_pole_forward", "in1"), load("one_pole_forward", "in2"));
+    let want = load("one_pole_forward", "out0");
+    let n = xs.len();
+    let run = || {
+        let c: Tensor<(), f32, Cpu> = dev.tensor(cutoff[0]);
+        let x: Tensor<(usize,), f32, Cpu> = dev.tensor_from_vec(xs.clone(), (n,));
+        let s: Tensor<(), f32, Cpu> = dev.tensor(s0[0]);
+        dfdx_one_pole(c, x, s).as_vec()
+    };
+    let e = error(&run(), &want);
+    rows.push(Row { model: "one-pole low-pass, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+
+    let ins: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("in{k}"))).collect();
+    let want: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("out{k}"))).collect();
+    let run = || -> [Vec<f32>; 4] {
+        let c: Tensor<(), f32, Cpu> = dev.tensor(ins[0][0]);
+        let x: Tensor<(usize,), f32, Cpu> = dev.tensor_from_vec(ins[1].clone(), (n,));
+        let s: Tensor<(), f32, Cpu> = dev.tensor(ins[3][0]);
+        let t: Tensor<(usize,), f32, Cpu> = dev.tensor_from_vec(ins[2].clone(), (n,));
+        let ys = dfdx_one_pole(c.leaky_trace(), x.leaky_trace(), s.leaky_trace());
+        let loss = (ys - t).square().mean();
+        let value = loss.array();
+        let g = loss.backward();
+        [vec![value], vec![g.get(&c).array()], vec![g.get(&s).array()], g.get(&x).as_vec()]
+    };
+    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
+    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+
+    let ins: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("in{k}"))).collect();
+    let want: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("out{k}"))).collect();
+    let bins = ins[1].len();
+    let len = (bins - 1) * 2;
+    let (batch, width) = (ins[0].len() / len, ins[2].len() / len);
+    let [a, b, c, d] = dft_matrices(len);
+    let fr: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(a, (len, bins));
+    let fi: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(b, (len, bins));
+    let ir: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(c, (bins, len));
+    let ii: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(d, (bins, len));
+    let x: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(ins[0].clone(), (batch, len));
+    let run = || -> [Vec<f32>; 3] {
+        let gain: Tensor<(usize,), f32, Cpu> = dev.tensor_from_vec(ins[1].clone(), (bins,));
+        let w: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(ins[2].clone(), (len, width));
+        let g = gain.leaky_trace();
+        let gb = g.retaped::<OwnedTape<f32, Cpu>>().broadcast_like::<_, Axis<0>>(&(batch, bins));
+        let re = x.retaped::<OwnedTape<f32, Cpu>>().matmul(fr.clone()) * g.broadcast_like::<_, Axis<0>>(&(batch, bins));
+        let im = x.retaped::<OwnedTape<f32, Cpu>>().matmul(fi.clone()) * gb;
+        let y = re.matmul(ir.clone()) + im.matmul(ii.clone());
+        let h = y.matmul(w.leaky_trace()).tanh();
+        let loss = h.square().mean();
+        let value = loss.array();
+        let grads = loss.backward();
+        [vec![value], grads.get(&gain).as_vec(), grads.get(&w).as_vec()]
+    };
+    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
+    rows.push(Row { model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", library: name, time: time(run), error: Some(e) });
+}
+
 // THE COMPARISON ==================================================================================
 
 struct Row {
@@ -329,6 +426,7 @@ fn run() {
     burn_rows::<Autodiff<Flex>>("burn flex (autodiff)", dir, &mut rows);
     burn_rows::<Autodiff<BurnNdArray>>("burn ndarray (autodiff)", dir, &mut rows);
     candle_rows(dir, &mut rows).expect("candle runs");
+    dfdx_rows(dir, &mut rows);
 
     println!("| Model | Library | Time | Error vs flux |");
     println!("|---|---|---:|---:|");

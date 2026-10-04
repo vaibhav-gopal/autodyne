@@ -19,6 +19,7 @@ ndarray = "0.17"
 dyn-stack = "0.13"
 faer = { version = "0.24.4", default-features = false, features = ["std", "linalg"] }
 nalgebra = "0.34"
+dfdx = "0.13"
 
 [features]
 # mimalloc as the allocator (autodyne's feature), for every library here: without it, the Windows heap
