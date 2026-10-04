@@ -7,75 +7,78 @@ NVIDIA GeForce RTX 5070 Ti for the GPU rows (wgpu). Every case first checks that
 - GPU "resident": data already on the GPU, timed until the device is idle. "round trip": upload, compute, download,
   which is what a CPU caller pays.
 - Relative = autodyne's time / this row's time (above 1: faster than autodyne).
+- Absolute times on a shared desktop vary from run to run (up to ~20% on the CPU, more on the GPU, which other  programs use too); every library in a group is measured in the same run, so compare within a group.
 
 ## a*x+b on a transposed 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| ndarray (CPU, 1 thread) | 432.1 µs | 9.26 Gelem/s | 1.03x |
-| autodyne (CPU, 1 thread) | 443.1 µs | 9.03 Gelem/s | 1.00x |
-| burn wgpu (GPU, resident) | 666.7 µs | 6.00 Gelem/s | 0.66x |
-| burn flex (CPU) | 14.06 ms | 0.28 Gelem/s | 0.03x |
+| autodyne gpu (GPU, resident) | 120.0 µs | 33.34 Gelem/s | 5.05x |
+| autodyne (CPU, 1 thread) | 605.4 µs | 6.61 Gelem/s | 1.00x |
+| ndarray (CPU, 1 thread) | 655.6 µs | 6.10 Gelem/s | 0.92x |
+| burn wgpu (GPU, resident) | 661.3 µs | 6.05 Gelem/s | 0.92x |
+| burn flex (CPU) | 14.15 ms | 0.28 Gelem/s | 0.04x |
+| autodyne gpu (GPU, round trip) | 14.37 ms | 0.28 Gelem/s | 0.04x |
 
 ## a*x+b, 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| autodyne gpu (GPU, resident) | 108.1 µs | 36.99 Gelem/s | 4.29x |
-| cubecl kernel (GPU, resident) | 110.6 µs | 36.17 Gelem/s | 4.19x |
-| burn wgpu (GPU, resident) | 129.5 µs | 30.89 Gelem/s | 3.58x |
-| ndarray (CPU, 1 thread) | 454.4 µs | 8.80 Gelem/s | 1.02x |
-| autodyne (CPU, 1 thread) | 463.5 µs | 8.63 Gelem/s | 1.00x |
-| burn flex (CPU) | 1.27 ms | 3.15 Gelem/s | 0.36x |
-| cubecl kernel (GPU, round trip) | 8.63 ms | 0.46 Gelem/s | 0.05x |
-| burn wgpu (GPU, round trip) | 9.64 ms | 0.41 Gelem/s | 0.05x |
-| autodyne gpu (GPU, round trip) | 10.23 ms | 0.39 Gelem/s | 0.05x |
+| autodyne gpu (GPU, resident) | 188.8 µs | 21.19 Gelem/s | 3.56x |
+| burn wgpu (GPU, resident) | 324.6 µs | 12.32 Gelem/s | 2.07x |
+| cubecl kernel (GPU, resident) | 346.7 µs | 11.54 Gelem/s | 1.94x |
+| autodyne (CPU, 1 thread) | 671.6 µs | 5.96 Gelem/s | 1.00x |
+| ndarray (CPU, 1 thread) | 706.0 µs | 5.67 Gelem/s | 0.95x |
+| burn flex (CPU) | 1.65 ms | 2.43 Gelem/s | 0.41x |
+| cubecl kernel (GPU, round trip) | 10.55 ms | 0.38 Gelem/s | 0.06x |
+| autodyne gpu (GPU, round trip) | 11.44 ms | 0.35 Gelem/s | 0.06x |
+| burn wgpu (GPU, round trip) | 11.87 ms | 0.34 Gelem/s | 0.06x |
 
 ## column sums, 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| autodyne gpu (GPU, resident) | 119.8 µs | 33.40 Gelem/s | 1.37x |
-| autodyne (CPU, 1 thread) | 163.6 µs | 24.45 Gelem/s | 1.00x |
-| ndarray (CPU, 1 thread) | 245.6 µs | 16.29 Gelem/s | 0.67x |
-| burn flex (CPU) | 250.8 µs | 15.95 Gelem/s | 0.65x |
-| burn wgpu (GPU, resident) | 677.5 µs | 5.90 Gelem/s | 0.24x |
+| autodyne gpu (GPU, resident) | 151.4 µs | 26.42 Gelem/s | 1.06x |
+| autodyne (CPU, 1 thread) | 160.3 µs | 24.96 Gelem/s | 1.00x |
+| burn flex (CPU) | 260.3 µs | 15.36 Gelem/s | 0.62x |
+| ndarray (CPU, 1 thread) | 262.3 µs | 15.25 Gelem/s | 0.61x |
+| burn wgpu (GPU, resident) | 674.9 µs | 5.93 Gelem/s | 0.24x |
 
 ## FIR / conv1d, 16 x 48000 f32, 63 taps
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| autodyne gpu fir (GPU, resident) | 365.2 µs | 2.10 Gelem/s | 4.14x |
-| burn wgpu conv1d (GPU, resident) | 695.3 µs | 1.10 Gelem/s | 2.18x |
-| autodyne Fir per lane (CPU, 1 thread) | 1.51 ms | 0.51 Gelem/s | 1.00x |
-| burn flex conv1d (CPU) | 3.65 ms | 0.21 Gelem/s | 0.41x |
+| autodyne gpu fir (GPU, resident) | 275.1 µs | 2.79 Gelem/s | 5.46x |
+| burn wgpu conv1d (GPU, resident) | 766.7 µs | 1.00 Gelem/s | 1.96x |
+| autodyne Fir per lane (CPU, 1 thread) | 1.50 ms | 0.51 Gelem/s | 1.00x |
+| burn flex conv1d (CPU) | 3.57 ms | 0.22 Gelem/s | 0.42x |
 
 ## matrix + row (broadcast), 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| autodyne gpu (GPU, resident) | 113.5 µs | 35.23 Gelem/s | 4.18x |
-| burn wgpu (GPU, resident) | 119.3 µs | 33.53 Gelem/s | 3.98x |
-| ndarray (CPU, 1 thread) | 472.0 µs | 8.48 Gelem/s | 1.01x |
-| autodyne (CPU, 1 thread) | 475.1 µs | 8.42 Gelem/s | 1.00x |
-| burn flex (CPU) | 3.61 ms | 1.11 Gelem/s | 0.13x |
+| autodyne gpu (GPU, resident) | 141.5 µs | 28.26 Gelem/s | 4.27x |
+| burn wgpu (GPU, resident) | 156.8 µs | 25.51 Gelem/s | 3.86x |
+| autodyne (CPU, 1 thread) | 604.4 µs | 6.62 Gelem/s | 1.00x |
+| ndarray (CPU, 1 thread) | 713.2 µs | 5.61 Gelem/s | 0.85x |
+| burn flex (CPU) | 4.83 ms | 0.83 Gelem/s | 0.13x |
 
 ## row sums, 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| autodyne gpu (GPU, resident) | 112.6 µs | 35.52 Gelem/s | 1.38x |
-| burn wgpu (GPU, resident) | 154.8 µs | 25.84 Gelem/s | 1.00x |
-| autodyne (CPU, 1 thread) | 155.0 µs | 25.81 Gelem/s | 1.00x |
-| ndarray (CPU, 1 thread) | 291.7 µs | 13.71 Gelem/s | 0.53x |
-| burn flex (CPU) | 2.26 ms | 1.77 Gelem/s | 0.07x |
+| autodyne gpu (GPU, resident) | 116.8 µs | 34.25 Gelem/s | 1.56x |
+| autodyne (CPU, 1 thread) | 182.5 µs | 21.92 Gelem/s | 1.00x |
+| ndarray (CPU, 1 thread) | 320.6 µs | 12.48 Gelem/s | 0.57x |
+| burn wgpu (GPU, resident) | 337.4 µs | 11.86 Gelem/s | 0.54x |
+| burn flex (CPU) | 2.52 ms | 1.59 Gelem/s | 0.07x |
 
 ## sum of everything, 2000x2000 f32
 
 | Library | Time | Throughput | Relative to autodyne |
 |---|---:|---:|---:|
-| autodyne gpu (GPU, resident) | 125.6 µs | 31.86 Gelem/s | 1.13x |
-| autodyne (CPU, 1 thread) | 141.7 µs | 28.23 Gelem/s | 1.00x |
-| ndarray (CPU, 1 thread) | 283.2 µs | 14.12 Gelem/s | 0.50x |
-| burn wgpu (GPU, resident) | 542.8 µs | 7.37 Gelem/s | 0.26x |
-| burn flex (CPU) | 2.32 ms | 1.72 Gelem/s | 0.06x |
+| autodyne (CPU, 1 thread) | 155.3 µs | 25.76 Gelem/s | 1.00x |
+| autodyne gpu (GPU, resident) | 169.6 µs | 23.58 Gelem/s | 0.92x |
+| ndarray (CPU, 1 thread) | 282.8 µs | 14.15 Gelem/s | 0.55x |
+| burn wgpu (GPU, resident) | 589.0 µs | 6.79 Gelem/s | 0.26x |
+| burn flex (CPU) | 2.33 ms | 1.72 Gelem/s | 0.07x |

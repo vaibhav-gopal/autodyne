@@ -337,9 +337,17 @@ macro_rules! for_each_first {
                 let (ob, bases) = (out.base(), ($($p.base(),)+));
                 let plan = plan(&self.shape[..self.ndim], &strides, 1);
                 execute(&plan, |at, n, step| {
-                    for k in 0..n as isize {
-                        // SAFETY: inside every operand's layout; the output is injective
-                        unsafe { f(<NdViewMut<'o, O> as NdProducer>::item(ob, at[0] + k * step[0]), $($P::item(bases.$i, at[$i + 1] + k * step[$i + 1])),+) }
+                    // unit steps (contiguous runs) as their own loop, so it vectorizes
+                    if step.iter().all(|&s| s == 1) {
+                        for k in 0..n as isize {
+                            // SAFETY: inside every operand's layout; the output is injective
+                            unsafe { f(<NdViewMut<'o, O> as NdProducer>::item(ob, at[0] + k), $($P::item(bases.$i, at[$i + 1] + k)),+) }
+                        }
+                    } else {
+                        for k in 0..n as isize {
+                            // SAFETY: as above
+                            unsafe { f(<NdViewMut<'o, O> as NdProducer>::item(ob, at[0] + k * step[0]), $($P::item(bases.$i, at[$i + 1] + k * step[$i + 1])),+) }
+                        }
                     }
                 });
             }
