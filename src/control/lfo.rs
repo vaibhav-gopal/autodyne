@@ -8,12 +8,15 @@ use crate::params::{ParamError, ParamInfo, ParamUnit, Parameterized};
 /// The shape of one LFO cycle. All shapes are bipolar (-1 to 1) and start where a sine does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LfoShape {
+    /// a sine wave
     Sine,
+    /// a triangle wave
     Triangle,
     /// rises from -1 to 1
     SawUp,
     /// falls from 1 to -1
     SawDown,
+    /// +1 for the first half of each cycle, -1 for the second
     Square,
     /// a new random value every cycle, held
     SampleHold,
@@ -22,6 +25,7 @@ pub enum LfoShape {
 }
 
 impl LfoShape {
+    /// Every shape, in parameter order.
     pub const ALL: [LfoShape; 7] = [
         LfoShape::Sine,
         LfoShape::Triangle,
@@ -31,6 +35,7 @@ impl LfoShape {
         LfoShape::SampleHold,
         LfoShape::SmoothRandom,
     ];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 7] = ["Sine", "Triangle", "Saw up", "Saw down", "Square", "Sample & hold", "Smooth random"];
 }
 
@@ -83,6 +88,7 @@ impl Lfo {
             value: 0.0,
         }
     }
+    /// The cycle's shape.
     pub fn with_shape(mut self, shape: LfoShape) -> Self {
         self.shape = shape;
         self
@@ -93,9 +99,11 @@ impl Lfo {
         (self.previous, self.next) = (self.noise.next_sample(), self.noise.next_sample());
         self
     }
+    /// Changes the shape without moving the phase.
     pub fn set_shape(&mut self, shape: LfoShape) {
         self.shape = shape;
     }
+    /// The cycle's shape.
     pub fn shape(&self) -> LfoShape {
         self.shape
     }
@@ -103,12 +111,15 @@ impl Lfo {
     pub fn set_rate(&mut self, hz: f64) {
         self.rate_hz = hz.max(0.0);
     }
+    /// Free-running rate in Hz.
     pub fn rate(&self) -> f64 {
         self.rate_hz
     }
+    /// Locks the cycle to the transport (at the length [`set_division`](Self::set_division) picks).
     pub fn set_sync(&mut self, on: bool) {
         self.sync = on;
     }
+    /// Whether the cycle is locked to the transport.
     pub fn sync(&self) -> bool {
         self.sync
     }
@@ -116,9 +127,11 @@ impl Lfo {
     pub fn set_division(&mut self, index: usize) {
         self.division = index.min(Division::ALL.len() - 1);
     }
+    /// The synced cycle length.
     pub fn division(&self) -> Division {
         Division::ALL[self.division]
     }
+    /// The synced cycle length as an index into [`Division::ALL`].
     pub fn division_index(&self) -> usize {
         self.division
     }
@@ -128,6 +141,7 @@ impl Lfo {
         self.phase = (self.phase + offset - self.phase_offset).rem_euclid(1.0);
         self.phase_offset = offset;
     }
+    /// Phase offset in cycles.
     pub fn phase_offset(&self) -> f64 {
         self.phase_offset
     }
@@ -135,6 +149,7 @@ impl Lfo {
     pub fn set_fade(&mut self, seconds: f64) {
         self.fade_seconds = seconds.max(0.0);
     }
+    /// Fade-in time in seconds.
     pub fn fade(&self) -> f64 {
         self.fade_seconds
     }

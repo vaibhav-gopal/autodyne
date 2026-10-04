@@ -44,6 +44,7 @@ impl<T: Float> TransientShaper<T> {
             env: [T::_ZERO; 4],
         }
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
@@ -51,6 +52,7 @@ impl<T: Float> TransientShaper<T> {
     pub fn set_attack(&mut self, amount: T) {
         self.attack_amount = amount._clamp(-T::_ONE, T::_ONE);
     }
+    /// Attack amount, -1..1.
     pub fn attack(&self) -> T {
         self.attack_amount
     }
@@ -58,6 +60,7 @@ impl<T: Float> TransientShaper<T> {
     pub fn set_sustain(&mut self, amount: T) {
         self.sustain_amount = amount._clamp(-T::_ONE, T::_ONE);
     }
+    /// Sustain amount, -1..1.
     pub fn sustain(&self) -> T {
         self.sustain_amount
     }
@@ -66,9 +69,11 @@ impl<T: Float> TransientShaper<T> {
         self.output_db = db;
         self.output.set_target(db_to_gain(db));
     }
+    /// Output gain in dB.
     pub fn output_db(&self) -> T {
         self.output_db
     }
+    /// Clears the envelopes and finishes the output ramp.
     pub fn reset(&mut self) {
         self.env = [T::_ZERO; 4];
         self.output.set_immediate(self.output.target());
@@ -88,10 +93,12 @@ impl<T: Float> TransientShaper<T> {
         let db = (self.attack_amount * attack_db + self.sustain_amount * sustain_db)._clamp(-limit, limit);
         self.output.next_value() * db_to_gain(db)
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         x * self.gain_for_level(x._abs())
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);

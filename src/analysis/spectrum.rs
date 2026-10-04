@@ -16,7 +16,9 @@ pub enum Window {
 }
 
 impl Window {
+    /// Every window, in parameter order.
     pub const ALL: [Window; 3] = [Window::Rectangular, Window::Hann, Window::BlackmanHarris];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 3] = ["Rectangular", "Hann", "Blackman-Harris"];
 
     /// `len` coefficients in the periodic form used for spectral analysis (the window's period
@@ -103,6 +105,7 @@ impl<T: Float> SpectrumAnalyzer<T> {
         a.set_release(a.release_seconds);
         a
     }
+    /// Samples per frame (the FFT length).
     pub fn fft_len(&self) -> usize {
         self.frame.len()
     }
@@ -110,6 +113,7 @@ impl<T: Float> SpectrumAnalyzer<T> {
     pub fn bins(&self) -> usize {
         self.levels.len()
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
@@ -117,12 +121,14 @@ impl<T: Float> SpectrumAnalyzer<T> {
     pub fn bin_frequency(&self, bin: usize) -> T {
         T::_lit(bin as f64) * self.sample_rate / T::_lit(self.fft_len() as f64)
     }
+    /// Changes the window (the level scale follows its gain).
     pub fn set_window(&mut self, window: Window) {
         self.window_kind = window;
         self.window = window.coefficients(self.fft_len());
         let sum = self.window.iter().fold(T::_ZERO, |acc, &w| acc + w);
         self.scale = T::_lit(2.0) / sum;
     }
+    /// The window.
     pub fn window(&self) -> Window {
         self.window_kind
     }
@@ -131,6 +137,7 @@ impl<T: Float> SpectrumAnalyzer<T> {
         self.hop = hop.clamp(1, self.fft_len());
         self.set_release(self.release_seconds);
     }
+    /// Samples between frames.
     pub fn hop(&self) -> usize {
         self.hop
     }
@@ -161,6 +168,7 @@ impl<T: Float> SpectrumAnalyzer<T> {
     pub fn peaks_db(&self) -> &[T] {
         &self.peaks
     }
+    /// Clears the history, levels and peaks.
     pub fn reset(&mut self) {
         self.history.iter_mut().for_each(|s| *s = T::_ZERO);
         self.write = 0;

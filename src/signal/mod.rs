@@ -74,10 +74,13 @@ use thiserror::Error;
 /// Errors from operations that combine or measure signals.
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SignalError {
+    /// Two signals that must have the same length don't (`self`, `other`).
     #[error("signal lengths differ: {0} vs {1}")]
     LengthMismatch(usize, usize),
+    /// The signal is empty.
     #[error("the operation needs a non-empty signal")]
     Empty,
+    /// The signal is all zeros where a direction is needed.
     #[error("the operation is undefined for a signal with zero norm")]
     ZeroNorm,
 }

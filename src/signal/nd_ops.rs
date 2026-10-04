@@ -153,6 +153,7 @@ mod sealed {
 
 /// An operand of a [`Zip`]: a view (yielding `&T`) or a mutable view (yielding `&mut T`).
 pub trait NdProducer: sealed::Sealed {
+    /// What each element is seen as: `&T` or `&mut T`.
     type Item;
     #[doc(hidden)]
     type Ptr: Copy;
@@ -233,6 +234,7 @@ impl<P: NdProducer> Zip<(P,)> {
 }
 
 impl<P> Zip<P> {
+    /// The shape every operand is iterated over.
     pub fn shape(&self) -> &[usize] {
         &self.shape[..self.ndim]
     }
@@ -401,12 +403,14 @@ impl<'a, T> NdView<'a, T> {
 }
 
 impl<T, S: StorageMut<Elem = T>> NdArray<T, S> {
+    /// Applies `f` to every element in place.
     pub fn map_inplace(&mut self, f: impl FnMut(&mut T)) {
         self.view_mut().map_inplace(f);
     }
 }
 
 impl<T, S: Storage<Elem = T>> NdArray<T, S> {
+    /// A new array of `f` applied to every element.
     pub fn map<R: Copy + Default>(&self, f: impl FnMut(&T) -> R) -> NdArray<R> {
         self.view().map(f)
     }

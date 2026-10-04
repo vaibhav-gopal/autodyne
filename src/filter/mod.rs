@@ -16,7 +16,6 @@ use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
 
 #[cfg(feature = "faer")]
-mod params;
 mod apply;
 mod crossover;
 #[cfg(feature = "faer")]
@@ -24,6 +23,7 @@ pub mod design;
 mod eq;
 mod ladder;
 mod one_pole;
+mod params;
 mod svf;
 
 #[cfg(feature = "faer")]
@@ -46,6 +46,9 @@ fn magnitude_response<T: Float>(b: &[T], a: &[T], frequency: T, sample_rate: T) 
 
 // FIR =============================================================================================
 
+/// Outputs a FIR computes together (see `Fir::process`).
+const FIR_TILE: usize = 16;
+
 /// Finite impulse response filter: `y[n] = sum_k h[k] * x[n - k]`.
 ///
 /// Each output is one SIMD dot product (`simd::dot_kernel`) of the taps, stored reversed, with the
@@ -54,9 +57,6 @@ fn magnitude_response<T: Float>(b: &[T], a: &[T], frequency: T, sample_rate: T) 
 /// any output is computed. Writing each sample just before reading it back as part of a wide vector
 /// load would stall on every sample (the CPU can't forward a narrow store into a wider load).
 /// Processing never allocates.
-/// Outputs a FIR computes together (see `Fir::process`).
-const FIR_TILE: usize = 16;
-
 #[derive(Debug, Clone)]
 pub struct Fir<T: Float> {
     taps: Vec<T>,
@@ -81,9 +81,11 @@ impl<T: Float> Fir<T> {
     pub fn lowpass(cutoff: T, num_taps: usize, sample_rate: T) -> Self {
         Self::new(design_lowpass(cutoff, num_taps, sample_rate))
     }
+    /// The impulse response.
     pub fn taps(&self) -> &[T] {
         &self.taps
     }
+    /// Clears the input history.
     pub fn reset(&mut self) {
         self.buf.iter_mut().for_each(|s| *s = T::_ZERO);
     }
@@ -181,10 +183,15 @@ pub const BUTTERWORTH_Q: f64 = std::f64::consts::FRAC_1_SQRT_2;
 /// H(z) = (b0 + b1 z^-1 + b2 z^-2) / (1 + a1 z^-1 + a2 z^-2)
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BiquadCoeffs<T> {
+    /// Feed-forward coefficient of `x[n]`.
     pub b0: T,
+    /// Feed-forward coefficient of `x[n-1]`.
     pub b1: T,
+    /// Feed-forward coefficient of `x[n-2]`.
     pub b2: T,
+    /// Feedback coefficient of `y[n-1]`.
     pub a1: T,
+    /// Feedback coefficient of `y[n-2]`.
     pub a2: T,
 }
 
@@ -276,6 +283,7 @@ impl<T: Float> BiquadCoeffs<T> {
     pub fn lowpass(cutoff: T, q: T, sample_rate: T) -> Self {
         Self::checked(BiquadKind::Lowpass, cutoff, q, T::_ZERO, sample_rate)
     }
+    /// -3 dB at `cutoff` when q = BUTTERWORTH_Q, passing what is above it.
     pub fn highpass(cutoff: T, q: T, sample_rate: T) -> Self {
         Self::checked(BiquadKind::Highpass, cutoff, q, T::_ZERO, sample_rate)
     }
@@ -314,13 +322,21 @@ impl<T: Float> BiquadCoeffs<T> {
 /// Which cookbook response a biquad was designed as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BiquadKind {
+    /// Passes below the frequency.
     Lowpass,
+    /// Passes above the frequency.
     Highpass,
+    /// Passes a band around the frequency.
     Bandpass,
+    /// Removes a band around the frequency.
     Notch,
+    /// Unity gain everywhere; shifts the phase around the frequency.
     Allpass,
+    /// A bell: boost or cut around the frequency.
     Peaking,
+    /// Boost or cut below the frequency.
     LowShelf,
+    /// Boost or cut above the frequency.
     HighShelf,
 }
 
@@ -335,12 +351,15 @@ impl BiquadKind {
 /// changing its frequency) rather than only holding opaque coefficients.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BiquadDesign<T: Float> {
+    /// Which cookbook response.
     pub kind: BiquadKind,
     /// cutoff, center or corner frequency in Hz
     pub frequency: T,
+    /// Resonance, or width for band filters, or shelf slope.
     pub q: T,
     /// used by peaking and shelves only
     pub gain_db: T,
+    /// The sample rate in Hz.
     pub sample_rate: T,
 }
 
@@ -376,39 +395,51 @@ impl<T: Float> Biquad<T> {
     pub fn new(coeffs: BiquadCoeffs<T>) -> Self {
         Self { coeffs, design: None, s1: T::_ZERO, s2: T::_ZERO }
     }
+    /// A filter designed from `design`, which it keeps for inspection and re-design.
     pub fn from_design(design: BiquadDesign<T>) -> Self {
         Self { coeffs: design.coeffs(), design: Some(design), s1: T::_ZERO, s2: T::_ZERO }
     }
     fn designed(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
         Self::from_design(BiquadDesign { kind, frequency, q, gain_db, sample_rate })
     }
+    /// A low-pass (see [`BiquadCoeffs::lowpass`]); like every constructor below, the filter keeps its
+    /// design.
     pub fn lowpass(cutoff: T, q: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::Lowpass, cutoff, q, T::_ZERO, sample_rate)
     }
+    /// A high-pass (see [`BiquadCoeffs::highpass`]).
     pub fn highpass(cutoff: T, q: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::Highpass, cutoff, q, T::_ZERO, sample_rate)
     }
+    /// A band-pass (see [`BiquadCoeffs::bandpass`]).
     pub fn bandpass(center: T, q: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::Bandpass, center, q, T::_ZERO, sample_rate)
     }
+    /// A notch (see [`BiquadCoeffs::notch`]).
     pub fn notch(center: T, q: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::Notch, center, q, T::_ZERO, sample_rate)
     }
+    /// An all-pass (see [`BiquadCoeffs::allpass`]).
     pub fn allpass(center: T, q: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::Allpass, center, q, T::_ZERO, sample_rate)
     }
+    /// A peaking bell (see [`BiquadCoeffs::peaking`]).
     pub fn peaking(center: T, q: T, gain_db: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::Peaking, center, q, gain_db, sample_rate)
     }
+    /// A low shelf (see [`BiquadCoeffs::low_shelf`]).
     pub fn low_shelf(corner: T, q: T, gain_db: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::LowShelf, corner, q, gain_db, sample_rate)
     }
+    /// A high shelf (see [`BiquadCoeffs::high_shelf`]).
     pub fn high_shelf(corner: T, q: T, gain_db: T, sample_rate: T) -> Self {
         Self::designed(BiquadKind::HighShelf, corner, q, gain_db, sample_rate)
     }
+    /// The coefficients in use.
     pub fn coeffs(&self) -> &BiquadCoeffs<T> {
         &self.coeffs
     }
+    /// The design settings, unless the filter was built from raw coefficients.
     pub fn design(&self) -> Option<&BiquadDesign<T>> {
         self.design.as_ref()
     }
@@ -423,10 +454,12 @@ impl<T: Float> Biquad<T> {
         self.coeffs = coeffs;
         self.design = None;
     }
+    /// Clears the filter's state.
     pub fn reset(&mut self) {
         self.s1 = T::_ZERO;
         self.s2 = T::_ZERO;
     }
+    /// Filters one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let ([s1, s2], y) = self.coeffs.tick([self.s1, self.s2], x);
@@ -448,6 +481,7 @@ impl<T: Float> Biquad<T> {
         self.s1 = self.s1._flush_denormal();
         self.s2 = self.s2._flush_denormal();
     }
+    /// Gain at `frequency` (1.0 = unchanged).
     pub fn magnitude_at(&self, frequency: T, sample_rate: T) -> T {
         self.coeffs.magnitude_at(frequency, sample_rate)
     }
@@ -472,9 +506,11 @@ impl<T: Float> MultiBiquad<T> {
     pub fn new(channels: usize, make: impl FnMut(usize) -> Biquad<T>) -> Self {
         Self { filters: (0..channels).map(make).collect() }
     }
+    /// The per-channel filters.
     pub fn channels(&self) -> &[Biquad<T>] {
         &self.filters
     }
+    /// Channel `ch`'s filter, mutably.
     pub fn channel_mut(&mut self, ch: usize) -> &mut Biquad<T> {
         &mut self.filters[ch]
     }
@@ -482,6 +518,7 @@ impl<T: Float> MultiBiquad<T> {
     pub fn set_design_all(&mut self, design: BiquadDesign<T>) {
         self.filters.iter_mut().for_each(|f| f.set_design(design));
     }
+    /// Clears every channel's state.
     pub fn reset(&mut self) {
         self.filters.iter_mut().for_each(Biquad::reset);
     }

@@ -32,6 +32,7 @@ impl<P, T: Float> Oversampled<P, T> {
         let low = vec![T::_ZERO; down.max_output_len(high.len())];
         Self { inner, factor, up, down, max_block, high, low }
     }
+    /// The oversampling factor.
     pub fn factor(&self) -> usize {
         self.factor
     }
@@ -39,6 +40,7 @@ impl<P, T: Float> Oversampled<P, T> {
     pub fn latency(&self) -> f64 {
         self.up.delay() / self.factor as f64 + self.down.delay()
     }
+    /// The wrapped processor.
     pub fn inner(&self) -> &P {
         &self.inner
     }

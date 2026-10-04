@@ -26,30 +26,37 @@ pub trait Backend {
 /// A host array going into a program: `f32` or `f64` (the program's element type).
 #[derive(Clone, Copy, Debug)]
 pub enum HostRef<'a> {
+    /// Single precision.
     F32(&'a NdArray<f32>),
+    /// Double precision.
     F64(&'a NdArray<f64>),
 }
 
 /// A host array coming out of a program.
 #[derive(Clone, Debug, PartialEq)]
 pub enum HostArray {
+    /// Single precision.
     F32(NdArray<f32>),
+    /// Double precision.
     F64(NdArray<f64>),
 }
 
 impl HostRef<'_> {
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         match self {
             HostRef::F32(a) => a.shape(),
             HostRef::F64(a) => a.shape(),
         }
     }
+    /// The element type.
     pub fn dtype(&self) -> DType {
         match self {
             HostRef::F32(_) => DType::F32,
             HostRef::F64(_) => DType::F64,
         }
     }
+    /// A copy that owns its data.
     pub fn to_owned(self) -> HostArray {
         match self {
             HostRef::F32(a) => HostArray::F32(a.clone()),
@@ -59,18 +66,21 @@ impl HostRef<'_> {
 }
 
 impl HostArray {
+    /// A borrowed view of the same data.
     pub fn as_ref(&self) -> HostRef<'_> {
         match self {
             HostArray::F32(a) => HostRef::F32(a),
             HostArray::F64(a) => HostRef::F64(a),
         }
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         match self {
             HostArray::F32(a) => a.shape(),
             HostArray::F64(a) => a.shape(),
         }
     }
+    /// The element type.
     pub fn dtype(&self) -> DType {
         self.as_ref().dtype()
     }
@@ -169,9 +179,11 @@ impl DeviceArray {
     pub(crate) fn device(shape: Vec<usize>, dtype: DType, handle: Box<dyn std::any::Any + Send + Sync>) -> DeviceArray {
         DeviceArray { shape, dtype, data: Resident::Device(handle) }
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         &self.shape
     }
+    /// The element type.
     pub fn dtype(&self) -> DType {
         self.dtype
     }

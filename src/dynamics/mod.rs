@@ -7,7 +7,7 @@
 //!
 //! - [`Compressor`] (also a no-lookahead limiter), [`Gate`] (gate and downward expander) and
 //!   [`TransientShaper`] are mono and [`GainComputer`]s: wrap them in
-//!   [`Linked`](crate::channels::Linked) to drive every channel with one gain.
+//!   [`Linked`] to drive every channel with one gain.
 //! - [`LookaheadLimiter`] (with true-peak detection) and [`MultibandCompressor`] (Linkwitz-Riley
 //!   bands) are multichannel (linked) by nature.
 
@@ -27,7 +27,7 @@ use crate::gain::SmoothedValue;
 use crate::units::*;
 
 /// A level-driven gain stage: given a detector level (the loudest channel's, for linked
-/// multichannel use), the gain to apply. [`Linked`](crate::channels::Linked) runs any of them
+/// multichannel use), the gain to apply. [`Linked`] runs any of them
 /// across the channels of a buffer.
 pub trait GainComputer<T: Float> {
     /// Advances one sample at detector `level` (a linear peak, >= 0) and returns the linear gain.
@@ -68,11 +68,15 @@ pub fn envelope_step<T: Real>(attack_coeff: T, release_coeff: T, envelope: T, x:
 /// differentiates in `flux`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CompressorCurve<T> {
+    /// Threshold in dB.
     pub threshold_db: T,
     /// 1 / ratio
     pub slope: T,
+    /// Soft knee width in dB (0: hard).
     pub knee_db: T,
+    /// One-pole coefficient of the attack (see [`time_coeff`]).
     pub attack_coeff: T,
+    /// One-pole coefficient of the release.
     pub release_coeff: T,
 }
 
@@ -117,6 +121,7 @@ pub struct EnvelopeFollower<T: Float> {
 }
 
 impl<T: Float> EnvelopeFollower<T> {
+    /// A follower with attack and release times in seconds.
     pub fn new(attack_seconds: T, release_seconds: T, sample_rate: T) -> Self {
         Self {
             sample_rate,
@@ -127,23 +132,29 @@ impl<T: Float> EnvelopeFollower<T> {
             envelope: T::_ZERO,
         }
     }
+    /// Rise time constant in seconds.
     pub fn set_attack(&mut self, seconds: T) {
         self.attack_seconds = seconds;
         self.attack_coeff = time_coeff(seconds, self.sample_rate);
     }
+    /// Fall time constant in seconds.
     pub fn set_release(&mut self, seconds: T) {
         self.release_seconds = seconds;
         self.release_coeff = time_coeff(seconds, self.sample_rate);
     }
+    /// Attack time in seconds.
     pub fn attack(&self) -> T {
         self.attack_seconds
     }
+    /// Release time in seconds.
     pub fn release(&self) -> T {
         self.release_seconds
     }
+    /// The current envelope (a linear level).
     pub fn envelope(&self) -> T {
         self.envelope
     }
+    /// Sets the envelope to zero.
     pub fn reset(&mut self) {
         self.envelope = T::_ZERO;
     }
@@ -211,6 +222,7 @@ impl<T: Float> Compressor<T> {
         c.set_release(release_seconds);
         c
     }
+    /// Threshold in dB above which the level is reduced.
     pub fn set_threshold_db(&mut self, db: T) {
         self.threshold_db = db;
     }
@@ -224,6 +236,7 @@ impl<T: Float> Compressor<T> {
     pub fn set_slope(&mut self, slope: T) {
         self.slope = slope._clamp(T::_ZERO, T::_ONE);
     }
+    /// Output dB per input dB above the threshold (1 / ratio).
     pub fn slope(&self) -> T {
         self.slope
     }
@@ -236,14 +249,17 @@ impl<T: Float> Compressor<T> {
         self.makeup_db = db;
         self.makeup.set_target(db_to_gain(db));
     }
+    /// Attack time constant in seconds (0: instant).
     pub fn set_attack(&mut self, seconds: T) {
         self.attack_seconds = seconds;
         self.attack_coeff = time_coeff(seconds, self.sample_rate);
     }
+    /// Release time constant in seconds.
     pub fn set_release(&mut self, seconds: T) {
         self.release_seconds = seconds;
         self.release_coeff = time_coeff(seconds, self.sample_rate);
     }
+    /// Threshold in dB.
     pub fn threshold_db(&self) -> T {
         self.threshold_db
     }
@@ -251,15 +267,19 @@ impl<T: Float> Compressor<T> {
     pub fn ratio(&self) -> T {
         if self.slope == T::_ZERO { T::_INFINITY } else { T::_ONE / self.slope }
     }
+    /// Knee width in dB.
     pub fn knee_db(&self) -> T {
         self.knee_db
     }
+    /// Makeup gain in dB.
     pub fn makeup_db(&self) -> T {
         self.makeup_db
     }
+    /// Attack time in seconds.
     pub fn attack(&self) -> T {
         self.attack_seconds
     }
+    /// Release time in seconds.
     pub fn release(&self) -> T {
         self.release_seconds
     }
@@ -267,6 +287,7 @@ impl<T: Float> Compressor<T> {
     pub fn gain_reduction_db(&self) -> T {
         self.reduction_db
     }
+    /// Releases all gain reduction and finishes the makeup ramp.
     pub fn reset(&mut self) {
         self.reduction_db = T::_ZERO;
         self.makeup.set_immediate(self.makeup.target());
@@ -288,6 +309,7 @@ impl<T: Float> Compressor<T> {
         self.reduction_db = reduction;
         self.makeup.next_value() * gain
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         x * self.gain_for_level(x._abs())

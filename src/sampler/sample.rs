@@ -27,16 +27,20 @@ pub enum LoopMode {
 }
 
 impl LoopMode {
+    /// Every mode, in parameter order.
     pub const ALL: [LoopMode; 4] = [LoopMode::Off, LoopMode::Forward, LoopMode::PingPong, LoopMode::Sustain];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 4] = ["Off", "Forward", "Ping-pong", "Sustain"];
 }
 
 /// Loop points in frames of the original sample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Loop {
+    /// first looped frame
     pub start: usize,
     /// one past the last looped frame
     pub end: usize,
+    /// how the loop plays
     pub mode: LoopMode,
     /// frames over which the end of the loop fades into the frames before its start (forward and
     /// sustain loops), hiding the seam of loops that are not cut perfectly
@@ -84,6 +88,7 @@ impl<T: Float> Sample<T> {
             .collect();
         Self { levels: vec![Level { channels: padded, frames }], sample_rate: sample_rate.to_f64().unwrap_or(48_000.0), root_key: 60.0, looping: None }
     }
+    /// From one channel (see [`new`](Self::new)).
     pub fn from_mono(data: Vec<T>, sample_rate: T) -> Self {
         Self::new(vec![data], sample_rate)
     }
@@ -148,18 +153,23 @@ impl<T: Float> Sample<T> {
         }
         self
     }
+    /// Length in frames.
     pub fn frames(&self) -> usize {
         self.levels[0].frames
     }
+    /// Number of channels (1 or 2).
     pub fn channels(&self) -> usize {
         self.levels[0].channels.len()
     }
+    /// The recording's sample rate in Hz.
     pub fn sample_rate(&self) -> f64 {
         self.sample_rate
     }
+    /// The MIDI key the sample sounds at unpitched.
     pub fn root_key(&self) -> f64 {
         self.root_key
     }
+    /// The loop, if any.
     pub fn loop_points(&self) -> Option<Loop> {
         self.looping
     }
@@ -173,13 +183,17 @@ impl<T: Float> Sample<T> {
 /// Where a sample plays: a key range, a velocity range, and how it is tuned, leveled and panned.
 #[derive(Debug, Clone)]
 pub struct Zone<T: Float> {
+    /// the audio played
     pub sample: Arc<Sample<T>>,
+    /// MIDI keys the zone covers
     pub keys: RangeInclusive<u8>,
     /// MIDI velocities 1..=127
     pub velocities: RangeInclusive<u8>,
     /// overrides the sample's root key
     pub root_key: Option<f64>,
+    /// fine tuning in cents
     pub tune_cents: f64,
+    /// level in dB
     pub gain_db: f64,
     /// -1 (left) .. 1 (right)
     pub pan: f64,
@@ -190,26 +204,32 @@ impl<T: Float> Zone<T> {
     pub fn new(sample: Arc<Sample<T>>) -> Self {
         Self { sample, keys: 0..=127, velocities: 0..=127, root_key: None, tune_cents: 0.0, gain_db: 0.0, pan: 0.0 }
     }
+    /// The keys covered.
     pub fn keys(mut self, keys: RangeInclusive<u8>) -> Self {
         self.keys = keys;
         self
     }
+    /// The velocities covered.
     pub fn velocities(mut self, velocities: RangeInclusive<u8>) -> Self {
         self.velocities = velocities;
         self
     }
+    /// The key the sample sounds at unpitched in this zone.
     pub fn root_key(mut self, key: f64) -> Self {
         self.root_key = Some(key);
         self
     }
+    /// Fine tuning in cents.
     pub fn tune_cents(mut self, cents: f64) -> Self {
         self.tune_cents = cents;
         self
     }
+    /// Level in dB.
     pub fn gain_db(mut self, db: f64) -> Self {
         self.gain_db = db;
         self
     }
+    /// Pan position, -1 (left) .. 1 (right).
     pub fn pan(mut self, pan: f64) -> Self {
         self.pan = pan.clamp(-1.0, 1.0);
         self
@@ -218,6 +238,7 @@ impl<T: Float> Zone<T> {
     pub fn root(&self) -> f64 {
         self.root_key.unwrap_or(self.sample.root_key())
     }
+    /// Whether `key` at `velocity` plays this zone.
     pub fn contains(&self, key: u8, velocity: u8) -> bool {
         self.keys.contains(&key) && self.velocities.contains(&velocity)
     }
@@ -234,6 +255,7 @@ pub struct SampleMap<T: Float> {
 }
 
 impl<T: Float> SampleMap<T> {
+    /// A map of these zones (several may overlap: they take turns).
     pub fn new(zones: Vec<Zone<T>>) -> Self {
         Self { zones, next: AtomicUsize::new(0) }
     }
@@ -241,6 +263,7 @@ impl<T: Float> SampleMap<T> {
     pub fn single(sample: Sample<T>) -> Self {
         Self::new(vec![Zone::new(Arc::new(sample))])
     }
+    /// The zones.
     pub fn zones(&self) -> &[Zone<T>] {
         &self.zones
     }

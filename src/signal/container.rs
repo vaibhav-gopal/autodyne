@@ -27,9 +27,13 @@ pub trait SignalOwned: SignalMut + Sized {
     /// The storage type (`Vec<T>` for vectors and n-d arrays, `[T; N]` for arrays).
     type Container;
 
+    /// Wraps a container without copying.
     fn from_container(container: Self::Container) -> Self;
+    /// Gives back the container.
     fn into_container(self) -> Self::Container;
+    /// The container.
     fn as_container(&self) -> &Self::Container;
+    /// The container, mutably.
     fn as_container_mut(&mut self) -> &mut Self::Container;
     /// An owned signal holding a copy of `samples`. Fixed-size types error if the length doesn't fit.
     fn from_samples(samples: &[Self::Sample]) -> Result<Self, SignalError>;
@@ -39,7 +43,9 @@ pub trait SignalOwned: SignalMut + Sized {
 pub trait SignalResizable: SignalOwned {
     /// Changes the length, filling new samples with `value`.
     fn resize(&mut self, len: usize, value: Self::Sample);
+    /// Removes every sample.
     fn clear(&mut self);
+    /// Appends one sample.
     fn push(&mut self, sample: Self::Sample);
     /// Appends a copy of `samples` at the end.
     fn append_samples(&mut self, samples: &[Self::Sample]);
@@ -113,46 +119,55 @@ impl<T: Float, const N: usize> SignalOwned for [T; N] {
 /// Operations that return a transformed copy of the same signal type. Available on every
 /// `SignalOwned + Clone` type; each mirrors a `SignalMut` method.
 pub trait SigOwnedOps: SignalOwned + Clone {
+    /// A copy with `f` applied to every sample.
     fn mapped(&self, f: impl FnMut(Self::Sample) -> Self::Sample) -> Self {
         let mut out = self.clone();
         out.apply(f);
         out
     }
+    /// A copy multiplied by `gain`.
     fn scaled_by(&self, gain: Self::Sample) -> Self {
         let mut out = self.clone();
         out.scale(gain);
         out
     }
+    /// A copy with `value` added to every sample.
     fn offset_by(&self, value: Self::Sample) -> Self {
         let mut out = self.clone();
         out.offset(value);
         out
     }
+    /// A copy hard-clipped into `[lo, hi]`.
     fn clipped(&self, lo: Self::Sample, hi: Self::Sample) -> Self {
         let mut out = self.clone();
         out.clip(lo, hi);
         out
     }
+    /// A copy scaled so its peak is `target`.
     fn normalized_peak(&self, target: Self::Sample) -> Self {
         let mut out = self.clone();
         out.normalize_peak(target);
         out
     }
+    /// A copy scaled so its rms level is `target`.
     fn normalized_rms(&self, target: Self::Sample) -> Self {
         let mut out = self.clone();
         out.normalize_rms(target);
         out
     }
+    /// A copy with the mean subtracted.
     fn dc_removed(&self) -> Self {
         let mut out = self.clone();
         out.remove_dc();
         out
     }
+    /// A copy faded in linearly over the first `len` samples.
     fn faded_in(&self, len: usize) -> Self {
         let mut out = self.clone();
         out.fade_in(len);
         out
     }
+    /// A copy faded out linearly over the last `len` samples.
     fn faded_out(&self, len: usize) -> Self {
         let mut out = self.clone();
         out.fade_out(len);
@@ -170,16 +185,19 @@ pub trait SigOwnedOps: SignalOwned + Clone {
         out.diff();
         out
     }
+    /// A copy in reverse order.
     fn reversed(&self) -> Self {
         let mut out = self.clone();
         out.samples_mut().reverse();
         out
     }
+    /// A copy projected onto `basis` (see `SignalMut::project_onto`).
     fn projected_onto(&self, basis: &[Self::Sample]) -> Result<Self, SignalError> {
         let mut out = self.clone();
         out.project_onto(basis)?;
         Ok(out)
     }
+    /// A copy combined with `other` sample by sample (see `SignalMut::zip_apply`).
     fn zipped_with(
         &self,
         other: &[Self::Sample],

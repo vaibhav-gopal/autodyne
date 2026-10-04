@@ -20,6 +20,7 @@ use crate::units::*;
 
 /// A source of samples read in blocks. `Ok(0)` means the stream has ended (for a non-empty `out`).
 pub trait SignalRead {
+    /// The sample type.
     type Sample: Copy;
 
     /// Reads up to `out.len()` samples into `out` and returns how many were read.
@@ -83,6 +84,7 @@ pub trait SignalRead {
 
 /// A sink of samples written in blocks.
 pub trait SignalWrite {
+    /// The sample type.
     type Sample: Copy;
 
     /// Writes up to `samples.len()` samples and returns how many were accepted.
@@ -110,6 +112,7 @@ pub trait SignalSeek {
     /// Moves to `pos` and returns the new position from the start.
     fn seek_samples(&mut self, pos: SeekFrom) -> io::Result<u64>;
 
+    /// The current position from the start, in samples.
     fn sample_position(&mut self) -> io::Result<u64> {
         self.seek_samples(SeekFrom::Current(0))
     }
@@ -159,12 +162,15 @@ pub struct SignalCursor<C, T> {
 }
 
 impl<C, T> SignalCursor<C, T> {
+    /// A cursor at the start of `inner`.
     pub fn new(inner: C) -> Self {
         Self { inner, pos: 0, _sample: PhantomData }
     }
+    /// The underlying signal.
     pub fn get_ref(&self) -> &C {
         &self.inner
     }
+    /// Gives back the underlying signal.
     pub fn into_inner(self) -> C {
         self.inner
     }
@@ -221,9 +227,11 @@ pub struct SourceStream<S> {
 }
 
 impl<S> SourceStream<S> {
+    /// `source` as a stream of `length` samples (`None`: endless).
     pub fn new(source: S, length: Option<u64>) -> Self {
         Self { source, remaining: length }
     }
+    /// The source, e.g. to change its parameters while streaming.
     pub fn source_mut(&mut self) -> &mut S {
         &mut self.source
     }
@@ -252,9 +260,11 @@ pub struct ProcessedStream<R, P> {
 }
 
 impl<R, P> ProcessedStream<R, P> {
+    /// The processor, e.g. to change its parameters while streaming.
     pub fn processor_mut(&mut self) -> &mut P {
         &mut self.processor
     }
+    /// Gives back the stream and the processor.
     pub fn into_inner(self) -> (R, P) {
         (self.stream, self.processor)
     }
@@ -274,9 +284,12 @@ where
 
 // BYTE BOUNDARY ===================================================================================
 
+/// Byte order of a multi-byte sample.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Endian {
+    /// Least significant byte first (WAV, x86, ARM).
     Little,
+    /// Most significant byte first (AIFF, network order).
     Big,
 }
 
@@ -288,20 +301,26 @@ pub enum Endian {
 /// 53 bits of precision. Complex types are not stream encodings.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SampleEncoding {
+    /// The element type of each sample.
     pub dtype: DType,
+    /// The byte order.
     pub endian: Endian,
 }
 
 impl SampleEncoding {
+    /// An encoding of `dtype` in `endian` byte order.
     pub const fn new(dtype: DType, endian: Endian) -> Self {
         Self { dtype, endian }
     }
+    /// Little-endian `dtype`.
     pub const fn little(dtype: DType) -> Self {
         Self::new(dtype, Endian::Little)
     }
+    /// Big-endian `dtype`.
     pub const fn big(dtype: DType) -> Self {
         Self::new(dtype, Endian::Big)
     }
+    /// Bytes per encoded sample.
     pub const fn bytes_per_sample(&self) -> usize {
         self.dtype.size_bytes()
     }
@@ -388,12 +407,15 @@ impl<R: Read, T: Float> SampleReader<R, T> {
         encoding.check()?;
         Ok(Self { inner, encoding, bytes: Vec::new(), carry: 0, _sample: PhantomData })
     }
+    /// How samples are decoded.
     pub fn encoding(&self) -> SampleEncoding {
         self.encoding
     }
+    /// The byte source.
     pub fn get_ref(&self) -> &R {
         &self.inner
     }
+    /// Gives back the byte source (any incomplete sample still buffered is dropped).
     pub fn into_inner(self) -> R {
         self.inner
     }
@@ -462,9 +484,11 @@ impl<W: Write, T: Float> SampleWriter<W, T> {
         encoding.check()?;
         Ok(Self { inner, encoding, bytes: Vec::new(), _sample: PhantomData })
     }
+    /// How samples are encoded.
     pub fn encoding(&self) -> SampleEncoding {
         self.encoding
     }
+    /// The byte sink.
     pub fn get_ref(&self) -> &W {
         &self.inner
     }

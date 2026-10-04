@@ -44,6 +44,7 @@ impl<T: Float> Bitcrusher<T> {
         b.set_rate(sample_rate / T::_lit(4.0));
         b
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
@@ -52,6 +53,7 @@ impl<T: Float> Bitcrusher<T> {
         self.bits = bits._clamp(T::_ONE, T::_lit(24.0));
         self.step = (T::_ONE - self.bits)._exp2();
     }
+    /// Bit depth.
     pub fn bits(&self) -> T {
         self.bits
     }
@@ -60,12 +62,15 @@ impl<T: Float> Bitcrusher<T> {
         self.rate_hz = hz._clamp(T::_ONE, self.sample_rate);
         self.increment = self.rate_hz / self.sample_rate;
     }
+    /// Sample-and-hold rate in Hz.
     pub fn rate(&self) -> T {
         self.rate_hz
     }
+    /// Adds triangular dither before quantizing (noise instead of distortion at low bit depths).
     pub fn set_dither(&mut self, on: bool) {
         self.dither = on;
     }
+    /// Whether dither is on.
     pub fn dither(&self) -> bool {
         self.dither
     }
@@ -74,9 +79,11 @@ impl<T: Float> Bitcrusher<T> {
         self.mix = mix._clamp(T::_ZERO, T::_ONE);
         self.mix_smoothed.set_target(self.mix);
     }
+    /// Dry / wet, 0..1.
     pub fn mix(&self) -> T {
         self.mix
     }
+    /// Clears the held sample and finishes the mix ramp.
     pub fn reset(&mut self) {
         self.phase = T::_ONE;
         self.held = T::_ZERO;
@@ -98,6 +105,7 @@ impl<T: Float> Bitcrusher<T> {
         ((x / self.step + dither)._round() * self.step)._clamp(-T::_ONE, T::_ONE)
     }
 
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         if self.phase >= T::_ONE {
@@ -108,6 +116,7 @@ impl<T: Float> Bitcrusher<T> {
         let mix = self.mix_smoothed.next_value();
         x + (self.held - x) * mix
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);

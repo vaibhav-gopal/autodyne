@@ -30,17 +30,31 @@ pub enum IreeTarget {
     /// 64-bit integers IREE's FFTs need (programs with FFTs need a named architecture). IREE 3.11
     /// also fails to compile FFTs of 128 points or more for Vulkan: emit programs for it with
     /// `Emit::for_backend`, which builds them from shorter ones.
-    Vulkan { target: Option<String> },
+    Vulkan {
+        /// The GPU architecture, or `None` for IREE's baseline.
+        target: Option<String>,
+    },
     /// NVIDIA GPUs through CUDA. `target` is an architecture this IREE knows (`"sm_80"`,
     /// `"ampere"`, ...); newer GPUs run it too, the driver compiling the embedded PTX for them.
-    Cuda { target: String },
+    Cuda {
+        /// The GPU architecture.
+        target: String,
+    },
     /// AMD GPUs through ROCm / HIP; `target` is the chip (`"gfx1100"`, ...).
-    Rocm { target: String },
+    Rocm {
+        /// The chip.
+        target: String,
+    },
     /// Apple GPUs (`metal-spirv`).
     Metal,
     /// Anything else: `iree-compile` flags (after `--iree-input-type=stablehlo`) and the
     /// `iree-run-module` device.
-    Custom { flags: Vec<String>, device: String },
+    Custom {
+        /// `iree-compile` flags.
+        flags: Vec<String>,
+        /// The `iree-run-module` device.
+        device: String,
+    },
 }
 
 impl IreeTarget {
@@ -113,6 +127,7 @@ impl Iree {
         Iree { target, ..self }
     }
 
+    /// What the programs are compiled for.
     pub fn target(&self) -> &IreeTarget {
         &self.target
     }

@@ -53,6 +53,7 @@ impl<T: Float> RealFft<T> {
     pub fn len(&self) -> usize {
         self.len
     }
+    /// Always false: a transform has at least one point.
     pub fn is_empty(&self) -> bool {
         false
     }

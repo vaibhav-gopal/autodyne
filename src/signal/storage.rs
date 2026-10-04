@@ -17,7 +17,9 @@ use std::sync::Arc;
 /// - `as_raw_ptr` points at the first element of that memory, and when `WRITABLE` is true it carries
 ///   permission to write all of it (derive it from a mutable borrow, not from `as_slice`).
 pub unsafe trait Storage {
+    /// The element type.
     type Elem;
+    /// The elements.
     fn as_slice(&self) -> &[Self::Elem];
     /// A raw pointer to the first element, for handing the memory to foreign code (DLPack). Writing
     /// through it is allowed only when [`WRITABLE`](Self::WRITABLE).
@@ -29,6 +31,7 @@ pub unsafe trait Storage {
 
 /// Storage whose elements can be written in place.
 pub trait StorageMut: Storage {
+    /// The elements, mutably.
     fn as_mut_slice(&mut self) -> &mut [Self::Elem];
 }
 

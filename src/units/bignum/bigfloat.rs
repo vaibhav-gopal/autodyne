@@ -56,17 +56,21 @@ impl BigFloat {
     pub fn default_precision() -> u32 {
         DEFAULT_PRECISION.with(Cell::get)
     }
+    /// Sets the precision `lit` and `Default` use on this thread. Panics below 2 bits.
     pub fn set_default_precision(bits: u32) {
         assert!(bits >= 2, "precision must be at least 2 bits");
         DEFAULT_PRECISION.with(|p| p.set(bits));
     }
 
+    /// Positive zero at `prec` bits.
     pub fn zero(prec: u32) -> Self {
         BigFloat { kind: Kind::Finite, neg: false, mant: BigInt::zero(), exp: 0, prec }
     }
+    /// Not a number, at `prec` bits.
     pub fn nan(prec: u32) -> Self {
         BigFloat { kind: Kind::Nan, neg: false, mant: BigInt::zero(), exp: 0, prec }
     }
+    /// Infinity of the given sign, at `prec` bits.
     pub fn infinity(negative: bool, prec: u32) -> Self {
         BigFloat { kind: Kind::Inf, neg: negative, mant: BigInt::zero(), exp: 0, prec }
     }
@@ -101,6 +105,7 @@ impl BigFloat {
         BigFloat { kind: Kind::Finite, neg, mant: m, exp: e, prec }
     }
 
+    /// `v` exactly when it fits `prec` bits, otherwise rounded to nearest (ties to even).
     pub fn from_f64(v: f64, prec: u32) -> Self {
         if v.is_nan() {
             return BigFloat::nan(prec);
@@ -118,6 +123,7 @@ impl BigFloat {
         BigFloat::round(v < 0.0, BigInt::from(m), e, prec, false)
     }
 
+    /// The integer `v`, rounded to `prec` bits.
     pub fn from_bigint(v: &BigInt, prec: u32) -> Self {
         BigFloat::round(v.is_negative(), v.clone(), 0, prec, false)
     }
@@ -130,21 +136,27 @@ impl BigFloat {
         }
     }
 
+    /// The number of significand bits.
     pub fn precision(&self) -> u32 {
         self.prec
     }
+    /// Whether the value is not a number.
     pub fn is_nan(&self) -> bool {
         self.kind == Kind::Nan
     }
+    /// Whether the value is ±∞.
     pub fn is_infinite(&self) -> bool {
         self.kind == Kind::Inf
     }
+    /// Whether the value is neither ±∞ nor NaN.
     pub fn is_finite(&self) -> bool {
         self.kind == Kind::Finite
     }
+    /// Whether the value is ±0.
     pub fn is_zero(&self) -> bool {
         self.kind == Kind::Finite && self.mant.is_zero()
     }
+    /// Whether the sign is negative (including -0 and -∞; never for NaN).
     pub fn is_negative(&self) -> bool {
         self.neg && !self.is_nan()
     }

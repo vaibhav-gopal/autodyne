@@ -1,5 +1,7 @@
 ﻿use super::*;
 
+/// A primitive integer: totally ordered, bounded, with bit operations, integer powers and checked
+/// casts.
 pub trait Integer: Unit + OrderedReflexive + Bounded + Bitwise + ExpPowDynamic<u32> + CastPrimitive {}
 
 macro_rules! impl_integer {

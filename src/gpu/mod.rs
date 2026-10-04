@@ -32,10 +32,13 @@ use crate::signal::{NdArray, NdView};
 
 type Client = ComputeClient<WgpuRuntime>;
 
+/// Errors making GPU arrays.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum GpuError {
+    /// No GPU adapter was found.
     #[error("no GPU adapter is available")]
     NoDevice,
+    /// The GPU has no arithmetic in this element type (its name).
     #[error("this GPU does not compute in {0}")]
     Unsupported(&'static str),
 }
@@ -85,6 +88,7 @@ mod sealed {
 
 /// Element types a [`GpuArray`] holds: `f32` and `f64`.
 pub trait GpuFloat: Float + CubeElement + Copy + Default + Send + Sync + sealed::Sealed + 'static {
+    /// The element type's name ("f32", "f64").
     const NAME: &'static str;
 }
 impl GpuFloat for f32 {
@@ -635,15 +639,19 @@ impl<T: GpuFloat> GpuArray<T> {
         buffer.view().permute(&self.perm).expect("a permutation").to_owned()
     }
 
+    /// Length of each axis (of this view).
     pub fn shape(&self) -> Vec<usize> {
         self.perm.iter().map(|&p| self.memory[p]).collect()
     }
+    /// Number of axes.
     pub fn ndim(&self) -> usize {
         self.memory.len()
     }
+    /// Number of elements.
     pub fn len(&self) -> usize {
         self.memory.iter().product()
     }
+    /// Whether there are no elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -836,12 +844,15 @@ impl<T: GpuFloat> GpuArray<T> {
     pub fn add(&self, other: &GpuArray<T>) -> GpuArray<T> {
         self.binary(other, ADD)
     }
+    /// `self - other` (see [`add`](Self::add) for the shapes allowed).
     pub fn sub(&self, other: &GpuArray<T>) -> GpuArray<T> {
         self.binary(other, SUB)
     }
+    /// `self * other` (see [`add`](Self::add)).
     pub fn mul(&self, other: &GpuArray<T>) -> GpuArray<T> {
         self.binary(other, MUL)
     }
+    /// `self / other` (see [`add`](Self::add)).
     pub fn div(&self, other: &GpuArray<T>) -> GpuArray<T> {
         self.binary(other, DIV)
     }
@@ -909,27 +920,35 @@ impl<T: GpuFloat> GpuArray<T> {
         }
         out
     }
+    /// e to the power of each element.
     pub fn exp(&self) -> GpuArray<T> {
         self.unary(EXP)
     }
+    /// Natural logarithm of each element.
     pub fn ln(&self) -> GpuArray<T> {
         self.unary(LN)
     }
+    /// Hyperbolic tangent of each element.
     pub fn tanh(&self) -> GpuArray<T> {
         self.unary(TANH)
     }
+    /// Sine of each element.
     pub fn sin(&self) -> GpuArray<T> {
         self.unary(SIN)
     }
+    /// Cosine of each element.
     pub fn cos(&self) -> GpuArray<T> {
         self.unary(COS)
     }
+    /// Square root of each element.
     pub fn sqrt(&self) -> GpuArray<T> {
         self.unary(SQRT)
     }
+    /// Absolute value of each element.
     pub fn abs(&self) -> GpuArray<T> {
         self.unary(ABS)
     }
+    /// Each element negated.
     pub fn neg(&self) -> GpuArray<T> {
         self.unary(NEG)
     }

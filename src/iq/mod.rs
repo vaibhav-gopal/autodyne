@@ -20,12 +20,15 @@ pub struct IqModulator<T: Float> {
 }
 
 impl<T: Float> IqModulator<T> {
+    /// A modulator onto a `carrier` Hz carrier.
     pub fn new(carrier: T, sample_rate: T) -> Self {
         Self { lo: Phasor::new(carrier, sample_rate) }
     }
+    /// Restarts the carrier at phase 0.
     pub fn reset(&mut self) {
         self.lo.reset();
     }
+    /// One carrier sample from one baseband sample.
     #[inline]
     pub fn modulate_sample(&mut self, z: Complex<T>) -> T {
         (z * self.lo.next_sample()).re
@@ -60,10 +63,12 @@ impl<T: Float> IqDemodulator<T> {
         let stages = [Biquad::lowpass(bandwidth, q1, sample_rate), Biquad::lowpass(bandwidth, q2, sample_rate)];
         Self { lo: Phasor::new(carrier, sample_rate), lp_i: stages, lp_q: stages }
     }
+    /// Restarts the local oscillator and clears the filters.
     pub fn reset(&mut self) {
         self.lo.reset();
         self.lp_i.iter_mut().chain(self.lp_q.iter_mut()).for_each(Biquad::reset);
     }
+    /// One baseband sample from one carrier sample.
     #[inline]
     pub fn demodulate_sample(&mut self, x: T) -> Complex<T> {
         let mixed = self.lo.next_sample().conj() * (x * T::_lit(2.0));
@@ -102,12 +107,15 @@ pub struct FmModulator<T: Float> {
 }
 
 impl<T: Float> FmModulator<T> {
+    /// A modulator where a message of 1.0 deviates the frequency by `deviation` Hz.
     pub fn new(deviation: T, sample_rate: T) -> Self {
         Self { phase: T::_ZERO, radians_per_unit: T::_TAU * deviation / sample_rate }
     }
+    /// Restarts at phase 0.
     pub fn reset(&mut self) {
         self.phase = T::_ZERO;
     }
+    /// One baseband sample from one message sample.
     #[inline]
     pub fn modulate_sample(&mut self, message: T) -> Complex<T> {
         let out = Complex::cis(self.phase);
@@ -139,12 +147,15 @@ pub struct FmDiscriminator<T: Float> {
 }
 
 impl<T: Float> FmDiscriminator<T> {
+    /// A discriminator for a modulator with the same `deviation` Hz per unit of message.
     pub fn new(deviation: T, sample_rate: T) -> Self {
         Self { prev: Complex::one(), units_per_radian: sample_rate / (T::_TAU * deviation) }
     }
+    /// Forgets the previous sample.
     pub fn reset(&mut self) {
         self.prev = Complex::one();
     }
+    /// One message sample from one baseband sample.
     #[inline]
     pub fn demodulate_sample(&mut self, z: Complex<T>) -> T {
         let step = (z * self.prev.conj()).arg();

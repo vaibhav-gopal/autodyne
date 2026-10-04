@@ -171,6 +171,7 @@ impl<T: Float> PitchShifter<T> {
         self.semitones = semitones._clamp(T::_lit(-36.0), T::_lit(36.0));
         self.ratio = (self.semitones / T::_lit(12.0))._exp2();
     }
+    /// Shift in semitones.
     pub fn semitones(&self) -> T {
         self.semitones
     }
@@ -182,6 +183,7 @@ impl<T: Float> PitchShifter<T> {
     pub fn latency(&self) -> usize {
         self.input.len()
     }
+    /// Clears the buffers and the vocoder's phases.
     pub fn reset(&mut self) {
         self.input.iter_mut().chain(self.output.iter_mut()).for_each(|s| *s = T::_ZERO);
         self.write = 0;
@@ -189,6 +191,7 @@ impl<T: Float> PitchShifter<T> {
         self.read = 0;
         self.vocoder.reset();
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let n = self.input.len();
@@ -213,6 +216,7 @@ impl<T: Float> PitchShifter<T> {
         }
         if self.ratio == T::_ONE { delayed } else { y }
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);

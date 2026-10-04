@@ -29,42 +29,65 @@ use crate::units::*;
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DLDevice {
+    /// The kind of device (`DL_CPU`, `DL_CUDA`, ...).
     pub device_type: i32,
+    /// Which device of that kind (0 for the CPU).
     pub device_id: i32,
 }
 
+/// Host memory.
 pub const DL_CPU: i32 = 1;
+/// CUDA device memory.
 pub const DL_CUDA: i32 = 2;
+/// Pinned host memory allocated by CUDA (readable by the CPU).
 pub const DL_CUDA_HOST: i32 = 3;
+/// Pinned host memory allocated by ROCm (readable by the CPU).
 pub const DL_ROCM_HOST: i32 = 11;
+/// CUDA unified memory (readable by the CPU).
 pub const DL_CUDA_MANAGED: i32 = 13;
 
 /// `DLDataType`: element kind, bits, and vector lanes.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DLDataType {
+    /// The kind of element (`DL_INT`, `DL_FLOAT`, ...).
     pub code: u8,
+    /// Bits per element (per lane).
     pub bits: u8,
+    /// Vector lanes per element (1 for scalars, the only kind accepted here).
     pub lanes: u16,
 }
 
+/// Signed integers.
 pub const DL_INT: u8 = 0;
+/// Unsigned integers.
 pub const DL_UINT: u8 = 1;
+/// IEEE floats.
 pub const DL_FLOAT: u8 = 2;
+/// bfloat16 (not supported here).
 pub const DL_BFLOAT: u8 = 4;
+/// Complex numbers (two floats of `bits / 2` each).
 pub const DL_COMPLEX: u8 = 5;
+/// Booleans (not supported here).
 pub const DL_BOOL: u8 = 6;
 
 /// `DLTensor`: pointer, device, shape and strides (in elements; null strides mean row-major).
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct DLTensor {
+    /// The memory, at `byte_offset` before the first element.
     pub data: *mut c_void,
+    /// Where the memory lives.
     pub device: DLDevice,
+    /// Number of axes.
     pub ndim: i32,
+    /// The element type.
     pub dtype: DLDataType,
+    /// `ndim` axis lengths.
     pub shape: *mut i64,
+    /// `ndim` element strides, or null for row-major.
     pub strides: *mut i64,
+    /// Bytes from `data` to the first element.
     pub byte_offset: u64,
 }
 
@@ -72,15 +95,21 @@ pub struct DLTensor {
 #[repr(C)]
 #[derive(Debug)]
 pub struct DLManagedTensor {
+    /// The tensor.
     pub dl_tensor: DLTensor,
+    /// The producer's context, for `deleter`.
     pub manager_ctx: *mut c_void,
+    /// Called once by the consumer when it no longer needs the memory.
     pub deleter: Option<unsafe extern "C" fn(*mut DLManagedTensor)>,
 }
 
+/// `DLPackVersion`: the ABI version of a versioned tensor.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DLPackVersion {
+    /// Incompatible changes.
     pub major: u32,
+    /// Compatible additions.
     pub minor: u32,
 }
 
@@ -95,31 +124,53 @@ pub const DLPACK_FLAG_IS_COPIED: u64 = 2;
 #[repr(C)]
 #[derive(Debug)]
 pub struct DLManagedTensorVersioned {
+    /// The ABI version the producer used.
     pub version: DLPackVersion,
+    /// The producer's context, for `deleter`.
     pub manager_ctx: *mut c_void,
+    /// Called once by the consumer when it no longer needs the memory.
     pub deleter: Option<unsafe extern "C" fn(*mut DLManagedTensorVersioned)>,
+    /// `DLPACK_FLAG_*` bits.
     pub flags: u64,
+    /// The tensor.
     pub dl_tensor: DLTensor,
 }
 
+/// Errors importing or exporting DLPack tensors.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum DlpackError {
+    /// A null tensor pointer.
     #[error("null tensor pointer")]
     Null,
+    /// A DLPack major version other than 1.
     #[error("unsupported DLPack major version {0} (this is version 1)")]
     Version(u32),
+    /// Memory the CPU can't read (the device type).
     #[error("memory on device type {0} is not readable by the CPU")]
     Device(i32),
+    /// An element type autodyne has no `DType` for.
     #[error("unsupported element type (code {code}, {bits} bits, {lanes} lanes)")]
-    DataType { code: u8, bits: u8, lanes: u16 },
+    DataType {
+        /// The element kind (`DL_*`).
+        code: u8,
+        /// Bits per lane.
+        bits: u8,
+        /// Vector lanes.
+        lanes: u16,
+    },
+    /// More axes than `MAX_DIMS` (or a negative count).
     #[error("{0} dimensions is not supported (at most {MAX_DIMS})")]
     Dims(i32),
+    /// Negative or overflowing shape, strides or offset.
     #[error("negative or overflowing shape or strides")]
     Layout,
+    /// Writing was asked of a read-only tensor.
     #[error("the tensor is read-only")]
     ReadOnly,
+    /// An owned array needs contiguous row-major memory.
     #[error("the tensor is not contiguous row-major, so it can't become an NdArray (use view())")]
     NotContiguous,
+    /// A runtime-typed array error.
     #[error(transparent)]
     Dyn(#[from] DynError),
 }
@@ -424,9 +475,11 @@ impl DlpackTensor {
         Ok(())
     }
 
+    /// The element type.
     pub fn dtype(&self) -> DType {
         self.dtype
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         &self.shape[..self.ndim]
     }
@@ -434,12 +487,15 @@ impl DlpackTensor {
     pub fn strides(&self) -> &[isize] {
         &self.strides[..self.ndim]
     }
+    /// Number of elements.
     pub fn len(&self) -> usize {
         self.shape().iter().product()
     }
+    /// Whether there are no elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// Whether the producer forbade writing.
     pub fn is_read_only(&self) -> bool {
         self.read_only
     }

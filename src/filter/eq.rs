@@ -36,18 +36,24 @@ pub(crate) const EQ_PARAM_NAMES: [[&str; EQ_BAND_PARAMS]; MAX_EQ_BANDS] = [
 pub enum EqBandKind {
     /// a bell: boost or cut around the frequency, width set by Q
     Peak,
+    /// boost or cut below the frequency
     LowShelf,
+    /// boost or cut above the frequency
     HighShelf,
     /// high-pass (removes lows); Butterworth at slopes above 12 dB/octave
     LowCut,
     /// low-pass (removes highs)
     HighCut,
+    /// removes a narrow band around the frequency
     Notch,
+    /// passes a band around the frequency
     BandPass,
 }
 
 impl EqBandKind {
+    /// Every kind, in parameter order.
     pub const ALL: [EqBandKind; 7] = [EqBandKind::Peak, EqBandKind::LowShelf, EqBandKind::HighShelf, EqBandKind::LowCut, EqBandKind::HighCut, EqBandKind::Notch, EqBandKind::BandPass];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 7] = ["Peak", "Low shelf", "High shelf", "Low cut", "High cut", "Notch", "Band pass"];
     /// Whether the gain setting applies.
     pub fn uses_gain(self) -> bool {
@@ -65,16 +71,22 @@ pub const EQ_SLOPE_NAMES: [&str; MAX_STAGES] = ["12 dB/oct", "24 dB/oct", "36 dB
 /// One band's settings.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EqBand {
+    /// Whether the band is applied.
     pub enabled: bool,
+    /// What the band does.
     pub kind: EqBandKind,
+    /// Center, corner or cutoff in Hz.
     pub frequency: f64,
+    /// Boost or cut in dB (peak and shelves).
     pub gain_db: f64,
+    /// Width (peak, notch, band pass), shelf slope, or the resonance of a 12 dB/octave cut.
     pub q: f64,
     /// cut bands: 1..=4 sections, 12..48 dB/octave
     pub slope: usize,
 }
 
 impl EqBand {
+    /// A band of `kind` at `frequency`, off, at 0 dB and Q 0.707, 12 dB/octave.
     pub fn new(kind: EqBandKind, frequency: f64) -> Self {
         Self { enabled: false, kind, frequency, gain_db: 0.0, q: BUTTERWORTH_Q, slope: 1 }
     }
@@ -128,12 +140,15 @@ impl<T: Float> ParametricEq<T> {
         }
         eq
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
+    /// The number of bands.
     pub fn band_count(&self) -> usize {
         self.bands.len()
     }
+    /// Band `i`'s settings.
     pub fn band(&self, i: usize) -> &EqBand {
         &self.bands[i]
     }
@@ -143,26 +158,32 @@ impl<T: Float> ParametricEq<T> {
         self.bands[i] = band;
         self.redesign(i);
     }
+    /// Switches band `i` on or off.
     pub fn set_enabled(&mut self, i: usize, on: bool) {
         self.bands[i].enabled = on;
         self.redesign(i);
     }
+    /// Changes band `i`'s kind.
     pub fn set_kind(&mut self, i: usize, kind: EqBandKind) {
         self.bands[i].kind = kind;
         self.redesign(i);
     }
+    /// Moves band `i` (kept within 10 Hz .. 0.45 x the sample rate).
     pub fn set_frequency(&mut self, i: usize, hz: f64) {
         self.bands[i].frequency = hz;
         self.redesign(i);
     }
+    /// Band `i`'s boost or cut in dB.
     pub fn set_gain_db(&mut self, i: usize, db: f64) {
         self.bands[i].gain_db = db;
         self.redesign(i);
     }
+    /// Band `i`'s Q (kept within 0.05..40).
     pub fn set_q(&mut self, i: usize, q: f64) {
         self.bands[i].q = q;
         self.redesign(i);
     }
+    /// Band `i`'s slope as a number of 12 dB/octave sections (1..=4).
     pub fn set_slope(&mut self, i: usize, sections: usize) {
         self.bands[i].slope = sections;
         self.redesign(i);
@@ -210,9 +231,11 @@ impl<T: Float> ParametricEq<T> {
         self.active[i] = used;
     }
 
+    /// Clears every section's state.
     pub fn reset(&mut self) {
         self.stages.iter_mut().flatten().for_each(Biquad::reset);
     }
+    /// Filters one sample through every enabled band.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let mut y = x;

@@ -65,12 +65,15 @@ impl<T: Float> SmoothedValue<T> {
         }
         self.current
     }
+    /// The value now (mid-ramp while smoothing).
     pub fn current(&self) -> T {
         self.current
     }
+    /// The value being ramped to.
     pub fn target(&self) -> T {
         self.target
     }
+    /// Whether a ramp is in progress.
     pub fn is_smoothing(&self) -> bool {
         self.remaining > 0
     }
@@ -87,12 +90,15 @@ impl<T: Float> Gain<T> {
     pub fn new(initial_gain: T, ramp_seconds: T, sample_rate: T) -> Self {
         Self { gain: SmoothedValue::new(initial_gain).with_ramp_seconds(ramp_seconds, sample_rate) }
     }
+    /// Linear gain to ramp to.
     pub fn set_gain(&mut self, gain: T) {
         self.gain.set_target(gain);
     }
+    /// Gain in dB to ramp to.
     pub fn set_gain_db(&mut self, db: T) {
         self.gain.set_target(db_to_gain(db));
     }
+    /// Target linear gain.
     pub fn gain(&self) -> T {
         self.gain.target()
     }
@@ -125,12 +131,15 @@ pub struct StereoWidth<T: Float> {
 }
 
 impl<T: Float> StereoWidth<T> {
+    /// A width stage; changes ramp over 20 ms.
     pub fn new(width: T, sample_rate: T) -> Self {
         Self { width: SmoothedValue::new(width).with_ramp_seconds(T::_lit(0.02), sample_rate) }
     }
+    /// Width, at least 0 (0 = mono, 1 = unchanged).
     pub fn set_width(&mut self, width: T) {
         self.width.set_target(width._max(T::_ZERO));
     }
+    /// Target width.
     pub fn width(&self) -> T {
         self.width.target()
     }
@@ -160,12 +169,15 @@ pub struct Panner<T: Float> {
 }
 
 impl<T: Float> Panner<T> {
+    /// A panner at `position` (-1..1); changes ramp over 20 ms.
     pub fn new(position: T, sample_rate: T) -> Self {
         Self { position: SmoothedValue::new(position._clamp(-T::_ONE, T::_ONE)).with_ramp_seconds(T::_lit(0.02), sample_rate) }
     }
+    /// Pan position, -1 (left) .. 1 (right).
     pub fn set_position(&mut self, position: T) {
         self.position.set_target(position._clamp(-T::_ONE, T::_ONE));
     }
+    /// Target pan position.
     pub fn position(&self) -> T {
         self.position.target()
     }

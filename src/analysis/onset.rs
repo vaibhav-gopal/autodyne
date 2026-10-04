@@ -96,6 +96,7 @@ impl<T: Float> OnsetDetector<T> {
             last_onset: None,
         }
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
@@ -117,6 +118,7 @@ impl<T: Float> OnsetDetector<T> {
     pub fn detection(&self) -> T {
         if self.frames == 0 { T::_ZERO } else { self.odf_at(self.frames - 1) }
     }
+    /// Clears the history and the detection function.
     pub fn reset(&mut self) {
         self.history.iter_mut().chain(self.past.iter_mut()).chain(self.odf.iter_mut()).for_each(|s| *s = T::_ZERO);
         self.write = 0;

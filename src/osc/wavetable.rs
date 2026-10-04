@@ -150,6 +150,7 @@ impl<T: Float> Wavetable<T> {
         Self { frames: spectra.len(), levels }
     }
 
+    /// Number of frames.
     pub fn frames(&self) -> usize {
         self.frames
     }
@@ -209,6 +210,7 @@ pub struct WavetableOsc<T: Float> {
 }
 
 impl<T: Float> WavetableOsc<T> {
+    /// An oscillator over `table` at `frequency` Hz, at the first frame.
     pub fn new(table: Arc<Wavetable<T>>, frequency: T, sample_rate: T) -> Self {
         let mut osc = Self { table, phase: T::_ZERO, increment: T::_ZERO, position: T::_ZERO, level: 0, weight: T::_ONE };
         osc.set_frequency(frequency, sample_rate);
@@ -229,6 +231,7 @@ impl<T: Float> WavetableOsc<T> {
         let span = T::_lit((self.table.frames() - 1) as f64);
         self.position = position._clamp(T::_ZERO, T::_ONE) * span;
     }
+    /// Morph position, 0..1.
     pub fn position(&self) -> T {
         let span = (self.table.frames() - 1).max(1) as f64;
         self.position / T::_lit(span)
@@ -240,6 +243,7 @@ impl<T: Float> WavetableOsc<T> {
         self.set_position(position);
         (self.level, self.weight) = self.table.select(self.increment);
     }
+    /// The table being played.
     pub fn table(&self) -> &Arc<Wavetable<T>> {
         &self.table
     }
@@ -247,9 +251,11 @@ impl<T: Float> WavetableOsc<T> {
     pub fn set_phase(&mut self, cycles: T) {
         self.phase = cycles - cycles._floor();
     }
+    /// Restarts at phase 0.
     pub fn reset(&mut self) {
         self.phase = T::_ZERO;
     }
+    /// The next sample.
     #[inline]
     pub fn next_sample(&mut self) -> T {
         let table = &self.table;

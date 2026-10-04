@@ -16,12 +16,17 @@ pub trait Elementwise: Clone + Add<Output = Self> + Sub<Output = Self> + Mul<Out
     /// A constant (sample rates, frequencies, coefficients), rounded to this type. For arrays, a
     /// scalar that broadcasts against any shape.
     fn lit(v: f64) -> Self;
+    /// e raised to `self`.
     fn exp(self) -> Self;
     /// Natural logarithm.
     fn ln(self) -> Self;
+    /// Sine (radians).
     fn sin(self) -> Self;
+    /// Cosine (radians).
     fn cos(self) -> Self;
+    /// Hyperbolic tangent.
     fn tanh(self) -> Self;
+    /// Square root.
     fn sqrt(self) -> Self;
     /// `self` raised to the power `e`.
     fn powf(self, e: Self) -> Self;
@@ -44,6 +49,7 @@ pub trait Elementwise: Clone + Add<Output = Self> + Sub<Output = Self> + Mul<Out
 pub trait RealValued: Elementwise {
     /// The result of a comparison.
     type Mask: Clone;
+    /// The absolute value.
     fn abs(self) -> Self;
     /// The smaller of each pair of elements.
     fn minimum(self, other: Self) -> Self;

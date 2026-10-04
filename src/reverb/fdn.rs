@@ -172,6 +172,7 @@ impl<T: Float> Reverb<T> {
         self.size = size._clamp(T::_lit(0.25), T::_lit(MAX_SIZE));
         self.update();
     }
+    /// Room size.
     pub fn size(&self) -> T {
         self.size
     }
@@ -180,6 +181,7 @@ impl<T: Float> Reverb<T> {
         self.decay = seconds._max(T::_lit(0.05));
         self.update();
     }
+    /// RT60 in seconds.
     pub fn decay(&self) -> T {
         self.decay
     }
@@ -189,6 +191,7 @@ impl<T: Float> Reverb<T> {
         self.damping = hz._max(T::_lit(100.0));
         self.update();
     }
+    /// Damping cutoff in Hz.
     pub fn damping(&self) -> T {
         self.damping
     }
@@ -197,6 +200,7 @@ impl<T: Float> Reverb<T> {
         self.predelay_seconds = seconds._clamp(T::_ZERO, T::_lit(MAX_PREDELAY));
         self.update();
     }
+    /// Pre-delay in seconds.
     pub fn predelay(&self) -> T {
         self.predelay_seconds
     }
@@ -206,6 +210,7 @@ impl<T: Float> Reverb<T> {
         self.modulation = amount._clamp(T::_ZERO, T::_ONE);
         self.update();
     }
+    /// Delay modulation amount, 0..1.
     pub fn modulation(&self) -> T {
         self.modulation
     }
@@ -213,6 +218,7 @@ impl<T: Float> Reverb<T> {
     pub fn set_mix(&mut self, mix: T) {
         self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
     }
+    /// Target dry / wet mix.
     pub fn mix(&self) -> T {
         self.mix.target()
     }
@@ -220,9 +226,11 @@ impl<T: Float> Reverb<T> {
     pub fn set_width(&mut self, width: T) {
         self.width.set_target(width._clamp(T::_ZERO, T::_ONE));
     }
+    /// Target stereo width.
     pub fn width(&self) -> T {
         self.width.target()
     }
+    /// Silences the tail.
     pub fn reset(&mut self) {
         self.lines.iter_mut().for_each(DelayLine::reset);
         self.diffusers.iter_mut().for_each(|d| d.line.reset());

@@ -11,6 +11,7 @@ use crate::units::*;
 /// `fill` works a block at a time, so a source feeding processors via `through` runs each processor
 /// on whole blocks, just like a hand-written processing loop.
 pub trait Source {
+    /// The sample type.
     type Sample: Copy;
 
     /// Produces the next sample.
@@ -91,6 +92,7 @@ pub fn from_fn<S: Copy, F: FnMut() -> S>(f: F) -> FromFn<F> {
     FromFn(f)
 }
 
+/// A source computed by a closure (see [`from_fn`]).
 #[derive(Debug, Clone, Copy)]
 pub struct FromFn<F>(F);
 
@@ -155,6 +157,7 @@ impl<S, P> Through<S, P> {
     pub fn processor_mut(&mut self) -> &mut P {
         &mut self.processor
     }
+    /// The source, e.g. to change its parameters while it runs.
     pub fn source_mut(&mut self) -> &mut S {
         &mut self.source
     }

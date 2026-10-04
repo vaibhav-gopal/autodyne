@@ -7,6 +7,7 @@ use crate::units::*;
 /// Measurements that have no meaning for an empty signal (mean, rms, argmax, ...) return `None`;
 /// sums and norms of an empty signal are 0. NaN samples are ignored by the ordering methods.
 pub trait Signal {
+    /// The sample type.
     type Sample: Float;
 
     /// The underlying samples.
@@ -18,6 +19,7 @@ pub trait Signal {
     fn sum(&self) -> Self::Sample {
         crate::simd::sum(self.samples())
     }
+    /// Arithmetic mean (`None` when empty).
     fn mean(&self) -> Option<Self::Sample> {
         let n = self.samples().len();
         (n > 0).then(|| self.sum() / Self::Sample::_lit(n as f64))
@@ -52,9 +54,11 @@ pub trait Signal {
         let rms = self.rms()?;
         (rms > Self::Sample::_ZERO).then(|| self.peak() / rms)
     }
+    /// Sum of absolute values.
     fn norm_l1(&self) -> Self::Sample {
         self.samples().iter().fold(Self::Sample::_ZERO, |s, &x| s + x._abs())
     }
+    /// Euclidean norm: the square root of the energy.
     fn norm_l2(&self) -> Self::Sample {
         self.energy()._sqrt()
     }
@@ -69,6 +73,7 @@ pub trait Signal {
         let squares = self.samples().iter().fold(Self::Sample::_ZERO, |s, &x| s + (x - mean) * (x - mean));
         Some(squares / n)
     }
+    /// Population standard deviation.
     fn std_dev(&self) -> Option<Self::Sample> {
         self.variance().map(|v| v._sqrt())
     }
@@ -90,9 +95,11 @@ pub trait Signal {
 
     // Ordering ===================================================================================
 
+    /// The smallest sample, ignoring NaNs.
     fn min(&self) -> Option<Self::Sample> {
         self.argmin().map(|i| self.samples()[i])
     }
+    /// The largest sample, ignoring NaNs.
     fn max(&self) -> Option<Self::Sample> {
         self.argmax().map(|i| self.samples()[i])
     }
@@ -104,6 +111,7 @@ pub trait Signal {
     fn argmax(&self) -> Option<usize> {
         extremum(self.samples(), |candidate, best| candidate > best)
     }
+    /// `(min, max)`, ignoring NaNs.
     fn min_max(&self) -> Option<(Self::Sample, Self::Sample)> {
         Some((self.min()?, self.max()?))
     }

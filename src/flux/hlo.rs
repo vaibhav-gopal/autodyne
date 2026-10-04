@@ -16,8 +16,11 @@ use crate::units::DType;
 pub struct Program {
     /// The module text (MLIR, StableHLO dialect).
     pub text: String,
+    /// The shape of each input.
     pub inputs: Vec<Vec<usize>>,
+    /// The shape of each output.
     pub outputs: Vec<Vec<usize>>,
+    /// The element type it computes in.
     pub dtype: DType,
 }
 
@@ -48,9 +51,11 @@ impl Default for Emit {
 }
 
 impl Emit {
+    /// Single precision, FFTs emitted whole.
     pub fn f32() -> Self {
         Emit { dtype: DType::F32, max_fft: None }
     }
+    /// Double precision, FFTs emitted whole.
     pub fn f64() -> Self {
         Emit { dtype: DType::F64, max_fft: None }
     }

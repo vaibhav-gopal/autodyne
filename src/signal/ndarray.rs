@@ -43,6 +43,7 @@ pub const MAX_DIMS: usize = 8;
 /// What an axis means. `Unlabeled` by default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Axis {
+    /// No particular meaning.
     #[default]
     Unlabeled,
     /// independent examples / instances
@@ -55,31 +56,61 @@ pub enum Axis {
     Spatial,
     /// feature / embedding dimension
     Feature,
+    /// A meaning of the caller's own.
     Named(&'static str),
 }
 
+/// Errors from building, indexing and re-laying-out n-d arrays and views.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum NdError {
+    /// More axes than [`MAX_DIMS`].
     #[error("{0} dimensions exceeds the maximum of {MAX_DIMS}")]
     TooManyDims(usize),
+    /// The data's length doesn't match the shape.
     #[error("shape holds {expected} elements but {got} were given")]
-    ShapeMismatch { expected: usize, got: usize },
+    ShapeMismatch {
+        /// Elements the shape holds.
+        expected: usize,
+        /// Elements given.
+        got: usize,
+    },
+    /// An axis index past the last axis.
     #[error("axis {axis} is out of range for {ndim} dimensions")]
-    AxisOutOfRange { axis: usize, ndim: usize },
+    AxisOutOfRange {
+        /// The axis asked for.
+        axis: usize,
+        /// The number of axes.
+        ndim: usize,
+    },
+    /// An index or a range outside the array.
     #[error("index or range is out of bounds")]
     OutOfBounds,
+    /// Axes given for a permutation aren't one of each.
     #[error("not a permutation of the axes")]
     InvalidPermutation,
+    /// The number of labels differs from the number of axes (given, axes).
     #[error("{0} labels given for {1} dimensions")]
     LabelCount(usize, usize),
+    /// A slicing step of zero.
     #[error("a step of 0 is not allowed")]
     ZeroStep,
+    /// An axis that must have length 1 doesn't (axis, its length).
     #[error("axis {0} has length {1}, not 1")]
     NotUnitAxis(usize, usize),
+    /// Shapes that don't broadcast.
     #[error("axis {axis} of length {from} can't be broadcast to {to}")]
-    Broadcast { axis: usize, from: usize, to: usize },
+    Broadcast {
+        /// The axis that doesn't match.
+        axis: usize,
+        /// Its length.
+        from: usize,
+        /// The length it would need.
+        to: usize,
+    },
+    /// The view's strides can't express the new shape; `to_shape` copies instead.
     #[error("this layout can't be reshaped without copying (to_shape copies when needed)")]
     ReshapeNeedsCopy,
+    /// The layout reaches some element more than once, so it can't be written through.
     #[error("several indices reach the same element, so the layout can't be written through")]
     Overlapping,
 }
@@ -466,6 +497,7 @@ impl<T> NdArray<T> {
         for_each_index(layout.shape(), |idx| data.push(f(idx)));
         Ok(Self { data, layout, _elem: PhantomData })
     }
+    /// The elements, row-major, as a vector (no copy).
     pub fn into_vec(self) -> Vec<T> {
         self.data
     }
@@ -482,6 +514,7 @@ impl<T: Copy> NdArray<T> {
         let layout = Layout::row_major(shape)?;
         Ok(Self { data: vec![value; layout.len()], layout, _elem: PhantomData })
     }
+    /// An array of `shape` filled with `T::default()` (zeros for numbers).
     pub fn zeros(shape: &[usize]) -> Result<Self, NdError>
     where
         T: Default,
@@ -507,18 +540,23 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
         self.layout.labels[..labels.len()].copy_from_slice(labels);
         Ok(self)
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         self.layout.shape()
     }
+    /// Number of axes.
     pub fn ndim(&self) -> usize {
         self.layout.ndim
     }
+    /// Number of elements.
     pub fn len(&self) -> usize {
         self.layout.len()
     }
+    /// Whether there are no elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
+    /// What each axis means.
     pub fn labels(&self) -> &[Axis] {
         self.layout.labels()
     }
@@ -526,15 +564,19 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
     pub fn axis_of(&self, label: Axis) -> Option<usize> {
         self.labels().iter().position(|&l| l == label)
     }
+    /// The elements, row-major.
     pub fn as_slice(&self) -> &[T] {
         self.data.as_slice()
     }
+    /// The storage holding the elements.
     pub fn storage(&self) -> &S {
         &self.data
     }
+    /// Gives back the storage.
     pub fn into_storage(self) -> S {
         self.data
     }
+    /// The element at `index` (one entry per axis), or `None` outside the array.
     pub fn get(&self, index: &[usize]) -> Option<&T> {
         self.layout.offset_of(index).map(|o| &self.as_slice()[o as usize])
     }
@@ -542,6 +584,7 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
     pub fn reshape(self, shape: &[usize]) -> Result<Self, NdError> {
         Self::from_storage(self.data, shape)
     }
+    /// A view of the whole array.
     pub fn view(&self) -> NdView<'_, T> {
         NdView { ptr: self.as_slice().as_ptr(), layout: self.layout, _borrow: PhantomData }
     }
@@ -552,12 +595,15 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
 }
 
 impl<T, S: StorageMut<Elem = T>> NdArray<T, S> {
+    /// The elements, row-major, mutably.
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self.data.as_mut_slice()
     }
+    /// The element at `index`, mutably, or `None` outside the array.
     pub fn get_mut(&mut self, index: &[usize]) -> Option<&mut T> {
         self.layout.offset_of(index).map(move |o| &mut self.data.as_mut_slice()[o as usize])
     }
+    /// A mutable view of the whole array.
     pub fn view_mut(&mut self) -> NdViewMut<'_, T> {
         NdViewMut { ptr: self.data.as_mut_slice().as_mut_ptr(), layout: self.layout, _borrow: PhantomData }
     }
@@ -707,6 +753,7 @@ fn checked_layout(len: usize, shape: &[usize], strides: &[isize], offset: usize)
 macro_rules! view_common {
     ($View:ident) => {
         impl<'a, T> $View<'a, T> {
+            /// Length of each axis.
             pub fn shape(&self) -> &[usize] {
                 self.layout.shape()
             }
@@ -714,18 +761,23 @@ macro_rules! view_common {
             pub fn strides(&self) -> &[isize] {
                 self.layout.strides()
             }
+            /// Number of axes.
             pub fn ndim(&self) -> usize {
                 self.layout.ndim
             }
+            /// Number of elements.
             pub fn len(&self) -> usize {
                 self.layout.len()
             }
+            /// Whether there are no elements.
             pub fn is_empty(&self) -> bool {
                 self.len() == 0
             }
+            /// What each axis means.
             pub fn labels(&self) -> &[Axis] {
                 self.layout.labels()
             }
+            /// Position of the first axis with this label.
             pub fn axis_of(&self, label: Axis) -> Option<usize> {
                 self.labels().iter().position(|&l| l == label)
             }
@@ -757,6 +809,7 @@ macro_rules! view_common {
             pub fn as_ptr(&self) -> *const T {
                 self.ptr as *const T
             }
+            /// The element at `index` (one entry per axis), or `None` outside the view.
             pub fn get(&self, index: &[usize]) -> Option<&T> {
                 // SAFETY: the offset of a valid index is inside the validated layout
                 self.layout.offset_of(index).map(|o| unsafe { &*self.ptr.wrapping_offset(o) })
@@ -916,20 +969,25 @@ view_common!(NdViewMut);
 /// copy was needed.
 #[derive(Debug, Clone)]
 pub enum CowArray<'a, T> {
+    /// The view needed no copy.
     View(NdView<'a, T>),
+    /// The elements had to be copied into a new array.
     Owned(NdArray<T>),
 }
 
 impl<'a, T: Copy> CowArray<'a, T> {
+    /// A view of the result, either way.
     pub fn view(&self) -> NdView<'_, T> {
         match self {
             CowArray::View(v) => *v,
             CowArray::Owned(a) => a.view(),
         }
     }
+    /// Whether no copy was made.
     pub fn is_view(&self) -> bool {
         matches!(self, CowArray::View(_))
     }
+    /// The result as an owned array (copying a view).
     pub fn into_owned(self) -> NdArray<T> {
         match self {
             CowArray::View(v) => v.to_owned(),
@@ -1055,6 +1113,7 @@ impl<'a, T> NdViewMut<'a, T> {
     pub fn into_view(self) -> NdView<'a, T> {
         NdView { ptr: self.ptr, layout: self.layout, _borrow: PhantomData }
     }
+    /// The element at `index`, mutably, or `None` outside the view.
     pub fn get_mut(&mut self, index: &[usize]) -> Option<&mut T> {
         // SAFETY: valid index -> inside the layout; `&mut self` makes the reference exclusive
         self.layout.offset_of(index).map(|o| unsafe { &mut *self.ptr.wrapping_offset(o) })
@@ -1096,6 +1155,7 @@ impl<'a, T> NdViewMut<'a, T> {
 }
 
 impl<'a, T: Copy> NdViewMut<'a, T> {
+    /// Sets every element to `value`.
     pub fn fill(&mut self, value: T) {
         self.for_each_mut(|x| *x = value);
     }

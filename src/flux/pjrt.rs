@@ -90,9 +90,13 @@ struct NamedValue {
 /// A value for a client creation option ([`Pjrt::load_with_options`]).
 #[derive(Clone, Debug, PartialEq)]
 pub enum PjrtOption {
+    /// A string.
     Str(String),
+    /// An integer.
     Int(i64),
+    /// A float.
     Float(f32),
+    /// A boolean.
     Bool(bool),
 }
 

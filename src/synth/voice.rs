@@ -16,14 +16,18 @@ pub const MAX_UNISON: usize = 7;
 pub enum VoiceFilter {
     /// 12 dB/octave state-variable low-pass
     Lowpass12,
+    /// 12 dB/octave state-variable band-pass
     Bandpass12,
+    /// 12 dB/octave state-variable high-pass
     Highpass12,
     /// 24 dB/octave Moog-style ladder (self-oscillates at full resonance)
     Ladder24,
 }
 
 impl VoiceFilter {
+    /// Every filter, in parameter order.
     pub const ALL: [VoiceFilter; 4] = [VoiceFilter::Lowpass12, VoiceFilter::Bandpass12, VoiceFilter::Highpass12, VoiceFilter::Ladder24];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 4] = ["Low-pass 12", "Band-pass 12", "High-pass 12", "Ladder 24"];
 }
 
@@ -118,12 +122,14 @@ impl<T: Float> SynthVoice<T> {
         voice.set_resonance(lit(0.22));
         voice
     }
+    /// The classic waveform of every oscillator (a pulse's width is remembered).
     pub fn set_waveform(&mut self, waveform: Waveform<T>) {
         if let Waveform::Pulse { pulse_width } = waveform {
             self.pulse_width = pulse_width;
         }
         self.oscs.iter_mut().for_each(|o| o.set_waveform(waveform));
     }
+    /// The classic waveform.
     pub fn waveform(&self) -> Waveform<T> {
         self.oscs[0].waveform()
     }
@@ -136,6 +142,7 @@ impl<T: Float> SynthVoice<T> {
             self.pitch_dirty = true;
         }
     }
+    /// Whether the wavetable plays instead of the classic waveform.
     pub fn wavetable_source(&self) -> bool {
         self.wavetable
     }
@@ -148,6 +155,7 @@ impl<T: Float> SynthVoice<T> {
         self.wt_position = position._clamp(T::_ZERO, T::_ONE);
         self.wt_oscs.iter_mut().for_each(|o| o.set_position(self.wt_position));
     }
+    /// Wavetable morph position, 0..1.
     pub fn wavetable_position(&self) -> T {
         self.wt_position
     }
@@ -158,6 +166,7 @@ impl<T: Float> SynthVoice<T> {
             self.set_waveform(Waveform::Pulse { pulse_width: self.pulse_width });
         }
     }
+    /// Pulse duty cycle.
     pub fn pulse_width(&self) -> T {
         self.pulse_width
     }
@@ -166,6 +175,7 @@ impl<T: Float> SynthVoice<T> {
         self.unison = count.clamp(1, MAX_UNISON);
         self.pitch_dirty = true;
     }
+    /// Oscillators per note.
     pub fn unison(&self) -> usize {
         self.unison
     }
@@ -174,9 +184,11 @@ impl<T: Float> SynthVoice<T> {
         self.detune_cents = cents._max(T::_ZERO);
         self.pitch_dirty = true;
     }
+    /// Unison spread in cents.
     pub fn detune(&self) -> T {
         self.detune_cents
     }
+    /// The filter type (switching keeps the oscillators running).
     pub fn set_filter(&mut self, filter: VoiceFilter) {
         if filter != self.filter_type {
             self.filter_type = filter;
@@ -188,6 +200,7 @@ impl<T: Float> SynthVoice<T> {
             self.applied_cutoff = T::_NAN;
         }
     }
+    /// The filter type.
     pub fn filter(&self) -> VoiceFilter {
         self.filter_type
     }
@@ -196,6 +209,7 @@ impl<T: Float> SynthVoice<T> {
         self.cutoff = hz;
         self.applied_cutoff = T::_NAN;
     }
+    /// Base cutoff in Hz.
     pub fn cutoff(&self) -> T {
         self.cutoff
     }
@@ -205,6 +219,7 @@ impl<T: Float> SynthVoice<T> {
         self.ladder.set_resonance(self.resonance);
         self.applied_cutoff = T::_NAN;
     }
+    /// Resonance, 0..1.
     pub fn resonance(&self) -> T {
         self.resonance
     }
@@ -212,6 +227,7 @@ impl<T: Float> SynthVoice<T> {
     pub fn set_drive_db(&mut self, db: T) {
         self.ladder.set_drive(T::_lit(10.0)._pow(db / T::_lit(20.0)));
     }
+    /// The ladder's drive in dB.
     pub fn drive_db(&self) -> T {
         T::_lit(20.0) * self.ladder.drive()._log10()
     }
@@ -219,6 +235,7 @@ impl<T: Float> SynthVoice<T> {
     pub fn set_env_amount(&mut self, octaves: T) {
         self.env_amount = octaves;
     }
+    /// Filter envelope depth in octaves.
     pub fn env_amount(&self) -> T {
         self.env_amount
     }
@@ -227,6 +244,7 @@ impl<T: Float> SynthVoice<T> {
     pub fn set_glide(&mut self, seconds: T) {
         self.glide_seconds = seconds._max(T::_ZERO);
     }
+    /// Glide time in seconds.
     pub fn glide(&self) -> T {
         self.glide_seconds
     }
@@ -234,6 +252,7 @@ impl<T: Float> SynthVoice<T> {
     pub fn set_pressure_amount(&mut self, octaves: T) {
         self.pressure_octaves = octaves;
     }
+    /// Cutoff octaves at full pressure.
     pub fn pressure_amount(&self) -> T {
         self.pressure_octaves
     }
@@ -241,18 +260,23 @@ impl<T: Float> SynthVoice<T> {
     pub fn set_timbre_amount(&mut self, octaves: T) {
         self.timbre_octaves = octaves;
     }
+    /// Cutoff octaves at the timbre extremes.
     pub fn timbre_amount(&self) -> T {
         self.timbre_octaves
     }
+    /// The amplitude envelope.
     pub fn amp_env(&self) -> &Adsr<T> {
         &self.amp_env
     }
+    /// The amplitude envelope, to change its settings.
     pub fn amp_env_mut(&mut self) -> &mut Adsr<T> {
         &mut self.amp_env
     }
+    /// The filter envelope.
     pub fn filter_env(&self) -> &Adsr<T> {
         &self.filter_env
     }
+    /// The filter envelope, to change its settings.
     pub fn filter_env_mut(&mut self) -> &mut Adsr<T> {
         &mut self.filter_env
     }

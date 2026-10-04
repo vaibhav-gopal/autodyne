@@ -11,16 +11,25 @@ use crate::systems::{bilinear_zpk, Domain, Zpk, C64};
 /// analog one.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Band {
+    /// Passes below the edge.
     Lowpass(f64),
+    /// Passes above the edge.
     Highpass(f64),
+    /// Passes between the two edges.
     Bandpass(f64, f64),
+    /// Stops between the two edges.
     Bandstop(f64, f64),
 }
 
 /// A digital design at sample rate `fs` (edges in Hz), or an analog one (edges in rad/s).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Design {
-    Digital { fs: f64 },
+    /// A digital filter (bilinear transform with prewarping).
+    Digital {
+        /// The sample rate in Hz.
+        fs: f64,
+    },
+    /// An analog filter (`s`-domain).
     Analog,
 }
 
@@ -38,14 +47,30 @@ pub enum BesselNorm {
 /// The analog prototype family and its specifications.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum IirKind {
+    /// Maximally flat passband.
     Butterworth,
     /// Passband ripple `rp` dB.
-    Chebyshev1 { rp: f64 },
+    Chebyshev1 {
+        /// Passband ripple in dB.
+        rp: f64,
+    },
     /// Stopband attenuation `rs` dB.
-    Chebyshev2 { rs: f64 },
+    Chebyshev2 {
+        /// Stopband attenuation in dB.
+        rs: f64,
+    },
     /// Passband ripple `rp` dB and stopband attenuation `rs` dB.
-    Elliptic { rp: f64, rs: f64 },
-    Bessel { norm: BesselNorm },
+    Elliptic {
+        /// Passband ripple in dB.
+        rp: f64,
+        /// Stopband attenuation in dB.
+        rs: f64,
+    },
+    /// Maximally flat group delay.
+    Bessel {
+        /// How the edge frequency is defined.
+        norm: BesselNorm,
+    },
 }
 
 fn real(x: f64) -> C64 {

@@ -131,7 +131,9 @@ pub trait RealArrayMath: ArrayMath + RealValued {
     fn to_complex(self) -> Self::Complex;
     /// `re + i·im`.
     fn complex(re: Self, im: Self) -> Self::Complex;
+    /// The real parts of a complex array.
     fn real_part(z: Self::Complex) -> Self;
+    /// The imaginary parts of a complex array.
     fn imag_part(z: Self::Complex) -> Self;
 
     /// The real FFT along the last axis: `(real parts, imaginary parts)`, `n / 2 + 1` bins each.

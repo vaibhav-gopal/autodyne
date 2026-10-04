@@ -30,6 +30,7 @@ use crate::units::*;
 
 /// One playable voice.
 pub trait Voice {
+    /// The sample type.
     type Sample: Float;
 
     /// Starts (or retriggers) `note` at `velocity` in [0, 1].
@@ -64,7 +65,9 @@ pub trait Voice {
 /// A MIDI message to apply `offset` samples into the next rendered block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TimedEvent {
+    /// samples into the block
     pub offset: usize,
+    /// the message
     pub message: MidiMessage,
 }
 
@@ -81,7 +84,9 @@ pub enum VoiceMode {
 }
 
 impl VoiceMode {
+    /// Every mode, in parameter order.
     pub const ALL: [VoiceMode; 3] = [VoiceMode::Poly, VoiceMode::Mono, VoiceMode::Legato];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 3] = ["Poly", "Mono", "Legato"];
 }
 
@@ -180,6 +185,7 @@ impl<V: Voice> Poly<V> {
     pub fn set_bend_range(&mut self, semitones: V::Sample) {
         self.bend_range = semitones;
     }
+    /// Pitch bend range in semitones.
     pub fn bend_range(&self) -> V::Sample {
         self.bend_range
     }
@@ -195,6 +201,7 @@ impl<V: Voice> Poly<V> {
             self.channel_bend = [V::Sample::_ZERO; 16];
         }
     }
+    /// Whether MPE is on.
     pub fn mpe(&self) -> bool {
         self.mpe
     }
@@ -205,9 +212,11 @@ impl<V: Voice> Poly<V> {
             self.mode = mode;
         }
     }
+    /// The voice mode.
     pub fn mode(&self) -> VoiceMode {
         self.mode
     }
+    /// All voices.
     pub fn voices(&self) -> &[V] {
         &self.voices
     }
@@ -241,6 +250,7 @@ impl<V: Voice> Poly<V> {
         voice.set_timbre(timbre);
     }
 
+    /// Note on, on channel 0 (see [`note_on_channel`](Self::note_on_channel)).
     pub fn note_on(&mut self, note: u8, velocity: V::Sample) {
         self.note_on_channel(0, note, velocity);
     }
@@ -270,6 +280,7 @@ impl<V: Voice> Poly<V> {
         self.voices[index].note_on(note, velocity);
     }
 
+    /// Note off, on channel 0 (see [`note_off_channel`](Self::note_off_channel)).
     pub fn note_off(&mut self, note: u8) {
         self.note_off_channel(0, note);
     }

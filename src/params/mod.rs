@@ -24,9 +24,13 @@ use crate::units::*;
 /// What a parameter's value measures (for display and host units).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParamUnit {
+    /// a plain number
     None,
+    /// a frequency
     Hertz,
+    /// a level in dB
     Decibels,
+    /// a time
     Seconds,
     /// a ratio such as 4:1
     Ratio,
@@ -44,6 +48,7 @@ pub enum ParamUnit {
 /// How a parameter maps onto a 0..1 control (knob, slider, host automation lane).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ParamScale {
+    /// equal steps are equal differences
     Linear,
     /// equal steps are equal ratios (frequencies, times); requires min > 0
     Log,
@@ -84,12 +89,19 @@ pub struct ParamInfo {
     pub id: &'static str,
     /// human-readable name, e.g. "Threshold"
     pub name: &'static str,
+    /// what the value measures
     pub unit: ParamUnit,
+    /// smallest value
     pub min: f64,
+    /// largest value
     pub max: f64,
+    /// value of a fresh processor
     pub default: f64,
+    /// how the value maps onto a 0..1 control
     pub scale: ParamScale,
+    /// what kind of value it is
     pub kind: ParamKind,
+    /// how changes reach the audio
     pub smoothing: Smoothing,
 }
 
@@ -234,24 +246,37 @@ impl ParamInfo {
     }
 }
 
+/// Errors reading or setting parameters.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum ParamError {
+    /// No parameter at this index.
     #[error("no parameter at index {0}")]
     UnknownIndex(usize),
+    /// No parameter with this id.
     #[error("no parameter with id {0:?}")]
     UnknownId(String),
+    /// The value was NaN or infinite (the parameter's id).
     #[error("parameter {0:?} must be finite")]
     NotFinite(&'static str),
+    /// A snapshot with the wrong number of values.
     #[error("snapshot has {got} values but there are {expected} parameters")]
-    SnapshotLength { expected: usize, got: usize },
+    SnapshotLength {
+        /// Number of parameters.
+        expected: usize,
+        /// Values in the snapshot.
+        got: usize,
+    },
 }
 
 /// A processor (or chain) whose settings can be discovered and changed at runtime.
 pub trait Parameterized {
+    /// Number of parameters.
     fn param_count(&self) -> usize;
+    /// Description of parameter `index` (`None` past the last one).
     fn param_info(&self, index: usize) -> Option<ParamInfo>;
     /// Name of the processor that owns the parameter, e.g. "Compressor" (useful in chains).
     fn param_group(&self, index: usize) -> Option<&'static str>;
+    /// Current value of parameter `index`, in its own units.
     fn get_param(&self, index: usize) -> Option<f64>;
     /// Validates and clamps `value`, applies it, and returns the value applied.
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError>;
@@ -260,9 +285,11 @@ pub trait Parameterized {
     fn param_index(&self, id: &str) -> Option<usize> {
         (0..self.param_count()).find(|&i| self.param_info(i).is_some_and(|p| p.id == id))
     }
+    /// Current value of the parameter with this id.
     fn get_param_by_id(&self, id: &str) -> Option<f64> {
         self.get_param(self.param_index(id)?)
     }
+    /// Sets the parameter with this id (see [`set_param`](Self::set_param)).
     fn set_param_by_id(&mut self, id: &str, value: f64) -> Result<f64, ParamError> {
         let index = self.param_index(id).ok_or_else(|| ParamError::UnknownId(id.to_string()))?;
         self.set_param(index, value)

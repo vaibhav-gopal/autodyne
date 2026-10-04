@@ -34,12 +34,15 @@ impl<T: Float> AudioBuffer<T> {
         assert!(channels > 0, "need at least one channel");
         Self { data: vec![T::_ZERO; channels * max_frames], channels, max_frames, offset: 0, frames: max_frames }
     }
+    /// Number of channels.
     pub fn channels(&self) -> usize {
         self.channels
     }
+    /// Frames in use for the current block.
     pub fn frames(&self) -> usize {
         self.frames
     }
+    /// Frames allocated.
     pub fn max_frames(&self) -> usize {
         self.max_frames
     }
@@ -60,9 +63,11 @@ impl<T: Float> AudioBuffer<T> {
         (self.offset, self.frames) = saved;
         result
     }
+    /// Channel `ch`'s current frames.
     pub fn channel(&self, ch: usize) -> &[T] {
         &self.data[ch * self.max_frames + self.offset..][..self.frames]
     }
+    /// Channel `ch`'s current frames, mutably.
     pub fn channel_mut(&mut self, ch: usize) -> &mut [T] {
         let (start, len) = (ch * self.max_frames + self.offset, self.frames);
         &mut self.data[start..][..len]
@@ -79,6 +84,7 @@ impl<T: Float> AudioBuffer<T> {
         let (l, r) = self.data.split_at_mut(self.max_frames);
         (&mut l[offset..offset + frames], &mut r[offset..offset + frames])
     }
+    /// Sets every current sample of every channel to `value`.
     pub fn fill(&mut self, value: T) {
         self.channels_mut().for_each(|c| c.iter_mut().for_each(|s| *s = value));
     }
@@ -135,7 +141,9 @@ impl<T: Float> AudioBuffer<T> {
 
 /// The multichannel counterpart of `Processor`: transforms a whole `AudioBuffer` in place.
 pub trait MultiProcessor<T: Float> {
+    /// Processes `buffer` in place.
     fn process(&mut self, buffer: &mut AudioBuffer<T>);
+    /// Clears internal state without changing parameters.
     fn reset(&mut self);
 }
 
@@ -151,6 +159,7 @@ impl<P> PerChannel<P> {
     pub fn new(channels: usize, make: impl FnMut(usize) -> P) -> Self {
         Self { processors: (0..channels).map(make).collect() }
     }
+    /// Channel `ch`'s processor.
     pub fn channel(&mut self, ch: usize) -> &mut P {
         &mut self.processors[ch]
     }
@@ -158,6 +167,7 @@ impl<P> PerChannel<P> {
     pub fn channels(&self) -> &[P] {
         &self.processors
     }
+    /// Every channel's processor, mutably, in channel order.
     pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut P> {
         self.processors.iter_mut()
     }

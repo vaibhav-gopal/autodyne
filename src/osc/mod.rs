@@ -63,9 +63,11 @@ pub struct Sine<T: Float> {
 }
 
 impl<T: Float> Sine<T> {
+    /// A sine at `frequency` Hz, amplitude 1, starting at phase 0.
     pub fn new(frequency: T, sample_rate: T) -> Self {
         Self { phase: T::_ZERO, increment: frequency / sample_rate, amplitude: T::_ONE }
     }
+    /// Peak amplitude.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
         self.amplitude = amplitude;
         self
@@ -79,12 +81,15 @@ impl<T: Float> Sine<T> {
     pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
         self.increment = frequency / sample_rate;
     }
+    /// Peak amplitude.
     pub fn set_amplitude(&mut self, amplitude: T) {
         self.amplitude = amplitude;
     }
+    /// Restarts at phase 0.
     pub fn reset(&mut self) {
         self.phase = T::_ZERO;
     }
+    /// The next sample.
     #[inline]
     pub fn next_sample(&mut self) -> T {
         let out = self.amplitude * (T::_TAU * self.phase)._sin();
@@ -103,11 +108,16 @@ impl_generator_blocks!(Sine);
 /// The shape an [`Oscillator`] produces.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Waveform<T> {
+    /// a pure tone
     Sine,
     /// rises from -1 to 1 over each cycle
     Saw,
     /// +1 for the first `pulse_width` of each cycle, -1 for the rest (0.5 = square)
-    Pulse { pulse_width: T },
+    Pulse {
+        /// Fraction of the cycle at +1.
+        pulse_width: T,
+    },
+    /// rises from -1 to 1 over the first half of each cycle and falls back over the second
     Triangle,
 }
 
@@ -179,6 +189,7 @@ impl<T: Float> Oscillator<T> {
     pub fn new(waveform: Waveform<T>, frequency: T, sample_rate: T) -> Self {
         Self { waveform, phase: T::_ZERO, increment: band_limited_increment(frequency, sample_rate), amplitude: T::_ONE }
     }
+    /// Peak amplitude.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
         self.amplitude = amplitude;
         self
@@ -192,18 +203,23 @@ impl<T: Float> Oscillator<T> {
     pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
         self.increment = band_limited_increment(frequency, sample_rate);
     }
+    /// Changes the shape without resetting phase.
     pub fn set_waveform(&mut self, waveform: Waveform<T>) {
         self.waveform = waveform;
     }
+    /// The shape.
     pub fn waveform(&self) -> Waveform<T> {
         self.waveform
     }
+    /// Peak amplitude.
     pub fn set_amplitude(&mut self, amplitude: T) {
         self.amplitude = amplitude;
     }
+    /// Restarts at phase 0.
     pub fn reset(&mut self) {
         self.phase = T::_ZERO;
     }
+    /// The next sample.
     #[inline]
     pub fn next_sample(&mut self) -> T {
         let (t, dt) = (self.phase, self.increment);
@@ -245,15 +261,19 @@ pub struct Phasor<T: Float> {
 }
 
 impl<T: Float> Phasor<T> {
+    /// A phasor at `frequency` Hz (negative frequencies turn the other way).
     pub fn new(frequency: T, sample_rate: T) -> Self {
         Self { phase: T::_ZERO, increment: frequency / sample_rate }
     }
+    /// Changes frequency without resetting phase.
     pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
         self.increment = frequency / sample_rate;
     }
+    /// Restarts at phase 0.
     pub fn reset(&mut self) {
         self.phase = T::_ZERO;
     }
+    /// The next sample.
     #[inline]
     pub fn next_sample(&mut self) -> Complex<T> {
         let out = Complex::cis(T::_TAU * self.phase);
@@ -266,6 +286,7 @@ impl<T: Float> Phasor<T> {
         }
         out
     }
+    /// Fills `out` with the next samples.
     pub fn fill(&mut self, out: &mut [Complex<T>]) {
         for s in out {
             *s = self.next_sample();
@@ -305,6 +326,7 @@ pub struct Noise<T: Float> {
 }
 
 impl<T: Float> Noise<T> {
+    /// Noise from `seed` (the same seed gives the same noise).
     pub fn new(seed: u64) -> Self {
         // splitmix64 spreads similar seeds apart and never yields the all-zero state xorshift can't leave.
         let mut z = seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
@@ -313,10 +335,12 @@ impl<T: Float> Noise<T> {
         z ^= z >> 31;
         Self { state: if z == 0 { 0x9E37_79B9_7F4A_7C15 } else { z }, amplitude: T::_ONE }
     }
+    /// Peak amplitude.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
         self.amplitude = amplitude;
         self
     }
+    /// Peak amplitude.
     pub fn set_amplitude(&mut self, amplitude: T) {
         self.amplitude = amplitude;
     }
@@ -329,6 +353,7 @@ impl<T: Float> Noise<T> {
         self.state = x;
         x.wrapping_mul(0x2545_F491_4F6C_DD1D)
     }
+    /// The next sample.
     #[inline]
     pub fn next_sample(&mut self) -> T {
         // top 53 bits -> uniform f64 in [0, 1) -> [-1, 1)
@@ -350,9 +375,11 @@ pub struct Impulse<T: Float> {
 }
 
 impl<T: Float> Impulse<T> {
+    /// An impulse of amplitude 1.
     pub fn new() -> Self {
         Self { fired: false, amplitude: T::_ONE }
     }
+    /// The impulse's height.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
         self.amplitude = amplitude;
         self
@@ -361,6 +388,7 @@ impl<T: Float> Impulse<T> {
     pub fn reset(&mut self) {
         self.fired = false;
     }
+    /// The next sample (`amplitude` once, then zeros).
     #[inline]
     pub fn next_sample(&mut self) -> T {
         if self.fired {

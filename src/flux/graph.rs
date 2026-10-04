@@ -15,6 +15,7 @@ use crate::units::{DType, Elementwise, Float, RealValued};
 /// The element types traced programs compute in: `f32` and `f64`. A trace has no precision of its
 /// own (constants are kept as `f64`); it is chosen when the graph is evaluated or emitted.
 pub trait FluxFloat: Float + Default + Send + Sync + sealed::Sealed {
+    /// The element type as a runtime value.
     const DTYPE: DType;
     #[doc(hidden)]
     fn host_ref(a: &NdArray<Self>) -> HostRef<'_>;
@@ -60,22 +61,29 @@ pub(crate) type Id = u32;
 /// Comparison directions (the result is a mask).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cmp {
+    /// `a < b`
     Lt,
+    /// `a > b`
     Gt,
+    /// `a == b`
     Eq,
 }
 
 /// Reductions other than sums.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Reduction {
+    /// the largest element
     Max,
+    /// the smallest element
     Min,
+    /// the product of the elements
     Prod,
 }
 
 /// What a node's elements are.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
+    /// Real numbers.
     Real,
     /// Complex numbers (spectra), carried as such so XLA keeps them in one array.
     Complex,
@@ -95,22 +103,37 @@ pub enum Op {
     Const(f64),
     /// A constant array (row-major), of the node's shape; stored as f64 like [`Const`](Op::Const).
     Literal(Arc<[f64]>),
+    /// `a + b`.
     Add(Id, Id),
+    /// `a - b`.
     Sub(Id, Id),
+    /// `a * b`.
     Mul(Id, Id),
+    /// `a / b`.
     Div(Id, Id),
+    /// `-a`.
     Neg(Id),
+    /// e to the power `a`.
     Exp(Id),
+    /// Natural logarithm.
     Log(Id),
+    /// Sine.
     Sin(Id),
+    /// Cosine.
     Cos(Id),
+    /// Hyperbolic tangent.
     Tanh(Id),
+    /// Square root.
     Sqrt(Id),
+    /// Absolute value.
     Abs(Id),
     /// Rounds down; its derivative is zero.
     Floor(Id),
+    /// `a` to the power `b`.
     Pow(Id, Id),
+    /// The smaller of each pair.
     Min(Id, Id),
+    /// The larger of each pair.
     Max(Id, Id),
     /// A mask.
     Compare(Cmp, Id, Id),
@@ -127,7 +150,16 @@ pub enum Op {
     Sum(Id, Vec<usize>),
     /// Contracts axes `ca` of the first operand with axes `cb` of the second (pairwise); the result
     /// has the first operand's other axes, then the second's (`stablehlo.dot_general`).
-    Dot { a: Id, b: Id, ca: Vec<usize>, cb: Vec<usize> },
+    Dot {
+        /// The first operand.
+        a: Id,
+        /// The second operand.
+        b: Id,
+        /// The first operand's contracted axes.
+        ca: Vec<usize>,
+        /// The second operand's contracted axes, paired with `ca`.
+        cb: Vec<usize>,
+    },
     /// The real FFT along the last axis: `n` real samples become `n / 2 + 1` complex bins.
     Rfft(Id),
     /// The inverse real FFT along the last axis: `n / 2 + 1` complex bins become `n` real samples,
@@ -146,9 +178,27 @@ pub enum Op {
     /// A real operand as complex numbers.
     ToComplex(Id),
     /// Indices `start..limit` by `stride` along each axis (`stablehlo.slice`).
-    Slice { a: Id, start: Vec<usize>, limit: Vec<usize>, stride: Vec<usize> },
+    Slice {
+        /// The operand.
+        a: Id,
+        /// First index per axis.
+        start: Vec<usize>,
+        /// One past the last index per axis.
+        limit: Vec<usize>,
+        /// Step per axis.
+        stride: Vec<usize>,
+    },
     /// Zero padding before, after and between the elements of each axis (`stablehlo.pad`).
-    Pad { a: Id, low: Vec<usize>, high: Vec<usize>, interior: Vec<usize> },
+    Pad {
+        /// The operand.
+        a: Id,
+        /// Zeros before each axis.
+        low: Vec<usize>,
+        /// Zeros after each axis.
+        high: Vec<usize>,
+        /// Zeros between consecutive elements of each axis.
+        interior: Vec<usize>,
+    },
     /// The operands joined along an axis (`stablehlo.concatenate`).
     Concat(Vec<Id>, usize),
     /// Max / min / product over `axes` (increasing), which are removed.
@@ -156,16 +206,40 @@ pub enum Op {
     /// Reverses each of `axes`.
     Reverse(Id, Vec<usize>),
     /// Rows of `table` (first axis) at `indices`, rounded down and clamped (`stablehlo.gather`).
-    Take { table: Id, indices: Id },
+    Take {
+        /// The rows to pick from.
+        table: Id,
+        /// Row numbers (as reals).
+        indices: Id,
+    },
     /// Zeros of the node's shape with each row of `updates` added at the row `indices` names (rounded
     /// down and clamped): the transpose of [`Take`](Op::Take) (`stablehlo.scatter`).
-    ScatterAdd { indices: Id, updates: Id },
+    ScatterAdd {
+        /// Row numbers (as reals).
+        indices: Id,
+        /// The rows to add.
+        updates: Id,
+    },
     /// Windows of `length` along the last axis, `hop` apart: `[..., n]` to `[..., count, length]`
     /// (`ArrayMath::frames`; emitted as slices, reshapes and a concatenation).
-    Frames { a: Id, length: usize, hop: usize },
+    Frames {
+        /// The signal.
+        a: Id,
+        /// Samples per frame.
+        length: usize,
+        /// Samples between frame starts.
+        hop: usize,
+    },
     /// Its transpose: frames `hop` apart summed into `[..., n]` (`ArrayMath::overlap_add`;
     /// emitted as pads and additions).
-    OverlapAdd { a: Id, n: usize, hop: usize },
+    OverlapAdd {
+        /// The frames.
+        a: Id,
+        /// Length of the result's last axis.
+        n: usize,
+        /// Samples between frame starts.
+        hop: usize,
+    },
 }
 
 impl Op {
@@ -253,8 +327,11 @@ impl Op {
 /// A node: its operation, and the shape and kind of its value.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Node {
+    /// what computes the value
     pub op: Op,
+    /// its shape
     pub shape: Vec<usize>,
+    /// real, complex or mask
     pub kind: Kind,
 }
 
@@ -283,6 +360,7 @@ impl Graph {
     pub(crate) fn fusion(&self) -> &super::fuse::Fusion {
         self.fusion.get_or_init(|| std::sync::Arc::new(super::fuse::Fusion::plan(self)))
     }
+    /// Every node, in topological order.
     pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
@@ -294,6 +372,7 @@ impl Graph {
     pub fn output_shapes(&self) -> Vec<Vec<usize>> {
         self.outputs.iter().map(|&o| self.nodes[o as usize].shape.clone()).collect()
     }
+    /// Number of outputs.
     pub fn outputs(&self) -> usize {
         self.outputs.len()
     }
@@ -524,6 +603,7 @@ impl Tracer {
         with_graph(|g| g.nodes[id as usize].kind)
     }
 
+    /// Whether the value is complex.
     pub fn is_complex(&self) -> bool {
         self.kind() == Kind::Complex
     }

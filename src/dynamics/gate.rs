@@ -75,9 +75,11 @@ impl<T: Float> Gate<T> {
         g.set_release(T::_lit(0.05));
         g
     }
+    /// Opening threshold in dB.
     pub fn set_threshold_db(&mut self, db: T) {
         self.threshold_db = db;
     }
+    /// Opening threshold in dB.
     pub fn threshold_db(&self) -> T {
         self.threshold_db
     }
@@ -85,6 +87,7 @@ impl<T: Float> Gate<T> {
     pub fn set_ratio(&mut self, ratio: T) {
         self.ratio = ratio._max(T::_ONE);
     }
+    /// Expansion ratio (infinite: a gate).
     pub fn ratio(&self) -> T {
         self.ratio
     }
@@ -92,19 +95,24 @@ impl<T: Float> Gate<T> {
     pub fn set_range_db(&mut self, db: T) {
         self.range_db = db._min(T::_ZERO);
     }
+    /// Largest gain reduction in dB (<= 0).
     pub fn range_db(&self) -> T {
         self.range_db
     }
+    /// How far below the opening threshold the level must fall before the gate closes, in dB.
     pub fn set_hysteresis_db(&mut self, db: T) {
         self.hysteresis_db = db._max(T::_ZERO);
     }
+    /// Hysteresis in dB.
     pub fn hysteresis_db(&self) -> T {
         self.hysteresis_db
     }
+    /// Opening time constant in seconds.
     pub fn set_attack(&mut self, seconds: T) {
         self.attack_seconds = seconds._max(T::_ZERO);
         self.attack_coeff = time_coeff(self.attack_seconds, self.sample_rate);
     }
+    /// Opening time in seconds.
     pub fn attack(&self) -> T {
         self.attack_seconds
     }
@@ -113,13 +121,16 @@ impl<T: Float> Gate<T> {
         self.hold_seconds = seconds._max(T::_ZERO);
         self.hold_samples = (self.hold_seconds * self.sample_rate).to_f64().unwrap_or(0.0).round() as usize;
     }
+    /// Hold time in seconds.
     pub fn hold(&self) -> T {
         self.hold_seconds
     }
+    /// Closing time constant in seconds.
     pub fn set_release(&mut self, seconds: T) {
         self.release_seconds = seconds._max(T::_ZERO);
         self.release_coeff = time_coeff(self.release_seconds, self.sample_rate);
     }
+    /// Closing time in seconds.
     pub fn release(&self) -> T {
         self.release_seconds
     }
@@ -131,6 +142,7 @@ impl<T: Float> Gate<T> {
     pub fn gain_reduction_db(&self) -> T {
         -self.gain_db
     }
+    /// Closes the gate and clears the detector.
     pub fn reset(&mut self) {
         self.level = T::_ZERO;
         self.open = false;
@@ -164,10 +176,12 @@ impl<T: Float> Gate<T> {
         self.gain_db = (target + (self.gain_db - target) * coeff)._flush_denormal();
         db_to_gain(self.gain_db)
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         x * self.gain_for_level(x._abs())
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);

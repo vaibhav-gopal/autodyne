@@ -3,15 +3,56 @@
 /// A MIDI channel message. Channels are 0-15; data values are 0-127.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MidiMessage {
-    NoteOn { channel: u8, note: u8, velocity: u8 },
-    NoteOff { channel: u8, note: u8, velocity: u8 },
-    ControlChange { channel: u8, controller: u8, value: u8 },
+    /// A key pressed (velocity 1-127: parsing turns a velocity of 0 into `NoteOff`).
+    NoteOn {
+        /// MIDI channel, 0-15.
+        channel: u8,
+        /// Key number (60 = middle C).
+        note: u8,
+        /// How hard the key was struck.
+        velocity: u8,
+    },
+    /// A key released.
+    NoteOff {
+        /// MIDI channel, 0-15.
+        channel: u8,
+        /// Key number.
+        note: u8,
+        /// Release velocity (often 0 or 64).
+        velocity: u8,
+    },
+    /// A controller moved (see [`cc`]).
+    ControlChange {
+        /// MIDI channel, 0-15.
+        channel: u8,
+        /// Controller number.
+        controller: u8,
+        /// Its new value.
+        value: u8,
+    },
     /// -8192 (full down) ..= 8191 (full up), 0 = centered
-    PitchBend { channel: u8, value: i16 },
+    PitchBend {
+        /// MIDI channel, 0-15.
+        channel: u8,
+        /// The bend.
+        value: i16,
+    },
     /// aftertouch for the whole channel (in MPE: one note's pressure)
-    ChannelPressure { channel: u8, value: u8 },
+    ChannelPressure {
+        /// MIDI channel, 0-15.
+        channel: u8,
+        /// The pressure.
+        value: u8,
+    },
     /// aftertouch for one note
-    PolyPressure { channel: u8, note: u8, value: u8 },
+    PolyPressure {
+        /// MIDI channel, 0-15.
+        channel: u8,
+        /// Key number.
+        note: u8,
+        /// The pressure.
+        value: u8,
+    },
 }
 
 /// Controller numbers with meaning to a synth.

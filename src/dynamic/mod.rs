@@ -21,20 +21,45 @@ use crate::units::*;
 mod processor;
 pub use processor::*;
 
+/// Errors from runtime-typed arrays, views and processors.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum DynError {
+    /// The element type isn't the one asked for.
     #[error("expected element type {expected}, found {found}")]
-    DTypeMismatch { expected: DType, found: DType },
+    DTypeMismatch {
+        /// The type asked for.
+        expected: DType,
+        /// The type there is.
+        found: DType,
+    },
+    /// The operation has no implementation for this element type.
     #[error("element type {0} is not supported here")]
     Unsupported(DType),
+    /// A complex value can't become this real type.
     #[error("cannot cast complex values to the real type {0}")]
     ComplexToReal(DType),
+    /// The conversion would lose values; cast explicitly to accept that.
     #[error("values of type {from} don't convert exactly to {to}; cast explicitly to accept the loss")]
-    Inexact { from: DType, to: DType },
+    Inexact {
+        /// The source type.
+        from: DType,
+        /// The target type.
+        to: DType,
+    },
+    /// The byte buffer doesn't hold the shape's elements.
     #[error("{bytes} bytes is not a whole number of {size}-byte elements for the shape (needs {needed})")]
-    ByteLength { bytes: usize, size: usize, needed: usize },
+    ByteLength {
+        /// Bytes given.
+        bytes: usize,
+        /// Bytes per element.
+        size: usize,
+        /// Bytes the layout reaches.
+        needed: usize,
+    },
+    /// The memory isn't aligned for typed access.
     #[error("the memory is not aligned for {0} elements; use to_array() to copy instead")]
     Unaligned(DType),
+    /// An n-d layout error.
     #[error(transparent)]
     Nd(#[from] NdError),
 }
@@ -165,17 +190,29 @@ fn cast_slice_mut<T: DynElement>(bytes: &mut [u8]) -> Option<&mut [T]> {
 /// An owned n-d array whose element type is chosen at runtime.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DynArray {
+    /// 32-bit floats.
     F32(NdArray<f32>),
+    /// 64-bit floats.
     F64(NdArray<f64>),
+    /// 8-bit signed integers.
     I8(NdArray<i8>),
+    /// 16-bit signed integers.
     I16(NdArray<i16>),
+    /// 32-bit signed integers.
     I32(NdArray<i32>),
+    /// 64-bit signed integers.
     I64(NdArray<i64>),
+    /// 8-bit unsigned integers.
     U8(NdArray<u8>),
+    /// 16-bit unsigned integers.
     U16(NdArray<u16>),
+    /// 32-bit unsigned integers.
     U32(NdArray<u32>),
+    /// 64-bit unsigned integers.
     U64(NdArray<u64>),
+    /// Complex numbers of 32-bit floats.
     ComplexF32(NdArray<Complex<f32>>),
+    /// Complex numbers of 64-bit floats.
     ComplexF64(NdArray<Complex<f64>>),
 }
 
@@ -238,18 +275,23 @@ impl DynArray {
     pub fn zeros(dtype: DType, shape: &[usize]) -> Result<Self, DynError> {
         with_dtype!(dtype, T => Ok(T::wrap(NdArray::<T>::zeros(shape)?)), Err(DynError::Unsupported(dtype)))
     }
+    /// Wraps a typed array (no copy).
     pub fn from_array<T: DynElement>(array: NdArray<T>) -> Self {
         T::wrap(array)
     }
+    /// The element type.
     pub fn dtype(&self) -> DType {
         dyn_match!(self, a => dtype_of(a))
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         dyn_match!(self, a => a.shape())
     }
+    /// Number of elements.
     pub fn len(&self) -> usize {
         dyn_match!(self, a => a.len())
     }
+    /// Whether there are no elements.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -258,6 +300,7 @@ impl DynArray {
         let found = self.dtype();
         T::peek(self).ok_or(DynError::DTypeMismatch { expected: T::DTYPE, found })
     }
+    /// The typed array, mutably, if the element type is `T`.
     pub fn as_array_mut<T: DynElement>(&mut self) -> Result<&mut NdArray<T>, DynError> {
         let found = self.dtype();
         T::peek_mut(self).ok_or(DynError::DTypeMismatch { expected: T::DTYPE, found })
@@ -390,9 +433,11 @@ impl<'a> DynView<'a> {
         layout.check_bytes(bytes.len())?;
         Ok(Self { bytes, layout })
     }
+    /// The element type.
     pub fn dtype(&self) -> DType {
         self.layout.dtype
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         &self.layout.shape[..self.layout.ndim]
     }
@@ -424,17 +469,22 @@ pub struct DynViewMut<'a> {
 }
 
 impl<'a> DynViewMut<'a> {
+    /// A row-major view of `bytes` as elements of `dtype` with `shape`.
     pub fn new(bytes: &'a mut [u8], dtype: DType, shape: &[usize]) -> Result<Self, DynError> {
         Self::with_strides(bytes, dtype, shape, None, 0)
     }
+    /// A view with explicit element strides and the element offset of index [0, 0, ...] (see
+    /// [`DynView::with_strides`]).
     pub fn with_strides(bytes: &'a mut [u8], dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
         let layout = RawLayout::new(dtype, shape, strides, offset)?;
         layout.check_bytes(bytes.len())?;
         Ok(Self { bytes, layout })
     }
+    /// The element type.
     pub fn dtype(&self) -> DType {
         self.layout.dtype
     }
+    /// Length of each axis.
     pub fn shape(&self) -> &[usize] {
         &self.layout.shape[..self.layout.ndim]
     }

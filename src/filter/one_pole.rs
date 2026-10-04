@@ -40,11 +40,13 @@ impl<T: Real> OnePole<T> {
 }
 
 impl<T: Float> OnePole<T> {
+    /// Moves the cutoff, keeping the state.
     pub fn set_cutoff(&mut self, cutoff: T, sample_rate: T) {
         self.pole = Self::pole(cutoff, sample_rate);
         self.a = T::_ONE - self.pole;
     }
 
+    /// Filters one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let (state, y) = self.tick(self.state, x);
@@ -64,6 +66,7 @@ impl<T: Float> OnePole<T> {
         self.state = state._flush_denormal();
     }
 
+    /// Clears the state.
     pub fn reset(&mut self) {
         self.state = T::_ZERO;
     }

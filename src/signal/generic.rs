@@ -17,7 +17,7 @@ fn gcd(a: usize, b: usize) -> usize {
 ///
 /// One operation for arrays that have it (`NdArray` copies the windows; a traced program records a
 /// single framing node, emitted as slices, reshapes and one concatenation); otherwise built from
-/// those primitives ([`frames_by_slices`]). Its transpose is [`ArrayMath::overlap_add`].
+/// those primitives. Its transpose is [`ArrayMath::overlap_add`].
 ///
 /// ```
 /// use autodyne::signal::{frames, ArrayMath, NdArray};

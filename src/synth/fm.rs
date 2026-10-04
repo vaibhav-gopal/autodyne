@@ -106,6 +106,7 @@ impl<T: Float> FmVoice<T> {
     pub fn set_algorithm(&mut self, index: usize) {
         self.algorithm = index.min(Algorithm::ALL.len() - 1);
     }
+    /// The algorithm's index in [`Algorithm::ALL`].
     pub fn algorithm(&self) -> usize {
         self.algorithm
     }
@@ -113,6 +114,7 @@ impl<T: Float> FmVoice<T> {
     pub fn set_feedback(&mut self, amount: T) {
         self.feedback = amount._clamp(T::_ZERO, T::_ONE);
     }
+    /// Operator 4's self-modulation, 0..1.
     pub fn feedback(&self) -> T {
         self.feedback
     }
@@ -121,13 +123,16 @@ impl<T: Float> FmVoice<T> {
         self.ops[op].ratio = ratio._max(T::_lit(0.001));
         self.update_pitch();
     }
+    /// Operator `op`'s frequency ratio.
     pub fn ratio(&self, op: usize) -> T {
         self.ops[op].ratio
     }
+    /// Operator `op`'s detune in cents.
     pub fn set_detune(&mut self, op: usize, cents: T) {
         self.ops[op].detune_cents = cents;
         self.update_pitch();
     }
+    /// Operator `op`'s detune in cents.
     pub fn detune(&self, op: usize) -> T {
         self.ops[op].detune_cents
     }
@@ -135,12 +140,15 @@ impl<T: Float> FmVoice<T> {
     pub fn set_level(&mut self, op: usize, level: T) {
         self.ops[op].level = level._clamp(T::_ZERO, T::_ONE);
     }
+    /// Operator `op`'s output level, 0..1.
     pub fn level(&self, op: usize) -> T {
         self.ops[op].level
     }
+    /// Operator `op`'s envelope.
     pub fn env(&self, op: usize) -> &Adsr<T> {
         &self.ops[op].env
     }
+    /// Operator `op`'s envelope, to change its settings.
     pub fn env_mut(&mut self, op: usize) -> &mut Adsr<T> {
         &mut self.ops[op].env
     }

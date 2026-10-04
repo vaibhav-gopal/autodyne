@@ -16,10 +16,15 @@ use crate::units::*;
 /// Where an [`Adsr`] is in its cycle.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stage {
+    /// at 0, waiting for a note
     Idle,
+    /// rising to 1
     Attack,
+    /// falling to the sustain level
     Decay,
+    /// holding the sustain level until note-off
     Sustain,
+    /// falling to 0 after note-off
     Release,
 }
 
@@ -51,33 +56,43 @@ impl<T: Float> Adsr<T> {
             release_step: T::_ZERO,
         }
     }
+    /// Attack time in seconds.
     pub fn set_attack(&mut self, seconds: T) {
         self.attack = seconds._max(T::_ZERO);
     }
+    /// Decay time in seconds.
     pub fn set_decay(&mut self, seconds: T) {
         self.decay = seconds._max(T::_ZERO);
     }
+    /// Sustain level, 0..1.
     pub fn set_sustain(&mut self, level: T) {
         self.sustain = level._clamp(T::_ZERO, T::_ONE);
     }
+    /// Release time in seconds.
     pub fn set_release(&mut self, seconds: T) {
         self.release = seconds._max(T::_ZERO);
     }
+    /// Attack time in seconds.
     pub fn attack(&self) -> T {
         self.attack
     }
+    /// Decay time in seconds.
     pub fn decay(&self) -> T {
         self.decay
     }
+    /// Sustain level.
     pub fn sustain(&self) -> T {
         self.sustain
     }
+    /// Release time in seconds.
     pub fn release(&self) -> T {
         self.release
     }
+    /// The current stage.
     pub fn stage(&self) -> Stage {
         self.stage
     }
+    /// The current level, 0..1.
     pub fn level(&self) -> T {
         self.level
     }

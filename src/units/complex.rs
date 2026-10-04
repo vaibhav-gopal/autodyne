@@ -8,17 +8,22 @@ use super::*;
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 #[repr(C)]
 pub struct Complex<T: Float> {
+    /// The real part.
     pub re: T,
+    /// The imaginary part.
     pub im: T,
 }
 
 impl<T: Float> Complex<T> {
+    /// `re + i·im`.
     pub const fn new(re: T, im: T) -> Self {
         Self { re, im }
     }
+    /// `0 + 0i`.
     pub fn zero() -> Self {
         Self::new(T::_ZERO, T::_ZERO)
     }
+    /// `1 + 0i`.
     pub fn one() -> Self {
         Self::new(T::_ONE, T::_ZERO)
     }
@@ -35,6 +40,7 @@ impl<T: Float> Complex<T> {
     pub fn cis(theta: T) -> Self {
         Self::from_polar(T::_ONE, theta)
     }
+    /// The complex conjugate `re - i·im`.
     pub fn conj(self) -> Self {
         Self::new(self.re, -self.im)
     }
@@ -58,6 +64,7 @@ impl<T: Float> Complex<T> {
     pub fn exp(self) -> Self {
         Self::from_polar(self.re._exp(), self.im)
     }
+    /// `1 / z` (infinite or NaN parts for zero).
     pub fn recip(self) -> Self {
         let d = self.norm_sqr();
         Self::new(self.re / d, -self.im / d)

@@ -15,7 +15,9 @@ pub struct LadderCoeffs<T> {
     pub g: T,
     /// 0..1
     pub resonance: T,
+    /// Saturation drive (linear, at least 0.01).
     pub drive: T,
+    /// Whether the passband gain is compensated for resonance.
     pub compensate: bool,
 }
 
@@ -101,6 +103,7 @@ impl<T: Float> Ladder<T> {
         self.cutoff = hz._max(T::_ONE)._min(T::_lit(0.49) * self.sample_rate);
         self.g = (T::_PI * self.cutoff / self.sample_rate)._tan();
     }
+    /// Cutoff in Hz.
     pub fn cutoff(&self) -> T {
         self.cutoff
     }
@@ -108,6 +111,7 @@ impl<T: Float> Ladder<T> {
     pub fn set_resonance(&mut self, resonance: T) {
         self.resonance = resonance._clamp(T::_ZERO, T::_ONE);
     }
+    /// Resonance, 0..1.
     pub fn resonance(&self) -> T {
         self.resonance
     }
@@ -118,6 +122,7 @@ impl<T: Float> Ladder<T> {
     pub fn set_drive(&mut self, drive: T) {
         self.drive = drive._max(T::_lit(0.01));
     }
+    /// Drive (linear).
     pub fn drive(&self) -> T {
         self.drive
     }
@@ -127,9 +132,11 @@ impl<T: Float> Ladder<T> {
     pub fn set_compensation(&mut self, on: bool) {
         self.compensate = on;
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
+    /// Clears the four stages.
     pub fn reset(&mut self) {
         self.stages = [T::_ZERO; 4];
     }
@@ -139,6 +146,7 @@ impl<T: Float> Ladder<T> {
         LadderCoeffs { g: self.g, resonance: self.resonance, drive: self.drive, compensate: self.compensate }
     }
 
+    /// Filters one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let (stages, y) = self.coeffs().tick(self.stages, x);

@@ -39,15 +39,19 @@ fn zeros_like<T: FluxFloat>(params: &[NdArray<T>]) -> Vec<Vec<f64>> {
 /// Stochastic gradient descent with optional momentum (`v = μ v + g`, `p -= lr v`).
 #[derive(Debug, Clone)]
 pub struct Sgd {
+    /// learning rate
     pub lr: f64,
+    /// momentum `μ` (0: plain gradient descent)
     pub momentum: f64,
     velocity: Vec<Vec<f64>>,
 }
 
 impl Sgd {
+    /// Plain gradient descent at learning rate `lr`.
     pub fn new(lr: f64) -> Self {
         Sgd { lr, momentum: 0.0, velocity: Vec::new() }
     }
+    /// Momentum `μ`, typically 0.9.
     pub fn with_momentum(mut self, momentum: f64) -> Self {
         self.momentum = momentum;
         self
@@ -73,9 +77,13 @@ impl Optimizer for Sgd {
 /// second moments, bias-corrected. Defaults β₁ = 0.9, β₂ = 0.999, ε = 1e-8.
 #[derive(Debug, Clone)]
 pub struct Adam {
+    /// learning rate
     pub lr: f64,
+    /// decay of the first-moment estimate
     pub beta1: f64,
+    /// decay of the second-moment estimate
     pub beta2: f64,
+    /// added to the denominator for stability
     pub eps: f64,
     t: i32,
     m: Vec<Vec<f64>>,
@@ -83,9 +91,11 @@ pub struct Adam {
 }
 
 impl Adam {
+    /// Adam at learning rate `lr`, with the default betas and epsilon.
     pub fn new(lr: f64) -> Self {
         Adam { lr, beta1: 0.9, beta2: 0.999, eps: 1e-8, t: 0, m: Vec::new(), v: Vec::new() }
     }
+    /// The moment decays β₁ and β₂.
     pub fn with_betas(mut self, beta1: f64, beta2: f64) -> Self {
         (self.beta1, self.beta2) = (beta1, beta2);
         self

@@ -18,6 +18,7 @@ pub struct LinkwitzRiley<T: Float> {
 }
 
 impl<T: Float> LinkwitzRiley<T> {
+    /// A split at `frequency` Hz (kept between 10 Hz and 0.45 x the sample rate).
     pub fn new(frequency: T, sample_rate: T) -> Self {
         let f = clamp_frequency(frequency, sample_rate);
         let q = T::_lit(BUTTERWORTH_Q);
@@ -33,6 +34,7 @@ impl<T: Float> LinkwitzRiley<T> {
         self.low.iter_mut().for_each(|b| b.set_coeffs(lp));
         self.high.iter_mut().for_each(|b| b.set_coeffs(hp));
     }
+    /// The crossover frequency in Hz.
     pub fn frequency(&self) -> T {
         self.frequency
     }
@@ -41,9 +43,11 @@ impl<T: Float> LinkwitzRiley<T> {
     pub fn allpass(&self) -> Biquad<T> {
         Biquad::new(BiquadCoeffs::allpass(self.frequency, T::_lit(BUTTERWORTH_Q), self.sample_rate))
     }
+    /// Clears the filters' state.
     pub fn reset(&mut self) {
         self.low.iter_mut().chain(self.high.iter_mut()).for_each(Biquad::reset);
     }
+    /// Sets decayed filter states to exact zeros (see [`Biquad::flush_denormals`]).
     pub fn flush_denormals(&mut self) {
         self.low.iter_mut().chain(self.high.iter_mut()).for_each(Biquad::flush_denormals);
     }
@@ -91,9 +95,11 @@ impl<T: Float> Crossover<T> {
         c.redesign_compensation();
         c
     }
+    /// The number of bands.
     pub fn bands(&self) -> usize {
         self.splits + 1
     }
+    /// Crossover `split`'s frequency in Hz.
     pub fn frequency(&self, split: usize) -> T {
         self.lr[split].frequency()
     }
@@ -118,6 +124,7 @@ impl<T: Float> Crossover<T> {
             }
         }
     }
+    /// Clears every filter's state.
     pub fn reset(&mut self) {
         self.lr.iter_mut().for_each(LinkwitzRiley::reset);
         self.compensation.iter_mut().flatten().for_each(Biquad::reset);

@@ -12,23 +12,36 @@ use super::Complex;
 /// Element type of a buffer, as a runtime value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DType {
+    /// 32-bit float.
     F32,
+    /// 64-bit float.
     F64,
+    /// 8-bit signed integer.
     I8,
+    /// 16-bit signed integer.
     I16,
     /// 24-bit signed integer, packed in 3 bytes (common in audio files and interfaces)
     I24,
+    /// 32-bit signed integer.
     I32,
+    /// 64-bit signed integer.
     I64,
+    /// 8-bit unsigned integer.
     U8,
+    /// 16-bit unsigned integer.
     U16,
+    /// 32-bit unsigned integer.
     U32,
+    /// 64-bit unsigned integer.
     U64,
+    /// Complex number of two 32-bit floats (real, imaginary).
     ComplexF32,
+    /// Complex number of two 64-bit floats (real, imaginary).
     ComplexF64,
 }
 
 impl DType {
+    /// Every element type, in declaration order.
     pub const ALL: [DType; 13] = [
         DType::F32, DType::F64, DType::I8, DType::I16, DType::I24, DType::I32, DType::I64,
         DType::U8, DType::U16, DType::U32, DType::U64, DType::ComplexF32, DType::ComplexF64,
@@ -67,15 +80,19 @@ impl DType {
     pub fn from_name(name: &str) -> Option<DType> {
         DType::ALL.into_iter().find(|d| d.name().eq_ignore_ascii_case(name))
     }
+    /// `F32` or `F64`.
     pub const fn is_float(self) -> bool {
         matches!(self, DType::F32 | DType::F64)
     }
+    /// `ComplexF32` or `ComplexF64`.
     pub const fn is_complex(self) -> bool {
         matches!(self, DType::ComplexF32 | DType::ComplexF64)
     }
+    /// Any of the signed or unsigned integers (`I24` included).
     pub const fn is_integer(self) -> bool {
         !self.is_float() && !self.is_complex()
     }
+    /// Whether negative values are representable (floats and complex numbers included).
     pub const fn is_signed(self) -> bool {
         !matches!(self, DType::U8 | DType::U16 | DType::U32 | DType::U64)
     }

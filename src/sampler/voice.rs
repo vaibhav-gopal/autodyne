@@ -19,7 +19,9 @@ pub enum Interpolation {
 }
 
 impl Interpolation {
+    /// Every method, in parameter order.
     pub const ALL: [Interpolation; 3] = [Interpolation::Linear, Interpolation::Cubic, Interpolation::Sinc];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 3] = ["Linear", "Cubic", "Sinc"];
 }
 
@@ -133,18 +135,23 @@ impl<T: Float> SamplerVoice<T> {
     pub fn set_map(&mut self, map: Arc<SampleMap<T>>) {
         self.map = map;
     }
+    /// The instrument played.
     pub fn map(&self) -> &Arc<SampleMap<T>> {
         &self.map
     }
+    /// How samples are read between frames.
     pub fn set_interpolation(&mut self, interpolation: Interpolation) {
         self.interpolation = interpolation;
     }
+    /// How samples are read between frames.
     pub fn interpolation(&self) -> Interpolation {
         self.interpolation
     }
+    /// The amplitude envelope.
     pub fn amp_env(&self) -> &Adsr<T> {
         &self.amp_env
     }
+    /// The amplitude envelope, to change its settings.
     pub fn amp_env_mut(&mut self) -> &mut Adsr<T> {
         &mut self.amp_env
     }
@@ -152,6 +159,7 @@ impl<T: Float> SamplerVoice<T> {
     pub fn set_velocity_sensitivity(&mut self, amount: T) {
         self.velocity_sensitivity = amount._clamp(T::_ZERO, T::_ONE);
     }
+    /// Velocity sensitivity, 0..1.
     pub fn velocity_sensitivity(&self) -> T {
         self.velocity_sensitivity
     }
@@ -160,6 +168,7 @@ impl<T: Float> SamplerVoice<T> {
         self.tune = semitones;
         self.update_pitch();
     }
+    /// Transposition in semitones.
     pub fn tune(&self) -> T {
         self.tune
     }
@@ -167,6 +176,7 @@ impl<T: Float> SamplerVoice<T> {
     pub fn set_start(&mut self, fraction: T) {
         self.start = fraction._clamp(T::_ZERO, T::_ONE);
     }
+    /// Start position as a fraction of the sample.
     pub fn start(&self) -> T {
         self.start
     }

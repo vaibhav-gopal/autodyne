@@ -57,12 +57,15 @@ impl<T: Float> MultibandCompressor<T> {
             split: vec![[T::_ZERO; MAX_BANDS]; channels],
         }
     }
+    /// Number of channels.
     pub fn channels(&self) -> usize {
         self.crossovers.len()
     }
+    /// Number of bands.
     pub fn bands(&self) -> usize {
         self.crossovers[0].bands()
     }
+    /// Crossover `split`'s frequency in Hz.
     pub fn crossover_frequency(&self, split: usize) -> T {
         self.crossovers[0].frequency(split)
     }
@@ -74,6 +77,7 @@ impl<T: Float> MultibandCompressor<T> {
     pub fn band(&self, band: usize) -> &Compressor<T> {
         &self.compressors[band]
     }
+    /// Band `band`'s compressor, mutably.
     pub fn band_mut(&mut self, band: usize) -> &mut Compressor<T> {
         &mut self.compressors[band]
     }
@@ -81,9 +85,11 @@ impl<T: Float> MultibandCompressor<T> {
     pub fn set_bypass(&mut self, band: usize, bypass: bool) {
         self.bypass[band] = bypass;
     }
+    /// Whether band `band` is bypassed.
     pub fn bypass(&self, band: usize) -> bool {
         self.bypass[band]
     }
+    /// Clears the crossovers' and compressors' state.
     pub fn reset(&mut self) {
         self.crossovers.iter_mut().for_each(Crossover::reset);
         self.compressors.iter_mut().for_each(Compressor::reset);

@@ -110,12 +110,16 @@ impl Loss {
 /// of `window` samples (`window <= n_fft`, zero-padded), `hop` samples apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct StftResolution {
+    /// FFT points (zero-padded frames)
     pub n_fft: usize,
+    /// samples between frames
     pub hop: usize,
+    /// samples per Hann-windowed frame
     pub window: usize,
 }
 
 impl StftResolution {
+    /// A resolution of `n_fft` points, `hop` samples apart, `window` samples per frame.
     pub const fn new(n_fft: usize, hop: usize, window: usize) -> Self {
         StftResolution { n_fft, hop, window }
     }

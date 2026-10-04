@@ -91,6 +91,7 @@ impl<T: Float> LookaheadLimiter<T> {
         limiter.set_release(T::_lit(0.1));
         limiter
     }
+    /// Number of channels.
     pub fn channels(&self) -> usize {
         self.delays.len()
     }
@@ -103,6 +104,7 @@ impl<T: Float> LookaheadLimiter<T> {
         self.ceiling_db = db._min(T::_ZERO);
         self.ceiling = db_to_gain(self.ceiling_db);
     }
+    /// Ceiling in dB.
     pub fn ceiling_db(&self) -> T {
         self.ceiling_db
     }
@@ -111,6 +113,7 @@ impl<T: Float> LookaheadLimiter<T> {
         self.release_seconds = seconds._max(T::_ZERO);
         self.release_coeff = if self.release_seconds > T::_ZERO { (-T::_ONE / (self.release_seconds * self.sample_rate))._exp() } else { T::_ZERO };
     }
+    /// Release time in seconds.
     pub fn release(&self) -> T {
         self.release_seconds
     }
@@ -118,6 +121,7 @@ impl<T: Float> LookaheadLimiter<T> {
     pub fn set_true_peak(&mut self, on: bool) {
         self.true_peak = on;
     }
+    /// Whether inter-sample peaks are limited too.
     pub fn true_peak(&self) -> bool {
         self.true_peak
     }
@@ -125,6 +129,7 @@ impl<T: Float> LookaheadLimiter<T> {
     pub fn gain_reduction_db(&self) -> T {
         -gain_to_db(self.gain)
     }
+    /// Clears the lookahead and the detectors.
     pub fn reset(&mut self) {
         self.detectors.iter_mut().for_each(TruePeak::reset);
         self.delays.iter_mut().flatten().for_each(|s| *s = T::_ZERO);

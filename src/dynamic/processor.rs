@@ -15,23 +15,28 @@ use crate::units::*;
 /// A block of samples in a float type chosen at runtime.
 #[derive(Debug)]
 pub enum DynBlock<'a> {
+    /// 32-bit float samples.
     F32(&'a mut [f32]),
+    /// 64-bit float samples.
     F64(&'a mut [f64]),
 }
 
 impl DynBlock<'_> {
+    /// The sample type.
     pub fn dtype(&self) -> DType {
         match self {
             DynBlock::F32(_) => DType::F32,
             DynBlock::F64(_) => DType::F64,
         }
     }
+    /// Number of samples.
     pub fn len(&self) -> usize {
         match self {
             DynBlock::F32(b) => b.len(),
             DynBlock::F64(b) => b.len(),
         }
     }
+    /// Whether there are no samples.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -86,6 +91,7 @@ pub trait DynProcessor: Parameterized + Send {
     fn dtype(&self) -> DType;
     /// Processes a block in place; errors if its type isn't `dtype()`.
     fn process_dyn(&mut self, block: DynBlock<'_>) -> Result<(), DynError>;
+    /// Clears internal state, keeping parameters.
     fn reset(&mut self);
 
     /// Processes every lane along `axis` of a runtime-typed array (e.g. each clip of a
@@ -118,15 +124,19 @@ pub struct Typed<P, T> {
 }
 
 impl<P, T> Typed<P, T> {
+    /// Wraps `processor`.
     pub fn new(processor: P) -> Self {
         Self { processor, _sample: PhantomData }
     }
+    /// The wrapped processor.
     pub fn inner(&self) -> &P {
         &self.processor
     }
+    /// The wrapped processor, mutably.
     pub fn inner_mut(&mut self) -> &mut P {
         &mut self.processor
     }
+    /// Gives back the wrapped processor.
     pub fn into_inner(self) -> P {
         self.processor
     }
@@ -204,7 +214,9 @@ impl DynProcessor for Vec<Box<dyn DynProcessor>> {
 /// assert_eq!(p.dtype(), DType::F64);
 /// ```
 pub trait ProcessorFactory {
+    /// The processor built for sample type `T`.
     type Output<T: FloatElement>: Processor<T> + Parameterized + Send + 'static;
+    /// Builds the processor for `sample_rate`, in the sample type the caller chose at runtime.
     fn build<T: FloatElement>(&self, sample_rate: T) -> Self::Output<T>;
 }
 

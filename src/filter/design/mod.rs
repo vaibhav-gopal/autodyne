@@ -27,8 +27,10 @@ pub use special::{arc_jac_sn, bessel_i0, ellipj, ellipk, ellipkm1};
 
 use thiserror::Error;
 
+/// Errors from filter design.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DesignError {
+    /// The specifications are out of range or inconsistent.
     #[error("invalid design: {0}")]
     Invalid(String),
 }

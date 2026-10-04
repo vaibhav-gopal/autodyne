@@ -21,6 +21,7 @@ pub enum Broadcast<T> {
 
 /// In-place transforms of a real-valued signal. Implemented for `[T]`.
 pub trait SignalMut: Signal {
+    /// The underlying samples, mutably.
     fn samples_mut(&mut self) -> &mut [Self::Sample];
 
     // Gain and shape =============================================================================
@@ -162,6 +163,7 @@ pub trait SignalMut: Signal {
     fn add_signal(&mut self, other: &[Self::Sample]) -> Result<(), SignalError> {
         self.zip_apply(other, Broadcast::Strict, |a, b| a + b)
     }
+    /// Pointwise difference; lengths must match.
     fn sub_signal(&mut self, other: &[Self::Sample]) -> Result<(), SignalError> {
         self.zip_apply(other, Broadcast::Strict, |a, b| a - b)
     }
@@ -169,6 +171,7 @@ pub trait SignalMut: Signal {
     fn mul_signal(&mut self, other: &[Self::Sample]) -> Result<(), SignalError> {
         self.zip_apply(other, Broadcast::Strict, |a, b| a * b)
     }
+    /// Pointwise quotient; lengths must match.
     fn div_signal(&mut self, other: &[Self::Sample]) -> Result<(), SignalError> {
         self.zip_apply(other, Broadcast::Strict, |a, b| a / b)
     }

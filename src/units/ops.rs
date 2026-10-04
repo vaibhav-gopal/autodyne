@@ -2,9 +2,12 @@
 use super::*;
 
 // Marker traits
+/// Bit operations: not, and, or, xor and shifts.
 pub trait Bitwise: Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self> + Shl<Output = Self> + Shr<Output = Self> + Sized {}
 
+/// Squares and square roots.
 pub trait ExpBasic: Unit {
+    /// The result type (`Self` for floats).
     type Output: Unit;
     /// self^2
     fn _sq(self) -> <Self as ExpBasic>::Output;
@@ -13,11 +16,13 @@ pub trait ExpBasic: Unit {
 }
 
 // Opt-In Traits
+/// Powers with an exponent of type `RHS`.
 pub trait ExpPowDynamic<RHS>: ExpBasic {
     /// self^rhs
     fn _pow(self, rhs: RHS) -> <Self as ExpBasic>::Output;
 }
 
+/// Roots with a degree of type `RHS`.
 pub trait ExpRootDynamic<RHS>: ExpBasic {
     /// self^(1/rhs)
     fn _root(self, n: RHS) -> <Self as ExpBasic>::Output;
@@ -25,13 +30,19 @@ pub trait ExpRootDynamic<RHS>: ExpBasic {
 
 /// Trigonometric functions (radians)
 pub trait Trig: Unit {
+    /// Sine.
     fn _sin(self) -> Self;
+    /// Cosine.
     fn _cos(self) -> Self;
+    /// Tangent.
     fn _tan(self) -> Self;
     /// (sin(self), cos(self)) ; cheaper than calling both separately
     fn _sin_cos(self) -> (Self, Self);
+    /// Arcsine, in [-π/2, π/2].
     fn _asin(self) -> Self;
+    /// Arccosine, in [0, π].
     fn _acos(self) -> Self;
+    /// Arctangent, in (-π/2, π/2).
     fn _atan(self) -> Self;
     /// four-quadrant arctangent of self / other
     fn _atan2(self, other: Self) -> Self;
@@ -39,6 +50,7 @@ pub trait Trig: Unit {
     fn _hypot(self, other: Self) -> Self;
 }
 
+/// Exponentials and logarithms.
 pub trait ExpFloat<RHS = Self>: ExpRootDynamic<RHS> + ExpPowDynamic<RHS> {
     /// e^self
     fn _exp(self) -> <Self as ExpBasic>::Output;

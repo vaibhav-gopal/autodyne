@@ -20,6 +20,7 @@ use thiserror::Error;
 /// Audio and metadata from (or for) a WAV file.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Wav<T> {
+    /// frames per second
     pub sample_rate: u32,
     /// planar samples, one Vec per channel, in [-1, 1]
     pub channels: Vec<Vec<T>>,
@@ -49,35 +50,54 @@ pub struct WavLoop {
     pub start: usize,
     /// one past the last frame (the file stores the last frame inclusively)
     pub end: usize,
+    /// how the loop plays
     pub kind: WavLoopKind,
 }
 
+/// How a `smpl` loop plays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WavLoopKind {
+    /// start to end, repeatedly
     Forward,
+    /// back and forth between start and end
     PingPong,
+    /// end to start, repeatedly
     Backward,
 }
 
+/// Errors reading WAV files.
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum WavError {
+    /// The file isn't RIFF/WAVE.
     #[error("not a RIFF/WAVE file")]
     NotWave,
+    /// The file ends inside a chunk or header.
     #[error("the file ends inside a chunk or header")]
     Truncated,
+    /// No `fmt ` chunk before the audio.
     #[error("no `fmt ` chunk before the audio data")]
     MissingFormat,
+    /// No `data` chunk.
     #[error("no `data` chunk")]
     MissingData,
+    /// A sample format this reader doesn't decode.
     #[error("unsupported sample format (format tag {tag:#06x}, {bits} bits)")]
-    Unsupported { tag: u16, bits: u16 },
+    Unsupported {
+        /// The `fmt ` chunk's format tag.
+        tag: u16,
+        /// Bits per sample.
+        bits: u16,
+    },
 }
 
 /// Sample encodings [`write()`] produces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum WavFormat {
+    /// 16-bit integer PCM.
     Pcm16,
+    /// 24-bit integer PCM.
     Pcm24,
+    /// 32-bit IEEE float.
     Float32,
 }
 

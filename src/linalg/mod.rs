@@ -37,18 +37,30 @@ pub trait LinalgFloat: Float + Default + faer::traits::RealField {}
 impl LinalgFloat for f32 {}
 impl LinalgFloat for f64 {}
 
+/// Errors from linear algebra.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum LinalgError {
     #[error("expected a {expected} array, got shape {got:?}")]
-    Dims { expected: &'static str, got: Vec<usize> },
+    /// An operand with the wrong number of axes.
+    Dims {
+        /// What was needed, e.g. "2-D".
+        expected: &'static str,
+        /// The shape given.
+        got: Vec<usize>,
+    },
+    /// A square matrix was needed (the shape given).
     #[error("expected a square matrix, got shape {0:?}")]
     NotSquare(Vec<usize>),
+    /// Operand shapes that don't fit together.
     #[error("shapes {0:?} and {1:?} are not aligned")]
     Mismatch(Vec<usize>, Vec<usize>),
+    /// The matrix has no inverse.
     #[error("the matrix is singular")]
     Singular,
+    /// Cholesky needs a symmetric positive definite matrix.
     #[error("the matrix is not positive definite")]
     NotPositiveDefinite,
+    /// An iterative algorithm didn't converge.
     #[error("the iteration did not converge")]
     NoConvergence,
 }
@@ -279,6 +291,7 @@ pub fn cholesky<T: LinalgFloat>(a: NdView<'_, T>) -> Result<NdArray<T>, LinalgEr
 /// Eigenvalues and eigenvectors of a general square matrix.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Eig<T: Float> {
+    /// The eigenvalues, in no particular order.
     pub values: Vec<Complex<T>>,
     /// Column `i` is the (unit-norm) eigenvector of `values[i]`.
     pub vectors: NdArray<Complex<T>>,
@@ -458,9 +471,11 @@ fn of_f64<T: LinalgFloat>(x: f64) -> T {
 /// A singular value decomposition `a = u · diag(s) · vt`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Svd<T> {
+    /// Left singular vectors (columns).
     pub u: NdArray<T>,
     /// Non-negative, largest first.
     pub s: Vec<T>,
+    /// Right singular vectors, transposed (rows).
     pub vt: NdArray<T>,
 }
 

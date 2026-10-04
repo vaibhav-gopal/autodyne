@@ -91,9 +91,11 @@ impl<T: Float> PitchDetector<T> {
     pub fn frame_len(&self) -> usize {
         self.frame.len()
     }
+    /// Samples between estimates in [`process`](Self::process) (at least 1).
     pub fn set_hop(&mut self, hop: usize) {
         self.hop = hop.max(1);
     }
+    /// Samples between estimates.
     pub fn hop(&self) -> usize {
         self.hop
     }
@@ -106,6 +108,7 @@ impl<T: Float> PitchDetector<T> {
     pub fn pitch(&self) -> Option<Pitch<T>> {
         self.latest
     }
+    /// Clears the history and the latest estimate.
     pub fn reset(&mut self) {
         self.history.iter_mut().for_each(|s| *s = T::_ZERO);
         self.write = 0;

@@ -26,6 +26,7 @@ const DEPTH_NAMES: [&str; MAX_ROUTES] = [
 /// Its depth is a separate, automatable parameter of the [`Modulated`] processor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Route {
+    /// the modulation source
     pub source: usize,
     /// a parameter index of the wrapped processor
     pub destination: usize,
@@ -33,12 +34,16 @@ pub struct Route {
     pub via: Option<usize>,
 }
 
+/// Errors connecting modulation routes.
 #[derive(Error, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RouteError {
+    /// A route slot past the last one.
     #[error("no route slot {0}")]
     UnknownSlot(usize),
+    /// A source index past the last source.
     #[error("no modulation source {0}")]
     UnknownSource(usize),
+    /// A parameter index the wrapped processor doesn't have.
     #[error("no parameter {0} to modulate")]
     UnknownDestination(usize),
 }
@@ -92,6 +97,7 @@ impl<P: Parameterized> Modulated<P> {
             depth_names: DEPTH_NAMES[..route_slots].to_vec(),
         }
     }
+    /// The wrapped processor.
     pub fn inner(&self) -> &P {
         &self.inner
     }
@@ -100,6 +106,7 @@ impl<P: Parameterized> Modulated<P> {
     pub fn inner_mut(&mut self) -> &mut P {
         &mut self.inner
     }
+    /// Gives back the wrapped processor.
     pub fn into_inner(self) -> P {
         self.inner
     }
@@ -120,16 +127,20 @@ impl<P: Parameterized> Modulated<P> {
             *s = value;
         }
     }
+    /// Every source's current value.
     pub fn sources(&self) -> &[f64] {
         &self.sources
     }
+    /// Every source's value, mutably (to set several at once).
     pub fn sources_mut(&mut self) -> &mut [f64] {
         &mut self.sources
     }
 
+    /// Number of route slots.
     pub fn route_slots(&self) -> usize {
         self.routes.len()
     }
+    /// The route in `slot`, if one is connected.
     pub fn route(&self, slot: usize) -> Option<Route> {
         self.routes.get(slot).copied().flatten()
     }
@@ -159,6 +170,7 @@ impl<P: Parameterized> Modulated<P> {
         *d = depth.clamp(-1.0, 1.0);
         Ok(())
     }
+    /// The depth of the route in `slot` (`None` past the last slot).
     pub fn depth(&self, slot: usize) -> Option<f64> {
         self.depths.get(slot).copied()
     }

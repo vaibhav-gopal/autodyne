@@ -23,9 +23,13 @@ use super::{Elementwise, RealValued};
 
 /// The integer types fixed-point values are stored in.
 pub trait FixedStorage: Copy + Ord + Eq + std::hash::Hash + fmt::Debug + Default + Send + Sync + 'static {
+    /// Width in bits.
     const BITS: u32;
+    /// The smallest value.
     const MIN: Self;
+    /// The largest value.
     const MAX: Self;
+    /// The value widened to `i128`.
     fn fixed_raw(self) -> i128;
     /// Clamps to the type's range.
     fn fixed_saturate(v: i128) -> Self;
@@ -127,12 +131,15 @@ impl<I: FixedStorage, const FRAC: u32> Fixed<I, FRAC> {
         (rhs.raw() != 0).then(|| (self.raw() << FRAC) / rhs.raw())
     }
 
+    /// `self + rhs`, clamped to the representable range.
     pub fn saturating_add(self, rhs: Self) -> Self {
         Fixed(I::fixed_saturate(self.raw() + rhs.raw()))
     }
+    /// `self - rhs`, clamped to the representable range.
     pub fn saturating_sub(self, rhs: Self) -> Self {
         Fixed(I::fixed_saturate(self.raw() - rhs.raw()))
     }
+    /// `self * rhs` (rounded to nearest), clamped to the representable range.
     pub fn saturating_mul(self, rhs: Self) -> Self {
         Fixed(I::fixed_saturate(self.mul_raw(rhs)))
     }
@@ -144,12 +151,15 @@ impl<I: FixedStorage, const FRAC: u32> Fixed<I, FRAC> {
             None => Self::MAX,
         }
     }
+    /// `self + rhs`, wrapping around on overflow (two's complement).
     pub fn wrapping_add(self, rhs: Self) -> Self {
         Fixed(I::fixed_wrap(self.raw() + rhs.raw()))
     }
+    /// `self - rhs`, wrapping around on overflow.
     pub fn wrapping_sub(self, rhs: Self) -> Self {
         Fixed(I::fixed_wrap(self.raw() - rhs.raw()))
     }
+    /// `self * rhs` (rounded to nearest), wrapping around on overflow.
     pub fn wrapping_mul(self, rhs: Self) -> Self {
         Fixed(I::fixed_wrap(self.mul_raw(rhs)))
     }
@@ -157,15 +167,19 @@ impl<I: FixedStorage, const FRAC: u32> Fixed<I, FRAC> {
         let s = I::fixed_saturate(v);
         (s.fixed_raw() == v).then_some(Fixed(s))
     }
+    /// `self + rhs`, or `None` on overflow.
     pub fn checked_add(self, rhs: Self) -> Option<Self> {
         Self::checked(self.raw() + rhs.raw())
     }
+    /// `self - rhs`, or `None` on overflow.
     pub fn checked_sub(self, rhs: Self) -> Option<Self> {
         Self::checked(self.raw() - rhs.raw())
     }
+    /// `self * rhs` (rounded to nearest), or `None` on overflow.
     pub fn checked_mul(self, rhs: Self) -> Option<Self> {
         Self::checked(self.mul_raw(rhs))
     }
+    /// `self / rhs` (rounded toward zero), or `None` on overflow or division by zero.
     pub fn checked_div(self, rhs: Self) -> Option<Self> {
         self.div_raw(rhs).and_then(Self::checked)
     }

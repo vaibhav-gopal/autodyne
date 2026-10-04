@@ -23,12 +23,15 @@ impl<T: Float> DelayLine<T> {
         // +1 so read(max_delay) exists, +1 more so a fractional read just under max_delay can interpolate
         Self { buffer: vec![T::_ZERO; max_delay + 2], newest: 0 }
     }
+    /// The longest delay a read can reach, in samples.
     pub fn max_delay(&self) -> usize {
         self.buffer.len() - 2
     }
+    /// Fills the line with silence.
     pub fn reset(&mut self) {
         self.buffer.iter_mut().for_each(|s| *s = T::_ZERO);
     }
+    /// Stores the newest sample (the oldest one falls out).
     #[inline]
     pub fn push(&mut self, x: T) {
         self.newest = if self.newest + 1 == self.buffer.len() { 0 } else { self.newest + 1 };
@@ -126,18 +129,23 @@ impl<T: Float> Echo<T> {
     pub fn max_delay_seconds(&self) -> T {
         T::_lit(self.line.max_delay() as f64) / self.sample_rate
     }
+    /// Target feedback.
     pub fn feedback(&self) -> T {
         self.feedback.target()
     }
+    /// Target mix.
     pub fn mix(&self) -> T {
         self.mix.target()
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
+    /// Clears the echoes (the parameters keep any ramp in progress).
     pub fn reset(&mut self) {
         self.line.reset();
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let (delay, feedback, mix) = (self.delay_samples.next_value(), self.feedback.next_value(), self.mix.next_value());

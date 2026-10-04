@@ -1,6 +1,7 @@
-//! Module for extending the primitive types and introducing a system for working with primitive data (numbers)
-//! todo:
-//! - portable SIMD types once `std::simd` is stable (the `simd` module covers the hot loops until then)
+//! Numbers: the traits sample types implement (from [`Unit`] up to [`Float`] and [`Integer`], and
+//! [`Elementwise`] / [`Real`], the traceable maths processors are written over), [`Complex`],
+//! fixed point ([`Fixed`]), arbitrary precision ([`BigInt`], [`BigFloat`]), checked casts between
+//! primitive types, decibel conversions, and runtime element types ([`DType`], [`Reflection`]).
 
 pub(crate) mod fastmath;
 mod cast;

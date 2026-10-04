@@ -65,6 +65,7 @@ pub struct Scan {
 /// A loss and its gradient, from [`Scan::grad`] / [`Scan::loss_grad`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct LossGrad<T = f32> {
+    /// The loss value.
     pub loss: T,
     /// d loss / d each parameter.
     pub params: Vec<NdArray<T>>,
@@ -77,8 +78,11 @@ pub struct LossGrad<T = f32> {
 /// Cotangents from [`Scan::vjp`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct ScanVjp<T = f32> {
+    /// Cotangent of each parameter.
     pub params: Vec<NdArray<T>>,
+    /// Cotangent of each initial state value.
     pub state: Vec<NdArray<T>>,
+    /// Cotangent of the input signal.
     pub input: NdArray<T>,
 }
 
@@ -153,9 +157,11 @@ impl Scan {
     pub(crate) fn passes(&self) -> (&Graph, &Graph) {
         if self.checkpointed { (&self.step, &self.step_vjp) } else { (&self.step_fwd, &self.step_bwd) }
     }
+    /// The shape of each parameter.
     pub fn param_shapes(&self) -> &[Vec<usize>] {
         &self.params
     }
+    /// The shape of each state value.
     pub fn state_shapes(&self) -> &[Vec<usize>] {
         &self.states
     }

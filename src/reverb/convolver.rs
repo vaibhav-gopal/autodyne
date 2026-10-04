@@ -76,9 +76,11 @@ impl<T: Float> Convolver<T> {
     pub fn set_mix(&mut self, mix: T) {
         self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
     }
+    /// Target dry / wet mix.
     pub fn mix(&self) -> T {
         self.mix.target()
     }
+    /// Clears the convolution and the dry delay.
     pub fn reset(&mut self) {
         for buf in [&mut self.frame, &mut self.input, &mut self.wet, &mut self.dry] {
             buf.iter_mut().for_each(|s| *s = T::_ZERO);

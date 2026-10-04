@@ -3,34 +3,55 @@ use super::*;
 /// A concrete floating-point number (`f32`, `f64`): [`Real`] arithmetic plus everything that
 /// inspects a value (bits, rounding, NaN checks, ordering).
 pub trait Float: Real + Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive {
-    /// Special states
+    /// Not a number.
     const _NAN: Self;
+    /// Positive infinity.
     const _INFINITY: Self;
+    /// Negative infinity.
     const _NEG_INFINITY: Self;
-    /// Bounds, and bit-widths for machine representation
+    /// The gap between 1 and the next larger value.
     const _EPSILON: Self;
+    /// Explicitly stored significand bits (23 for `f32`, 52 for `f64`).
     const _SIG_BITS: u32;
+    /// Exponent bits.
     const _EXP_BITS: u32;
+    /// Mask of the significand bits in the bit representation.
     const _SIG_MASK: Self::BitsRepr;
+    /// Mask of the exponent bits in the bit representation.
     const _EXP_MASK: Self::BitsRepr;
+    /// Decimal digits that survive a round trip through this type.
     const _DIGITS: u32;
+    /// Significand digits in base 2, the implicit leading bit included.
     const _MANTISSA_DIGITS: u32;
+    /// One more than the smallest normal power of two.
     const _MIN_EXP: i32;
+    /// One more than the largest power of two.
     const _MAX_EXP: i32;
+    /// The smallest power of ten that is a normal value.
     const _MIN_10_EXP: i32;
+    /// The largest power of ten that is a finite value.
     const _MAX_10_EXP: i32;
-    /// Mathematical constants
+    /// π.
     const _PI: Self;
+    /// Euler's number e.
     const _E: Self;
+    /// τ = 2π, a full turn in radians.
     const _TAU: Self;
     /// Magnitude below which `_flush_denormal` returns zero: 1e-30, about -600 dB.
     const _FLUSH_THRESHOLD: Self;
+    /// The largest integer at most `self`.
     fn _floor(self) -> Self;
+    /// The smallest integer at least `self`.
     fn _ceil(self) -> Self;
+    /// The nearest integer, halves away from zero.
     fn _round(self) -> Self;
+    /// The integer part (rounded toward zero).
     fn _trunc(self) -> Self;
+    /// `self - trunc(self)`.
     fn _fract(self) -> Self;
+    /// Whether `self` is NaN.
     fn _is_nan(self) -> bool;
+    /// Whether `self` is neither infinite nor NaN.
     fn _is_finite(self) -> bool;
     /// Converts an f64 constant (sample rates, frequencies, coefficients) into this float type.
     /// Panics only if the value is out of range for Self, which f64 -> f32 constants never are in practice.

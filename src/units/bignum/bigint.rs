@@ -237,15 +237,19 @@ impl BigInt {
         trim(&mut mag);
         BigInt { neg: neg && !mag.is_empty(), mag }
     }
+    /// Zero.
     pub fn zero() -> Self {
         BigInt::default()
     }
+    /// One.
     pub fn one() -> Self {
         BigInt::from(1u64)
     }
+    /// Whether the value is zero.
     pub fn is_zero(&self) -> bool {
         self.mag.is_empty()
     }
+    /// Whether the value is below zero.
     pub fn is_negative(&self) -> bool {
         self.neg
     }
@@ -253,6 +257,7 @@ impl BigInt {
     pub fn signum(&self) -> i32 {
         if self.is_zero() { 0 } else if self.neg { -1 } else { 1 }
     }
+    /// The magnitude.
     pub fn abs(&self) -> BigInt {
         BigInt { neg: false, mag: self.mag.clone() }
     }

@@ -1,41 +1,73 @@
-﻿pub trait FromPrimitive: Copy {
+/// Conversion from every primitive number type, `None` when the value doesn't fit (out of range,
+/// or a NaN / infinity into an integer).
+pub trait FromPrimitive: Copy {
+    /// From an `i64`.
     fn from_i64(n: i64) -> Option<Self>;
+    /// From a `u64`.
     fn from_u64(n: u64) -> Option<Self>;
+    /// From an `isize`.
     fn from_isize(n: isize) -> Option<Self>;
+    /// From an `i8`.
     fn from_i8(n: i8) -> Option<Self>;
+    /// From an `i16`.
     fn from_i16(n: i16) -> Option<Self>;
+    /// From an `i32`.
     fn from_i32(n: i32) -> Option<Self>;
+    /// From an `i128`.
     fn from_i128(n: i128) -> Option<Self>;
+    /// From a `usize`.
     fn from_usize(n: usize) -> Option<Self>;
+    /// From a `u8`.
     fn from_u8(n: u8) -> Option<Self>;
+    /// From a `u16`.
     fn from_u16(n: u16) -> Option<Self>;
+    /// From a `u32`.
     fn from_u32(n: u32) -> Option<Self>;
+    /// From a `u128`.
     fn from_u128(n: u128) -> Option<Self>;
+    /// From an `f32` (floats round; integers truncate toward zero).
     fn from_f32(n: f32) -> Option<Self>;
+    /// From an `f64` (floats round; integers truncate toward zero).
     fn from_f64(n: f64) -> Option<Self>;
     // fn from_str(n: &str) -> Option<Self>;
     // fn from(n: impl ToPrimitive) -> Option<Self>;
 }
 
+/// Conversion to every primitive number type, `None` when the value doesn't fit.
 pub trait ToPrimitive: Copy {
+    /// As an `i64`.
     fn to_i64(&self) -> Option<i64>;
+    /// As a `u64`.
     fn to_u64(&self) -> Option<u64>;
+    /// As an `isize`.
     fn to_isize(&self) -> Option<isize>;
+    /// As an `i8`.
     fn to_i8(&self) -> Option<i8>;
+    /// As an `i16`.
     fn to_i16(&self) -> Option<i16>;
+    /// As an `i32`.
     fn to_i32(&self) -> Option<i32>;
+    /// As an `i128`.
     fn to_i128(&self) -> Option<i128>;
+    /// As a `usize`.
     fn to_usize(&self) -> Option<usize>;
+    /// As a `u8`.
     fn to_u8(&self) -> Option<u8>;
+    /// As a `u16`.
     fn to_u16(&self) -> Option<u16>;
+    /// As a `u32`.
     fn to_u32(&self) -> Option<u32>;
+    /// As a `u128`.
     fn to_u128(&self) -> Option<u128>;
+    /// As an `f32` (rounded).
     fn to_f32(&self) -> Option<f32>;
+    /// As an `f64` (rounded for 64-bit and wider integers).
     fn to_f64(&self) -> Option<f64>;
     // fn to_str(&self) -> Option<String>;
     // fn to(&self) -> Option<impl FromPrimitive>;
 }
 
+/// Checked conversion both ways between a type and every primitive number type.
 pub trait CastPrimitive: FromPrimitive + ToPrimitive {}
 impl<T> CastPrimitive for T
 where T:

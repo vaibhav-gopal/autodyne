@@ -3,9 +3,12 @@ use crate::units::*;
 
 /// Analysis and transforms for complex signals (IQ baseband, spectra). Implemented for `[Complex<T>]`.
 pub trait ComplexSignal {
+    /// The real type of the parts.
     type Real: Float;
 
+    /// The underlying samples.
     fn samples(&self) -> &[Complex<Self::Real>];
+    /// The underlying samples, mutably.
     fn samples_mut(&mut self) -> &mut [Complex<Self::Real>];
 
     /// Sum of |z|^2.
@@ -17,6 +20,7 @@ pub trait ComplexSignal {
         let n = self.samples().len();
         (n > 0).then(|| self.energy() / Self::Real::_lit(n as f64))
     }
+    /// Root mean square magnitude.
     fn rms(&self) -> Option<Self::Real> {
         self.power().map(|p| p._sqrt())
     }

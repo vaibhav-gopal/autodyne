@@ -337,6 +337,7 @@ pub enum Pad {
     Even(Option<usize>),
     /// The end value repeated.
     Constant(Option<usize>),
+    /// No extension.
     None,
 }
 

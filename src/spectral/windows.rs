@@ -11,27 +11,53 @@ use crate::units::Complex;
 pub enum WindowSpec {
     /// Rectangular (no taper).
     Boxcar,
+    /// Triangular, without zero ends.
     Triang,
+    /// Triangular, with zero ends.
     Bartlett,
+    /// Hann (raised cosine).
     Hann,
+    /// Hamming.
     Hamming,
+    /// Blackman.
     Blackman,
+    /// 4-term Blackman-Harris.
     BlackmanHarris,
+    /// 4-term Nuttall.
     Nuttall,
+    /// Flat top (accurate amplitudes, wide peaks).
     Flattop,
+    /// Bohman.
     Bohman,
+    /// Parzen (de la Vallée Poussin).
     Parzen,
+    /// Cosine (sine) window.
     Cosine,
     /// Kaiser with shape `beta` (0: rectangular; 8.6: about Blackman).
-    Kaiser { beta: f64 },
+    Kaiser {
+        /// Shape: 0 is rectangular, larger values taper more.
+        beta: f64,
+    },
     /// Gaussian with standard deviation `std` samples.
-    Gaussian { std: f64 },
+    Gaussian {
+        /// Standard deviation in samples.
+        std: f64,
+    },
     /// Tukey (tapered cosine): `alpha` is the tapered fraction (0: rectangular, 1: Hann).
-    Tukey { alpha: f64 },
+    Tukey {
+        /// Fraction of the window that tapers.
+        alpha: f64,
+    },
     /// Exponential (Poisson), centered, with decay `tau` samples.
-    Exponential { tau: f64 },
+    Exponential {
+        /// Decay constant in samples.
+        tau: f64,
+    },
     /// Dolph-Chebyshev with side lobes `attenuation` dB down.
-    Chebwin { attenuation: f64 },
+    Chebwin {
+        /// Side-lobe level below the main lobe, in dB.
+        attenuation: f64,
+    },
 }
 
 /// The names `FromStr` accepts (parameterless windows).

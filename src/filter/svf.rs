@@ -5,27 +5,35 @@ use crate::units::*;
 /// Which response a [`Svf`] outputs. All are available at once through [`Svf::tick`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SvfMode {
+    /// passes below the cutoff
     Lowpass,
     /// unity gain at the center frequency (constant 0 dB peak)
     Bandpass,
+    /// passes above the cutoff
     Highpass,
+    /// removes a band around the cutoff
     Notch,
     /// low-pass minus high-pass: a resonant boost at the cutoff, flat elsewhere
     Peak,
+    /// unity gain everywhere, phase shifted around the cutoff
     Allpass,
 }
 
 impl SvfMode {
+    /// Every mode, in parameter order.
     pub const ALL: [SvfMode; 6] = [SvfMode::Lowpass, SvfMode::Bandpass, SvfMode::Highpass, SvfMode::Notch, SvfMode::Peak, SvfMode::Allpass];
+    /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 6] = ["Low-pass", "Band-pass", "High-pass", "Notch", "Peak", "All-pass"];
 }
 
 /// The three core outputs of one [`Svf`] step.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SvfOutputs<T> {
+    /// low-pass
     pub low: T,
     /// band-pass with peak gain `Q` (multiply by `1 / Q` for unity peak)
     pub band: T,
+    /// high-pass
     pub high: T,
 }
 
@@ -35,8 +43,11 @@ pub struct SvfOutputs<T> {
 pub struct SvfCoeffs<T> {
     /// 1 / Q
     pub k: T,
+    /// `1 / (1 + g (g + k))` with `g = tan(pi fc / fs)`
     pub a1: T,
+    /// `g a1`
     pub a2: T,
+    /// `g a2`
     pub a3: T,
 }
 
@@ -97,6 +108,8 @@ pub struct Svf<T: Float> {
 }
 
 impl<T: Float> Svf<T> {
+    /// A filter outputting `mode`, with the cutoff kept within 1 Hz .. 0.49 x sample rate and Q at
+    /// least 0.01.
     pub fn new(mode: SvfMode, cutoff: T, q: T, sample_rate: T) -> Self {
         let mut f = Self {
             mode,
@@ -110,18 +123,23 @@ impl<T: Float> Svf<T> {
         f.set_cutoff_and_q(cutoff, q);
         f
     }
+    /// A low-pass.
     pub fn lowpass(cutoff: T, q: T, sample_rate: T) -> Self {
         Self::new(SvfMode::Lowpass, cutoff, q, sample_rate)
     }
+    /// A high-pass.
     pub fn highpass(cutoff: T, q: T, sample_rate: T) -> Self {
         Self::new(SvfMode::Highpass, cutoff, q, sample_rate)
     }
+    /// A band-pass with unity gain at `center`.
     pub fn bandpass(center: T, q: T, sample_rate: T) -> Self {
         Self::new(SvfMode::Bandpass, center, q, sample_rate)
     }
+    /// Changes which response is output (the state is shared, so no click).
     pub fn set_mode(&mut self, mode: SvfMode) {
         self.mode = mode;
     }
+    /// The response output.
     pub fn mode(&self) -> SvfMode {
         self.mode
     }
@@ -140,15 +158,19 @@ impl<T: Float> Svf<T> {
         self.q = q._max(T::_lit(0.01));
         self.coeffs = SvfCoeffs::new(self.cutoff, self.q, self.sample_rate);
     }
+    /// Cutoff in Hz.
     pub fn cutoff(&self) -> T {
         self.cutoff
     }
+    /// Q.
     pub fn q(&self) -> T {
         self.q
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
+    /// Clears the integrators.
     pub fn reset(&mut self) {
         self.ic1 = T::_ZERO;
         self.ic2 = T::_ZERO;

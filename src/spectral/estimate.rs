@@ -14,8 +14,10 @@ use crate::fft::{Fft, RealFft};
 use crate::signal::{NdArray, NdView};
 use crate::units::*;
 
+/// Errors from spectral estimation.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum SpectralError {
+    /// An argument is out of range or inconsistent with the others.
     #[error("invalid argument: {0}")]
     Invalid(String),
 }
@@ -30,6 +32,7 @@ fn invalid(m: impl Into<String>) -> SpectralError {
 /// What is removed from each segment before transforming it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Detrend {
+    /// Nothing.
     None,
     /// The mean.
     Constant,
@@ -49,6 +52,7 @@ pub enum Scaling {
 /// How segment estimates are combined.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Average {
+    /// The mean (SciPy's default).
     Mean,
     /// Robust to outliers (bias-corrected, as in SciPy).
     Median,
@@ -57,10 +61,15 @@ pub enum Average {
 /// How the signal is extended at both ends by half a segment before an STFT.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Boundary {
+    /// Zeros.
     Zeros,
+    /// A mirror image without repeating the end sample.
     Even,
+    /// A point reflection about the end sample.
     Odd,
+    /// The end sample repeated.
     Constant,
+    /// No extension.
     None,
 }
 
@@ -68,6 +77,7 @@ pub enum Boundary {
 /// function's SciPy default.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Segments {
+    /// The window applied to each segment.
     pub window: WindowSpec,
     /// Samples per segment (default 256, at most the signal length).
     pub nperseg: Option<usize>,
@@ -75,9 +85,11 @@ pub struct Segments {
     pub noverlap: Option<usize>,
     /// FFT length (zero-padded segments), at least `nperseg`.
     pub nfft: Option<usize>,
+    /// What is removed from each segment.
     pub detrend: Detrend,
     /// Only the non-negative frequencies (real input).
     pub onesided: bool,
+    /// The units of the result.
     pub scaling: Scaling,
 }
 
@@ -94,30 +106,37 @@ impl Segments {
     pub fn stft() -> Self {
         Segments { detrend: Detrend::None, scaling: Scaling::Spectrum, ..Self::welch() }
     }
+    /// Samples per segment.
     pub fn nperseg(mut self, n: usize) -> Self {
         self.nperseg = Some(n);
         self
     }
+    /// Samples shared by consecutive segments.
     pub fn noverlap(mut self, n: usize) -> Self {
         self.noverlap = Some(n);
         self
     }
+    /// FFT length (zero-padded segments).
     pub fn nfft(mut self, n: usize) -> Self {
         self.nfft = Some(n);
         self
     }
+    /// The window.
     pub fn window(mut self, w: WindowSpec) -> Self {
         self.window = w;
         self
     }
+    /// What is removed from each segment.
     pub fn detrend(mut self, d: Detrend) -> Self {
         self.detrend = d;
         self
     }
+    /// The units of the result.
     pub fn scaling(mut self, s: Scaling) -> Self {
         self.scaling = s;
         self
     }
+    /// Only the non-negative frequencies.
     pub fn onesided(mut self, onesided: bool) -> Self {
         self.onesided = onesided;
         self
@@ -443,6 +462,7 @@ pub fn coherence<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64
 pub enum SpectrogramMode {
     /// Power (density or spectrum).
     Psd,
+    /// Magnitude.
     Magnitude,
     /// Phase angle in radians.
     Angle,
@@ -581,14 +601,19 @@ pub fn stft<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Se
 /// Options of [`istft`] (SciPy's defaults when `None`).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct IstftOptions {
+    /// The window the STFT used.
     pub window: WindowSpec,
+    /// Samples per segment.
     pub nperseg: Option<usize>,
+    /// Samples shared by consecutive segments.
     pub noverlap: Option<usize>,
+    /// FFT length.
     pub nfft: Option<usize>,
     /// The spectra hold only non-negative frequencies (default true).
     pub onesided: bool,
     /// The STFT extended the signal at both ends (default true): remove it.
     pub boundary: bool,
+    /// The scaling the STFT used.
     pub scaling: Scaling,
 }
 

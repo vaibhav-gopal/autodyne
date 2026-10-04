@@ -68,9 +68,11 @@ impl<T: Float> Waveshaper<T> {
         let smoothed = |v: T| SmoothedValue::new(v).with_ramp_seconds(T::_lit(0.02), sample_rate);
         Self { shape, drive: smoothed(T::_ONE), output: smoothed(T::_ONE), mix: smoothed(T::_ONE) }
     }
+    /// Changes the curve.
     pub fn set_shape(&mut self, shape: Shape) {
         self.shape = shape;
     }
+    /// The curve.
     pub fn shape(&self) -> Shape {
         self.shape
     }
@@ -78,6 +80,7 @@ impl<T: Float> Waveshaper<T> {
     pub fn set_drive_db(&mut self, db: T) {
         self.drive.set_target(db_to_gain(db));
     }
+    /// Target drive in dB.
     pub fn drive_db(&self) -> T {
         crate::units::gain_to_db(self.drive.target())
     }
@@ -85,6 +88,7 @@ impl<T: Float> Waveshaper<T> {
     pub fn set_output_db(&mut self, db: T) {
         self.output.set_target(db_to_gain(db));
     }
+    /// Target output level in dB.
     pub fn output_db(&self) -> T {
         crate::units::gain_to_db(self.output.target())
     }
@@ -92,6 +96,7 @@ impl<T: Float> Waveshaper<T> {
     pub fn set_mix(&mut self, mix: T) {
         self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
     }
+    /// Target dry / wet mix.
     pub fn mix(&self) -> T {
         self.mix.target()
     }
@@ -102,12 +107,14 @@ impl<T: Float> Waveshaper<T> {
             v.set_immediate(t);
         }
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         let (drive, output, mix) = (self.drive.next_value(), self.output.next_value(), self.mix.next_value());
         let wet = output * self.shape.apply(drive * x);
         x + mix * (wet - x)
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);

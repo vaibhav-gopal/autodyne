@@ -62,6 +62,7 @@ impl<P: Parameterized> Smoothed<P> {
         let ramp_samples = (ramp_seconds * sample_rate).round().max(0.0) as usize;
         Self { inner, ramps, ramp_samples, active: 0 }
     }
+    /// The wrapped processor.
     pub fn inner(&self) -> &P {
         &self.inner
     }
@@ -70,6 +71,7 @@ impl<P: Parameterized> Smoothed<P> {
     pub fn inner_mut(&mut self) -> &mut P {
         &mut self.inner
     }
+    /// Gives back the wrapped processor.
     pub fn into_inner(self) -> P {
         self.inner
     }
@@ -217,8 +219,11 @@ impl<T: Float, P: MultiProcessor<T> + Parameterized> MultiProcessor<T> for Smoot
 /// A parameter change at a sample offset within the next block.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ParamEvent {
+    /// samples into the block
     pub offset: usize,
+    /// which parameter
     pub index: usize,
+    /// the new value, in the parameter's units
     pub value: f64,
 }
 

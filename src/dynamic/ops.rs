@@ -51,10 +51,14 @@ pub enum CastMode {
     Wrapping,
 }
 
+/// Binary element-wise operations on runtime-typed arrays.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
+    /// `a + b`.
     Add,
+    /// `a - b`.
     Sub,
+    /// `a * b`.
     Mul,
     /// true division: integers give `f64`
     Div,
@@ -64,39 +68,61 @@ pub enum BinaryOp {
     Max,
 }
 
+/// Unary element-wise operations on runtime-typed arrays (see [`DynView::unary`] for the result
+/// types).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     /// same type (unsigned integers wrap)
     Neg,
     /// same type for real numbers; complex numbers give their magnitude (real)
     Abs,
+    /// Square root.
     Sqrt,
+    /// e to the power.
     Exp,
+    /// Natural logarithm.
     Ln,
+    /// Base-10 logarithm.
     Log10,
+    /// Sine (radians).
     Sin,
+    /// Cosine (radians).
     Cos,
+    /// Tangent (radians).
     Tan,
 }
 
 /// A single value of a runtime type: a reduction's result, or a scalar operand.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum DynScalar {
+    /// A 32-bit float.
     F32(f32),
+    /// A 64-bit float.
     F64(f64),
+    /// An 8-bit signed integer.
     I8(i8),
+    /// A 16-bit signed integer.
     I16(i16),
+    /// A 32-bit signed integer.
     I32(i32),
+    /// A 64-bit signed integer.
     I64(i64),
+    /// An 8-bit unsigned integer.
     U8(u8),
+    /// A 16-bit unsigned integer.
     U16(u16),
+    /// A 32-bit unsigned integer.
     U32(u32),
+    /// A 64-bit unsigned integer.
     U64(u64),
+    /// A complex number of 32-bit floats.
     ComplexF32(Complex<f32>),
+    /// A complex number of 64-bit floats.
     ComplexF64(Complex<f64>),
 }
 
 impl DynScalar {
+    /// The value's element type.
     pub fn dtype(&self) -> DType {
         match self {
             DynScalar::F32(_) => DType::F32,
@@ -135,8 +161,12 @@ impl DynScalar {
 /// widening it (see [`DynView::binary_scalar`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Scalar {
+    /// An integer: takes the array's type (an error if it doesn't fit), except that dividing an
+    /// integer array gives `f64`.
     Int(i64),
+    /// A float: takes the array's type for float arrays, `f64` for integer arrays.
     Float(f64),
+    /// A complex number `(re, im)`: complex of the array's precision.
     Complex(f64, f64),
 }
 
@@ -781,15 +811,19 @@ impl DynArray {
     pub fn binary(&self, other: &DynArray, op: BinaryOp, policy: Promotion) -> Result<DynArray, DynError> {
         self.view().binary(&other.view(), op, policy)
     }
+    /// `self + other`, broadcast, with the standard promotion.
     pub fn add(&self, other: &DynArray) -> Result<DynArray, DynError> {
         self.binary(other, BinaryOp::Add, Promotion::Standard)
     }
+    /// `self - other`, broadcast, with the standard promotion.
     pub fn sub(&self, other: &DynArray) -> Result<DynArray, DynError> {
         self.binary(other, BinaryOp::Sub, Promotion::Standard)
     }
+    /// `self * other`, broadcast, with the standard promotion.
     pub fn mul(&self, other: &DynArray) -> Result<DynArray, DynError> {
         self.binary(other, BinaryOp::Mul, Promotion::Standard)
     }
+    /// `self / other` (true division), broadcast, with the standard promotion.
     pub fn div(&self, other: &DynArray) -> Result<DynArray, DynError> {
         self.binary(other, BinaryOp::Div, Promotion::Standard)
     }
@@ -805,12 +839,15 @@ impl DynArray {
     pub fn sum(&self) -> Result<DynScalar, DynError> {
         self.view().sum()
     }
+    /// See [`DynView::mean`].
     pub fn mean(&self) -> Result<Option<DynScalar>, DynError> {
         self.view().mean()
     }
+    /// See [`DynView::min`].
     pub fn min(&self) -> Result<Option<DynScalar>, DynError> {
         self.view().min()
     }
+    /// See [`DynView::max`].
     pub fn max(&self) -> Result<Option<DynScalar>, DynError> {
         self.view().max()
     }

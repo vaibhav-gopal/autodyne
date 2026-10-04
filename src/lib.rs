@@ -35,6 +35,8 @@
 //! `signal`; `channels`, `linalg`; `params`; then the processors, instruments and analysis,
 //! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
 
+#![warn(missing_docs)]
+
 /// With the `mimalloc` feature, mimalloc allocates for the whole program (see the feature's note in
 /// `Cargo.toml`): new arrays reuse freed pages instead of faulting fresh ones in.
 #[cfg(feature = "mimalloc")]

@@ -68,10 +68,12 @@ impl<T: Float> ModulatedDelay<T> {
         self.lfo = self.lfo.with_phase(cycles);
         self
     }
+    /// LFO rate in Hz.
     pub fn set_rate(&mut self, hz: T) {
         self.rate = hz;
         self.lfo.set_frequency(hz, self.sample_rate);
     }
+    /// LFO rate in Hz.
     pub fn rate(&self) -> T {
         self.rate
     }
@@ -84,9 +86,11 @@ impl<T: Float> ModulatedDelay<T> {
         let room = T::_lit(self.line.max_delay() as f64 - 1.0) - self.base_samples;
         room._min(self.base_samples)._max(T::_ZERO) / self.sample_rate
     }
+    /// Feedback, -0.95..0.95.
     pub fn feedback(&self) -> T {
         self.feedback
     }
+    /// Target dry / wet mix.
     pub fn mix(&self) -> T {
         self.mix.target()
     }
@@ -109,11 +113,13 @@ impl<T: Float> ModulatedDelay<T> {
     pub fn current_delay_samples(&self) -> T {
         self.current_delay
     }
+    /// Clears the delay line and restarts the LFO at its starting phase.
     pub fn reset(&mut self) {
         self.line.reset();
         self.lfo = self.lfo.with_phase(self.lfo_phase);
         self.mix.set_immediate(self.mix.target());
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         self.current_delay = self.base_samples + self.depth_samples * self.lfo.next_sample();
@@ -123,6 +129,7 @@ impl<T: Float> ModulatedDelay<T> {
         let mix = self.mix.next_value();
         x * (T::_ONE - mix) + delayed * mix
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);
@@ -190,15 +197,18 @@ impl<T: Float> Phaser<T> {
             last_out: T::_ZERO,
         }
     }
+    /// Starting LFO phase in cycles; use 0 and 0.5 on the left / right channels for a wide stereo image.
     pub fn with_lfo_phase(mut self, cycles: T) -> Self {
         self.lfo_phase = cycles;
         self.lfo = self.lfo.with_phase(cycles);
         self
     }
+    /// LFO rate in Hz.
     pub fn set_rate(&mut self, hz: T) {
         self.rate = hz;
         self.lfo.set_frequency(hz, self.sample_rate);
     }
+    /// LFO rate in Hz.
     pub fn rate(&self) -> T {
         self.rate
     }
@@ -206,12 +216,15 @@ impl<T: Float> Phaser<T> {
     pub fn range(&self) -> (T, T) {
         (self.min_hz, self.max_hz)
     }
+    /// Feedback, -0.95..0.95.
     pub fn feedback(&self) -> T {
         self.feedback
     }
+    /// Target dry / wet mix.
     pub fn mix(&self) -> T {
         self.mix.target()
     }
+    /// The sample rate in Hz.
     pub fn sample_rate(&self) -> T {
         self.sample_rate
     }
@@ -230,12 +243,14 @@ impl<T: Float> Phaser<T> {
     pub fn set_mix(&mut self, mix: T) {
         self.mix.set_target(mix._clamp(T::_ZERO, T::_ONE));
     }
+    /// Clears the all-passes and restarts the LFO at its starting phase.
     pub fn reset(&mut self) {
         self.mix.set_immediate(self.mix.target());
         self.stages.iter_mut().for_each(|s| *s = Allpass1 { x1: T::_ZERO, y1: T::_ZERO });
         self.lfo = self.lfo.with_phase(self.lfo_phase);
         self.last_out = T::_ZERO;
     }
+    /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
         // exponential sweep: equal LFO steps move by equal musical intervals
@@ -250,6 +265,7 @@ impl<T: Float> Phaser<T> {
         let mix = self.mix.next_value();
         x * (T::_ONE - mix) + s * mix
     }
+    /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
         for s in block {
             *s = self.process_sample(*s);

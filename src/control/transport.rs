@@ -13,6 +13,7 @@ pub struct Transport {
     pub beats_per_bar: f64,
     /// position at the start of the current block, in beats since the start of the timeline
     pub position: f64,
+    /// whether the host is playing (the position moves only while it is)
     pub playing: bool,
 }
 
@@ -24,6 +25,7 @@ impl Default for Transport {
 }
 
 impl Transport {
+    /// Stopped at the start, in 4/4 at `tempo` BPM.
     pub fn new(tempo: f64) -> Self {
         Self { tempo, ..Self::default() }
     }
@@ -32,6 +34,7 @@ impl Transport {
     pub fn bar_length(numerator: u32, denominator: u32) -> f64 {
         if numerator == 0 || denominator == 0 { 4.0 } else { numerator as f64 * 4.0 / denominator as f64 }
     }
+    /// Length of one beat in seconds.
     pub fn seconds_per_beat(&self) -> f64 {
         60.0 / self.tempo
     }
@@ -57,15 +60,22 @@ impl Transport {
 /// A note length for tempo sync, in beats (quarter notes): `Division::EIGHTH` is half a beat.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Division {
+    /// length in beats (quarter notes)
     pub beats: f64,
 }
 
 impl Division {
+    /// A whole note: four beats.
     pub const WHOLE: Division = Division { beats: 4.0 };
+    /// A half note: two beats.
     pub const HALF: Division = Division { beats: 2.0 };
+    /// A quarter note: one beat.
     pub const QUARTER: Division = Division { beats: 1.0 };
+    /// An eighth note.
     pub const EIGHTH: Division = Division { beats: 0.5 };
+    /// A sixteenth note.
     pub const SIXTEENTH: Division = Division { beats: 0.25 };
+    /// A thirty-second note.
     pub const THIRTY_SECOND: Division = Division { beats: 0.125 };
 
     /// A note this many bars long (in 4/4).
@@ -80,6 +90,7 @@ impl Division {
     pub const fn triplet(self) -> Division {
         Division { beats: self.beats * 2.0 / 3.0 }
     }
+    /// Its length in seconds at `tempo` BPM.
     pub fn seconds(self, tempo: f64) -> f64 {
         self.beats * 60.0 / tempo
     }
@@ -106,6 +117,7 @@ impl Division {
         Division::bars(2.0),
         Division::bars(4.0),
     ];
+    /// Display names, in the order of [`ALL`](Self::ALL) ("T": triplet, ".": dotted).
     pub const NAMES: [&'static str; 15] =
         ["1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4", "1/2T", "1/4.", "1/2", "1/1", "2/1", "4/1"];
     /// Index of `QUARTER` in [`ALL`](Self::ALL).

@@ -54,6 +54,7 @@ pub struct TruePeak<T: Float> {
 }
 
 impl<T: Float> TruePeak<T> {
+    /// A detector for `sample_rate`: 4x oversampling below 88.2 kHz, 2x below 176.4 kHz, none above.
     pub fn new(sample_rate: T) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
         let factor = if fs < 88_200.0 { 4 } else if fs < 176_400.0 { 2 } else { 1 };
@@ -115,9 +116,11 @@ impl<T: Float> TruePeak<T> {
     pub fn peak_db(&self) -> T {
         T::_lit(20.0) * self.peak._log10()
     }
+    /// Clears the held peak (the interpolation history is kept).
     pub fn reset_peak(&mut self) {
         self.peak = T::_ZERO;
     }
+    /// Clears the history and the held peak.
     pub fn reset(&mut self) {
         self.history.iter_mut().for_each(|s| *s = T::_ZERO);
         self.write = 0;
@@ -237,6 +240,7 @@ impl<T: Float> LoudnessMeter<T> {
             short_terms: Histogram::new(),
         }
     }
+    /// Number of channels.
     pub fn channels(&self) -> usize {
         self.filters.len()
     }
@@ -316,9 +320,11 @@ impl<T: Float> LoudnessMeter<T> {
     pub fn short_term(&self) -> T {
         T::_lit(self.short_term)
     }
+    /// Highest momentary loudness since the last reset, LUFS.
     pub fn max_momentary(&self) -> T {
         T::_lit(self.max_momentary)
     }
+    /// Highest short-term loudness since the last reset, LUFS.
     pub fn max_short_term(&self) -> T {
         T::_lit(self.max_short_term)
     }
@@ -357,6 +363,7 @@ impl<T: Float> LoudnessMeter<T> {
         let peak = self.true_peaks.iter().map(TruePeak::peak).fold(T::_ZERO, |m, p| m._max(p));
         T::_lit(20.0) * peak._log10()
     }
+    /// Channel `channel`'s highest true peak since the last reset, dBTP.
     pub fn channel_true_peak_db(&self, channel: usize) -> T {
         self.true_peaks[channel].peak_db()
     }

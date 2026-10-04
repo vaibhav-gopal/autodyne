@@ -103,6 +103,7 @@ impl<T: Float> Resampler<T> {
         (input_len * self.up).div_ceil(self.down) + 1
     }
 
+    /// Clears the input history and restarts the phase.
     pub fn reset(&mut self) {
         self.buf.iter_mut().for_each(|s| *s = T::_ZERO);
         self.phase = 0;

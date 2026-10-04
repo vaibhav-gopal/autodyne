@@ -73,12 +73,21 @@ pub use xla::Xla;
 /// Errors from compiling or running programs.
 #[derive(Debug, thiserror::Error)]
 pub enum FluxError {
+    /// Reading or writing files, or running a tool, failed.
     #[error("i/o: {0}")]
     Io(#[from] std::io::Error),
     #[error("{tool} failed: {message}")]
-    Tool { tool: &'static str, message: String },
+    /// An external tool (`iree-compile`, a Python with JAX, ...) failed.
+    Tool {
+        /// Which tool.
+        tool: &'static str,
+        /// What it reported.
+        message: String,
+    },
+    /// A `.npy` file that couldn't be parsed.
     #[error("bad .npy data: {0}")]
     Npy(String),
+    /// Arrays of the wrong shape for a program.
     #[error("shape mismatch: {0}")]
     Shape(String),
 }
