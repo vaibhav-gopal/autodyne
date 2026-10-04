@@ -44,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let noisy_rms: Vec<f32> = tensor.lanes(time)?.map(|l| l.as_slice().unwrap().rms().unwrap()).collect();
 
     // every lane is an independent clip: filter each with a fresh 2 kHz low-pass
-    tensor.for_each_lane(time, |lane| Biquad::lowpass(2_000.0, FS, BUTTERWORTH_Q as f32).process(lane))?;
+    tensor.for_each_lane(time, |lane| Biquad::lowpass(2_000.0, BUTTERWORTH_Q as f32, FS).process(lane))?;
     println!("filtered {} lanes of a {:?} tensor along its {:?} axis", noisy_rms.len(), tensor.shape(), Axis::Time);
     for (i, lane) in tensor.lanes(time)?.enumerate() {
         let x = lane.as_slice().unwrap();

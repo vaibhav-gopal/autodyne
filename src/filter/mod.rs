@@ -78,8 +78,8 @@ impl<T: Float> Fir<T> {
         Self { taps, reversed, buf: vec![T::_ZERO; n - 1 + FIR_CHUNK] }
     }
     /// Linear-phase low-pass (windowed sinc, Blackman window). See `design_lowpass`.
-    pub fn lowpass(cutoff: T, sample_rate: T, num_taps: usize) -> Self {
-        Self::new(design_lowpass(cutoff, sample_rate, num_taps))
+    pub fn lowpass(cutoff: T, num_taps: usize, sample_rate: T) -> Self {
+        Self::new(design_lowpass(cutoff, num_taps, sample_rate))
     }
     pub fn taps(&self) -> &[T] {
         &self.taps
@@ -152,7 +152,7 @@ impl<T: Float> Fir<T> {
 /// with a Blackman window the transition is roughly 5.5 * sample_rate / num_taps wide and
 /// the stopband is ~74 dB down. Use an odd `num_taps` for a whole-sample group delay.
 /// Panics unless 0 < cutoff < sample_rate / 2 and num_taps >= 2.
-pub fn design_lowpass<T: Float>(cutoff: T, sample_rate: T, num_taps: usize) -> Vec<T> {
+pub fn design_lowpass<T: Float>(cutoff: T, num_taps: usize, sample_rate: T) -> Vec<T> {
     let two = T::_lit(2.0);
     assert!(cutoff > T::_ZERO && cutoff < sample_rate / two, "cutoff must be between 0 and Nyquist");
     assert!(num_taps >= 2, "need at least 2 taps");
@@ -200,7 +200,7 @@ impl<T: Real> BiquadCoeffs<T> {
         Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 }
     }
     /// The cookbook response `kind` (no range checks: see the checked constructors).
-    pub fn design(kind: BiquadKind, frequency: T, sample_rate: T, q: T, gain_db: T) -> Self {
+    pub fn design(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
         let (cos_w, alpha) = Self::rbj_real(frequency, sample_rate, q);
         let (one, two) = (T::lit(1.0), T::lit(2.0));
         // the cookbook's A = 10^(dB/40): the square root of the linear gain
@@ -267,43 +267,43 @@ impl<T: Real> BiquadCoeffs<T> {
 impl<T: Float> BiquadCoeffs<T> {
     /// The cookbook response `kind`, checking that the frequency is between 0 and Nyquist and Q is
     /// positive.
-    fn checked(kind: BiquadKind, frequency: T, sample_rate: T, q: T, gain_db: T) -> Self {
+    fn checked(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
         assert!(frequency > T::_ZERO && frequency < sample_rate / T::_lit(2.0), "frequency must be between 0 and Nyquist");
         assert!(q > T::_ZERO, "Q must be positive");
-        Self::design(kind, frequency, sample_rate, q, gain_db)
+        Self::design(kind, frequency, q, gain_db, sample_rate)
     }
     /// -3 dB at `cutoff` when q = BUTTERWORTH_Q.
-    pub fn lowpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        Self::checked(BiquadKind::Lowpass, cutoff, sample_rate, q, T::_ZERO)
+    pub fn lowpass(cutoff: T, q: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::Lowpass, cutoff, q, T::_ZERO, sample_rate)
     }
-    pub fn highpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        Self::checked(BiquadKind::Highpass, cutoff, sample_rate, q, T::_ZERO)
+    pub fn highpass(cutoff: T, q: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::Highpass, cutoff, q, T::_ZERO, sample_rate)
     }
     /// Unity gain at `center`; higher q = narrower band.
-    pub fn bandpass(center: T, sample_rate: T, q: T) -> Self {
-        Self::checked(BiquadKind::Bandpass, center, sample_rate, q, T::_ZERO)
+    pub fn bandpass(center: T, q: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::Bandpass, center, q, T::_ZERO, sample_rate)
     }
     /// Zero gain at `center`; higher q = narrower notch.
-    pub fn notch(center: T, sample_rate: T, q: T) -> Self {
-        Self::checked(BiquadKind::Notch, center, sample_rate, q, T::_ZERO)
+    pub fn notch(center: T, q: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::Notch, center, q, T::_ZERO, sample_rate)
     }
     /// Unity gain at every frequency; only the phase changes (by 180 degrees at `center`).
     /// Building block for phasers and phase-alignment.
-    pub fn allpass(center: T, sample_rate: T, q: T) -> Self {
-        Self::checked(BiquadKind::Allpass, center, sample_rate, q, T::_ZERO)
+    pub fn allpass(center: T, q: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::Allpass, center, q, T::_ZERO, sample_rate)
     }
     /// Boosts or cuts by `gain_db` around `center` (a bell), unity far away; higher q = narrower bell.
-    pub fn peaking(center: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::checked(BiquadKind::Peaking, center, sample_rate, q, gain_db)
+    pub fn peaking(center: T, q: T, gain_db: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::Peaking, center, q, gain_db, sample_rate)
     }
     /// Boosts or cuts everything below `corner` by `gain_db`; q = BUTTERWORTH_Q gives the steepest
     /// slope without overshoot (cookbook shelf slope S = 1).
-    pub fn low_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::checked(BiquadKind::LowShelf, corner, sample_rate, q, gain_db)
+    pub fn low_shelf(corner: T, q: T, gain_db: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::LowShelf, corner, q, gain_db, sample_rate)
     }
     /// Boosts or cuts everything above `corner` by `gain_db`; see `low_shelf` for q.
-    pub fn high_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::checked(BiquadKind::HighShelf, corner, sample_rate, q, gain_db)
+    pub fn high_shelf(corner: T, q: T, gain_db: T, sample_rate: T) -> Self {
+        Self::checked(BiquadKind::HighShelf, corner, q, gain_db, sample_rate)
     }
     /// Gain at `frequency` (1.0 = unchanged).
     pub fn magnitude_at(&self, frequency: T, sample_rate: T) -> T {
@@ -349,14 +349,14 @@ impl<T: Float> BiquadDesign<T> {
     pub fn coeffs(&self) -> BiquadCoeffs<T> {
         let (f, fs, q, g) = (self.frequency, self.sample_rate, self.q, self.gain_db);
         match self.kind {
-            BiquadKind::Lowpass => BiquadCoeffs::lowpass(f, fs, q),
-            BiquadKind::Highpass => BiquadCoeffs::highpass(f, fs, q),
-            BiquadKind::Bandpass => BiquadCoeffs::bandpass(f, fs, q),
-            BiquadKind::Notch => BiquadCoeffs::notch(f, fs, q),
-            BiquadKind::Allpass => BiquadCoeffs::allpass(f, fs, q),
-            BiquadKind::Peaking => BiquadCoeffs::peaking(f, fs, q, g),
-            BiquadKind::LowShelf => BiquadCoeffs::low_shelf(f, fs, q, g),
-            BiquadKind::HighShelf => BiquadCoeffs::high_shelf(f, fs, q, g),
+            BiquadKind::Lowpass => BiquadCoeffs::lowpass(f, q, fs),
+            BiquadKind::Highpass => BiquadCoeffs::highpass(f, q, fs),
+            BiquadKind::Bandpass => BiquadCoeffs::bandpass(f, q, fs),
+            BiquadKind::Notch => BiquadCoeffs::notch(f, q, fs),
+            BiquadKind::Allpass => BiquadCoeffs::allpass(f, q, fs),
+            BiquadKind::Peaking => BiquadCoeffs::peaking(f, q, g, fs),
+            BiquadKind::LowShelf => BiquadCoeffs::low_shelf(f, q, g, fs),
+            BiquadKind::HighShelf => BiquadCoeffs::high_shelf(f, q, g, fs),
         }
     }
 }
@@ -379,32 +379,32 @@ impl<T: Float> Biquad<T> {
     pub fn from_design(design: BiquadDesign<T>) -> Self {
         Self { coeffs: design.coeffs(), design: Some(design), s1: T::_ZERO, s2: T::_ZERO }
     }
-    fn designed(kind: BiquadKind, frequency: T, sample_rate: T, q: T, gain_db: T) -> Self {
+    fn designed(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
         Self::from_design(BiquadDesign { kind, frequency, q, gain_db, sample_rate })
     }
-    pub fn lowpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        Self::designed(BiquadKind::Lowpass, cutoff, sample_rate, q, T::_ZERO)
+    pub fn lowpass(cutoff: T, q: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::Lowpass, cutoff, q, T::_ZERO, sample_rate)
     }
-    pub fn highpass(cutoff: T, sample_rate: T, q: T) -> Self {
-        Self::designed(BiquadKind::Highpass, cutoff, sample_rate, q, T::_ZERO)
+    pub fn highpass(cutoff: T, q: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::Highpass, cutoff, q, T::_ZERO, sample_rate)
     }
-    pub fn bandpass(center: T, sample_rate: T, q: T) -> Self {
-        Self::designed(BiquadKind::Bandpass, center, sample_rate, q, T::_ZERO)
+    pub fn bandpass(center: T, q: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::Bandpass, center, q, T::_ZERO, sample_rate)
     }
-    pub fn notch(center: T, sample_rate: T, q: T) -> Self {
-        Self::designed(BiquadKind::Notch, center, sample_rate, q, T::_ZERO)
+    pub fn notch(center: T, q: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::Notch, center, q, T::_ZERO, sample_rate)
     }
-    pub fn allpass(center: T, sample_rate: T, q: T) -> Self {
-        Self::designed(BiquadKind::Allpass, center, sample_rate, q, T::_ZERO)
+    pub fn allpass(center: T, q: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::Allpass, center, q, T::_ZERO, sample_rate)
     }
-    pub fn peaking(center: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::designed(BiquadKind::Peaking, center, sample_rate, q, gain_db)
+    pub fn peaking(center: T, q: T, gain_db: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::Peaking, center, q, gain_db, sample_rate)
     }
-    pub fn low_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::designed(BiquadKind::LowShelf, corner, sample_rate, q, gain_db)
+    pub fn low_shelf(corner: T, q: T, gain_db: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::LowShelf, corner, q, gain_db, sample_rate)
     }
-    pub fn high_shelf(corner: T, sample_rate: T, q: T, gain_db: T) -> Self {
-        Self::designed(BiquadKind::HighShelf, corner, sample_rate, q, gain_db)
+    pub fn high_shelf(corner: T, q: T, gain_db: T, sample_rate: T) -> Self {
+        Self::designed(BiquadKind::HighShelf, corner, q, gain_db, sample_rate)
     }
     pub fn coeffs(&self) -> &BiquadCoeffs<T> {
         &self.coeffs
@@ -616,7 +616,7 @@ mod tests {
     fn multi_biquad_is_bit_identical_to_per_channel_processing() {
         for channels in 1..=9 {
             // different filters per channel
-            let make = |ch: usize| Biquad::peaking(300.0 * (ch + 1) as f64, FS, 0.7 + ch as f64 * 0.1, ch as f64 - 3.0);
+            let make = |ch: usize| Biquad::peaking(300.0 * (ch + 1) as f64, 0.7 + ch as f64 * 0.1, ch as f64 - 3.0, FS);
             let mut buf = AudioBuffer::new(channels, 700);
             for ch in 0..channels {
                 Noise::new(ch as u64).fill(buf.channel_mut(ch));
@@ -693,7 +693,7 @@ mod tests {
 
     #[test]
     fn windowed_sinc_lowpass() {
-        let fir = Fir::lowpass(1000.0, FS, 255);
+        let fir = Fir::lowpass(1000.0, 255, FS);
         let taps = fir.taps();
         assert_close(taps.iter().sum(), 1.0, 1e-12, "DC gain");
         for (a, b) in taps.iter().zip(taps.iter().rev()) {
@@ -713,20 +713,20 @@ mod tests {
     #[test]
     fn biquad_responses_match_cookbook_definitions() {
         let q = BUTTERWORTH_Q;
-        let lp = BiquadCoeffs::lowpass(1000.0, FS, q);
+        let lp = BiquadCoeffs::lowpass(1000.0, q, FS);
         assert_close(lp.magnitude_at(1e-3, FS), 1.0, 1e-9, "lowpass DC");
         assert_close(lp.magnitude_at(1000.0, FS), BUTTERWORTH_Q, 1e-9, "lowpass -3 dB point");
         assert!(lp.magnitude_at(23_999.0, FS) < 1e-6, "lowpass Nyquist");
 
-        let hp = BiquadCoeffs::highpass(1000.0, FS, q);
+        let hp = BiquadCoeffs::highpass(1000.0, q, FS);
         assert_close(hp.magnitude_at(1000.0, FS), BUTTERWORTH_Q, 1e-9, "highpass -3 dB point");
         assert!(hp.magnitude_at(1e-3, FS) < 1e-6, "highpass DC");
 
-        let bp = BiquadCoeffs::bandpass(2000.0, FS, 5.0);
+        let bp = BiquadCoeffs::bandpass(2000.0, 5.0, FS);
         assert_close(bp.magnitude_at(2000.0, FS), 1.0, 1e-9, "bandpass peak");
         assert!(bp.magnitude_at(200.0, FS) < 0.05, "bandpass skirt");
 
-        let notch = BiquadCoeffs::notch(2000.0, FS, 5.0);
+        let notch = BiquadCoeffs::notch(2000.0, 5.0, FS);
         assert!(notch.magnitude_at(2000.0, FS) < 1e-9, "notch center");
         assert_close(notch.magnitude_at(200.0, FS), 1.0, 1e-3, "notch passband");
     }
@@ -736,28 +736,28 @@ mod tests {
         let db = |g: f64| 20.0 * g.log10();
         let q = BUTTERWORTH_Q;
         for gain_db in [-12.0, -3.0, 6.0, 12.0] {
-            let bell = BiquadCoeffs::peaking(2000.0, FS, 1.0, gain_db);
+            let bell = BiquadCoeffs::peaking(2000.0, 1.0, gain_db, FS);
             assert_close(db(bell.magnitude_at(2000.0, FS)), gain_db, 1e-9, "peaking center");
             assert_close(db(bell.magnitude_at(20.0, FS)), 0.0, 0.01, "peaking far below");
 
-            let low = BiquadCoeffs::low_shelf(500.0, FS, q, gain_db);
+            let low = BiquadCoeffs::low_shelf(500.0, q, gain_db, FS);
             assert_close(db(low.magnitude_at(1e-3, FS)), gain_db, 1e-6, "low shelf DC");
             assert_close(db(low.magnitude_at(20_000.0, FS)), 0.0, 0.01, "low shelf top");
             // a shelf is half-way (in dB) at its corner frequency
             assert_close(db(low.magnitude_at(500.0, FS)), gain_db / 2.0, 1e-9, "low shelf corner");
 
-            let high = BiquadCoeffs::high_shelf(5000.0, FS, q, gain_db);
+            let high = BiquadCoeffs::high_shelf(5000.0, q, gain_db, FS);
             assert_close(db(high.magnitude_at(23_999.0, FS)), gain_db, 0.01, "high shelf top");
             assert_close(db(high.magnitude_at(1e-3, FS)), 0.0, 1e-6, "high shelf DC");
             assert_close(db(high.magnitude_at(5000.0, FS)), gain_db / 2.0, 1e-9, "high shelf corner");
         }
-        let flat = BiquadCoeffs::peaking(2000.0, FS, 1.0, 0.0);
+        let flat = BiquadCoeffs::peaking(2000.0, 1.0, 0.0, FS);
         assert_close(flat.magnitude_at(777.0, FS), 1.0, 1e-12, "0 dB peaking is transparent");
     }
 
     #[test]
     fn allpass_is_flat_and_shifts_phase_by_180_at_center() {
-        let ap = BiquadCoeffs::allpass(3000.0, FS, 0.7);
+        let ap = BiquadCoeffs::allpass(3000.0, 0.7, FS);
         for f in [10.0, 300.0, 3000.0, 12_000.0, 23_000.0] {
             assert_close(ap.magnitude_at(f, FS), 1.0, 1e-9, "allpass magnitude");
         }
@@ -775,10 +775,10 @@ mod tests {
     #[test]
     fn biquad_time_domain_matches_frequency_response() {
         for coeffs in [
-            BiquadCoeffs::lowpass(1000.0, FS, BUTTERWORTH_Q),
-            BiquadCoeffs::highpass(1000.0, FS, BUTTERWORTH_Q),
-            BiquadCoeffs::bandpass(2000.0, FS, 2.0),
-            BiquadCoeffs::notch(2000.0, FS, 2.0),
+            BiquadCoeffs::lowpass(1000.0, BUTTERWORTH_Q, FS),
+            BiquadCoeffs::highpass(1000.0, BUTTERWORTH_Q, FS),
+            BiquadCoeffs::bandpass(2000.0, 2.0, FS),
+            BiquadCoeffs::notch(2000.0, 2.0, FS),
         ] {
             for f in [100.0, 1000.0, 2000.0, 8000.0] {
                 let mut bq = Biquad::new(coeffs);
@@ -791,8 +791,8 @@ mod tests {
     fn decaying_biquad_state_reaches_exact_zero() {
         // without the per-block flush the state would decay through subnormal numbers (slow on
         // many CPUs) for a long time before underflowing
-        let mut single = Biquad::<f32>::lowpass(100.0, 48_000.0, BUTTERWORTH_Q as f32);
-        let mut multi = MultiBiquad::new(4, |_| Biquad::<f32>::lowpass(100.0, 48_000.0, BUTTERWORTH_Q as f32));
+        let mut single = Biquad::<f32>::lowpass(100.0, BUTTERWORTH_Q as f32, 48_000.0);
+        let mut multi = MultiBiquad::new(4, |_| Biquad::<f32>::lowpass(100.0, BUTTERWORTH_Q as f32, 48_000.0));
         let mut block = [0.0f32; 512];
         let mut buffer = AudioBuffer::new(4, 512);
         block[0] = 1.0;
@@ -810,7 +810,7 @@ mod tests {
 
     #[test]
     fn biquad_f32_is_stable_and_reset_clears_state() {
-        let mut bq = Biquad::<f32>::lowpass(50.0, 48_000.0, 0.707);
+        let mut bq = Biquad::<f32>::lowpass(50.0, 0.707, 48_000.0);
         let mut buf = [1.0f32; 48_000];
         bq.process(&mut buf);
         assert!((buf[47_999] - 1.0).abs() < 1e-3, "DC step settles to 1: {}", buf[47_999]);

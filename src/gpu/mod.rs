@@ -1221,7 +1221,7 @@ mod tests {
         }
         let (lanes, len) = (3, 1000);
         let x = data(&[lanes, len], 7);
-        let taps = crate::filter::design_lowpass(2_000.0f32, 48_000.0, 63);
+        let taps = crate::filter::design_lowpass(2_000.0f32, 63, 48_000.0);
         let mut want = Vec::new();
         for l in 0..lanes {
             let mut f = crate::filter::Fir::new(taps.clone());

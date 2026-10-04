@@ -67,7 +67,7 @@ impl<T: Float> Resampler<T> {
         // with the input by dropping whole samples (see `delay`).
         let k = (taps_per_phase * up.max(down)).div_ceil(2 * down);
         let len = 2 * down * k + 1;
-        let mut proto: Vec<T> = design_lowpass(T::_lit(cutoff), T::_lit(fs_up), len);
+        let mut proto: Vec<T> = design_lowpass(T::_lit(cutoff), len, T::_lit(fs_up));
         // zero stuffing divides the signal level by L; the filter makes it back up
         proto.iter_mut().for_each(|h| *h = *h * T::_lit(up as f64));
 

@@ -63,7 +63,7 @@ use autodyne::osc::Sine;
 
 let mut block = [0.0f32; 512];
 let mut tone = Sine::new(440.0, 48_000.0);
-let mut lowpass = Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q as f32);
+let mut lowpass = Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, 48_000.0);
 
 tone.fill(&mut block);       // generate
 lowpass.process(&mut block); // filter in place

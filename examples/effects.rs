@@ -36,8 +36,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     echo.set_immediate(0.3, 0.45, 0.35);
     let mut chain = (
         Gain::new(0.0, 0.01, fs), // note gate, 10 ms fades
-        Biquad::low_shelf(200.0, fs, BUTTERWORTH_Q as f32, 4.0),
-        Biquad::peaking(2_500.0, fs, 1.0, 3.0),
+        Biquad::low_shelf(200.0, BUTTERWORTH_Q as f32, 4.0, fs),
+        Biquad::peaking(2_500.0, 1.0, 3.0, fs),
         compressor,
         echo,
         Compressor::limiter(-1.0, 0.05, fs), // keep the result under -1 dBFS

@@ -305,7 +305,7 @@ mod tests {
     const FS: f64 = 48_000.0;
 
     fn filter() -> Modulated<Biquad<f64>> {
-        Modulated::new(Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q), 2, 4)
+        Modulated::new(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS), 2, 4)
     }
 
     fn cutoff(m: &Modulated<Biquad<f64>>) -> f64 {
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn depths_are_parameters_and_routes_are_validated() {
         let mut m = filter();
-        let inner = Biquad::<f64>::lowpass(1_000.0, FS, BUTTERWORTH_Q).param_count();
+        let inner = Biquad::<f64>::lowpass(1_000.0, BUTTERWORTH_Q, FS).param_count();
         assert_eq!(m.param_count(), inner + 4);
         let d = m.param_index("mod_2_depth").unwrap();
         assert_eq!(m.param_group(d), Some("Modulation"));

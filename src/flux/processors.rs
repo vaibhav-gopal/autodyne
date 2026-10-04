@@ -40,7 +40,7 @@ fn every_biquad_kind_traces_like_the_filter() {
     for kind in [BiquadKind::Lowpass, BiquadKind::Highpass, BiquadKind::Bandpass, BiquadKind::Notch, BiquadKind::Allpass, BiquadKind::Peaking, BiquadKind::LowShelf, BiquadKind::HighShelf] {
         // params: frequency, q, gain_db
         let scan = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
-            let c = BiquadCoeffs::design(kind, p[0], Tracer::lit(FS), p[1], p[2]);
+            let c = BiquadCoeffs::design(kind, p[0], p[1], p[2], Tracer::lit(FS));
             let (next, y) = c.tick([s[0], s[1]], x);
             (next.to_vec(), y)
         });
@@ -110,7 +110,7 @@ fn svf_ladder_shapes_and_dynamics_trace_like_the_processors() {
 fn a_filter_chain_fits_its_parameters_by_gradient() {
     // biquad low-pass then tanh drive: recover cutoff (log Hz), Q and drive from a target
     let chain = |p: &[Tracer], s: &[Tracer], x: Tracer| {
-        let c = BiquadCoeffs::design(BiquadKind::Lowpass, p[0].exp(), Tracer::lit(FS), p[1], Tracer::lit(0.0));
+        let c = BiquadCoeffs::design(BiquadKind::Lowpass, p[0].exp(), p[1], Tracer::lit(0.0), Tracer::lit(FS));
         let ([s0, s1], y) = c.tick([s[0], s[1]], x);
         (vec![s0, s1], Shape::Tanh.apply(y * p[2]))
     };

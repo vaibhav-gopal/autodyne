@@ -249,7 +249,7 @@ fn reductions(c: &mut Criterion) {
 /// 16 channels x 48,000 samples through a 63-tap FIR each (Burn: a depthwise conv1d).
 fn convolution(c: &mut Criterion) {
     let (channels, len) = (16usize, 48_000usize);
-    let taps: Vec<f32> = design_lowpass(4_000.0, 48_000.0, 63);
+    let taps: Vec<f32> = design_lowpass(4_000.0, 63, 48_000.0);
     let signal: Vec<f32> = (0..channels * len).map(|i| (((i * 7_919) % 1_000) as f32 * 1e-3) - 0.5).collect();
     let mut ours = NdArray::from_vec(signal.clone(), &[channels, len]).unwrap();
     let mut firs: Vec<Fir<f32>> = (0..channels).map(|_| Fir::new(taps.clone())).collect();

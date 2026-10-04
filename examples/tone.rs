@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tone = Sine::new(440.0, fs).with_amplitude(0.5);
     let mut noise = Noise::new(NOISE_SEED).with_amplitude(0.05);
-    let mut lowpass = Biquad::lowpass(1_000.0, fs, BUTTERWORTH_Q as f32);
+    let mut lowpass = Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, fs);
 
     let len = 2 * SAMPLE_RATE as usize;
     let (mut clean, mut noisy, mut filtered) = (vec![0.0f32; len], vec![0.0f32; len], vec![0.0f32; len]);
@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut noise_only = vec![0.0f32; len];
     Noise::new(NOISE_SEED).with_amplitude(0.05).fill(&mut noise_only);
     let noise_before = noise_only.rms().unwrap();
-    Biquad::lowpass(1_000.0, fs, BUTTERWORTH_Q as f32).process(&mut noise_only);
+    Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, fs).process(&mut noise_only);
     let noise_after = noise_only.rms().unwrap();
     println!(
         "noise rms {noise_before:.4} -> {noise_after:.4} ({:.1} dB less noise; the 440 Hz tone keeps {:.1}% of its level)",

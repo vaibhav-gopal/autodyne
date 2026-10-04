@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn log_parameters_glide_geometrically_and_land_exactly() {
-        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, FS, BUTTERWORTH_Q), 0.01, FS); // 480 samples
+        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, BUTTERWORTH_Q, FS), 0.01, FS); // 480 samples
         let cutoff = lp.param_index("frequency_hz").unwrap();
         assert_eq!(lp.set_param(cutoff, 10_000.0), Ok(10_000.0));
         assert_eq!(lp.get_param(cutoff), Some(10_000.0), "reads back the target at once");
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn interrupting_a_ramp_continues_from_where_it_is() {
-        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, FS, BUTTERWORTH_Q), 0.01, FS);
+        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, BUTTERWORTH_Q, FS), 0.01, FS);
         let cutoff = lp.param_index("frequency_hz").unwrap();
         lp.set_param(cutoff, 10_000.0).unwrap();
         lp.process(&mut [0.0; 240]);
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn resending_the_target_does_not_restart_the_glide() {
-        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, FS, BUTTERWORTH_Q), 0.01, FS); // 480 samples
+        let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, BUTTERWORTH_Q, FS), 0.01, FS); // 480 samples
         let cutoff = lp.param_index("frequency_hz").unwrap();
         lp.set_param(cutoff, 10_000.0).unwrap();
         for _ in 0..15 {
@@ -360,7 +360,7 @@ mod tests {
         // (wide open) mid-stream: unsmoothed, the output steps straight to full level
         let sine: Vec<f32> = (0..4_800).map(|n| (std::f32::consts::TAU * 200.0 * n as f32 / 48_000.0).sin()).collect();
         let render = |ramp_seconds: f64| {
-            let mut hp = Smoothed::new(Biquad::<f32>::highpass(5_000.0, 48_000.0, BUTTERWORTH_Q as f32), ramp_seconds, FS);
+            let mut hp = Smoothed::new(Biquad::<f32>::highpass(5_000.0, BUTTERWORTH_Q as f32, 48_000.0), ramp_seconds, FS);
             let cutoff = hp.param_index("frequency_hz").unwrap();
             let mut out = sine.clone();
             process_events(&mut hp, &mut out, &[ParamEvent { offset: 1_000, index: cutoff, value: 20.0 }]).unwrap();

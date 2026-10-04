@@ -6,7 +6,7 @@
 //! use autodyne::osc::Sine;
 //!
 //! let mut block = vec![0.0f32; 512];
-//! let mut chain = Sine::new(440.0, 48_000.0).through(Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q as f32));
+//! let mut chain = Sine::new(440.0, 48_000.0).through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, 48_000.0));
 //! chain.fill(&mut block);          // generate + filter, a block at a time
 //! assert!(block.rms().unwrap() > 0.5);
 //! ```

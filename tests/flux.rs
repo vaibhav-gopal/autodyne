@@ -402,7 +402,7 @@ fn fits_an_eq_and_drive_to_a_recording_with_the_stft_loss() {
     // a peaking EQ into tanh drive: recover the centre frequency (log Hz), the gain (in units of
     // 10 dB) and the drive from the target's spectrogram alone (no sample-by-sample error)
     let scan = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
-        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(FS), Tracer::lit(1.0), p[1] * Tracer::lit(10.0));
+        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(1.0), p[1] * Tracer::lit(10.0), Tracer::lit(FS));
         let ([a, b], y) = c.tick([s[0], s[1]], x);
         (vec![a, b], Shape::Tanh.apply(y * p[2]))
     });

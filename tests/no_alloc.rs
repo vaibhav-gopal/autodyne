@@ -83,9 +83,9 @@ const FS: f64 = 48_000.0;
 fn processors_do_not_allocate() {
     let mut block: Vec<f64> = Noise::new(1).take(512).collect();
 
-    let mut biquad = Biquad::peaking(1_000.0, FS, 1.0, 6.0);
+    let mut biquad = Biquad::peaking(1_000.0, 1.0, 6.0, FS);
     assert_no_alloc("Biquad", || biquad.process(&mut block));
-    let mut fir = Fir::lowpass(2_000.0, FS, 63);
+    let mut fir = Fir::lowpass(2_000.0, 63, FS);
     assert_no_alloc("Fir", || fir.process(&mut block));
     let mut gain = Gain::new(1.0, 0.01, FS);
     assert_no_alloc("Gain (ramping)", || {
@@ -103,7 +103,7 @@ fn processors_do_not_allocate() {
     assert_no_alloc("ModulatedDelay", || chorus.process(&mut block));
     let mut phaser = Phaser::new(6, FS);
     assert_no_alloc("Phaser", || phaser.process(&mut block));
-    let mut chain = (Biquad::lowpass(5_000.0, FS, BUTTERWORTH_Q), Compressor::new(FS), Echo::new(0.2, FS));
+    let mut chain = (Biquad::lowpass(5_000.0, BUTTERWORTH_Q, FS), Compressor::new(FS), Echo::new(0.2, FS));
     assert_no_alloc("tuple chain", || chain.process(&mut block));
     let mut adsr = Adsr::new(0.01, 0.1, 0.5, 0.2, FS);
     assert_no_alloc("Adsr", || {
@@ -129,7 +129,7 @@ fn generators_sources_and_streams_do_not_allocate() {
     let mut phasor = Phasor::new(1_000.0, FS);
     let mut zs = vec![Complex::zero(); 512];
     assert_no_alloc("Phasor::fill", || phasor.fill(&mut zs));
-    let mut lazy = Sine::new(220.0, FS).mix(Noise::new(2).scaled(0.1)).through(Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q));
+    let mut lazy = Sine::new(220.0, FS).mix(Noise::new(2).scaled(0.1)).through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS));
     assert_no_alloc("Source::through", || lazy.fill(&mut block));
     let mut stream = Sine::new(220.0, FS).stream().through(Compressor::new(FS));
     assert_no_alloc("SignalRead::through", || {
@@ -200,7 +200,7 @@ fn multichannel_does_not_allocate() {
         chain.process(&mut buf);
         buf.copy_to_interleaved(&mut back);
     });
-    let mut eq = MultiBiquad::new(2, |ch| Biquad::peaking(1_000.0 + 500.0 * ch as f64, FS, 1.0, 3.0));
+    let mut eq = MultiBiquad::new(2, |ch| Biquad::peaking(1_000.0 + 500.0 * ch as f64, 1.0, 3.0, FS));
     assert_no_alloc("MultiBiquad", || eq.process(&mut buf));
     let mono = vec![0.5; 512];
     let mut pan = Panner::new(-0.3, FS);
@@ -215,13 +215,13 @@ struct Comp;
 impl ProcessorFactory for Comp {
     type Output<T: FloatElement> = (Biquad<T>, Compressor<T>);
     fn build<T: FloatElement>(&self, fs: T) -> Self::Output<T> {
-        (Biquad::lowpass(T::_lit(3_000.0), fs, T::_lit(BUTTERWORTH_Q)), Compressor::new(fs))
+        (Biquad::lowpass(T::_lit(3_000.0), T::_lit(BUTTERWORTH_Q), fs), Compressor::new(fs))
     }
 }
 
 #[test]
 fn parameters_and_dynamic_processing_do_not_allocate() {
-    let mut chain = (Gain::new(1.0, 0.0, FS), Compressor::new(FS), Biquad::peaking(1_000.0, FS, 1.0, 0.0));
+    let mut chain = (Gain::new(1.0, 0.0, FS), Compressor::new(FS), Biquad::peaking(1_000.0, 1.0, 0.0, FS));
     assert_no_alloc("setting parameters (automation)", || {
         chain.set_param(2, -24.0).unwrap();
         chain.set_normalized(7, 0.5).unwrap();
@@ -238,7 +238,7 @@ fn parameters_and_dynamic_processing_do_not_allocate() {
     assert_no_alloc("DynProcessor::process_dyn", || dynamic.process_dyn(DynBlock::F32(&mut block)).unwrap());
 
     // ramped automation with sample-accurate events, mono and multichannel
-    let mut smoothed = Smoothed::new((Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q), Compressor::new(FS)), 0.02, FS);
+    let mut smoothed = Smoothed::new((Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS), Compressor::new(FS)), 0.02, FS);
     let mut audio = vec![0.25f64; 512];
     let mut flip = false;
     assert_no_alloc("Smoothed + process_events", || {
@@ -255,7 +255,7 @@ fn parameters_and_dynamic_processing_do_not_allocate() {
     });
 
     // an LFO driving a modulation matrix, tempo-synced, with routes changed while running
-    let mut voices = Modulated::new(Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q), 2, 4);
+    let mut voices = Modulated::new(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS), 2, 4);
     let cutoff = voices.param_index("frequency_hz").unwrap();
     voices.set_route(0, Some(Route { source: 0, destination: cutoff, via: Some(1) })).unwrap();
     voices.set_depth(0, 0.3).unwrap();
@@ -374,7 +374,7 @@ fn analyzers_do_not_allocate() {
     });
     let mut peak = TruePeak::new(FS);
     assert_no_alloc("TruePeak", || peak.push(&tone));
-    let mut pitch = PitchDetector::new(FS, 50.0, 1_000.0);
+    let mut pitch = PitchDetector::new(50.0, 1_000.0, FS);
     assert_no_alloc("PitchDetector", || {
         pitch.process(&tone);
     });
@@ -484,7 +484,7 @@ fn nd_views_and_zip_do_not_allocate() {
     let b = NdArray::<f64>::full(&[16, 32], 0.5).unwrap();
     let bias = NdArray::<f64>::full(&[32], 1.0).unwrap();
     let mut sums = NdArray::<f64>::zeros(&[8, 1, 32]).unwrap();
-    let mut filters: Vec<Biquad<f64>> = (0..8 * 16).map(|_| Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q)).collect();
+    let mut filters: Vec<Biquad<f64>> = (0..8 * 16).map(|_| Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS)).collect();
     let mut time_major = NdArray::<f64>::zeros(&[32, 8, 16]).unwrap();
     assert_no_alloc("view transforms, lanes, Zip, reductions, chunked lane processing", || {
         let v = a.view().flip(2).unwrap().step_axis(1, 2).unwrap().transpose();

@@ -121,7 +121,7 @@ impl<T: Float> Sample<T> {
     /// Adds half-rate copies for `octaves` octaves (or until they are very short), so notes far
     /// above the root are band-limited cheaply.
     pub fn with_mipmaps(mut self, octaves: usize) -> Self {
-        let taps: Vec<f64> = design_lowpass(0.225, 1.0, 127);
+        let taps: Vec<f64> = design_lowpass(0.225, 127, 1.0);
         let center = taps.len() / 2;
         while self.levels.len() <= octaves {
             let prev = self.levels.last().unwrap();

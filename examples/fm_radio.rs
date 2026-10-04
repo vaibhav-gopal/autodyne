@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut fm_tx, mut iq_tx) = (FmModulator::new(DEVIATION, fs), IqModulator::new(CARRIER, fs));
     let mut air_noise = Noise::new(7).with_amplitude(0.1);
     let (mut iq_rx, mut fm_rx) = (IqDemodulator::new(CARRIER, BANDWIDTH, fs), FmDiscriminator::new(DEVIATION, fs));
-    let mut audio_lp = Biquad::lowpass(AUDIO_CUTOFF, fs, BUTTERWORTH_Q);
+    let mut audio_lp = Biquad::lowpass(AUDIO_CUTOFF, BUTTERWORTH_Q, fs);
 
     let mut rf = vec![0.0f64; len];
     let mut received = vec![0.0f64; len];

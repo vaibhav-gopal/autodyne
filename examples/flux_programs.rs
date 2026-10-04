@@ -109,7 +109,7 @@ fn main() {
     let xs = NdArray::from_vec(noise(n, 41).iter().map(|v| 0.5 * v).collect(), &[n]).unwrap();
     let start = Instant::now();
     let chain = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
-        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(FS), Tracer::lit(1.0), p[1] * Tracer::lit(10.0));
+        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(1.0), p[1] * Tracer::lit(10.0), Tracer::lit(FS));
         let ([a, b], y) = c.tick([s[0], s[1]], x);
         (vec![a, b], Shape::Tanh.apply(y * p[2]))
     });

@@ -29,7 +29,7 @@ impl ProcessorFactory for VoiceChain {
         let mut echo = Echo::new(T::_lit(1.0), fs);
         echo.set_immediate(T::_lit(0.25), T::_lit(0.35), T::_lit(0.3));
         (
-            Biquad::low_shelf(T::_lit(200.0), fs, T::_lit(BUTTERWORTH_Q), T::_lit(3.0)),
+            Biquad::low_shelf(T::_lit(200.0), T::_lit(BUTTERWORTH_Q), T::_lit(3.0), fs),
             Compressor::new(fs),
             echo,
             Gain::new(T::_ONE, T::_lit(0.02), fs),

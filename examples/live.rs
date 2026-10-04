@@ -131,7 +131,7 @@ impl Engine {
         compressor.set_threshold_db(-18.0);
         compressor.set_makeup_db(3.0);
         let chain = (
-            MultiBiquad::new(2, |_| Biquad::high_shelf(6_000.0, sample_rate, BUTTERWORTH_Q as f32, -4.0)),
+            MultiBiquad::new(2, |_| Biquad::high_shelf(6_000.0, BUTTERWORTH_Q as f32, -4.0, sample_rate)),
             PerChannel::new(2, |ch| ModulatedDelay::chorus(sample_rate).with_lfo_phase(ch as f32 * 0.5)),
             Linked(compressor),
             PerChannel::new(2, |ch| {

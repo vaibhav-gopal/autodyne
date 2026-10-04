@@ -1569,10 +1569,10 @@ mod tests {
         // [time, channel] layout (interleaved): time is NOT the last axis
         let input: Vec<f64> = Sine::new(9_000.0, 48_000.0).take(2_000).collect();
         let mut interleaved = NdArray::from_fn(&[2_000, 2], |i| input[i[0]]).unwrap();
-        interleaved.for_each_lane(0, |lane| Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q).process(lane)).unwrap();
+        interleaved.for_each_lane(0, |lane| Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0).process(lane)).unwrap();
 
         let mut reference = input.clone();
-        Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q).process(&mut reference);
+        Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0).process(&mut reference);
         for (t, &r) in reference.iter().enumerate() {
             assert_eq!(interleaved[&[t, 0][..]], r);
             assert_eq!(interleaved[&[t, 1][..]], r);

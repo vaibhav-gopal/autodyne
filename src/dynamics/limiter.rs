@@ -55,10 +55,10 @@ impl<T: Float> LookaheadLimiter<T> {
     /// Ceiling -0.3 dB, true-peak detection on, 5 ms lookahead, 100 ms release.
     /// Panics if `channels` is 0.
     pub fn new(channels: usize, sample_rate: T) -> Self {
-        Self::with_lookahead(channels, sample_rate, T::_lit(0.005))
+        Self::with_lookahead(channels, T::_lit(0.005), sample_rate)
     }
     /// With a lookahead time (at least one sample): longer gives gentler attacks and more latency.
-    pub fn with_lookahead(channels: usize, sample_rate: T, seconds: T) -> Self {
+    pub fn with_lookahead(channels: usize, seconds: T, sample_rate: T) -> Self {
         assert!(channels > 0, "a limiter needs at least one channel");
         let lookahead = (seconds * sample_rate)._round().to_f64().unwrap_or(1.0).max(1.0) as usize;
         let detector = TruePeak::new(sample_rate);

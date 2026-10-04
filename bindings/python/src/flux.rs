@@ -401,7 +401,7 @@ fn biquad(
             ("highshelf", BiquadKind::HighShelf),
         ],
     )?;
-    let c = BiquadCoeffs::design(kind, tr(frequency)?, Tracer::lit(sample_rate), tr(q)?, tr(gain_db)?);
+    let c = BiquadCoeffs::design(kind, tr(frequency)?, tr(q)?, tr(gain_db)?, Tracer::lit(sample_rate));
     let ([a, b], y) = c.tick([tr(&state.0)?, tr(&state.1)?], tr(x)?);
     Ok(((PyTracer(a), PyTracer(b)), PyTracer(y)))
 }

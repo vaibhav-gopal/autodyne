@@ -21,7 +21,7 @@ impl<T: Float> LinkwitzRiley<T> {
     pub fn new(frequency: T, sample_rate: T) -> Self {
         let f = clamp_frequency(frequency, sample_rate);
         let q = T::_lit(BUTTERWORTH_Q);
-        let (lp, hp) = (Biquad::lowpass(f, sample_rate, q), Biquad::highpass(f, sample_rate, q));
+        let (lp, hp) = (Biquad::lowpass(f, q, sample_rate), Biquad::highpass(f, q, sample_rate));
         Self { frequency: f, sample_rate, low: [lp; 2], high: [hp; 2] }
     }
     /// Moves the crossover, keeping the filters' state (no click).
@@ -29,7 +29,7 @@ impl<T: Float> LinkwitzRiley<T> {
         let f = clamp_frequency(hz, self.sample_rate);
         self.frequency = f;
         let q = T::_lit(BUTTERWORTH_Q);
-        let (lp, hp) = (BiquadCoeffs::lowpass(f, self.sample_rate, q), BiquadCoeffs::highpass(f, self.sample_rate, q));
+        let (lp, hp) = (BiquadCoeffs::lowpass(f, q, self.sample_rate), BiquadCoeffs::highpass(f, q, self.sample_rate));
         self.low.iter_mut().for_each(|b| b.set_coeffs(lp));
         self.high.iter_mut().for_each(|b| b.set_coeffs(hp));
     }
@@ -39,7 +39,7 @@ impl<T: Float> LinkwitzRiley<T> {
     /// The all-pass that the two bands sum to: run it on signals that bypass this split, so they
     /// stay in phase with the ones that went through it.
     pub fn allpass(&self) -> Biquad<T> {
-        Biquad::new(BiquadCoeffs::allpass(self.frequency, self.sample_rate, T::_lit(BUTTERWORTH_Q)))
+        Biquad::new(BiquadCoeffs::allpass(self.frequency, T::_lit(BUTTERWORTH_Q), self.sample_rate))
     }
     pub fn reset(&mut self) {
         self.low.iter_mut().chain(self.high.iter_mut()).for_each(Biquad::reset);

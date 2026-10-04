@@ -319,7 +319,7 @@ fn lowpass(py: Python<'_>, x: &Bound<'_, PyAny>, cutoff: f64, sample_rate: f64, 
         let axis = axis_index(axis, view.ndim())?;
         let mut out = view.to_owned();
         let lanes = out.lanes(axis).map_err(value_error)?.len();
-        let mut filters: Vec<Biquad<T>> = (0..lanes).map(|_| Biquad::lowpass(T::_lit(cutoff), T::_lit(sample_rate), T::_lit(BUTTERWORTH_Q))).collect();
+        let mut filters: Vec<Biquad<T>> = (0..lanes).map(|_| Biquad::lowpass(T::_lit(cutoff), T::_lit(BUTTERWORTH_Q), T::_lit(sample_rate))).collect();
         out.process_lanes(axis, &mut filters).map_err(value_error)?;
         numpy_array(py, out)
     })

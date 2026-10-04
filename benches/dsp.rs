@@ -45,7 +45,7 @@ fn filters(c: &mut Criterion) {
     let input = noise_block();
     let mut buf = input.clone();
 
-    let mut bq = Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q as f32);
+    let mut bq = Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, FS);
     g.bench_function("biquad", |b| b.iter(|| {
         buf.copy_from_slice(&input);
         bq.process(black_box(&mut buf));
@@ -56,15 +56,15 @@ fn filters(c: &mut Criterion) {
     for ch in 0..8 {
         eight.channel_mut(ch).copy_from_slice(&input);
     }
-    let mut per_channel = PerChannel::new(8, |ch| Biquad::peaking(500.0 * (ch + 1) as f32, FS, 1.0, 3.0));
+    let mut per_channel = PerChannel::new(8, |ch| Biquad::peaking(500.0 * (ch + 1) as f32, 1.0, 3.0, FS));
     g.throughput(Throughput::Elements(8 * BLOCK as u64));
     g.bench_function("biquad x8 channels, per channel", |b| b.iter(|| per_channel.process(black_box(&mut eight))));
-    let mut multi = MultiBiquad::new(8, |ch| Biquad::peaking(500.0 * (ch + 1) as f32, FS, 1.0, 3.0));
+    let mut multi = MultiBiquad::new(8, |ch| Biquad::peaking(500.0 * (ch + 1) as f32, 1.0, 3.0, FS));
     g.bench_function("biquad x8 channels, MultiBiquad", |b| b.iter(|| multi.process(black_box(&mut eight))));
     g.throughput(Throughput::Elements(BLOCK as u64));
 
     for taps in [16, 64, 256] {
-        let mut fir = Fir::lowpass(1_000.0, FS, taps);
+        let mut fir = Fir::lowpass(1_000.0, taps, FS);
         g.bench_with_input(BenchmarkId::new("fir", taps), &taps, |b, _| b.iter(|| {
             buf.copy_from_slice(&input);
             fir.process(black_box(&mut buf));
@@ -244,7 +244,7 @@ fn nd(c: &mut Criterion) {
     let (frames, channels) = (16_384, 16);
     let mut interleaved = NdArray::<f32>::from_fn(&[frames, channels], |i| ((i[0] * 31 + i[1]) % 97) as f32 * 0.01).unwrap();
     let mut planar = NdArray::<f32>::from_fn(&[channels, frames], |i| ((i[1] * 31 + i[0]) % 97) as f32 * 0.01).unwrap();
-    let mut filters: Vec<Biquad<f32>> = (0..channels).map(|_| Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q as f32)).collect();
+    let mut filters: Vec<Biquad<f32>> = (0..channels).map(|_| Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, FS)).collect();
     let mut g = c.benchmark_group("lanes (16 ch x 16384)");
     g.throughput(criterion::Throughput::Elements((frames * channels) as u64));
     g.bench_function("biquad per lane, contiguous lanes", |b| b.iter(|| planar.process_lanes(1, &mut filters).unwrap()));

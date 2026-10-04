@@ -186,14 +186,14 @@ impl<T: Float> ParametricEq<T> {
             T::_lit(1.0 / (2.0 * angle.cos()))
         };
         let designs: [Option<BiquadCoeffs<T>>; MAX_STAGES] = std::array::from_fn(|s| match b.kind {
-            EqBandKind::Peak if s == 0 => Some(BiquadCoeffs::peaking(f, sr, q, gain)),
-            EqBandKind::LowShelf if s == 0 => Some(BiquadCoeffs::low_shelf(f, sr, q, gain)),
-            EqBandKind::HighShelf if s == 0 => Some(BiquadCoeffs::high_shelf(f, sr, q, gain)),
-            EqBandKind::Notch if s == 0 => Some(BiquadCoeffs::notch(f, sr, q)),
-            EqBandKind::BandPass if s == 0 => Some(BiquadCoeffs::bandpass(f, sr, q)),
+            EqBandKind::Peak if s == 0 => Some(BiquadCoeffs::peaking(f, q, gain, sr)),
+            EqBandKind::LowShelf if s == 0 => Some(BiquadCoeffs::low_shelf(f, q, gain, sr)),
+            EqBandKind::HighShelf if s == 0 => Some(BiquadCoeffs::high_shelf(f, q, gain, sr)),
+            EqBandKind::Notch if s == 0 => Some(BiquadCoeffs::notch(f, q, sr)),
+            EqBandKind::BandPass if s == 0 => Some(BiquadCoeffs::bandpass(f, q, sr)),
             // one section: the band's own Q (resonance); more: a Butterworth cascade
-            EqBandKind::LowCut if s < b.slope => Some(BiquadCoeffs::highpass(f, sr, if b.slope == 1 { q } else { butterworth(s, b.slope) })),
-            EqBandKind::HighCut if s < b.slope => Some(BiquadCoeffs::lowpass(f, sr, if b.slope == 1 { q } else { butterworth(s, b.slope) })),
+            EqBandKind::LowCut if s < b.slope => Some(BiquadCoeffs::highpass(f, if b.slope == 1 { q } else { butterworth(s, b.slope) }, sr)),
+            EqBandKind::HighCut if s < b.slope => Some(BiquadCoeffs::lowpass(f, if b.slope == 1 { q } else { butterworth(s, b.slope) }, sr)),
             _ => None,
         });
         let mut used = 0;

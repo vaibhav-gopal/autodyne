@@ -324,11 +324,11 @@ mod tests {
     fn multichannel_tuple_chains_run_in_order() {
         let original = stereo_noise(512);
         let mut chained = original.clone();
-        let mut chain = (PerChannel::new(2, |_| Biquad::lowpass(1_000.0, FS, 0.707)), StereoWidth::new(0.0, FS));
+        let mut chain = (PerChannel::new(2, |_| Biquad::lowpass(1_000.0, 0.707, FS)), StereoWidth::new(0.0, FS));
         chain.process(&mut chained);
 
         let mut manual = original;
-        PerChannel::new(2, |_| Biquad::lowpass(1_000.0, FS, 0.707)).process(&mut manual);
+        PerChannel::new(2, |_| Biquad::lowpass(1_000.0, 0.707, FS)).process(&mut manual);
         StereoWidth::new(0.0, FS).process(&mut manual);
         assert_eq!(chained.channel(0), manual.channel(0));
         assert_eq!(chained.channel(1), manual.channel(1));

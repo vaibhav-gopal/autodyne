@@ -1032,11 +1032,11 @@ mod tests {
         let n = 2_000;
         let noise: Vec<f64> = Noise::new(3).take(n * 2).collect();
         let mut interleaved = NdArray::from_vec(noise.clone(), &[n, 2]).unwrap();
-        let mut filters = [Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q), Biquad::highpass(500.0, 48_000.0, BUTTERWORTH_Q)];
+        let mut filters = [Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0), Biquad::highpass(500.0, BUTTERWORTH_Q, 48_000.0)];
         interleaved.process_lanes(0, &mut filters).unwrap();
         for ch in 0..2 {
             let mut reference: Vec<f64> = noise.iter().skip(ch).step_by(2).copied().collect();
-            let mut f = if ch == 0 { Biquad::lowpass(1_000.0, 48_000.0, BUTTERWORTH_Q) } else { Biquad::highpass(500.0, 48_000.0, BUTTERWORTH_Q) };
+            let mut f = if ch == 0 { Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0) } else { Biquad::highpass(500.0, BUTTERWORTH_Q, 48_000.0) };
             f.process(&mut reference);
             let got = interleaved.view().index_axis(1, ch).unwrap().to_vec();
             let err = got.iter().zip(&reference).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);

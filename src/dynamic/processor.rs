@@ -230,7 +230,7 @@ mod tests {
     impl ProcessorFactory for LowpassThenCompress {
         type Output<T: FloatElement> = (Biquad<T>, Compressor<T>);
         fn build<T: FloatElement>(&self, sample_rate: T) -> Self::Output<T> {
-            (Biquad::lowpass(T::_lit(2_000.0), sample_rate, T::_lit(BUTTERWORTH_Q)), Compressor::new(sample_rate))
+            (Biquad::lowpass(T::_lit(2_000.0), T::_lit(BUTTERWORTH_Q), sample_rate), Compressor::new(sample_rate))
         }
     }
 

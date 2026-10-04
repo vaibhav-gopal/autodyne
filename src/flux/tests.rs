@@ -790,7 +790,7 @@ fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
         (vec![s], y)
     });
     let eq = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
-        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(48_000.0), Tracer::lit(1.0), p[1] * Tracer::lit(10.0));
+        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(1.0), p[1] * Tracer::lit(10.0), Tracer::lit(48_000.0));
         let ([a, b], y) = c.tick([s[0], s[1]], x);
         // a mask and a select in the step too
         let y = Tracer::select(y.greater(Tracer::lit(0.9)), Tracer::lit(0.9), y);

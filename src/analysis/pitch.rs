@@ -56,7 +56,7 @@ impl<T: Float> PitchDetector<T> {
     /// Detects fundamentals from `min_hz` to `max_hz`. The window spans one period of `min_hz`;
     /// estimates come every quarter window (`set_hop` to change). Threshold 0.15.
     /// Panics unless 0 < min_hz < max_hz < sample_rate / 4.
-    pub fn new(sample_rate: T, min_hz: T, max_hz: T) -> Self {
+    pub fn new(min_hz: T, max_hz: T, sample_rate: T) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
         let (lo, hi) = (min_hz.to_f64().unwrap_or(0.0), max_hz.to_f64().unwrap_or(0.0));
         assert!(lo > 0.0 && lo < hi && hi < fs / 4.0, "need 0 < min_hz < max_hz < sample_rate / 4");
@@ -219,7 +219,7 @@ mod tests {
 
     #[test]
     fn sines_across_the_range() {
-        let mut d = PitchDetector::new(FS, 40.0, 2_000.0);
+        let mut d = PitchDetector::new(40.0, 2_000.0, FS);
         for f in [41.2, 55.0, 98.0, 220.0, 440.0, 1_046.5, 1_975.5] {
             let x: Vec<f64> = Sine::new(f, FS).take(d.frame_len()).collect();
             let p = d.detect(&x).expect("voiced");
@@ -230,7 +230,7 @@ mod tests {
 
     #[test]
     fn rich_tones_and_a_missing_fundamental() {
-        let mut d = PitchDetector::new(FS, 50.0, 1_500.0);
+        let mut d = PitchDetector::new(50.0, 1_500.0, FS);
         for (wave, f) in [(Waveform::Saw, 98.0), (Waveform::Pulse { pulse_width: 0.3 }, 196.0), (Waveform::Triangle, 330.0), (Waveform::Saw, 1_200.0)] {
             let x: Vec<f64> = Oscillator::new(wave, f, FS).take(d.frame_len()).collect();
             let p = d.detect(&x).expect("voiced");
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn noise_and_silence_are_unvoiced() {
-        let mut d = PitchDetector::new(FS, 50.0, 1_500.0);
+        let mut d = PitchDetector::new(50.0, 1_500.0, FS);
         let noise: Vec<f64> = Noise::<f64>::new(5).take(d.frame_len()).collect();
         assert_eq!(d.detect(&noise), None);
         assert_eq!(d.detect(&vec![0.0; d.frame_len()]), None);
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn streaming_tracks_a_melody() {
-        let mut d = PitchDetector::<f32>::new(48_000.0, 60.0, 1_000.0);
+        let mut d = PitchDetector::<f32>::new(60.0, 1_000.0, 48_000.0);
         let mut block = vec![0.0f32; 128];
         for f in [110.0f32, 165.0, 247.5, 440.0] {
             let mut osc = Oscillator::new(Waveform::Saw, f, 48_000.0);

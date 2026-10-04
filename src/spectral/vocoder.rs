@@ -290,7 +290,7 @@ mod tests {
         (x.iter().map(|s| s * s).sum::<f64>() / x.len() as f64).sqrt()
     }
     fn pitch_of(x: &[f64]) -> f64 {
-        let mut d = PitchDetector::new(FS, 40.0, 2_000.0);
+        let mut d = PitchDetector::new(40.0, 2_000.0, FS);
         let start = x.len() - d.frame_len();
         d.detect(&x[start..]).expect("voiced").frequency
     }

@@ -738,7 +738,7 @@ mod tests {
 
     #[test]
     fn biquad_parameters_redesign_the_filter() {
-        let mut bq = Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q);
+        let mut bq = Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS);
         bq.set_param_by_id("frequency_hz", 2_000.0).unwrap();
         assert!((bq.magnitude_at(2_000.0, FS) - BUTTERWORTH_Q).abs() < 1e-9, "-3 dB moved to 2 kHz");
         assert_eq!(Biquad::new(*bq.coeffs()).param_count(), 0);
@@ -746,7 +746,7 @@ mod tests {
 
     #[test]
     fn chains_concatenate_and_group() {
-        let mut chain = (Gain::new(1.0, 0.0, FS), Compressor::new(FS), Biquad::peaking(1_000.0, FS, 1.0, 3.0));
+        let mut chain = (Gain::new(1.0, 0.0, FS), Compressor::new(FS), Biquad::peaking(1_000.0, 1.0, 3.0, FS));
         assert_eq!(chain.param_count(), 1 + 6 + 3);
         assert_eq!(chain.param_group(0), Some("Gain"));
         assert_eq!(chain.param_group(1), Some("Compressor"));

@@ -62,7 +62,7 @@ impl<T: Float> TruePeak<T> {
             // odd length (one zero tap appended): the group delay is then a whole number of input
             // samples plus a whole phase, so the branches interpolate at exactly 1/factor steps
             // between the samples instead of straddling them
-            let mut h: Vec<f64> = design_lowpass(fs / 2.0, fs * factor as f64, factor * TRUE_PEAK_TAPS - 1);
+            let mut h: Vec<f64> = design_lowpass(fs / 2.0, factor * TRUE_PEAK_TAPS - 1, fs * factor as f64);
             h.push(0.0);
             for phase in 0..factor {
                 // output phase p uses h[p + j * factor] on input x[n - j]

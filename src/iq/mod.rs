@@ -57,7 +57,7 @@ impl<T: Float> IqDemodulator<T> {
         // A 4th-order Butterworth is two biquads with Q = 1 / (2 cos(pi/8)) and 1 / (2 cos(3pi/8)).
         let q1 = T::_lit(1.0 / (2.0 * (std::f64::consts::PI / 8.0).cos()));
         let q2 = T::_lit(1.0 / (2.0 * (3.0 * std::f64::consts::PI / 8.0).cos()));
-        let stages = [Biquad::lowpass(bandwidth, sample_rate, q1), Biquad::lowpass(bandwidth, sample_rate, q2)];
+        let stages = [Biquad::lowpass(bandwidth, q1, sample_rate), Biquad::lowpass(bandwidth, q2, sample_rate)];
         Self { lo: Phasor::new(carrier, sample_rate), lp_i: stages, lp_q: stages }
     }
     pub fn reset(&mut self) {

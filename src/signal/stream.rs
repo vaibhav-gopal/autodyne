@@ -614,7 +614,7 @@ mod tests {
     #[test]
     fn generated_stream_processed_and_pumped() {
         let fs = 48_000.0;
-        let mut stream = Sine::new(8_000.0, fs).stream_for(4_800).through(Biquad::lowpass(500.0, fs, BUTTERWORTH_Q));
+        let mut stream = Sine::new(8_000.0, fs).stream_for(4_800).through(Biquad::lowpass(500.0, BUTTERWORTH_Q, fs));
         let mut sink = SignalCursor::new(Vec::new());
         assert_eq!(stream.copy_to(&mut sink, 256).unwrap(), 4_800);
         let out = sink.into_inner();

@@ -7,7 +7,7 @@ use crate::units::*;
 /// A procedural or streamed signal: produces samples on demand, forever or until the caller stops.
 ///
 /// Sources compose lazily; nothing is computed until samples are pulled:
-/// `Sine::new(220.0, fs).mix(Noise::new(1).scaled(0.1)).through(Biquad::lowpass(1_000.0, fs, q))`.
+/// `Sine::new(220.0, fs).mix(Noise::new(1).scaled(0.1)).through(Biquad::lowpass(1_000.0, q, fs))`.
 /// `fill` works a block at a time, so a source feeding processors via `through` runs each processor
 /// on whole blocks, just like a hand-written processing loop.
 pub trait Source {
@@ -211,7 +211,7 @@ mod tests {
 
     #[test]
     fn through_equals_filling_then_processing() {
-        let mut lazy = Sine::new(3_000.0, FS).mix(Noise::new(1).scaled(0.1)).through(Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q));
+        let mut lazy = Sine::new(3_000.0, FS).mix(Noise::new(1).scaled(0.1)).through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS));
         let mut a = vec![0.0; 1_000];
         lazy.fill(&mut a[..600]);
         lazy.fill(&mut a[600..]); // block boundaries don't matter
@@ -219,7 +219,7 @@ mod tests {
         let mut b = vec![0.0; 1_000];
         Sine::new(3_000.0, FS).fill(&mut b);
         Noise::new(1).scaled(0.1).add_to(&mut b);
-        Biquad::lowpass(1_000.0, FS, BUTTERWORTH_Q).process(&mut b);
+        Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS).process(&mut b);
         for (x, y) in a.iter().zip(&b) {
             assert!((x - y).abs() < 1e-12);
         }
