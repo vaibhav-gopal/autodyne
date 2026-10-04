@@ -106,15 +106,15 @@ results are in [`bench/numpy/RESULTS.md`](bench/numpy/RESULTS.md). On a Ryzen 9 
 
 - the extension module allocates with mimalloc (autodyne's `mimalloc` feature), which reuses freed pages: a large new
   array costs no page faults on first touch, most of the time of a large element-wise operation otherwise
-- fused `a * x + b`: 4.7-5.2x faster than NumPy's two passes with a temporary on 10M elements, 4-6x on transposed,
-  strided or reversed inputs (results keep the input's memory order, as NumPy's do), 2-2.6x on small arrays
-- sums: 2.5x (f32) to 3.4x (f64) faster, row sums 5.3x, column sums (contiguous or transposed) 1.35x
-- mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 3.7x; same-dtype `+`: 2x
-- FFT vs `numpy.fft` (pocketfft): 2.2-2.6x faster, 1.3x on short complex rows (`rustfft` / `realfft`; any length)
-- `scipy.signal`: `lfilter` 3.3x, `sosfiltfilt` 2.5x, `sosfilt` 1.4-2x (1.55x on 16 x 480k lanes), `welch` 3.2x,
-  `stft` 2.2x, filter design ~130x (SciPy designs in Python), `remez` 1.04x
-- linear algebra (one thread): `solve` 1.45-2x, `matmul` 1.13x at 512 x 512 (0.96x at 64 x 64, OpenBLAS's kernel a
-  shade faster there), `eigvals` 1.1x, `eigh` 1.15x, singular values on par. faer does the reductions and products;
+- fused `a * x + b`: 4.8-5.6x faster than NumPy's two passes with a temporary on 10M elements, 4-5.4x on transposed,
+  strided or reversed inputs (results keep the input's memory order, as NumPy's do), 1.9-2.7x on small arrays
+- sums: 2.5x (f32) to 3.3x (f64) faster, row sums 6.7x, column sums (contiguous or transposed) 1.4x
+- mixed dtypes (`int16` matrix + `float32` row, promoted with checking): 3.6x; same-dtype `+`: 2x
+- FFT vs `numpy.fft` (pocketfft): 2-2.8x faster (`rustfft` / `realfft`; any length)
+- `scipy.signal`: `lfilter` 3.3x, `sosfiltfilt` 2.4x, `sosfilt` 1.7-2.1x, `welch` 3.4x, `stft` 2.1x, filter design
+  ~130x (SciPy designs in Python), `remez` on par
+- linear algebra (one thread): `solve` 1.5-2x, `matmul` 1.1x at 512 x 512 and on par at 64 x 64 (a register-blocked
+  AVX2 kernel for small products), `eigvals` 1.1x, `eigh` 1.17x, singular values on par. faer does the reductions and products;
   the iterations are autodyne's own: dqds and Pal-Walker-Kahan for values alone (LAPACK's `dlasq1` / `dsterf`),
   divide and conquer with vectors (`dstedc` / `dbdsdc`). `bench/linalg` adds PyTorch, JAX, faer, nalgebra and Burn on
   the same inputs: fastest of all on `svd` (1.11x JAX), `eigh` (1.15x JAX) and `eigvalsh`, tied elsewhere
