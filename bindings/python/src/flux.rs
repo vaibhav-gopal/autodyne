@@ -1,6 +1,6 @@
 //! `autodyne.flux` from Python: trace functions written with [`Tracer`] operations (NumPy-style
 //! operators and methods), differentiate them, run scans and losses, and compile the result for
-//! IREE, XLA or a PJRT plugin. The trace, its derivatives and the programs are all built in Rust;
+//! IREE or a PJRT plugin (XLA's, for instance). The trace, its derivatives and the programs are all built in Rust;
 //! Python only describes the computation once.
 
 use std::cell::RefCell;
@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use autodyne::distortion::Shape;
 use autodyne::dynamics::{envelope_step, time_coeff, CompressorCurve};
 use autodyne::filter::{BiquadCoeffs, BiquadKind, LadderCoeffs, OnePole, SvfCoeffs, SvfMode};
-use autodyne::flux::{self as fx, Backend, Emit, Executable, ExecutableExt, FluxFloat, Graph, Iree, IreeTarget, Loss, Mask, Pjrt, PjrtOption, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::flux::{self as fx, Backend, Emit, Executable, ExecutableExt, FluxFloat, Graph, Iree, IreeTarget, Loss, Mask, Pjrt, PjrtOption, Program, Scan, StftResolution, Tracer};
 use autodyne::signal::{ArrayMath, ComplexArrayMath, NdArray, NdView, RealArrayMath};
 use autodyne::units::*;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
@@ -889,7 +889,7 @@ impl PyProgram {
     }
 }
 
-/// A compiler and runtime: IREE, XLA (through JAX) or a PJRT plugin.
+/// A compiler and runtime: IREE or a PJRT plugin (XLA's, for instance).
 #[pyclass(name = "Backend", module = "autodyne.flux", unsendable)]
 struct PyBackend(Box<dyn Backend>);
 
@@ -913,11 +913,6 @@ impl PyBackend {
             _ => return Err(PyValueError::new_err(format!("unknown IREE target {target:?}"))),
         };
         Ok(PyBackend(Box::new(iree.with_target(target))))
-    }
-    /// XLA through JAX in a Python process of its own (`AUTODYNE_XLA_PYTHON` or `python`).
-    #[staticmethod]
-    fn xla() -> PyResult<Self> {
-        Ok(PyBackend(Box::new(Xla::start().map_err(flux_error)?)))
     }
     /// A PJRT plugin loaded in-process, with client options (e.g. `{"preallocate": False}`).
     #[staticmethod]

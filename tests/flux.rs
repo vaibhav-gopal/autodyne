@@ -1,9 +1,8 @@
 //! flux end to end: traced programs emitted as StableHLO, compiled and run by each backend found
-//! (IREE, PJRT, XLA), and compared with the interpreter and with the concrete f32 code.
+//! (IREE, PJRT), and compared with the interpreter and with the concrete f32 code.
 //!
 //! IREE needs `iree-compile` and `iree-run-module` (`pip install iree-base-compiler
-//! iree-base-runtime`) in `AUTODYNE_IREE_DIR` or on `PATH`; XLA needs Python with `jax`
-//! (`AUTODYNE_XLA_PYTHON`, else `python3` / `python` on `PATH`); PJRT needs a plugin library in
+//! iree-base-runtime`) in `AUTODYNE_IREE_DIR` or on `PATH`; PJRT needs a plugin library in
 //! `AUTODYNE_PJRT_PLUGIN` (client options in `AUTODYNE_PJRT_OPTIONS`, e.g. `preallocate=false` for
 //! XLA's GPU plugin, as every test makes a client). A missing backend is reported and skipped; with none, the tests pass
 //! without running. `AUTODYNE_IREE_GPU` adds IREE on GPUs: a comma-separated list of `vulkan`,
@@ -16,7 +15,7 @@ use autodyne::distortion::Shape;
 use autodyne::filter::{BiquadCoeffs, BiquadKind, OnePole};
 use autodyne::flux::optim::{Adam, Optimizer};
 use autodyne::signal::frames;
-use autodyne::flux::{multi_resolution_stft, scalar, trace, vector, vjp, Backend, Emit, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::flux::{multi_resolution_stft, scalar, trace, vector, vjp, Backend, Emit, Executable, ExecutableExt, Iree, IreeTarget, Loss, Pjrt, Program, Scan, StftResolution, Tracer};
 use autodyne::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
 use autodyne::units::{Elementwise, RealValued};
 
@@ -51,13 +50,6 @@ fn backends() -> Vec<Box<dyn Backend>> {
             Err(e) => panic!("AUTODYNE_PJRT_PLUGIN is set but the plugin fails to load: {e}"),
         },
         None => eprintln!("skipping PJRT: set AUTODYNE_PJRT_PLUGIN to a plugin library (e.g. libpjrt_cpu.so)"),
-    }
-    match Xla::start() {
-        Ok(xla) => {
-            eprintln!("XLA: {}", xla.description());
-            found.push(Box::new(xla));
-        }
-        Err(e) => eprintln!("skipping XLA: {e}"),
     }
     found
 }

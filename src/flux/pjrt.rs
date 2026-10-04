@@ -5,7 +5,7 @@
 //!
 //! The plugin is found in `AUTODYNE_PJRT_PLUGIN` (a path). Prebuilt plugins exist for Linux and
 //! macOS (CPU, CUDA, ROCm: e.g. jaxlib's GPU plugins, or the builds at github.com/zml/pjrt-artifacts);
-//! on Windows use [`Xla`](super::Xla) instead.
+//! none is published for Windows, where flux runs in process, with IREE, or with a plugin under WSL.
 //!
 //! The bindings follow `xla/pjrt/c/pjrt_c_api.h` (API 0.x). Every call passes an argument struct
 //! whose `struct_size` tells the plugin which fields exist; the function table only grows at its

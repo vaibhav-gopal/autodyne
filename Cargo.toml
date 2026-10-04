@@ -35,7 +35,7 @@ serde_json = "1"
 # rustfft: the FFT backend (AVX / SSE / NEON mixed-radix kernels); without it, a portable radix-2
 default = ["rustfft", "faer"]
 ndarray = ["dep:ndarray"]
-# flux: trace, differentiate and emit StableHLO; IREE / XLA run as external tools, or PJRT plugins
+# flux: trace, differentiate and emit StableHLO; IREE runs as external tools, XLA (or any PJRT plugin)
 # loaded at run time (libloading)
 flux = ["dep:libloading"]
 # jit: flux compiles scalar scans (per-sample recurrences and their gradients) to machine code with

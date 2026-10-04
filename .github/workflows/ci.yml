@@ -98,8 +98,8 @@ jobs:
       - name: Test
         run: .venv/bin/python -m pytest tests -q
 
-  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE, a PJRT plugin
-  # (XLA CPU, loaded in-process) and XLA through JAX.
+  # flux end to end: trace, differentiate, emit StableHLO, compile and run it with IREE and a PJRT plugin
+  # (XLA CPU, loaded in-process).
   flux:
     runs-on: ubuntu-latest
     steps:
@@ -109,14 +109,12 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
-      - name: Install IREE and JAX (XLA)
+      - name: Install IREE
         run: |
           uv venv .flux --python 3.12
-          uv pip install --python .flux iree-base-compiler==3.11.0 iree-base-runtime==3.11.0 jax==0.11.2
+          uv pip install --python .flux iree-base-compiler==3.11.0 iree-base-runtime==3.11.0
           .flux/bin/iree-compile --version
-          .flux/bin/python -c "import jax; print(jax.devices())"
           echo "AUTODYNE_IREE_DIR=$PWD/.flux/bin" >> "$GITHUB_ENV"
-          echo "AUTODYNE_XLA_PYTHON=$PWD/.flux/bin/python" >> "$GITHUB_ENV"
       - name: Install the PJRT CPU plugin
         run: |
           mkdir -p .pjrt
@@ -124,7 +122,7 @@ jobs:
           echo "AUTODYNE_PJRT_PLUGIN=$PWD/.pjrt/libpjrt_cpu.so" >> "$GITHUB_ENV"
       - name: Test (interpreter)
         run: cargo test -p autodyne --features flux --lib flux
-      - name: Test (IREE, PJRT, XLA)
+      - name: Test (IREE, PJRT)
         run: cargo test -p autodyne --features flux --test flux -- --nocapture
 
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml

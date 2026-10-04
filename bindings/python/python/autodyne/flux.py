@@ -1,5 +1,5 @@
 """Differentiable signal processing: trace a function once, differentiate it, run it, or compile it
-for IREE, XLA or a PJRT plugin.
+for IREE or a PJRT plugin (XLA's, for instance).
 
 Functions are written with :class:`Tracer` values, which record what is done to them: NumPy-style
 operators and methods (``x * 2``, ``x.sin()``, ``x @ w``, ``x[1:]``, ``x.sum(axis=0)``), the
