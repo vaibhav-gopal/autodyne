@@ -19,13 +19,13 @@
 //! - [`Loss`] scores a scan's whole output: mean squared error, the multi-resolution STFT loss
 //!   usual for audio ([`Loss::stft`]), or any traced function; [`optim`] updates the parameters;
 //! - [`Graph::program`] and the `Scan` programs emit textual StableHLO, which a [`Backend`]
-//!   compiles and runs: [`Iree`] (its command-line tools) or [`Pjrt`] (a PJRT plugin such as XLA's,
-//!   loaded in-process through the PJRT C API).
+//!   compiles and runs: [`Iree`] (its command-line tools), [`Pjrt`] (a PJRT plugin such as XLA's,
+//!   loaded in-process through the PJRT C API) or [`Xla`] (XLA through JAX, where no plugin exists).
 //!
 //! In process, a scan whose state is scalars runs as a register program, or (feature `jit`) as
 //! machine code compiled with Cranelift on first use. For whole programs flux is a front end: no IR
-//! of its own beyond the trace, the compilers (IREE's tools, XLA's or another PJRT plugin) found at
-//! run time; no Python anywhere. The real-time path is unchanged: the same generic code monomorphized for `f32` / `f64`,
+//! of its own beyond the trace, the compilers (IREE, XLA) external tools or plugins found at run
+//! time. The real-time path is unchanged: the same generic code monomorphized for `f32` / `f64`,
 //! never touching a trace.
 //!
 //! ```
@@ -60,6 +60,7 @@ mod pjrt;
 mod runtime;
 mod scalar;
 mod scan;
+mod xla;
 
 pub use ad::{jvp, vjp};
 pub use graph::{scalar, trace, vector, Cmp, FluxFloat, Graph, Kind, Mask, Node, Op, Reduction, Tracer};
@@ -69,6 +70,7 @@ pub use pjrt::{Pjrt, PjrtOption};
 pub use runtime::{Backend, DeviceArray, Executable, ExecutableExt, HostArray, HostRef};
 pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
 pub use scan::{LossGrad, Scan, ScanVjp};
+pub use xla::Xla;
 
 /// Errors from compiling or running programs.
 /// Not `Clone` or `PartialEq`: it can hold an `io::Error`.

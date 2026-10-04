@@ -162,9 +162,8 @@ Backends, all found at run time (nothing is linked at build time, and the real-t
   and loaded elsewhere. Backends state their limits and programs are written for them (`Emit::for_backend`): on
   Vulkan, long FFTs are built from 64-point ones
 - PJRT: a plugin library (XLA CPU, CUDA, ...) loaded in-process through the PJRT C API, no Python; arrays can stay
-  on the device between runs (`upload` / `run_resident` / `download`). The test suite passes on XLA's CUDA plugin.
-  No plugin is published for Windows; there, flux runs in process (the fastest on the CPU anyway), with IREE, or with a
-  plugin under WSL
+  on the device between runs (`upload` / `run_resident` / `download`). The test suite passes on XLA's CUDA plugin
+- XLA through JAX in a long-lived Python process, for platforms without a plugin (Windows)
 
 Against JAX on the same XLA (`bench/flux`, [`RESULTS.md`](bench/flux/RESULTS.md)), flux's programs compile 20-40%
 sooner and run at 0.96-1.24x JAX's speed: on par for a one-pole's gradient, ahead on spectral models and on an EQ
@@ -178,7 +177,7 @@ chain's STFT-loss gradient in 0.26 ms (flux on XLA 0.28 ms, JAX 0.41 ms, Enzyme 
 processors and backends.
 
 ```sh
-pip install iree-base-compiler iree-base-runtime       # tools on PATH, or AUTODYNE_IREE_DIR
+pip install iree-base-compiler iree-base-runtime jax   # tools on PATH, or AUTODYNE_IREE_DIR / AUTODYNE_XLA_PYTHON
 export AUTODYNE_PJRT_PLUGIN=/path/to/libpjrt_cpu.so    # e.g. from github.com/zml/pjrt-artifacts (Linux, macOS)
 cargo test --features flux --test flux                  # each missing backend is reported and skipped
 ```

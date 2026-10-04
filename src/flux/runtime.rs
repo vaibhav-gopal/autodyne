@@ -12,7 +12,7 @@ use crate::units::DType;
 
 /// A compiler and runtime for [`Program`]s (StableHLO).
 pub trait Backend {
-    /// A short name for messages (`"iree"`, `"pjrt"`).
+    /// A short name for messages (`"iree"`, `"xla"`).
     fn name(&self) -> &'static str;
     /// Compiles `program`.
     fn compile(&self, program: &Program) -> Result<Box<dyn Executable>, FluxError>;
@@ -159,7 +159,7 @@ pub trait ExecutableExt: Executable {
 impl<E: Executable + ?Sized> ExecutableExt for E {}
 
 /// An array held in an [`Executable`]'s memory: on its device for backends with device memory
-/// (PJRT), on the host otherwise. Freed when dropped.
+/// (PJRT, the XLA server), on the host otherwise. Freed when dropped.
 pub struct DeviceArray {
     shape: Vec<usize>,
     dtype: DType,
