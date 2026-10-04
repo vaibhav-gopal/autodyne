@@ -201,9 +201,22 @@ Copy the `.clap` into your CLAP folder (`%COMMONPROGRAMFILES%\CLAP` on Windows, 
 VST3 validator).
 
 ### Tests and benchmarks
-- `cargo test`: every processor is checked against a known answer (closed-form signals, cookbook frequency responses, FFT vs DFT, modulation round trips), and `tests/no_alloc.rs` proves processing never allocates
-- `cargo bench`: throughput per 512-sample block. The SIMD pass made FIR filtering 4.5-13x faster
-  (more taps, bigger win) and resampling 6-11x faster than the scalar versions.
+What CI runs (`.github/workflows/ci.yml`), to run locally before a pull request:
+
+```sh
+cargo test --workspace --all-targets                     # every processor against a known answer; tests/no_alloc.rs
+                                                         # proves processing never allocates; tests/scipy_parity.rs
+                                                         # checks the SciPy-style APIs against SciPy's own outputs
+cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::   # GPU tests skip themselves without an adapter
+cargo test -p autodyne --no-default-features --lib fft  # the portable FFT
+cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux,autodyne/jit,autodyne/gpu
+```
+
+Every public item is documented (`#![warn(missing_docs)]`, so clippy fails otherwise). The Python bindings test with
+`pytest` (see above), flux's backends with `cargo test --features flux --test flux`. `cargo bench --bench dsp` times
+autodyne's own processors; every comparison with other libraries, and the command that reruns it, is indexed in
+[`bench/README.md`](bench/README.md).
 
 ## License
 autodyne is licensed under the [GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`): you may use, study,
