@@ -34,7 +34,8 @@ jobs:
         run: cargo test -p autodyne --features ndarray --lib
       # the JIT compiles flux's scans with Cranelift; GPU tests skip themselves without an adapter
       - name: Test the JIT and GPU features
-        run: cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::
+        # (quoted: ": " in a plain YAML value starts a mapping)
+        run: "cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::"
       - name: Doc tests
         run: cargo test --workspace --doc
       - name: Docs build without warnings
