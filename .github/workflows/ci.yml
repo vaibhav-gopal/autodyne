@@ -26,6 +26,11 @@ jobs:
       - name: Install ALSA headers
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      # an editor once left a U+FEFF mid-file in src/units/ops.rs, which rustc rejects; catch it here
+      - name: No byte-order marks
+        if: runner.os == 'Linux'
+        run: |
+          if git grep -nIF $'\xEF\xBB\xBF'; then echo "remove the byte-order marks above"; exit 1; fi
       - name: Test
         run: cargo test --workspace --all-targets
       - name: Test the portable FFT (without the rustfft backend)
