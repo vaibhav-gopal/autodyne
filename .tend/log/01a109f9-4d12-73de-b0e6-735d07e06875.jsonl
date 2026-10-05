@@ -1,0 +1,5 @@
+{"batch":"01a109f9-4d12-73de-b0e6-735d07e06875","after":"01a109f8-3303-7041-ba77-ac554fef71b5","author":"agent:claude-code","at":1791168695570,"message":"Corrects the accepted 01a109e6 batch (01a109e7 was its replacement and is now redundant: reject it): the three relations that were intra-doc links, not uses, and the layering-cycles todo they caused. (proposal 01a109f8-437a-719e-8dc0-7de753b997a2, proposed by agent:claude-code, accepted by user)"}
+{"op":"node.unrelate","from":"01a109e4-7085-7026-b3c7-294e09ee996e","kind":"uses","to":"01a109e4-7085-7026-b3c7-295070fe8a8c"}
+{"op":"node.unrelate","from":"01a109e4-7085-7026-b3c7-295070fe8a8c","kind":"uses","to":"01a109e4-7085-7026-b3c7-2952d8f48f7e"}
+{"op":"node.unrelate","from":"01a109e4-7085-7026-b3c7-295385ae3f21","kind":"uses","to":"01a109e4-7085-7026-b3c7-2952d8f48f7e"}
+{"op":"todo.status","id":"01a109e6-f159-744b-a4b3-2961f314be0e","status":"dropped","reason":"There are no cycles: the three uses behind them were intra-doc links in doc comments ([`ArrayMath`](crate::signal::ArrayMath) and the like), which the measurement wrongly counted."}
