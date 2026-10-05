@@ -1,0 +1,2 @@
+{"batch":"01a10acb-62d0-7613-b04c-81b84190b98d","after":"01a10ac4-0c01-7208-b6b7-fa3c21c5a47d","author":"agent:claude-code","at":1791182463696,"message":"The benchmark table is regenerated, by a method that holds up on a shared machine."}
+{"op":"todo.status","id":"01a109e4-7085-7026-b3c7-2988fb2d03b0","status":"done","reason":"Regenerated with compare.py --best-with: three runs, each side's best time per row, so bursts of background load don't stand; no row below 1.00x."}

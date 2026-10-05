@@ -123,6 +123,11 @@ results are in [`bench/numpy/RESULTS.md`](bench/numpy/RESULTS.md). On a Ryzen 9 
   the iterations are autodyne's own: dqds and Pal-Walker-Kahan for values alone (LAPACK's `dlasq1` / `dsterf`),
   divide and conquer with vectors (`dstedc` / `dbdsdc`). `bench/linalg` adds PyTorch, JAX, faer, nalgebra and Burn on
   the same inputs: fastest of all on `svd` (1.11x JAX), `eigh` (1.15x JAX) and `eigvalsh`, tied elsewhere
+- matrix equations vs `scipy.linalg`: the Riccati solvers 2.7-4.4x at every size; `schur` and Lyapunov 2.5-2.8x at
+  10 x 10, 1.3-1.4x at 50 x 50, 1.03-1.06x at 200 x 200 (LAPACK's blocked multishift QR leads from 300 x 300)
+- random numbers (NumPy's `Generator`): 1.2-3.7x (normals 3.2-3.6x, binomial 3.7x); statistics: median 4.9x,
+  quantiles 2.4x, skew and kurtosis 18x, histograms 1.8-2x, `acf` 8.4x and `pacf` 28x against statsmodels
+- ODEs: `solve_ivp` with RK45 4.2x on the same Python right-hand side, stiff Van der Pol 11x (Rosenbrock23 vs Radau)
 ### Benchmarks against Rust libraries (ndarray, Burn, CubeCL)
 `bench/rust` (its own workspace) compares autodyne with the `ndarray` crate, Burn 0.21 (CPU backend `flex`, and `wgpu`
 on the GPU) and a hand-written CubeCL kernel on shared axes: element-wise, transposed, broadcast, reductions, FIR vs
