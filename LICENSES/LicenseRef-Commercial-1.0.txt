@@ -1,0 +1,10 @@
+# Commercial License
+
+> **DRAFT.** Not yet reviewed by a lawyer. Don't rely on it until it has been.
+
+autodyne is available under a commercial license from Vaibhav Gopal (the "Licensor"). It covers uses
+that its other licenses don't. Examples are closed-source products beyond the royalty-free license's
+conditions, redistribution in an SDK, engine or toolkit, embedded devices, and support or warranties.
+
+The terms are those of a written agreement signed with the Licensor. Nothing is licensed under this
+identifier without one. To ask for one, contact the licensor, through the contact details in the project's repository.

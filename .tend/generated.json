@@ -2,10 +2,18 @@
   ".claude/settings.json#hooks.SessionStart.tend-context": "e09dbac488376c75f190ac720482f79539065fcd3d1bdceba014f748def88869",
   ".claude/skills/adopt/SKILL.md": "98ed508a3949b2f3780c3388efb70bf431e87d8c8e9ccccbec08474c2cf1e0c4",
   ".claude/skills/ask-project/SKILL.md": "5b79e26996a9fd04bb9b505e63f051561200d30f4844f187c0f58e9c9ba34bc0",
+  ".claude/skills/code-review/SKILL.md": "88547794a05e47ff8408acd6c985e71f1d64a8950cc62a7897b38b2589461e81",
   ".claude/skills/land/SKILL.md": "99184618134be3f70f555dfff0d0298d1e3d622499abcd3e1db3063e418c5020",
   ".claude/skills/refresh/SKILL.md": "3ab322110e22525b481f9b6752c1a92720717b544f48bbc6bfc58a8f82dd219a",
   ".claude/skills/triage/SKILL.md": "a8de22dda0b4d302e871b3c292bfdb820e9cf1cd629f189e97b709f3c784a34b",
+  ".claude/skills/unify/SKILL.md": "c220294e25740cee6b8679f7d210c662633be3685dc17affb126ce11f7015ec8",
   ".mcp.json#mcpServers.tend": "da94930fac786515805febafe208fdd0693a1083387aec4f164f76a34d1b03b0",
   "AGENTS.md": "bfc57068c379ebe152707e5823e7786f5b8ffe8a3a8a0a255e5d1880254cb010",
-  "CLAUDE.md": "b436b1af060256dcab3e14101f66954b826f4142e74f173630aaf733ee841c41"
+  "CLAUDE.md": "b436b1af060256dcab3e14101f66954b826f4142e74f173630aaf733ee841c41",
+  "LICENSE.md": "d02fc24f2c401393693dfe948ebc5c7d2f07926ba16f2b36ccb0cb2b4438379a",
+  "LICENSES/AdditionRef-Open-Project-Exception-1.0.txt": "d594cb7ee16a6699f1904a373487bb30cce30643a9bedd7f844543db3d8066d8",
+  "LICENSES/GPL-3.0-only.txt": "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986",
+  "LICENSES/LicenseRef-Commercial-1.0.txt": "fd88e5d2ca30fb4afadff4b490f1a6ef043bef4bcd7ea9bb5a288b0cf5921016",
+  "LICENSES/LicenseRef-Royalty-Free-1.0.txt": "a350056aae4dbf903618dec2d3c9b4391f7c24edb61c0fc6959f671a2f338894",
+  "REUSE.toml": "e233b5e9f4400dd980800b899b5d64786e73f4dbe4bb154433190035d84e5287"
 }

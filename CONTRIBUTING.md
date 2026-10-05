@@ -5,17 +5,18 @@ Thanks for helping. Bug reports, fixes, new processors, tests, benchmarks and do
 ## Before you start
 
 - For anything larger than a fix, open an issue first so we can agree on the design.
-- Pull requests need a one-time signature of the [Contributor License Agreement](CLA.md). The CLA Assistant bot
-  comments on your first pull request with instructions: you sign by replying with a single comment. autodyne is
-  GPLv3 and also licensed commercially; the CLA gives the maintainer the rights to do both with your contribution,
-  while you keep the copyright in your work.
-- Only submit work you wrote yourself, or third-party code whose license allows it. Say where such code comes
-  from and under which license (see section 5 of the CLA). Third-party code must be permissively licensed (MIT,
-  Apache-2.0, BSD, ISC, Zlib, ...): no GPL, LGPL or AGPL code or dependencies.
+- Contributions come in on the terms in [LICENSE.md](LICENSE.md#contributing): you license your contribution under
+  MIT No Attribution (MIT-0), so it can ship under every license autodyne is offered under; you sign off each commit
+  under the Developer Certificate of Origin 1.1 (`git commit -s`, with the name and email of the commit's author);
+  and you grant a patent license. You keep the copyright in your work.
+- Only submit work you wrote yourself, or third-party code whose license allows it. Say where such code comes from
+  and under which license. Third-party code and dependencies must not block any of autodyne's three licenses:
+  permissive (MIT, Apache-2.0, BSD, ISC, Zlib, ...) or MPL-2.0, never GPL, LGPL or AGPL. `tend check` reports one
+  that would.
 
 ## Setup
 
-- Stable Rust (see CI for the version in use).
+- Rust stable, pinned in `rust-toolchain.toml` (rustup installs it on first use).
 - Linux: ALSA headers for the `live` example (`libasound2-dev` on Debian/Ubuntu).
 - Plugins: `cargo xtask bundle -p autodyne-reverb -p autodyne-synth --release`.
 
@@ -29,7 +30,8 @@ cargo test --workspace --doc
 cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::
 cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux,autodyne/jit,autodyne/gpu
-cargo deny --workspace check          # licenses, advisories, sources (install: cargo install cargo-deny)
+cargo deny --workspace check advisories bans sources   # RustSec, bans, sources (install: cargo install cargo-deny)
+tend check --strict   # the design, licenses against LICENSE.md's three, sign-offs (not yet in CI)
 ```
 
 The Python bindings (`bindings/python`) and the comparison benchmarks (`bench/rust`) are workspaces of their
@@ -65,11 +67,11 @@ own: after changing a public API, build them too (`cargo check` in each).
   (see [`bench/README.md`](bench/README.md)). Wrap criterion inputs in `black_box`.
 - **Match the surrounding code.** Naming, comment density and doc style as in the module you are changing. Put
   math in doc comments inside backticks.
-- **New dependencies** need a reason; they must pass `cargo deny`. Their license notices are regenerated
-  automatically on main (`cargo xtask notices` does it locally, with `cargo install cargo-about`).
+- **New dependencies** need a reason; they must pass `cargo deny` and `tend check`. Their license notices are
+  regenerated automatically on main (`cargo xtask notices` does it locally, with `cargo install cargo-about`).
 
 ## Commits and pull requests
 
-- Small, focused commits with messages that explain why, not only what.
+- Small, focused commits with messages that explain why, not only what; signed off (`git commit -s`).
 - Describe in the pull request what changed, how you tested it, and any performance numbers (`cargo bench`) for
   DSP changes.

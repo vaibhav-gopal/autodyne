@@ -226,24 +226,35 @@ autodyne's own processors; every comparison with other libraries, and the comman
 [`bench/README.md`](bench/README.md).
 
 ## License
-autodyne is licensed under the [GNU General Public License v3.0 only](LICENSE) (`GPL-3.0-only`): you may use, study,
-change and share it, and software you distribute that is built on it must also be released under the GPLv3, with
-source.
+autodyne is offered under three licenses; use it under whichever fits what you're doing ([LICENSE.md](LICENSE.md)
+has each in full, the texts are in [LICENSES/](LICENSES/)):
 
-Commercial licenses for closed-source use are available from the author: open an issue or contact
-[@vaibhav-gopal](https://github.com/vaibhav-gopal).
+- **Open source:** the [GNU General Public License v3.0 only](LICENSES/GPL-3.0-only.txt) with the Open Project
+  Exception: use, change and share it under the GPL, and other open-source projects may combine it with code under
+  any OSI-approved license without relicensing that code under the GPL.
+- **Closed-source applications, free of charge:** the Royalty-Free License, while your revenue is under
+  USD 1,000,000, with attribution, not redistributed as an SDK, engine or toolkit, and not on embedded devices.
+- **Everything else** (above that, without attribution, SDKs and engines, embedded devices, support and
+  warranties): a commercial agreement; open an issue or contact [@vaibhav-gopal](https://github.com/vaibhav-gopal).
 
-Every third-party dependency is permissively licensed (MIT, Apache-2.0, ISC, BSD, Zlib, ...), so products built on
-autodyne carry no other copyleft obligations. Those licenses do require shipping each dependency's copyright and
-license text, which is automated:
+As an SPDX expression: `GPL-3.0-only WITH AdditionRef-Open-Project-Exception-1.0 OR LicenseRef-Royalty-Free-1.0 OR
+LicenseRef-Commercial-1.0`. The exception, the royalty-free and the commercial texts are drafts, not yet reviewed by a
+lawyer.
 
-- **Policy:** [cargo-deny](deny.toml) runs on every push and pull request: a dependency under any other license, a
-  known vulnerability (RustSec) or an unexpected source fails CI.
+Every third-party dependency that ships is permissively licensed (MIT, Apache-2.0, ISC, BSD, Zlib, ...) or, with the
+`gpu` feature, under the file-level MPL-2.0, so none of them blocks any of the three licenses. Those licenses do
+require shipping each dependency's copyright and license text, which is automated:
+
+- **Policy:** `tend check` judges every shipping dependency's license against the three licenses (a GPL or LGPL one
+  would block the closed ones) and checks contributions' sign-offs; [cargo-deny](deny.toml) fails CI on a known
+  vulnerability (RustSec) or an unexpected source. `tend check` runs before each push, and in CI once Tend can run
+  there.
 - **Notices:** each plugin has a `THIRD-PARTY-LICENSES.html` generated from its own dependency graph by
   [cargo-about](about.toml) (`cargo xtask notices`). The Notices workflow regenerates and commits them whenever
   dependencies change on main, and `cargo xtask bundle` ships them next to and inside every bundle.
 - **Updates:** Dependabot opens weekly dependency update pull requests, which go through the same checks.
 
 ## Contributing
-Contributions are welcome. Pull requests need a one-time signature of the [Contributor License Agreement](CLA.md);
+Contributions are welcome, on the terms in [LICENSE.md](LICENSE.md#contributing): you license your contribution under
+MIT-0, sign off each commit under the Developer Certificate of Origin (`git commit -s`), and grant a patent license;
 see [CONTRIBUTING.md](CONTRIBUTING.md).

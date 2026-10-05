@@ -1,0 +1,74 @@
+# Open Project Exception 1.0
+
+> **DRAFT.** Not yet reviewed by a lawyer. Don't rely on it until it has been.
+
+Additional permission under section 7 of the GNU General Public License, version 3 (the "GPL").
+
+Vaibhav Gopal (the "Licensor") offers autodyne (the "Library") under the GPL with this exception. The
+exception only adds permissions. It takes none away from the GPL, and where it doesn't apply, the GPL alone
+governs.
+
+## 1. Definitions
+
+- **Open Source License**: a license approved by the Open Source Initiative when you convey the work. A
+  license that limits use by field of endeavour, kind of user, revenue or competition, or that requires
+  payment, is not one, whatever it's called. Examples are source-available licenses such as the Business
+  Source License, the Server Side Public License, the Commons Clause and the Elastic License.
+- **Open Project**: a work other than the Library and works based on it, every part of which is licensed
+  under one or more Open Source Licenses.
+- **Combined Work**: a work that combines the Library, or a modified version of it, with an Open Project,
+  by any means. That includes static or dynamic linking, inclusion, embedding, and loading as a plugin or
+  module. It also includes communication through interprocess calls, remote procedure calls, sockets,
+  network interfaces or shared memory that exchange the Library's internal data structures, or that are
+  designed for the Open Project to use the Library's functionality.
+- **Pass-through Work**: a work whose main purpose or effect is to give others access to the Library's
+  functionality, or to substantially all of its interfaces, under terms other than the GPL. Examples are a
+  wrapper, binding, re-export, facade or service that exposes the Library with little functionality of its
+  own.
+
+## 2. Permission
+
+As an exception to the GPL, the Licensor permits you to convey a Combined Work under the Open Source
+Licenses of the Open Project's parts. The parts other than the Library don't have to be licensed under the
+GPL. Every condition in section 3 must be met.
+
+The Library itself, and every modification of it, stays under the GPL with this exception, and its source
+must be provided as the GPL requires.
+
+## 3. Conditions
+
+The permission in section 2 applies only while all of these hold.
+
+(a) **Every part is open.** Every part of the Combined Work other than the Library is licensed under one
+or more Open Source Licenses. Its complete corresponding source is available to every recipient of the
+Combined Work at no charge, in a way that meets the GPL's section 6 for the Library. If any part is
+conveyed or offered only under other terms (a proprietary module, a closed plugin, a paid extension, an
+"enterprise edition"), the whole Combined Work is outside this exception, including its open parts.
+
+(b) **No pass-through.** The Open Project is not a Pass-through Work, and it isn't used to give a work that
+is not an Open Project access to the Library's functionality. A work that reaches the Library through an
+Open Project gets no permission from this exception.
+
+(c) **Each version on its own.** The permission applies to each version of the Open Project while that
+version meets these conditions. If a later version is conveyed or offered under terms that aren't Open
+Source Licenses, this exception doesn't apply to it. That version may use the Library only under the GPL
+alone, the Licensor's royalty-free license where it applies, or a commercial license. Versions already
+conveyed under this exception keep it.
+
+(d) **Network use.** If the Combined Work is offered to users who interact with it remotely over a
+network, its corresponding source (the Library's included) is offered to those users on the terms in (a).
+
+(e) **Notices.** The Combined Work's documentation and source carry a notice of three things: that it
+includes the Library, that the Library is licensed under the GPL with this exception, and where the
+Library's source can be obtained. Nothing in the Combined Work states or implies that the Library is
+licensed under the Open Project's licenses.
+
+(f) **Any form of combination.** These conditions apply to every means of combination named in section 1.
+Choosing one means over another doesn't take a work outside them.
+
+## 4. Nothing else
+
+This exception grants no rights in the Licensor's names or trademarks, and no patent license beyond the
+GPL's. Under the GPL's section 7, you may remove this exception from copies of the Library you convey,
+which are then under the GPL alone. The Licensor may publish later versions of this exception. A version
+applies to the copies of the Library distributed with it, and you may also follow any later version.

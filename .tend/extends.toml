@@ -1,4 +1,7 @@
 baseline = "vg-paradigms"
-rev = "f46f07a"
+rev = "06444df"
 profiles = ["rust"]
 modules = []
+
+[license]
+combo = "library"

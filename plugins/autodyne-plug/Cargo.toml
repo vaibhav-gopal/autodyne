@@ -3,7 +3,7 @@ name = "autodyne-plug"
 version = "0.1.0"
 edition = "2021"
 publish = false
-license = "GPL-3.0-only"
+license = "GPL-3.0-only OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0"
 description = "autodyne processors as CLAP / VST3 plugins, through nice-plug"
 
 [dependencies]

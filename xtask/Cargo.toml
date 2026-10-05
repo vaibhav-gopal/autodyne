@@ -3,7 +3,7 @@ name = "xtask"
 version = "0.1.0"
 edition = "2021"
 publish = false
-license = "GPL-3.0-only"
+license = "GPL-3.0-only OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0"
 
 [dependencies]
 nice-plug-xtask = "0.1.1"

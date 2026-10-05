@@ -1,0 +1,83 @@
+# Royalty-Free License 1.0
+
+> **DRAFT.** Not yet reviewed by a lawyer. Don't rely on it until it has been.
+
+Vaibhav Gopal (the "Licensor") licenses autodyne (the "Software") to you on these terms. This is one of
+the licenses the Software is offered under, and you may use it under any of them. This one allows use in
+closed-source applications free of charge, on the conditions below. For uses beyond them, the Licensor
+offers a commercial license.
+
+## 1. Definitions
+
+- **You**: the person or legal entity using this license, together with its Affiliates.
+- **Affiliate**: an entity that controls, is controlled by, or is under common control with you. Control
+  means owning more than half of the voting interests, or having the power to direct its management.
+- **Application**: a software product made available to end users, whose value to them is its own
+  functionality, and into which the Software is integrated as a component.
+- **Revenue**: the gross revenue and funding (investment, grants and donations included) that You and all
+  your Affiliates received in the preceding twelve months, from any source.
+- **Embedded Device**: hardware sold, leased or provided with the Software installed, or for it to be
+  installed on, where the Software runs on the device. Examples are consumer electronics, appliances,
+  vehicles, kiosks and industrial controllers. General-purpose desktop computers, laptops, tablets and
+  phones are not Embedded Devices.
+- **Competing Product**: a product or service that offers developers functionality substantially like the
+  Software's, or that substitutes for it.
+
+## 2. Grant
+
+On these terms, the Licensor grants You a worldwide, non-exclusive, non-transferable, royalty-free license
+to use, copy and modify the Software. You may also distribute it as part of Applications, in object form
+and, if you choose, in source form. Each Application may be under any terms you choose, closed-source
+terms included.
+
+## 3. Conditions
+
+(a) **Revenue limit.** Your Revenue doesn't exceed USD 1,000,000. Once it does, this license continues
+for 90 days. Within that time, You either obtain a commercial license or stop distributing new copies.
+
+(b) **Applications only.** You distribute the Software only as part of an Application. You may not
+distribute it, or a modified version, on its own. Nor may you distribute it in a software development
+kit, library, framework, engine, toolkit or platform that others build software with, whether or not that
+exposes the Software's interfaces. You may not offer a Competing Product.
+
+(c) **No Embedded Devices.** Distribution on or for Embedded Devices isn't covered. The Licensor licenses
+it commercially, with royalties per device where they apply.
+
+(d) **Attribution.** Each Application names autodyne and links to its repository, in the application's About screen or legal notices, and on its website or download page where it has one.
+
+(e) **Notices.** The copies You distribute keep the Software's copyright and license notices, and Your
+Application's legal notices say that it uses the Software under this license.
+
+(f) **No way around it.** These conditions apply however the Application uses the Software, whether by
+any kind of linking, embedding, plugins, or interprocess or network communication.
+
+## 4. Each version keeps its terms
+
+This license covers the versions of the Software released with it. If a later version of the Software is
+released under a later version of this license, or without it, that doesn't change the terms of versions
+You already received.
+
+## 5. Patents
+
+The Licensor grants You a license under the patent claims it can license that the Software necessarily
+infringes, for the uses this license permits. If You start litigation alleging that the Software
+infringes a patent, this license ends on the date it's filed.
+
+## 6. Termination
+
+If You breach these terms, the Licensor may notify You. If You cure the breach within 30 days
+of the notice, the license continues; otherwise it ends, and You stop distributing copies. Copies
+distributed to end users before then stay licensed to them.
+
+## 7. No warranty; limitation of liability
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO
+EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+## 8. Names and trademarks
+
+This license grants no rights in the Licensor's names or trademarks, except to give the attribution it
+requires.
