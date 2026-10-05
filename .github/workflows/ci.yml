@@ -73,7 +73,8 @@ jobs:
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Miri (n-d views, runtime-typed views, DLPack, interop)
-        run: "cargo miri test --lib --features ndarray -- signal::nd dynamic:: dlpack interop"
+        # (+nightly: rust-toolchain.toml pins stable for everything else)
+        run: "cargo +nightly miri test --lib --features ndarray -- signal::nd dynamic:: dlpack interop"
         env:
           MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-deterministic-floats
 
@@ -126,6 +127,17 @@ jobs:
         run: cargo test -p autodyne --features flux --lib flux
       - name: Test (IREE, PJRT, XLA)
         run: cargo test -p autodyne --features flux --test flux -- --nocapture
+
+  # The design (Tend): every batch signed by the hub, code links and doc tags that still point at
+  # something, the baseline's rules. REPOS_TOKEN is a fine-grained token that can read tend's
+  # releases (the repo is private).
+  tend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vaibhav-gopal/tend/.github/actions/check@main
+        with:
+          token: ${{ secrets.REPOS_TOKEN }}
 
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
   deny:

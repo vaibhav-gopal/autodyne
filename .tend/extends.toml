@@ -1,0 +1,4 @@
+baseline = "vg-paradigms"
+rev = "f46f07a"
+profiles = ["rust"]
+modules = []

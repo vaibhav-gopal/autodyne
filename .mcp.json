@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "tend": {
+      "type": "stdio",
+      "command": "tend",
+      "args": ["mcp", "--agent", "claude-code"]
+    }
+  }
+}

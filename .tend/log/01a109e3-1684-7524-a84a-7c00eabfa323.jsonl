@@ -1,0 +1,2 @@
+{"batch":"01a109e3-1684-7524-a84a-7c00eabfa323","author":"user","at":1791167239812,"message":"start the design of autodyne"}
+{"op":"node.add","id":"01a109e3-1684-7524-a84a-7bffca3db947","parent":null,"name":"autodyne","kind":"area","intent":"Numerics for signals, processes and systems in Rust, built to replace and outperform NumPy / SciPy, with real-time audio DSP and differentiable programs (flux)","status":"building"}
