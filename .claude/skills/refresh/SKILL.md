@@ -1,13 +1,17 @@
 ---
 name: refresh
-description: Find what no longer holds in a Tend project - document sections, decisions, readings, scores and test results resting on ground that moved, and baseline changes that affect this repo - and bring it up to date, cheapest first. Use when tend_basis or the session context reports stale ground, after a large change, or when asked whether the docs or decisions are still current.
+description: Find what no longer holds in a Tend project - document sections, decisions, readings, scores and test results resting on ground that moved, and baseline changes that affect this repo - and bring it up to date in order, cheapest first. Use when tend_basis or the session context reports stale ground, after a large change, or when asked whether the docs or decisions are still current.
 ---
 
 # Refresh what's stale
 
-1. `tend_basis` with no address: everything stale or resting on stale ground, ranked by how much rests on
-   it, each with what remaking it costs (lazy, run, agent, person) and the call that does it.
-2. Take them in order of what rests on them, cheapest first:
+Refreshing is refine's stale-knowledge part: for one part of the design, `design_refine` lists what under
+it is stale with the rest of what would bring it level with its code. For the whole project:
+
+1. `tend_basis` with `order: true`: the remake list, everything not fresh in the order to make it again
+   (each after what it rests on, what costs least first), code facts first since they cost no tokens.
+   Each says what remaking it costs (lazy, run, agent, person) and the call that does it.
+2. Take them in that order:
    - **run:** a measured score with `impl_score`. A check result is the user's to rerun
      (`tend code checks <node> --run`): say so.
    - **agent:** a reading (`doc_reading`, then `doc_check`), a judged score (`impl_score {fresh: true}`),

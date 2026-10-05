@@ -155,15 +155,4 @@ jobs:
       - name: Test (IREE, PJRT, XLA)
         run: cargo test -p autodyne --features flux --test flux -- --nocapture
 
-  # RustSec advisories, banned crates, dependency sources: see deny.toml
-  deny:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # on the runner, not cargo-deny-action's container: its musl toolchain isn't the one
-      # rust-toolchain.toml asks for
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@cargo-deny
-      # (licenses are Tend's: tend check judges them against the baseline's library combo)
-      - name: cargo deny
-        run: cargo deny --workspace check advisories bans sources
+  # (RustSec advisories, banned crates and sources: deny.yml, from the baseline's rust profile)

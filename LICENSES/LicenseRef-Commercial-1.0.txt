@@ -7,4 +7,4 @@ that its other licenses don't. Examples are closed-source products beyond the ro
 conditions, redistribution in an SDK, engine or toolkit, embedded devices, and support or warranties.
 
 The terms are those of a written agreement signed with the Licensor. Nothing is licensed under this
-identifier without one. To ask for one, contact the licensor, through the contact details in the project's repository.
+identifier without one. To ask for one, contact Vaibhav Gopal at vabsgop@gmail.com or vabsgop@proton.me, with the subject "[autodyne] Commercial license: <your company or product>".

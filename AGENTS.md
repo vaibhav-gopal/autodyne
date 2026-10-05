@@ -22,7 +22,9 @@
   time.
 - **The design is tracked.** Where a feature belongs, the rules that apply, and the decisions and missteps
   behind them live in the project's Tend design; ask it instead of guessing, and record what you decide.
-- **Honest output.** Say what was verified and what wasn't; never claim a check passed that didn't run.
+- **Honest output.** Say what was verified and what wasn't; never claim a check passed that didn't run. A
+  surprising result is checked by an independent method and a control case before it's reported, and a
+  model is judged on data it wasn't fitted to.
 
 ## How agents work here
 
@@ -36,10 +38,13 @@ writes.
 - **Ask before you guess.** Before adding a feature: `design_locate`, then `design_rules` for that
   place. Before changing code: `design_impact`, and respect the decisions it lists.
   Before choosing a technology or a pattern: `env_toolbox`, then `env_dependency`.
-- **Propose, don't write.** Design changes go through `design_propose`. Never edit `.tend/` by hand.
+- **Propose, don't write.** Design changes go through `design_propose`, a project graph's too (its graph
+  actions); your Estate changes only through `tend env scan`. Never edit `.tend/`, the hub's store or any
+  other file Tend writes by hand.
 - **Record as you go.** Decisions, missteps (with the lesson) and obstacles go into the journal
   (`design_propose`, action `journal`) when they happen, not at the end. If Tend's MCP server is down, pipe the
-  entry into `tend mcp --agent <you>`; never `--author` yourself.
+  entry into `tend mcp --agent <you>`; never `--author` yourself. A library or approach tried and dropped
+  goes in with the measurement that dropped it, so nobody tries it again blind.
 - **Trust is the user's.** Never accept your own proposals, grant yourself trust, or edit what
   decides it (`.mcp.json`, agent settings, hooks): say what you'd change and let the user do it.
   The same goes for `tend init`, installing hooks and registering passkeys.
@@ -67,7 +72,9 @@ writes.
   reported with its output, not worked around in silence.
 - **Commit what you say you commit:** compare the staged diff with the message before committing (an
   edit that failed isn't done), and run the checks CI runs first (`cargo clippy -- -D warnings`, the
-  tests). After a push, watch the run (`gh run watch`) before moving on.
+  tests). After a push, watch the run (`gh run watch`) before moving on. A run that fails in seconds
+  with a workflow file issue ran nothing: GitHub rejected the workflow (an unquoted `: ` in a `run:`
+  line did it once, and no CI ran for days).
 
 ### Commands on Windows (PowerShell)
 
@@ -95,9 +102,17 @@ Each of these cost real work, most of them more than once.
 
 ### Other projects
 
-- **Ask, don't reach in.** What you need from another of the user's projects, ask for with
-  `graft_file` (what you need and your use case); never change another project's code or design
-  from here.
+- **Ask, don't reach in.** What you need from another of the user's projects (a feature, a fix, a
+  change to its code, its design or its graphs), ask for with `graft_file`: what you need and your use
+  case, after `graft_look` (it may be planned already, or an open graft asks the same: join it). Never
+  edit another repo's files, run its tools to change it or propose into its design from here, even when
+  the fix is one line and the repo is checked out beside you: its own sessions make the change.
+- **Tend is one of those projects.** When Tend lacks a feature or gets something wrong, file a graft
+  with Tend; never patch Tend's code from another project's session, or work around it by hand-editing
+  what it writes. If a workaround can't wait, keep it to the least that unblocks you, say so, and name
+  the graft it waits on.
+- **Wait on the answer, don't copy it.** Work here that needs a graft waits on it (a todo with
+  `waits_on: graft:<id>`), rather than a local copy of what the other project should own.
 - **Triage what's asked of this project** (`graft_list`) as a whole: design once for asks that
   share a need, answer with the node that carries them (`graft_triage`), or decline with why.
 - Stay in your lane: overlapping proposals are flagged to the user, not raced.
@@ -149,7 +164,9 @@ a review the user asked for):
 - **tend.ask-first** (advice): Before adding a feature, ask the project's design where it belongs and which rules apply (Tend's MCP: design_locate, design_rules); record decisions and missteps in its journal.
 - **rust.toolchain-pinned**: A Rust project pins its toolchain (and components) in rust-toolchain.toml.
 - **rust.lockfile** (warn): Binaries and workspaces commit Cargo.lock.
-- **rust.clippy-clean** (advice): Code is clippy-clean with warnings denied (cargo clippy --all-targets -- -D warnings), in CI too.
+- **rust.clippy-clean** (advice): Code is clippy-clean with warnings denied (cargo clippy --all-targets -- -D warnings), in CI too, under every feature set CI builds.
+- **rust.ci-reads-toolchain** (advice): CI takes the toolchain from rust-toolchain.toml (rustup reads it when cargo runs); a workflow never pins a second version beside it.
+- **rust.features-additive** (advice): Features only add: one never changes a type, a default or a behaviour another crate may rely on, since features unify across a build.
 
 ### Rust
 
@@ -157,6 +174,13 @@ a review the user asked for):
   project.
 - `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` before every commit.
 - Prefer pure-Rust dependencies where a crate may need to cross-compile (iOS, other targets).
+- A library that may run without std (embedded, wasm) has a default `std` feature, and CI builds it with
+  `--no-default-features --target wasm32-unknown-unknown` (the target pinned in `rust-toolchain.toml`).
+- In CI, install tools on the runner (`taiki-e/install-action`) rather than through an action's container:
+  a container's toolchain is not the one `rust-toolchain.toml` asks for. `cargo deny` checks advisories,
+  bans and sources (the scaffold's `deny.toml` and `.github/workflows/deny.yml`); licenses are Tend's
+  (`tend check` judges them against the project's license combo).
+- Python bindings: the rust-python profile.
 
 ## This project's design
 

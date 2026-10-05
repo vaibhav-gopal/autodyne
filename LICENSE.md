@@ -7,7 +7,7 @@ fits what you're doing:
 
 - **GNU General Public License v3.0 only, with the Open Project Exception 1.0** (`GPL-3.0-only WITH AdditionRef-Open-Project-Exception-1.0`): For open source: use, change and share it under the GPL. The exception lets other open-source projects combine it with code under any OSI-approved license without relicensing that code under the GPL.
 - **Royalty-Free License 1.0** (`LicenseRef-Royalty-Free-1.0`): For closed-source applications, free of charge: while your revenue is under USD 1,000,000, with attribution, not redistributed as an SDK, engine or toolkit, and not on embedded devices.
-- **Commercial License** (`LicenseRef-Commercial-1.0`): For everything else (above the revenue limit, without attribution, SDKs and engines, embedded devices, support and warranties): a written agreement with the licensor. Contact the licensor, through the contact details in the project's repository.
+- **Commercial License** (`LicenseRef-Commercial-1.0`): For everything else (above the revenue limit, without attribution, SDKs and engines, embedded devices, support and warranties): a written agreement with the licensor. Contact Vaibhav Gopal at vabsgop@gmail.com or vabsgop@proton.me, with the subject "[autodyne] Commercial license: <your company or product>".
 
 As an SPDX expression: `GPL-3.0-only WITH AdditionRef-Open-Project-Exception-1.0 OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0`. The full texts are in [LICENSES/](LICENSES/).
 

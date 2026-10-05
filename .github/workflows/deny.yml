@@ -1,0 +1,17 @@
+# RustSec advisories, banned crates and dependency sources: see deny.toml. Licenses are `tend check`'s.
+name: deny
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # On the runner, not cargo-deny-action's container: its musl toolchain isn't the one
+      # rust-toolchain.toml asks for.
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - run: cargo deny --workspace check advisories bans sources
