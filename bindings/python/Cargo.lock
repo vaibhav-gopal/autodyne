@@ -138,6 +138,7 @@ name = "autodyne-py"
 version = "0.1.0"
 dependencies = [
  "autodyne",
+ "mimalloc",
  "num-complex",
  "numpy",
  "pyo3",

@@ -13,6 +13,9 @@ crate-type = ["cdylib"]
 [dependencies]
 num-complex = "0.4"
 autodyne = { path = "../..", features = ["ndarray", "jit", "mimalloc"] }
+# An extension module is dlopen'ed: mimalloc's default initial-exec TLS then fails on Linux with
+# "cannot allocate memory in static TLS block". Its local-dynamic TLS is the model for that case.
+mimalloc = { version = "0.1", default-features = false, features = ["local_dynamic_tls"] }
 numpy = "0.29"
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"] }
 

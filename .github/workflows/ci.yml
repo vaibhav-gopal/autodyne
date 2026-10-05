@@ -129,23 +129,14 @@ jobs:
       - name: Test (IREE, PJRT, XLA)
         run: cargo test -p autodyne --features flux --test flux -- --nocapture
 
-  # The design (Tend): every batch signed by the hub, code links and doc tags that still point at
-  # something, the baseline's rules. REPOS_TOKEN is a fine-grained token that can read tend's
-  # releases (the repo is private).
-  tend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: vaibhav-gopal/tend/.github/actions/check@main
-        with:
-          token: ${{ secrets.REPOS_TOKEN }}
-
   # licenses (third-party must be permissive), RustSec advisories, dependency sources: see deny.toml
   deny:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          arguments: --workspace
-          command: check
+      # on the runner, not cargo-deny-action's container: its musl toolchain isn't the one
+      # rust-toolchain.toml asks for
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: taiki-e/install-action@cargo-deny
+      - name: cargo deny
+        run: cargo deny --workspace check

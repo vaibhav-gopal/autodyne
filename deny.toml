@@ -29,6 +29,10 @@ allow = [
     "Unicode-3.0",
     "0BSD",
     "CC0-1.0",
+    # file-level copyleft: changes to its own files stay MPL, the rest of a product is untouched,
+    # so it blocks none of the licenses autodyne is offered under (the baseline's library combo).
+    # option-ext, through dirs, through cubecl (feature gpu).
+    "MPL-2.0",
 ]
 # our own crates
 exceptions = [
