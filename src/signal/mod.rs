@@ -36,6 +36,8 @@
 //! tone.normalize_peak(0.5);
 //! assert!((tone.peak() - 0.5).abs() < 1e-12);
 //! ```
+//!
+//! tend: Core / signal
 
 mod analysis;
 mod array_math;

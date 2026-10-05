@@ -8,6 +8,8 @@
 //! [`Oversampled`] uses a pair of resamplers to run any processor at a multiple of the sample rate.
 //! [`Resample`] converts whole signals (`x.resampled(48_000, 44_100)`), aligned to the input;
 //! [`upfirdn`] and `resample_poly` (feature `faer`) do it along an axis of n-d data as `scipy.signal` does.
+//!
+//! tend: Signal processing / resample
 
 use crate::filter::design_lowpass;
 use crate::signal::{SigResizeOps, Signal, SignalResizable};

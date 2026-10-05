@@ -5,6 +5,8 @@
 //! continuous Riccati equation is solved from the matrix sign function of its Hamiltonian, then
 //! polished by Newton steps (each a Lyapunov solve); the discrete one by the structure-preserving
 //! doubling algorithm, which converges quadratically.
+//!
+//! tend: Numerics / linalg / matrix equations
 
 use super::dense::Mat;
 use super::schur::real_schur;

@@ -5,6 +5,8 @@
 //! and the demodulator recovers z by mixing back down and low-pass filtering. AM, PM and FM are all
 //! just choices of z: AM varies |z| (read it with `envelope`), PM varies arg z (`phase`), and FM varies
 //! the rate of change of arg z (`FmModulator` / `FmDiscriminator`).
+//!
+//! tend: Signal processing / iq
 
 use crate::filter::Biquad;
 use crate::osc::Phasor;

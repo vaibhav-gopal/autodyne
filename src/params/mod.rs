@@ -12,6 +12,8 @@
 //! Values cross the API as `f64` whatever the processor's sample type. Setting a value validates it
 //! (must be finite), clamps it into range and returns what was applied. Chains (tuples, `Vec`) expose
 //! their stages' parameters one after another; `PerChannel` exposes one set that controls every channel.
+//!
+//! tend: Core / params
 
 use thiserror::Error;
 

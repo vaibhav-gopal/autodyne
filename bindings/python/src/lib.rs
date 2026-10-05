@@ -4,6 +4,8 @@
 //! object with `__dlpack__` (NumPy, PyTorch, JAX, CuPy-on-host...), viewed in place with whatever
 //! strides they have; results are [`Array`]s, which hand their memory to the consumer
 //! (`numpy.from_dlpack`) the first time they are exported.
+//!
+//! tend: Python bindings
 
 use std::ffi::{c_void, CStr};
 

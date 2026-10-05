@@ -1,4 +1,6 @@
 //! `scan`: a step traced once and run over a whole signal, forward and backward.
+//!
+//! tend: flux / tracing
 
 use super::ad::vjp;
 use super::graph::{trace, FluxFloat, Graph, Tracer};

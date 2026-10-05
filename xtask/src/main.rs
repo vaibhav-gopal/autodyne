@@ -5,6 +5,8 @@
 //!   (next to the bundle, and inside bundles that are directories).
 //! - `cargo xtask notices`: regenerates every plugin's `THIRD-PARTY-LICENSES.html` from its
 //!   dependency graph (needs `cargo install cargo-about`; CI does this on every change to main).
+//!
+//! tend: Plugins
 
 use std::fs;
 use std::path::{Path, PathBuf};

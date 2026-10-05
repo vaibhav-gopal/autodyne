@@ -7,6 +7,8 @@
 //!   the phase-shifted signal with the dry one creates moving notches.
 //!
 //! For stereo width, run one instance per channel with LFO phases half a cycle apart (`with_lfo_phase`).
+//!
+//! tend: Audio / modulation
 
 mod params;
 

@@ -9,6 +9,8 @@
 //!   crossfades, an amplitude envelope and velocity, stereo output.
 //!
 //! Samples live in memory; everything is prepared when loading, so playing never allocates.
+//!
+//! tend: Audio / sampler
 
 mod params;
 mod sample;

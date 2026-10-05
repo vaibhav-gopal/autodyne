@@ -8,6 +8,8 @@
 //!
 //! Audio APIs usually deliver interleaved frames (L R L R ...); `AudioBuffer::copy_from_interleaved`
 //! and `copy_to_interleaved` convert without allocating.
+//!
+//! tend: Core / channels
 
 use crate::processor::Processor;
 use crate::signal::{Axis, NdView, NdViewMut};

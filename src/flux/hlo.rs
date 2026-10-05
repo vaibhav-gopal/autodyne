@@ -2,6 +2,8 @@
 //! IREE. Values are `tensor<...xf32>` or `tensor<...xf64>` (masks `xi1`), the precision chosen at
 //! emission; a scan is a `stablehlo.while` loop that slices one step per iteration out of the
 //! signal's first axis.
+//!
+//! tend: flux / emission
 
 use std::fmt::Write;
 

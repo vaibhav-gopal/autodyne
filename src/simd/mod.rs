@@ -13,6 +13,8 @@
 //! `dot_kernel`, add an `#[target_feature(enable = "avx2")]` wrapper around it, and branch on
 //! `avx2_available()` (see `Fir::process`). The kernel then inlines into each version of the loop,
 //! with no per-sample call or check.
+//!
+//! tend: Core / simd
 
 use crate::units::*;
 

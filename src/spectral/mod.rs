@@ -2,6 +2,8 @@
 //! `scipy.signal` makes them (periodogram, Welch, CSD, coherence, spectrogram, STFT / ISTFT,
 //! Lomb-Scargle), the analytic signal ([`hilbert`]), and the phase vocoder: [`PitchShifter`] (real
 //! time) and [`time_stretch`].
+//!
+//! tend: Signal processing / spectral
 
 mod params;
 mod analytic;

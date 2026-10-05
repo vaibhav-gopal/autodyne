@@ -7,6 +7,8 @@
 //! stepped controls showing their values or option names ([`IntParam`]), toggles switches
 //! ([`BoolParam`]). Call [`ParamBridge::apply`] at the start of each process block to push host
 //! changes into the processor; it only touches parameters that changed and never allocates.
+//!
+//! tend: Plugins
 
 use std::sync::atomic::{AtomicU32, Ordering::Relaxed};
 use std::sync::Arc;

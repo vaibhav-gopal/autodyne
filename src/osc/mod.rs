@@ -5,6 +5,8 @@
 //! - as a block processor: `fill` overwrites a buffer, `add_to` mixes into one.
 //!   Neither allocates, so both are safe to call from a real-time audio callback.
 //! - as a `signal::Source`, to compose lazily (`mix`, `scaled`, `through`) or stream (`stream_for`).
+//!
+//! tend: Audio / osc
 
 use crate::signal::Source;
 use crate::units::*;

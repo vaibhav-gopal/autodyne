@@ -7,6 +7,8 @@
 //! - Static chain: a tuple, e.g. `(low_shelf, compressor, echo).process(block)` runs them in order,
 //!   fully inlined, no allocation.
 //! - Dynamic chain: `Vec<Box<dyn Processor<T>>>`, for chains assembled at runtime.
+//!
+//! tend: Core / processor
 
 use crate::units::*;
 

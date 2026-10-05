@@ -9,6 +9,8 @@
 //!
 //! Control signals update at control rate (every [`RAMP_STEP`](crate::params::RAMP_STEP)
 //! samples), which is plenty for musical modulation and keeps coefficient recalculation cheap.
+//!
+//! tend: Audio / control
 
 mod lfo;
 mod matrix;

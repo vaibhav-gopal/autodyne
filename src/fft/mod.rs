@@ -5,6 +5,8 @@
 //! Sign convention: forward `X[k] = sum_n x[n] e^(-i 2 pi k n / N)`; inverse divides by N,
 //! so `inverse(forward(x)) == x`. Spectral analysis built on these (windows, STFT, Welch, the
 //! phase vocoder) is in `spectral`.
+//!
+//! tend: Numerics / fft
 
 use crate::units::*;
 

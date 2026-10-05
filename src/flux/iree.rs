@@ -14,6 +14,8 @@
 //! An [`IreeTarget`] picks the hardware: the host CPU (the default), Vulkan, CUDA, ROCm or Metal.
 //! Compiled modules (`.vmfb`) can be saved with [`Iree::compile_to`] and run later, or elsewhere,
 //! with [`Iree::load`]: IREE's ahead-of-time deployment path.
+//!
+//! tend: flux / backends
 
 use std::path::{Path, PathBuf};
 use std::process::Command;

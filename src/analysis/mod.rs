@@ -10,6 +10,8 @@
 //! All of them allocate only when constructed, so they can run on the audio thread, and all are
 //! [`Processor`](crate::processor::Processor)s (or a `MultiProcessor`) that pass audio through
 //! unchanged, so they can tap a chain.
+//!
+//! tend: Signal processing / analysis
 
 mod loudness;
 mod onset;

@@ -11,6 +11,8 @@
 //!   block and feeds the others back as shifts. LAPACK chases those shifts as many bulges at once
 //!   (`dlaqr5`, its updates in matrix products); here each pair is its own sweep, which leaves
 //!   LAPACK about 10% ahead from 300 x 300.
+//!
+//! tend: Numerics / linalg / schur
 
 use std::ops::Range;
 

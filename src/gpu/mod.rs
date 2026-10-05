@@ -18,6 +18,8 @@
 //! let rows = y.sum_axis(1);
 //! assert_eq!(rows.to_host().shape(), [4]);
 //! ```
+//!
+//! tend: gpu
 
 use std::marker::PhantomData;
 use std::sync::OnceLock;

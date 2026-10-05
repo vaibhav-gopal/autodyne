@@ -1,5 +1,7 @@
 //! Running programs: the [`Backend`] / [`Executable`] traits, and the plumbing the backends share
 //! (`.npy` files in a temporary directory, finding tools).
+//!
+//! tend: flux / backends
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};

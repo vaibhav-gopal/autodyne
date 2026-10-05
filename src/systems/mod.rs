@@ -17,6 +17,8 @@
 //! let h = autodyne::systems::sosfreqz(&sos, &[0.0, 1_000.0], 48_000.0);
 //! assert!((h[0].norm() - 1.0).abs() < 1e-9 && (h[1].norm() - 0.5f64.sqrt()).abs() < 1e-9);
 //! ```
+//!
+//! tend: Numerics / systems
 
 mod analysis;
 mod convert;

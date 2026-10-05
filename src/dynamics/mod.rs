@@ -10,6 +10,8 @@
 //!   [`Linked`] to drive every channel with one gain.
 //! - [`LookaheadLimiter`] (with true-peak detection) and [`MultibandCompressor`] (Linkwitz-Riley
 //!   bands) are multichannel (linked) by nature.
+//!
+//! tend: Audio / dynamics
 
 mod params;
 mod gate;

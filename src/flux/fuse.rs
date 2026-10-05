@@ -9,6 +9,8 @@
 //! program ([`Program`]) over single elements, run over blocks of 256: one tight loop per
 //! instruction and block. The scalar functions are the interpreter's, applied in the same order, so
 //! the results are bit for bit the unfused ones.
+//!
+//! tend: flux / in process
 
 use super::graph::{FluxFloat, Graph, Id, Kind, Node, Op};
 use super::scalar::{Binary, Inst, Program, Unary};

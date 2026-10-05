@@ -6,6 +6,8 @@
 //! [`yule_walker`], [`burg`]).
 //!
 //! Inputs are views with any strides; computation is in f64.
+//!
+//! tend: Numerics / stats
 
 use thiserror::Error;
 

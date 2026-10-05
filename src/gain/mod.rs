@@ -4,6 +4,8 @@
 //! Jumping a gain (or any parameter) from one value to another between two samples produces an audible
 //! click; [`SmoothedValue`] ramps to each new target over a fixed time instead. Decibel conversions
 //! are `units::{db_to_gain, gain_to_db}`.
+//!
+//! tend: Audio / gain
 
 mod params;
 

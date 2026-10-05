@@ -4,6 +4,8 @@
 //!   stereo. Cheap, fully adjustable, and its decay time is exact by construction.
 //! - [`Convolver`]: partitioned FFT convolution with any impulse response (a recorded room, a
 //!   cabinet, [`synthetic_ir`]), with a fixed latency of one block.
+//!
+//! tend: Audio / reverb
 
 mod params;
 mod convolver;

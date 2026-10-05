@@ -1,5 +1,7 @@
 //! The traced graph: a flat list of primitive operations on arrays, and the `Tracer` handle that
 //! records into it.
+//!
+//! tend: flux / tracing
 
 use std::cell::{Cell, RefCell};
 use std::fmt;

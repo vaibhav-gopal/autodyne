@@ -15,6 +15,8 @@
 //! let x = linalg::solve(a.view(), b.view()).unwrap();
 //! assert!((x.as_slice()[0] - 2.0).abs() < 1e-12 && (x.as_slice()[1] - 3.0).abs() < 1e-12);
 //! ```
+//!
+//! tend: Numerics / linalg
 
 use faer::linalg::solvers::{DenseSolveCore, Solve};
 use faer::{Accum, MatMut, MatRef, Side};

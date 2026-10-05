@@ -16,6 +16,8 @@
 //! let mean = x.as_slice().iter().sum::<f64>() / 1000.0;
 //! assert!((mean - 1.0).abs() < 0.2);
 //! ```
+//!
+//! tend: Numerics / random
 
 use std::sync::OnceLock;
 

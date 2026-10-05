@@ -6,6 +6,8 @@
 //!
 //! Parameters come straight from `Reverb`'s `Parameterized` implementation through `ParamBridge`,
 //! and ramp through `Smoothed` so automation never clicks.
+//!
+//! tend: Plugins
 
 use std::sync::Arc;
 

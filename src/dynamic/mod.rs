@@ -10,6 +10,8 @@
 //!   explicit, loss-free [`Promotion`] rules.
 //! - [`DynProcessor`]: processors with a runtime sample type and runtime-accessible parameters, built
 //!   with [`build_dyn`] from a [`ProcessorFactory`].
+//!
+//! tend: Core / dynamic
 
 use std::mem::size_of;
 

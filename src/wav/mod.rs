@@ -13,6 +13,8 @@
 //! let back: wav::Wav<f32> = wav::read(&bytes).unwrap();
 //! assert_eq!(back.channels[0].len(), 3);
 //! ```
+//!
+//! tend: Audio / wav
 
 use crate::units::*;
 use thiserror::Error;

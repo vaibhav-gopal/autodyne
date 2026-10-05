@@ -2,6 +2,8 @@
 //! [`Elementwise`] / [`Real`], the traceable maths processors are written over), [`Complex`],
 //! fixed point ([`Fixed`]), arbitrary precision ([`BigInt`], [`BigFloat`]), checked casts between
 //! primitive types, decibel conversions, and runtime element types ([`DType`], [`Reflection`]).
+//!
+//! tend: Core / units
 
 pub(crate) mod fastmath;
 mod cast;

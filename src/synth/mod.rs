@@ -15,6 +15,8 @@
 //!
 //! Everything is allocated when built; handling events and rendering never allocate, so both can run
 //! inside an audio callback.
+//!
+//! tend: Audio / synth
 
 mod params;
 mod fm;

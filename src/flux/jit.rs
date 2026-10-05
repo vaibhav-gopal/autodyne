@@ -6,6 +6,8 @@
 //! negation, absolute value, floor, comparisons) is emitted as instructions; transcendentals, powers
 //! and min / max call the same Rust functions the interpreter applies, so results stay bit for bit
 //! the interpreter's (unless the scan is contracted: then products fused into sums are one ma).
+//!
+//! tend: flux / in process
 
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::{types, AbiParam, FuncRef, InstBuilder, MemFlagsData, Signature, Type, UserFuncName, Value};

@@ -12,6 +12,8 @@
 //!
 //! Only memory the CPU can read is accepted (CPU, pinned / managed host memory); bool, float16 /
 //! bfloat16 and vector (lanes > 1) element types are rejected.
+//!
+//! tend: Core / dlpack
 
 use std::ffi::c_void;
 use std::marker::PhantomData;

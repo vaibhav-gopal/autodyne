@@ -4,6 +4,8 @@
 //!
 //! The spectral pieces ([`frames`], [`stft_magnitude`], [`multi_resolution_stft`]) are generic over
 //! [`RealArrayMath`]: they run eagerly on `NdArray`s and trace into losses alike.
+//!
+//! tend: flux / tracing
 
 use super::ad::vjp;
 use super::graph::{trace, FluxFloat, Graph, Tracer};

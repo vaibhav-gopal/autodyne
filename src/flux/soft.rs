@@ -3,6 +3,8 @@
 //! the CPU, with no libm in its modules, and on Vulkan, whose SPIR-V maths is 32-bit). The same
 //! algorithms as the GPU module's: Cody-Waite range reduction, Taylor or atanh series to below an
 //! ulp, and powers of two (and exponents) through the IEEE bit layout, with 64-bit integers.
+//!
+//! tend: flux / emission
 
 // full-precision constants are the point here
 #![allow(clippy::excessive_precision, clippy::approx_constant)]

@@ -7,6 +7,8 @@
 //!
 //! Use it as a `Processor` (multiplies audio by the envelope, a VCA) or as a `Source` (produces the
 //! envelope itself, e.g. to modulate a filter's frequency).
+//!
+//! tend: Audio / envelope
 
 mod params;
 

@@ -13,6 +13,8 @@
 //! let sol = solve_ivp(|_t, y, dy| dy[0] = -y[0], (0.0, 1.0), &[1.0], OdeOptions { rtol: 1e-10, atol: 1e-12, ..Default::default() }).unwrap();
 //! assert!((sol.y.last().unwrap()[0] - (-1.0f64).exp()).abs() < 1e-9);
 //! ```
+//!
+//! tend: Numerics / ode
 
 use thiserror::Error;
 

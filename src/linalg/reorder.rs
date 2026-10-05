@@ -2,6 +2,8 @@
 //! similarity (LAPACK's `dlaexc` and `dtrexc`, with `dlasy2`, `dlanv2`, `dlarfg` and `dlartg`), for
 //! the aggressive early deflation of [`schur`](super::schur). Matrices are row-major [`Mat`]s; the
 //! Schur vectors are kept transposed (`qt`), so updating a column of them updates a row of `qt`.
+//!
+//! tend: Numerics / linalg / schur
 
 use std::ops::Range;
 

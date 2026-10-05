@@ -11,6 +11,8 @@
 //! equiripple FIR) is in `design`; applying designed coefficients to n-d data along an axis
 //! (`lfilter`, `sosfilt`, `filtfilt`, `sosfiltfilt`) is here. Both need the `faer` feature (on by
 //! default).
+//!
+//! tend: Signal processing / filter
 
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;

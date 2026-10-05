@@ -6,6 +6,8 @@
 //! - Python, PyTorch, JAX, CuPy...: through [`dlpack`](crate::dlpack).
 //! - Apache Arrow: its primitive arrays are contiguous buffers, so `NdView::from_slice(array.values())`
 //!   is already a zero-copy view.
+//!
+//! tend: Core / interop
 
 #[cfg(feature = "ndarray")]
 mod ndarray_crate {

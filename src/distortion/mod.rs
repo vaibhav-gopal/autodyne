@@ -5,6 +5,8 @@
 //! multiple of the sample rate and filter those harmonics out before coming back down.
 //!
 //! A [`Bitcrusher`] reduces bit depth and sample rate for lo-fi textures (aliasing included).
+//!
+//! tend: Audio / distortion
 
 mod params;
 mod bitcrusher;

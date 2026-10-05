@@ -45,6 +45,8 @@
 //! let program = scan.loss_grad_program(256); // StableHLO for IREE / XLA
 //! assert!(program.text.contains("stablehlo.while"));
 //! ```
+//!
+//! tend: flux
 
 mod ad;
 mod fuse;

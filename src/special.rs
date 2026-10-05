@@ -1,6 +1,8 @@
 //! Special functions (`scipy.special` names): the modified Bessel function I₀ (Kaiser windows and
 //! the sampler's interpolation kernel), complete elliptic integrals, and Jacobi elliptic functions
 //! and their inverses (elliptic filter design).
+//!
+//! tend: Numerics / special
 
 use crate::units::Complex;
 

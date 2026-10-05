@@ -2,6 +2,8 @@
 //!
 //! `DelayLine` is the building block (echo, chorus, flanger, comb filters, reverbs); `Echo` is a
 //! feedback delay built on it.
+//!
+//! tend: Audio / delay
 
 mod params;
 

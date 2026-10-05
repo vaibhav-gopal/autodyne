@@ -12,6 +12,8 @@
 //! and wavetable position through a modulation matrix. Every parameter comes from the chain's `Parameterized`
 //! implementation through `ParamBridge`, grouped by stage, and host automation ramps through
 //! `Smoothed`.
+//!
+//! tend: Plugins
 
 use std::sync::Arc;
 
