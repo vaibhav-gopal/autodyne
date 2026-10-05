@@ -72,6 +72,9 @@ jobs:
           components: clippy
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
+      # the tests build the dev-dependencies, cpal among them (ALSA on Linux)
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Test without std
         run: cargo test -p autodyne --no-default-features
       - name: Clippy without std
