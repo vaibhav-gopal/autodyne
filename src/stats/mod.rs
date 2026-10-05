@@ -9,6 +9,7 @@
 //!
 //! tend: Numerics / stats
 
+use crate::alloc_prelude::*;
 use thiserror::Error;
 
 mod correlation;

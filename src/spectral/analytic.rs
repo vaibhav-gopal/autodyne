@@ -1,6 +1,7 @@
 //! The analytic signal (`scipy.signal.hilbert`): a real signal plus `i` times its Hilbert
 //! transform, whose magnitude is the envelope and whose angle is the instantaneous phase.
 
+use crate::alloc_prelude::*;
 use super::SpectralError;
 use crate::fft::{Fft, RealFft};
 use crate::signal::{lanes_f64, NdArray, NdView};
@@ -16,7 +17,7 @@ use crate::units::*;
 /// use autodyne::spectral::hilbert;
 ///
 /// // a cosine's analytic signal is e^(i w t): magnitude 1 everywhere
-/// let x = NdArray::from_fn(&[64], |i| (std::f64::consts::TAU * 4.0 * i[0] as f64 / 64.0).cos()).unwrap();
+/// let x = NdArray::from_fn(&[64], |i| (core::f64::consts::TAU * 4.0 * i[0] as f64 / 64.0).cos()).unwrap();
 /// let z = hilbert(x.view(), 0, None).unwrap();
 /// assert!(z.as_slice().iter().all(|z| (z.norm() - 1.0).abs() < 1e-12));
 /// ```

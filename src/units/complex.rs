@@ -1,7 +1,9 @@
 //! [`Complex`]: complex numbers over any [`Float`](super::Float), laid out like C99's and NumPy's, the basis
 //! for FFTs and IQ (de)modulation.
 
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+#[cfg(not(any(feature = "std", test)))]
+use crate::alloc_prelude::*;
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use super::*;
 
 /// Complex number over any Float ; the basis for FFTs and IQ (de)modulation.
@@ -109,17 +111,17 @@ impl<T: Float> Complex<T> {
     }
     /// `sin(a + ib) = sin a cosh b + i cos a sinh b`.
     pub fn sin(self) -> Self {
-        Self::new(self.re._sin() * hyp(self.im, f64::cosh), self.re._cos() * hyp(self.im, f64::sinh))
+        Self::new(self.re._sin() * hyp(self.im, |x| x.cosh()), self.re._cos() * hyp(self.im, |x| x.sinh()))
     }
     /// `cos(a + ib) = cos a cosh b - i sin a sinh b`.
     pub fn cos(self) -> Self {
-        Self::new(self.re._cos() * hyp(self.im, f64::cosh), -(self.re._sin() * hyp(self.im, f64::sinh)))
+        Self::new(self.re._cos() * hyp(self.im, |x| x.cosh()), -(self.re._sin() * hyp(self.im, |x| x.sinh())))
     }
     /// `tanh(a + ib) = (sinh 2a + i sin 2b) / (cosh 2a + cos 2b)`.
     pub fn tanh(self) -> Self {
         let (a, b) = (self.re + self.re, self.im + self.im);
-        let d = hyp(a, f64::cosh) + b._cos();
-        Self::new(hyp(a, f64::sinh) / d, b._sin() / d)
+        let d = hyp(a, |x| x.cosh()) + b._cos();
+        Self::new(hyp(a, |x| x.sinh()) / d, b._sin() / d)
     }
     /// Principal arc sine: `-i ln(i z + sqrt(1 - z²))`.
     pub fn asin(self) -> Self {

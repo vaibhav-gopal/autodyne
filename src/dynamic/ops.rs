@@ -8,6 +8,7 @@
 //!
 //! How operand types combine is described on [`Promotion`].
 
+use crate::alloc_prelude::*;
 use super::{DynArray, DynElement, DynError, DynView};
 use crate::signal::{broadcast_shapes, NdArray, NdView, Zip};
 use crate::units::*;

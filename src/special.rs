@@ -4,6 +4,7 @@
 //!
 //! tend: Numerics / special
 
+use crate::alloc_prelude::*;
 use crate::units::Complex;
 
 type C64 = Complex<f64>;
@@ -39,7 +40,7 @@ pub fn ellipk(m: f64) -> f64 {
     if m >= 1.0 {
         return if m == 1.0 { f64::INFINITY } else { f64::NAN };
     }
-    std::f64::consts::FRAC_PI_2 / agm(1.0, (1.0 - m).sqrt())
+    core::f64::consts::FRAC_PI_2 / agm(1.0, (1.0 - m).sqrt())
 }
 
 /// `K(1 - p)`, accurate for small `p` (`scipy.special.ellipkm1`).
@@ -47,7 +48,7 @@ pub fn ellipkm1(p: f64) -> f64 {
     if p <= 0.0 {
         return if p == 0.0 { f64::INFINITY } else { f64::NAN };
     }
-    std::f64::consts::FRAC_PI_2 / agm(1.0, p.sqrt())
+    core::f64::consts::FRAC_PI_2 / agm(1.0, p.sqrt())
 }
 
 /// Jacobi elliptic functions `(sn, cn, dn, φ)` of `u` with parameter `m` (`scipy.special.ellipj`,
@@ -68,7 +69,7 @@ pub fn ellipj(u: f64, m: f64) -> (f64, f64, f64, f64) {
         let phi = 1.0 / b;
         let twon = b * u.sinh();
         let sn = t + ai * (twon - u) / (b * b);
-        let ph = 2.0 * u.exp().atan() - std::f64::consts::FRAC_PI_2 + ai * (twon - u) / b;
+        let ph = 2.0 * u.exp().atan() - core::f64::consts::FRAC_PI_2 + ai * (twon - u) / b;
         ai *= t * phi;
         return (sn, phi - ai * (twon - u), phi + ai * (twon + u), ph);
     }
@@ -129,13 +130,13 @@ pub fn arc_jac_sn(w: C64, m: f64) -> C64 {
             break;
         }
     }
-    let big_k: f64 = ks[1..].iter().map(|k| 1.0 + k).product::<f64>() * std::f64::consts::FRAC_PI_2;
+    let big_k: f64 = ks[1..].iter().map(|k| 1.0 + k).product::<f64>() * core::f64::consts::FRAC_PI_2;
     let mut wn = w;
     for pair in ks.windows(2) {
         let (kn, knext) = (pair[0], pair[1]);
         wn = wn * 2.0 / ((C64::one() + complement(wn * kn)) * (1.0 + knext));
     }
-    wn.asin() * (2.0 / std::f64::consts::PI) * big_k
+    wn.asin() * (2.0 / core::f64::consts::PI) * big_k
 }
 
 /// The real inverse Jacobi `sc` with complementary parameter (`_arc_jac_sc1`):
@@ -171,13 +172,13 @@ pub fn gammaln(x: f64) -> f64 {
     }
     if x < 0.5 {
         // Γ(x) Γ(1 - x) = π / sin(π x)
-        let s = (std::f64::consts::PI * x).sin().abs();
-        return std::f64::consts::PI.ln() - s.ln() - gammaln(1.0 - x);
+        let s = (core::f64::consts::PI * x).sin().abs();
+        return core::f64::consts::PI.ln() - s.ln() - gammaln(1.0 - x);
     }
     let x = x - 1.0;
     let t = x + LANCZOS_G + 0.5;
     let series = LANCZOS[1..].iter().enumerate().fold(LANCZOS[0], |s, (i, &c)| s + c / (x + (i + 1) as f64));
-    0.5 * std::f64::consts::TAU.ln() + (x + 0.5) * t.ln() - t + series.ln()
+    0.5 * core::f64::consts::TAU.ln() + (x + 0.5) * t.ln() - t + series.ln()
 }
 
 /// `Γ(x)` (`scipy.special.gamma`): the sign from the reflection formula, the magnitude from
@@ -231,7 +232,7 @@ fn erfc_fraction(x: f64) -> f64 {
 
 /// `erfc(x)` for `x >= 0.5`, accurate to rounding.
 fn erfc_tail(x: f64) -> f64 {
-    exp_neg_sq(x, 1.0) / (erfc_fraction(x) * std::f64::consts::PI.sqrt())
+    exp_neg_sq(x, 1.0) / (erfc_fraction(x) * core::f64::consts::PI.sqrt())
 }
 
 /// Where [`erfc`] switches from `1 - erf` (whose cancellation would cost digits above it) to the
@@ -256,7 +257,7 @@ pub fn erf(x: f64) -> f64 {
             break;
         }
     }
-    sum * 2.0 / std::f64::consts::PI.sqrt()
+    sum * 2.0 / core::f64::consts::PI.sqrt()
 }
 
 /// The complementary error function `1 - erf(x)` (`scipy.special.erfc`), accurate in the tails
@@ -278,11 +279,11 @@ pub fn erfc(x: f64) -> f64 {
 /// Gaussian factor `exp(-x²/2)` comes from `x` itself, not from `x / √2` (whose rounding the
 /// exponential would amplify), so tiny probabilities keep their digits.
 pub fn ndtr(x: f64) -> f64 {
-    let z = x.abs() / std::f64::consts::SQRT_2;
+    let z = x.abs() / core::f64::consts::SQRT_2;
     if z < ERFC_SPLIT {
-        return 0.5 * erfc(-x / std::f64::consts::SQRT_2);
+        return 0.5 * erfc(-x / core::f64::consts::SQRT_2);
     }
-    let tail = 0.5 * exp_neg_sq(x, 0.5) / (erfc_fraction(z) * std::f64::consts::PI.sqrt());
+    let tail = 0.5 * exp_neg_sq(x, 0.5) / (erfc_fraction(z) * core::f64::consts::PI.sqrt());
     if x < 0.0 { tail } else { 1.0 - tail }
 }
 
@@ -319,7 +320,7 @@ pub fn ndtri(p: f64) -> f64 {
     for _ in 0..2 {
         // ndtr(x) - p, the upper tail written as (1 - p) - ndtr(-x)
         let e = if x < 0.0 { ndtr(x) - p } else { (1.0 - p) - ndtr(-x) };
-        let u = e * std::f64::consts::TAU.sqrt() * (x * x / 2.0).exp();
+        let u = e * core::f64::consts::TAU.sqrt() * (x * x / 2.0).exp();
         x -= u / (1.0 + x * u / 2.0);
     }
     x

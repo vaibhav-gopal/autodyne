@@ -1,6 +1,7 @@
 //! [`Oversampled`]: runs any processor at a multiple of the sample rate, so the harmonics a nonlinear one
 //! creates above Nyquist are filtered out instead of aliasing back.
 
+use crate::alloc_prelude::*;
 use super::Resampler;
 use crate::processor::Processor;
 use crate::units::*;

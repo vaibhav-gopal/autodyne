@@ -1,11 +1,10 @@
 //! Arbitrary-precision binary floating point.
 
-use std::cell::{Cell, RefCell};
-use std::cmp::Ordering;
-use std::collections::HashMap;
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Sub};
-use std::str::FromStr;
+use crate::alloc_prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Sub};
+use core::str::FromStr;
 
 use super::BigInt;
 use crate::units::{Elementwise, RealValued};
@@ -44,22 +43,36 @@ pub struct BigFloat {
     prec: u32,
 }
 
-thread_local! {
-    static DEFAULT_PRECISION: Cell<u32> = const { Cell::new(128) };
-    static CONSTANTS: RefCell<HashMap<(u8, u32), BigFloat>> = RefCell::new(HashMap::new());
+// With `std`, the default precision and the constants already computed are per thread. Without,
+// there are no thread-locals: the precision is one global and constants are recomputed each time.
+#[cfg(feature = "std")]
+std::thread_local! {
+    static DEFAULT_PRECISION: core::cell::Cell<u32> = const { core::cell::Cell::new(128) };
+    static CONSTANTS: core::cell::RefCell<std::collections::HashMap<(u8, u32), BigFloat>> =
+        core::cell::RefCell::new(std::collections::HashMap::new());
 }
+#[cfg(not(feature = "std"))]
+static DEFAULT_PRECISION: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(128);
 
 const GUARD: u32 = 32;
 
 impl BigFloat {
-    /// The precision `lit` and `Default` use on this thread (128 bits unless set).
+    /// The precision `lit` and `Default` use on this thread (128 bits unless set; without the
+    /// `std` feature, one setting for the whole program).
     pub fn default_precision() -> u32 {
-        DEFAULT_PRECISION.with(Cell::get)
+        #[cfg(feature = "std")]
+        return DEFAULT_PRECISION.with(core::cell::Cell::get);
+        #[cfg(not(feature = "std"))]
+        return DEFAULT_PRECISION.load(core::sync::atomic::Ordering::Relaxed);
     }
-    /// Sets the precision `lit` and `Default` use on this thread. Panics below 2 bits.
+    /// Sets the precision `lit` and `Default` use on this thread (without the `std` feature, for
+    /// the whole program). Panics below 2 bits.
     pub fn set_default_precision(bits: u32) {
         assert!(bits >= 2, "precision must be at least 2 bits");
+        #[cfg(feature = "std")]
         DEFAULT_PRECISION.with(|p| p.set(bits));
+        #[cfg(not(feature = "std"))]
+        DEFAULT_PRECISION.store(bits, core::sync::atomic::Ordering::Relaxed);
     }
 
     /// Positive zero at `prec` bits.
@@ -302,6 +315,12 @@ impl BigFloat {
 
     // CONSTANTS ===================================================================================
 
+    #[cfg(not(feature = "std"))]
+    fn cached(_id: u8, _prec: u32, make: impl FnOnce() -> BigFloat) -> BigFloat {
+        make()
+    }
+
+    #[cfg(feature = "std")]
     fn cached(id: u8, prec: u32, make: impl FnOnce() -> BigFloat) -> BigFloat {
         if let Some(v) = CONSTANTS.with(|c| c.borrow().get(&(id, prec)).cloned()) {
             return v;
@@ -403,7 +422,7 @@ impl BigFloat {
         let w = prec + GUARD + 64;
         let wide = self.with_precision(w);
         let mut m = BigFloat { exp: -(wide.mant.bits() as i64 - 1), ..wide };
-        if m.to_f64() > std::f64::consts::SQRT_2 {
+        if m.to_f64() > core::f64::consts::SQRT_2 {
             m = m.mul_pow2(-1);
             e += 1;
         }
@@ -560,7 +579,7 @@ impl BigFloat {
         }
         let digits = digits.max(1);
         // estimate the decimal exponent, then scale to `digits` integer digits
-        let mut d = (self.magnitude() as f64 * std::f64::consts::LOG10_2).floor() as i64;
+        let mut d = (self.magnitude() as f64 * core::f64::consts::LOG10_2).floor() as i64;
         let scaled = loop {
             let k = digits as i64 - 1 - d;
             let mut num = self.mant.clone();
@@ -614,7 +633,7 @@ impl BigFloat {
 impl fmt::Display for BigFloat {
     /// Enough significant digits to identify the value (or `{:.N}` for N significant digits).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let digits = f.precision().unwrap_or((self.prec as f64 * std::f64::consts::LOG10_2).ceil() as usize + 1);
+        let digits = f.precision().unwrap_or((self.prec as f64 * core::f64::consts::LOG10_2).ceil() as usize + 1);
         f.write_str(&self.to_string_digits(digits))
     }
 }
@@ -635,7 +654,7 @@ impl fmt::Display for ParseBigFloatError {
     }
 }
 
-impl std::error::Error for ParseBigFloatError {}
+impl core::error::Error for ParseBigFloatError {}
 
 impl BigFloat {
     /// Parses a decimal number (`-12.5e-3`, `inf`, `nan`) to `prec` bits, correctly rounded.

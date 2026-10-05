@@ -2,7 +2,8 @@
 //! standard deviation), cumulative sums and products, sorting, differences; and joining arrays
 //! ([`concatenate`], [`stack`]). NumPy's semantics: NaN propagates through min / max and sorts last.
 
-use std::cmp::Ordering;
+use crate::alloc_prelude::*;
+use core::cmp::Ordering;
 
 use super::ndarray::{check_axis, NdArray, NdError, NdView};
 use super::Storage;

@@ -1,6 +1,8 @@
 //! Low-frequency oscillator: a control signal for modulation, free-running in Hz or locked to the
 //! host's beat grid.
 
+#[cfg(not(any(feature = "std", test)))]
+use crate::alloc_prelude::*;
 use super::transport::{Division, Transport};
 use crate::osc::Noise;
 use crate::params::{ParamError, ParamInfo, ParamUnit, Parameterized};
@@ -212,7 +214,7 @@ impl Lfo {
 
     fn shape_at(&self, p: f64) -> f64 {
         match self.shape {
-            LfoShape::Sine => (std::f64::consts::TAU * p).sin(),
+            LfoShape::Sine => (core::f64::consts::TAU * p).sin(),
             LfoShape::Triangle => {
                 if p < 0.25 {
                     4.0 * p
@@ -232,7 +234,7 @@ impl Lfo {
                 }
             }
             LfoShape::SampleHold => self.next,
-            LfoShape::SmoothRandom => self.previous + (self.next - self.previous) * (0.5 - 0.5 * (std::f64::consts::PI * p).cos()),
+            LfoShape::SmoothRandom => self.previous + (self.next - self.previous) * (0.5 - 0.5 * (core::f64::consts::PI * p).cos()),
         }
     }
 }

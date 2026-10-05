@@ -126,6 +126,7 @@ dependencies = [
  "cubecl",
  "faer",
  "libloading 0.8.9",
+ "libm",
  "mimalloc",
  "ndarray",
  "realfft",

@@ -57,7 +57,7 @@ impl<T: Real> SvfCoeffs<T> {
         let one = T::lit(1.0);
         let cutoff = cutoff.clip(one, T::lit(0.49) * sample_rate);
         let q = q.maximum(T::lit(0.01));
-        let g = (T::lit(std::f64::consts::PI) * cutoff / sample_rate).tan();
+        let g = (T::lit(core::f64::consts::PI) * cutoff / sample_rate).tan();
         let k = one / q;
         let a1 = one / (one + g * (g + k));
         let a2 = g * a1;

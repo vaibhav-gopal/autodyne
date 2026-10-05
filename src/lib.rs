@@ -45,6 +45,29 @@
 //! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
 
 #![warn(missing_docs)]
+// Without the `std` feature: core + alloc (see Cargo.toml). Unit tests link std either way (the
+// harness and the tests need it); the library code under test keeps its no-std paths.
+#![cfg_attr(not(any(feature = "std", test)), no_std)]
+
+extern crate alloc;
+
+/// What the standard prelude gives every module, taken from `alloc` so the same code builds with and
+/// without `std` (modules that use these glob-import it). Without `std` it also brings the float
+/// methods `core` lacks (`x.sqrt()` ...), from `libm`.
+pub(crate) mod alloc_prelude {
+    #[allow(unused_imports)]
+    pub(crate) use alloc::{
+        borrow::ToOwned,
+        boxed::Box,
+        format,
+        string::{String, ToString},
+        vec,
+        vec::Vec,
+    };
+    #[cfg(not(feature = "std"))]
+    #[allow(unused_imports)]
+    pub(crate) use crate::units::float_math::FloatMath;
+}
 
 /// With the `mimalloc` feature, mimalloc allocates for the whole program (see the feature's note in
 /// `Cargo.toml`): new arrays reuse freed pages instead of faulting fresh ones in.

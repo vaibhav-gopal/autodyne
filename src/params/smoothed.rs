@@ -11,7 +11,8 @@
 //! ramping parameter is updated before each step. Coefficient-based processors (filters,
 //! compressors) recompute only while something is moving; settled parameters cost nothing.
 
-use std::ops::Range;
+use crate::alloc_prelude::*;
+use core::ops::Range;
 
 use super::{ParamError, ParamInfo, Parameterized, Smoothing};
 use crate::channels::{AudioBuffer, MultiProcessor};

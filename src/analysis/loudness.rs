@@ -1,5 +1,6 @@
 //! Loudness (ITU-R BS.1770 / EBU R128) and true peak.
 
+use crate::alloc_prelude::*;
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::filter::{design_lowpass, Biquad, BiquadCoeffs};
 use crate::processor::Processor;
@@ -10,7 +11,7 @@ use crate::units::*;
 /// equal the coefficients printed in the standard.
 pub fn k_weighting<T: Float>(sample_rate: T) -> [BiquadCoeffs<T>; 2] {
     let fs = sample_rate.to_f64().unwrap_or(48_000.0);
-    let pi = std::f64::consts::PI;
+    let pi = core::f64::consts::PI;
     let c = |x: f64| T::_lit(x);
     // the analog prototypes behind the standard's 48 kHz table, re-discretized for this rate
     let (f0, gain_db, q) = (1681.974450955533, 3.999843853973347, 0.7071752369554196);

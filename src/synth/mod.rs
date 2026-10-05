@@ -18,6 +18,7 @@
 //!
 //! tend: Audio / synth
 
+use crate::alloc_prelude::*;
 mod params;
 mod fm;
 mod midi;

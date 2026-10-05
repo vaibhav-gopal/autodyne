@@ -1,6 +1,7 @@
 //! [`Float`]: the concrete floating-point types (`f32`, `f64`), real arithmetic plus everything that
 //! inspects a value.
 
+use super::float_math::FloatMath;
 use super::*;
 
 /// A concrete floating-point number (`f32`, `f64`): [`Real`] arithmetic plus everything that
@@ -91,24 +92,24 @@ macro_rules! impl_float {
             const _MAX_EXP: i32 = $SrcT::MAX_EXP;
             const _MIN_10_EXP: i32 = $SrcT::MIN_10_EXP;
             const _MAX_10_EXP: i32 = $SrcT::MAX_10_EXP;
-            const _PI: Self = std::$SrcT::consts::PI;
-            const _E: Self = std::$SrcT::consts::E;
-            const _TAU: Self = std::$SrcT::consts::TAU;
+            const _PI: Self = core::$SrcT::consts::PI;
+            const _E: Self = core::$SrcT::consts::E;
+            const _TAU: Self = core::$SrcT::consts::TAU;
             const _FLUSH_THRESHOLD: Self = 1e-30;
             fn _floor(self) -> Self {
-                $SrcT::floor(self)
+                FloatMath::floor(&self)
             }
             fn _ceil(self) -> Self {
-                $SrcT::ceil(self)
+                FloatMath::ceil(&self)
             }
             fn _round(self) -> Self {
-                $SrcT::round(self)
+                FloatMath::round(&self)
             }
             fn _trunc(self) -> Self {
-                $SrcT::trunc(self)
+                FloatMath::trunc(&self)
             }
             fn _fract(self) -> Self {
-                $SrcT::fract(self)
+                FloatMath::fract(&self)
             }
             fn _is_nan(self) -> bool {
                 $SrcT::is_nan(self)
@@ -120,75 +121,75 @@ macro_rules! impl_float {
         impl ExpBasic for $SrcT {
             type Output = $SrcT;
             fn _sq(self) -> <Self as ExpBasic>::Output {
-                $SrcT::powi(self, 2i32)
+                FloatMath::powi(&self, 2i32)
             }
             fn _sqrt(self) -> <Self as ExpBasic>::Output {
-                $SrcT::sqrt(self)
+                FloatMath::sqrt(&self)
             }
         }
         impl ExpPowDynamic<Self> for $SrcT {
             fn _pow(self, rhs: Self) -> <Self as ExpBasic>::Output {
-                $SrcT::powf(self, rhs)
+                FloatMath::powf(&self, rhs)
             }
         }
         impl ExpRootDynamic<Self> for $SrcT {
             fn _root(self, n: Self) -> <Self as ExpBasic>::Output {
-                $SrcT::powf(self, n._recip())
+                FloatMath::powf(&self, n._recip())
             }
         }
         impl Trig for $SrcT {
             fn _sin(self) -> Self {
-                $SrcT::sin(self)
+                FloatMath::sin(&self)
             }
             fn _cos(self) -> Self {
-                $SrcT::cos(self)
+                FloatMath::cos(&self)
             }
             fn _tan(self) -> Self {
-                $SrcT::tan(self)
+                FloatMath::tan(&self)
             }
             fn _sin_cos(self) -> (Self, Self) {
-                $SrcT::sin_cos(self)
+                FloatMath::sin_cos(&self)
             }
             fn _asin(self) -> Self {
-                $SrcT::asin(self)
+                FloatMath::asin(&self)
             }
             fn _acos(self) -> Self {
-                $SrcT::acos(self)
+                FloatMath::acos(&self)
             }
             fn _atan(self) -> Self {
-                $SrcT::atan(self)
+                FloatMath::atan(&self)
             }
             fn _atan2(self, other: Self) -> Self {
-                $SrcT::atan2(self, other)
+                FloatMath::atan2(&self, other)
             }
             fn _hypot(self, other: Self) -> Self {
-                $SrcT::hypot(self, other)
+                FloatMath::hypot(&self, other)
             }
         }
         impl ExpFloat for $SrcT {
             fn _exp(self) -> <Self as ExpBasic>::Output {
-                $SrcT::exp(self)
+                FloatMath::exp(&self)
             }
             fn _exp2(self) -> <Self as ExpBasic>::Output {
-                $SrcT::exp2(self)
+                FloatMath::exp2(&self)
             }
             fn _exp_m1(self) -> <Self as ExpBasic>::Output {
-                $SrcT::exp_m1(self)
+                FloatMath::exp_m1(&self)
             }
             fn _log(self, base: Self) -> <Self as ExpBasic>::Output {
-                $SrcT::log(self, base)
+                FloatMath::log(&self, base)
             }
             fn _log2(self) -> <Self as ExpBasic>::Output {
-                $SrcT::log2(self)
+                FloatMath::log2(&self)
             }
             fn _log10(self) -> <Self as ExpBasic>::Output {
-                $SrcT::log10(self)
+                FloatMath::log10(&self)
             }
             fn _ln(self) -> <Self as ExpBasic>::Output {
-                $SrcT::ln(self)
+                FloatMath::ln(&self)
             }
             fn _ln_1p(self) -> <Self as ExpBasic>::Output {
-                $SrcT::ln_1p(self)
+                FloatMath::ln_1p(&self)
             }
         }
     }

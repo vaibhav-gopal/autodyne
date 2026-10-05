@@ -11,6 +11,7 @@
 //!
 //! tend: Core / channels
 
+use crate::alloc_prelude::*;
 use crate::processor::Processor;
 use crate::signal::{Axis, NdView, NdViewMut};
 use crate::units::*;

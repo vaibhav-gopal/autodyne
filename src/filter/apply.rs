@@ -8,6 +8,7 @@
 //! recursions of different lanes (and of a cascade's sections) overlap instead of each waiting on
 //! its own previous output.
 
+use crate::alloc_prelude::*;
 use crate::signal::{extended, lanes_f64, Edge, NdArray, NdView};
 use super::FilterError;
 use crate::units::*;
@@ -29,7 +30,7 @@ fn normalized(b: &[f64], a: &[f64]) -> Result<(Vec<f64>, Vec<f64>), FilterError>
         return Err(invalid("the numerator is empty"));
     }
     let n = a.len().max(b.len());
-    let pad = |c: &[f64]| c.iter().map(|x| x / a0).chain(std::iter::repeat_n(0.0, n - c.len())).collect::<Vec<f64>>();
+    let pad = |c: &[f64]| c.iter().map(|x| x / a0).chain(core::iter::repeat_n(0.0, n - c.len())).collect::<Vec<f64>>();
     Ok((pad(b), pad(a)))
 }
 
@@ -50,16 +51,16 @@ fn df2t(b: &[f64], a: &[f64], x: &[f64], z: &mut [[f64; LANES]], y: &mut [f64]) 
 }
 
 fn df2t_fixed<const N: usize>(b: &[f64], a: &[f64], x: &[f64], zs: &mut [[f64; LANES]], y: &mut [f64]) {
-    let bf: [f64; N] = std::array::from_fn(|j| b[j + 1]);
-    let af: [f64; N] = std::array::from_fn(|j| a[j + 1]);
+    let bf: [f64; N] = core::array::from_fn(|j| b[j + 1]);
+    let af: [f64; N] = core::array::from_fn(|j| a[j + 1]);
     let b0 = b[0];
-    let mut z: [[f64; LANES]; N] = std::array::from_fn(|j| zs[j]);
+    let mut z: [[f64; LANES]; N] = core::array::from_fn(|j| zs[j]);
     for (xi, yi) in x.as_chunks::<LANES>().0.iter().zip(y.as_chunks_mut::<LANES>().0.iter_mut()) {
-        let xi: [f64; LANES] = std::array::from_fn(|k| xi[k]);
-        let out: [f64; LANES] = std::array::from_fn(|k| b0 * xi[k] + z[0][k]);
+        let xi: [f64; LANES] = core::array::from_fn(|k| xi[k]);
+        let out: [f64; LANES] = core::array::from_fn(|k| b0 * xi[k] + z[0][k]);
         for j in 0..N {
             let next = if j + 1 < N { z[j + 1] } else { [0.0; LANES] };
-            z[j] = std::array::from_fn(|k| bf[j] * xi[k] - af[j] * out[k] + next[k]);
+            z[j] = core::array::from_fn(|k| bf[j] * xi[k] - af[j] * out[k] + next[k]);
         }
         yi.copy_from_slice(&out);
     }
@@ -375,7 +376,7 @@ pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis
     let zi = lfilter_zi(&bn, &an)?;
     map_groups(x, axis, n, |_, group| {
         let (ext, _) = extended_group(group, edge, pad);
-        let start = |data: &[f64], at: usize| -> Vec<[f64; LANES]> { zi.iter().map(|&v| std::array::from_fn(|k| v * data[at * LANES + k])).collect() };
+        let start = |data: &[f64], at: usize| -> Vec<[f64; LANES]> { zi.iter().map(|&v| core::array::from_fn(|k| v * data[at * LANES + k])).collect() };
         let mut y = vec![0.0; ext.len()];
         let mut z = start(&ext, 0);
         df2t(&bn, &an, &ext, &mut z, &mut y);
@@ -477,7 +478,7 @@ pub fn sosfiltfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis:
     map_groups(x, axis, n, |_, group| {
         let (mut data, _) = extended_group(group, edge, pad);
         let start = |data: &[f64]| -> Vec<[[f64; LANES]; 2]> {
-            zi.iter().map(|z| [std::array::from_fn(|k| z[0] * data[k]), std::array::from_fn(|k| z[1] * data[k])]).collect()
+            zi.iter().map(|z| [core::array::from_fn(|k| z[0] * data[k]), core::array::from_fn(|k| z[1] * data[k])]).collect()
         };
         let mut z = start(&data);
         cascade(&sections, &mut data, &mut z);

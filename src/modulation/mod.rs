@@ -10,6 +10,7 @@
 //!
 //! tend: Audio / modulation
 
+use crate::alloc_prelude::*;
 mod params;
 
 use crate::delay::DelayLine;

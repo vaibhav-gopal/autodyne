@@ -1,5 +1,6 @@
 //! Multiband compressor.
 
+use crate::alloc_prelude::*;
 use super::Compressor;
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::filter::{Crossover, MAX_BANDS};

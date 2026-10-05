@@ -16,6 +16,7 @@
 //!
 //! tend: Numerics / ode
 
+use crate::alloc_prelude::*;
 use thiserror::Error;
 
 /// Errors from solving initial value problems.
@@ -351,8 +352,8 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
     let mut f_new = vec![0.0; n];
     let mut tmp = vec![0.0; n];
     let mut rejected = false;
-    let d = 1.0 / (2.0 + std::f64::consts::SQRT_2);
-    let e32 = 6.0 + std::f64::consts::SQRT_2;
+    let d = 1.0 / (2.0 + core::f64::consts::SQRT_2);
+    let e32 = 6.0 + core::f64::consts::SQRT_2;
     // the Rosenbrock step's Jacobian and ∂f/∂t, refreshed every step
     let mut jac = vec![0.0; n * n];
     let mut dfdt = vec![0.0; n];

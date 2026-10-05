@@ -2,6 +2,7 @@
 //! height, threshold, distance, prominence, width and plateau size), [`peak_prominences`] and
 //! [`peak_widths`].
 
+use crate::alloc_prelude::*;
 use super::SignalError;
 use crate::units::*;
 

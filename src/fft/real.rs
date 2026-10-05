@@ -1,6 +1,7 @@
 //! FFTs of real signals ([`RealFft`]): the half spectrum (bins `0..=N/2`) and back, about twice as fast
 //! as a complex FFT of the same length.
 
+use crate::alloc_prelude::*;
 use super::Fft;
 use crate::units::*;
 
@@ -45,7 +46,7 @@ impl<T: Float> RealFft<T> {
         assert!(len >= 1, "real FFT length must be at least 1");
         let kernel = if len.is_multiple_of(2) {
             let half_len = len / 2;
-            let twiddles = (0..half_len).map(|k| Complex::cis(T::_lit(-std::f64::consts::TAU * k as f64 / len as f64))).collect();
+            let twiddles = (0..half_len).map(|k| Complex::cis(T::_lit(-core::f64::consts::TAU * k as f64 / len as f64))).collect();
             RealKernel::Half { half: Fft::new_portable(half_len), twiddles, scratch: vec![Complex::zero(); half_len] }
         } else {
             RealKernel::Full { fft: Fft::new_portable(len), scratch: vec![Complex::zero(); len] }
@@ -150,7 +151,7 @@ impl<T: Float> RealFft<T> {
 
 #[cfg(feature = "rustfft")]
 mod fast {
-    use std::any::TypeId;
+    use core::any::TypeId;
     use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
     use realfft::num_complex::Complex as Rc;
@@ -166,8 +167,8 @@ mod fast {
         F64 { forward: Arc<dyn RealToComplex<f64>>, inverse: Arc<dyn ComplexToReal<f64>>, input: Vec<f64>, spectrum: Vec<Rc<f64>>, scratch: Vec<Rc<f64>> },
     }
 
-    impl std::fmt::Debug for Plan {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for Plan {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.write_str(match self {
                 Plan::F32 { .. } => "realfft plan (f32)",
                 Plan::F64 { .. } => "realfft plan (f64)",
@@ -206,7 +207,7 @@ mod fast {
                     // SAFETY: T is $F (checked); autodyne's and num-complex's Complex are both
                     // repr(C) { re, im }
                     let (input, out) = unsafe {
-                        (std::slice::from_raw_parts(input.as_ptr().cast::<$F>(), input.len()), std::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<Rc<$F>>(), out.len()))
+                        (core::slice::from_raw_parts(input.as_ptr().cast::<$F>(), input.len()), core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<Rc<$F>>(), out.len()))
                     };
                     $buf.copy_from_slice(input);
                     $plan.process_with_scratch($buf, out, $scratch).expect("buffer lengths come from the plan");
@@ -226,7 +227,7 @@ mod fast {
                     assert_eq!(TypeId::of::<T>(), TypeId::of::<$F>(), "FFT plan used with another element type");
                     // SAFETY: as in `forward`
                     let (spectrum, out) = unsafe {
-                        (std::slice::from_raw_parts(spectrum.as_ptr().cast::<Rc<$F>>(), spectrum.len()), std::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<$F>(), out.len()))
+                        (core::slice::from_raw_parts(spectrum.as_ptr().cast::<Rc<$F>>(), spectrum.len()), core::slice::from_raw_parts_mut(out.as_mut_ptr().cast::<$F>(), out.len()))
                     };
                     $buf.copy_from_slice(spectrum);
                     let last = $buf.len() - 1;

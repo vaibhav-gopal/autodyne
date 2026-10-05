@@ -1,8 +1,8 @@
 //! [`Unit`]: the arithmetic every number type shares ([`UnitOps`], [`Zero`], [`One`], [`Inv`]) and its
 //! bit-level representation ([`PhysicalRepr`]).
 
-use std::ops::{Add, Div, Mul, Rem, Sub};
-use std::fmt::Debug;
+use core::ops::{Add, Div, Mul, Rem, Sub};
+use core::fmt::Debug;
 use super::*;
 
 /// Elementary operations

@@ -1,7 +1,7 @@
 //! Operation traits the number types share: [`Bitwise`], exponentials and powers ([`ExpBasic`],
 //! [`ExpFloat`] ...) and [`Trig`].
 
-use std::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
+use core::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
 use super::*;
 
 // Marker traits

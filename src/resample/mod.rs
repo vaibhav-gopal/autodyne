@@ -11,6 +11,7 @@
 //!
 //! tend: Signal processing / resample
 
+use crate::alloc_prelude::*;
 use crate::filter::design_lowpass;
 use crate::signal::{SigResizeOps, Signal, SignalResizable};
 use crate::units::*;

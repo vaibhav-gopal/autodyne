@@ -1,8 +1,9 @@
 //! [`Source`]: signals produced on demand (oscillators, noise, streams) that compose lazily: scaled, mixed
 //! and run through processors as samples are pulled.
 
-use std::ops::{Add, Mul};
+use core::ops::{Add, Mul};
 
+#[cfg(feature = "std")]
 use super::SourceStream;
 use crate::processor::Processor;
 use crate::units::*;
@@ -74,6 +75,7 @@ pub trait Source {
     }
 
     /// This source as an endless `SignalRead` stream.
+    #[cfg(feature = "std")]
     fn stream(self) -> SourceStream<Self>
     where
         Self: Sized,
@@ -82,6 +84,7 @@ pub trait Source {
     }
 
     /// This source as a `SignalRead` stream that ends after `samples` samples.
+    #[cfg(feature = "std")]
     fn stream_for(self, samples: u64) -> SourceStream<Self>
     where
         Self: Sized,

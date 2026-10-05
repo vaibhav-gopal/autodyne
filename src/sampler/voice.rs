@@ -1,7 +1,10 @@
 //! [`SamplerVoice`]: plays a [`SampleMap`](super::SampleMap)'s zones at any pitch, with the chosen
 //! [`Interpolation`], for [`Poly`](crate::synth::Poly).
 
-use std::sync::{Arc, OnceLock};
+use crate::alloc_prelude::*;
+use alloc::sync::Arc;
+
+use crate::units::lazy::Lazy;
 
 use super::sample::{Level, PAD};
 use super::{LoopMode, SampleMap, Zone};
@@ -44,7 +47,7 @@ const MAX_TAPS: usize = 2 * (SINC_ZEROS * MAX_STRETCH as usize + 2);
 
 /// Kaiser-windowed sinc, sampled from 0 to SINC_ZEROS zero crossings.
 fn sinc_table() -> &'static [f64] {
-    static TABLE: OnceLock<Vec<f64>> = OnceLock::new();
+    static TABLE: Lazy<Vec<f64>> = Lazy::new();
     TABLE.get_or_init(|| {
         let beta = 9.0;
         let len = SINC_ZEROS * SINC_RES;
@@ -54,7 +57,7 @@ fn sinc_table() -> &'static [f64] {
                 if i > len {
                     return 0.0;
                 }
-                let sinc = if i == 0 { 1.0 } else { (std::f64::consts::PI * t).sin() / (std::f64::consts::PI * t) };
+                let sinc = if i == 0 { 1.0 } else { (core::f64::consts::PI * t).sin() / (core::f64::consts::PI * t) };
                 let r = t / SINC_ZEROS as f64;
                 sinc * bessel_i0(beta * (1.0 - r * r).max(0.0).sqrt()) / bessel_i0(beta)
             })
@@ -306,7 +309,7 @@ impl<T: Float> SamplerVoice<T> {
             let fade_start = (lp.end - lp.crossfade) as f64;
             if self.pos >= fade_start {
                 // equal-power crossfade from the loop's end into the frames leading up to its start
-                let g = (self.pos - fade_start) / lp.crossfade as f64 * std::f64::consts::FRAC_PI_2;
+                let g = (self.pos - fade_start) / lp.crossfade as f64 * core::f64::consts::FRAC_PI_2;
                 let (into, out) = (T::_lit(g.sin()), T::_lit(g.cos()));
                 let (bl, br) = self.read(self.pos - (lp.end - lp.start) as f64, looping);
                 l = l * out + bl * into;

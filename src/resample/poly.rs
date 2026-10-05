@@ -2,6 +2,7 @@
 //! downsample, in one polyphase pass) and [`resample_poly`] (`upfirdn` with a Kaiser-windowed
 //! low-pass, aligned so the output starts at the input's first sample).
 
+use crate::alloc_prelude::*;
 use thiserror::Error;
 
 use crate::signal::{lanes_f64, NdArray, NdView};
@@ -188,7 +189,7 @@ pub fn resample_poly<T: Float + Default>(x: NdView<'_, T>, up: usize, down: usiz
     while upfirdn_len(h.len() + pre_pad + post_pad, n, up, down) < wanted + pre_remove {
         post_pad += 1;
     }
-    let padded: Vec<f64> = std::iter::repeat_n(0.0, pre_pad).chain(h).chain(std::iter::repeat_n(0.0, post_pad)).collect();
+    let padded: Vec<f64> = core::iter::repeat_n(0.0, pre_pad).chain(h).chain(core::iter::repeat_n(0.0, post_pad)).collect();
     let y = upfirdn(&padded, x, up, down, axis)?;
     Ok(y.view().slice_axis(axis, pre_remove..pre_remove + wanted)?.to_owned())
 }

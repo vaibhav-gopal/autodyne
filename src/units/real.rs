@@ -1,8 +1,9 @@
 //! The traits code is written over to run eagerly or traced: [`Elementwise`] (arithmetic and elementary
 //! functions, for numbers and arrays), [`RealValued`] and [`Real`] (per-sample, `Copy`).
 
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
+use super::float_math::FloatMath;
 use super::{Complex, Float};
 
 /// Element-wise arithmetic and elementary functions that can be traced: the maths a processor
@@ -39,7 +40,7 @@ pub trait Elementwise: Clone + Add<Output = Self> + Sub<Output = Self> + Mul<Out
     }
     /// Base-10 logarithm.
     fn log10(self) -> Self {
-        self.ln() / Self::lit(std::f64::consts::LN_10)
+        self.ln() / Self::lit(core::f64::consts::LN_10)
     }
 }
 
@@ -98,11 +99,11 @@ macro_rules! impl_elementwise {
             }
             #[inline(always)]
             fn sin(self) -> Self {
-                $T::sin(self)
+                FloatMath::sin(&self)
             }
             #[inline(always)]
             fn cos(self) -> Self {
-                $T::cos(self)
+                FloatMath::cos(&self)
             }
             #[inline(always)]
             fn tanh(self) -> Self {
@@ -110,19 +111,19 @@ macro_rules! impl_elementwise {
             }
             #[inline(always)]
             fn sqrt(self) -> Self {
-                $T::sqrt(self)
+                FloatMath::sqrt(&self)
             }
             #[inline(always)]
             fn powf(self, e: Self) -> Self {
-                $T::powf(self, e)
+                FloatMath::powf(&self, e)
             }
             #[inline(always)]
             fn tan(self) -> Self {
-                $T::tan(self)
+                FloatMath::tan(&self)
             }
             #[inline(always)]
             fn log10(self) -> Self {
-                $T::log10(self)
+                FloatMath::log10(&self)
             }
         }
 
@@ -154,7 +155,7 @@ macro_rules! impl_elementwise {
             }
             #[inline(always)]
             fn floor(self) -> Self {
-                $T::floor(self)
+                FloatMath::floor(&self)
             }
         }
     )+};

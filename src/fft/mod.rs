@@ -8,6 +8,7 @@
 //!
 //! tend: Numerics / fft
 
+use crate::alloc_prelude::*;
 use crate::units::*;
 
 mod real;
@@ -21,7 +22,7 @@ pub fn dft<T: Float>(input: &[Complex<T>]) -> Vec<Complex<T>> {
         .map(|k| {
             input.iter().enumerate().fold(Complex::zero(), |acc, (j, &x)| {
                 // reduce k*j mod n first so the angle stays small and accurate for large n
-                let angle = -std::f64::consts::TAU * ((k * j) % n) as f64 / n as f64;
+                let angle = -core::f64::consts::TAU * ((k * j) % n) as f64 / n as f64;
                 acc + x * Complex::cis(T::_lit(angle))
             })
         })
@@ -109,7 +110,7 @@ impl<T: Float> Fft<T> {
         let m = inner.len;
         // reduce k^2 modulo 2 len so the angle stays small and accurate for large k
         let chirp: Vec<Complex<T>> = (0..len)
-            .map(|k| Complex::cis(T::_lit(-std::f64::consts::PI * ((k as u128 * k as u128) % (2 * len as u128)) as f64 / len as f64)))
+            .map(|k| Complex::cis(T::_lit(-core::f64::consts::PI * ((k as u128 * k as u128) % (2 * len as u128)) as f64 / len as f64)))
             .collect();
         let mut filter = vec![Complex::zero(); m];
         filter[0] = chirp[0].conj();
@@ -127,7 +128,7 @@ impl<T: Float> Fft<T> {
         assert!(len.is_power_of_two(), "radix-2 FFT length must be a power of two, got {len}");
         let bits = len.trailing_zeros();
         let twiddles = (0..len / 2)
-            .map(|k| Complex::cis(T::_lit(-std::f64::consts::TAU * k as f64 / len as f64)))
+            .map(|k| Complex::cis(T::_lit(-core::f64::consts::TAU * k as f64 / len as f64)))
             .collect();
         let bit_reverse = (0..len)
             .map(|i| if bits == 0 { 0 } else { i.reverse_bits() >> (usize::BITS - bits) })
@@ -225,7 +226,7 @@ fn radix2<T: Float>(buf: &mut [Complex<T>], twiddles: &[Complex<T>], bit_reverse
 
 #[cfg(feature = "rustfft")]
 mod fast {
-    use std::any::TypeId;
+    use core::any::TypeId;
     use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
     use rustfft::num_complex::Complex as Rc;
@@ -240,8 +241,8 @@ mod fast {
         F64 { forward: Arc<dyn rustfft::Fft<f64>>, inverse: Arc<dyn rustfft::Fft<f64>>, scratch: Vec<Rc<f64>> },
     }
 
-    impl std::fmt::Debug for Plan {
-        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    impl core::fmt::Debug for Plan {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
             f.write_str(match self {
                 Plan::F32 { .. } => "rustfft plan (f32)",
                 Plan::F64 { .. } => "rustfft plan (f64)",
@@ -282,7 +283,7 @@ mod fast {
                     assert_eq!(TypeId::of::<T>(), TypeId::of::<$F>(), "FFT plan used with another element type");
                     // SAFETY: T is $F (checked above), and autodyne's and num-complex's Complex are
                     // both repr(C) { re, im }, so the slices have the same layout
-                    let buf = unsafe { std::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<Rc<$F>>(), buf.len()) };
+                    let buf = unsafe { core::slice::from_raw_parts_mut(buf.as_mut_ptr().cast::<Rc<$F>>(), buf.len()) };
                     if inverse { $inv.process_with_scratch(buf, $scratch) } else { $fwd.process_with_scratch(buf, $scratch) }
                 }};
             }

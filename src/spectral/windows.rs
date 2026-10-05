@@ -1,7 +1,8 @@
 //! Window functions (`scipy.signal.windows`): tapers for spectral analysis and FIR design.
 
-use std::f64::consts::PI;
-use std::str::FromStr;
+use crate::alloc_prelude::*;
+use core::f64::consts::PI;
+use core::str::FromStr;
 
 use crate::fft::Fft;
 use crate::special::bessel_i0;

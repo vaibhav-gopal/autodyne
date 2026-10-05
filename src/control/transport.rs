@@ -1,6 +1,9 @@
 //! Musical time: tempo, beat position and note lengths, for tempo-synced LFOs, delays and
 //! arpeggiators.
 
+#[cfg(not(any(feature = "std", test)))]
+use crate::alloc_prelude::*;
+
 /// Where the host's timeline is. Positions are in beats (quarter notes), which is how DAWs report
 /// them. A host updates it once per block (or calls [`advance`](Self::advance) itself when it runs
 /// the clock).

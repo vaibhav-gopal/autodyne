@@ -7,6 +7,7 @@
 //!
 //! tend: Audio / reverb
 
+use crate::alloc_prelude::*;
 mod params;
 mod convolver;
 mod fdn;

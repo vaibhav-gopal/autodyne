@@ -1,6 +1,7 @@
 //! Convolution with long impulse responses ([`Convolver`]), uniformly partitioned in the frequency domain:
 //! convolution reverb, cabinets and rooms, long FIR filters.
 
+use crate::alloc_prelude::*;
 use crate::gain::SmoothedValue;
 use crate::fft::RealFft;
 use crate::units::*;

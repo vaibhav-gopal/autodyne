@@ -1,7 +1,8 @@
 //! FIR design: windowed sinc (`firwin`), frequency sampling (`firwin2`), least squares (`firls`),
 //! equiripple Parks-McClellan (`remez`), and Kaiser window estimates.
 
-use std::f64::consts::PI;
+use crate::alloc_prelude::*;
+use core::f64::consts::PI;
 
 use crate::filter::FilterError;
 use crate::fft::RealFft;
@@ -64,7 +65,7 @@ pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: boo
     if pass_nyquist && numtaps.is_multiple_of(2) {
         return Err(FilterError::invalid("a filter with an even number of taps must have zero response at the Nyquist frequency"));
     }
-    let edges: Vec<f64> = std::iter::once(0.0).filter(|_| pass_zero).chain(cut).chain(std::iter::once(1.0).filter(|_| pass_nyquist)).collect();
+    let edges: Vec<f64> = core::iter::once(0.0).filter(|_| pass_zero).chain(cut).chain(core::iter::once(1.0).filter(|_| pass_nyquist)).collect();
     let alpha = 0.5 * (numtaps as f64 - 1.0);
     let m: Vec<f64> = (0..numtaps).map(|i| i as f64 - alpha).collect();
     let mut h = vec![0.0; numtaps];
@@ -223,7 +224,7 @@ pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weigh
     let rhs = crate::signal::NdArray::from_vec(b, &[size]).expect("shape");
     let a = crate::linalg::solve(qmat.view(), rhs.view())?;
     let a = a.as_slice();
-    Ok(a[1..].iter().rev().copied().chain(std::iter::once(2.0 * a[0])).chain(a[1..].iter().copied()).collect())
+    Ok(a[1..].iter().rev().copied().chain(core::iter::once(2.0 * a[0])).chain(a[1..].iter().copied()).collect())
 }
 
 /// What [`remez`] designs.

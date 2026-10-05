@@ -1,9 +1,10 @@
 //! Arbitrary-precision signed integers.
 
-use std::cmp::Ordering;
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Rem, Shl, Shr, Sub};
-use std::str::FromStr;
+use crate::alloc_prelude::*;
+use core::cmp::Ordering;
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Rem, Shl, Shr, Sub};
+use core::str::FromStr;
 
 /// An arbitrary-precision integer: a sign and a magnitude in 64-bit limbs (least significant
 /// first, no leading zero limbs; zero is an empty magnitude, never negative).
@@ -112,7 +113,7 @@ fn mul_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
     let z1 = mul_mag(&add_mag(&a0, &a1), &add_mag(&b0, &b1));
     let middle = sub_mag(&sub_mag(&z1, &z2), &z0);
     let mut out = z0;
-    let shifted = |v: &[u64], limbs: usize| -> Vec<u64> { if v.is_empty() { Vec::new() } else { std::iter::repeat_n(0, limbs).chain(v.iter().copied()).collect() } };
+    let shifted = |v: &[u64], limbs: usize| -> Vec<u64> { if v.is_empty() { Vec::new() } else { core::iter::repeat_n(0, limbs).chain(v.iter().copied()).collect() } };
     out = add_mag(&out, &shifted(&middle, half));
     out = add_mag(&out, &shifted(&z2, 2 * half));
     trim(&mut out);
@@ -413,7 +414,7 @@ impl BigInt {
             parts.push(r);
             mag = q;
         }
-        let digit = |d: u64| std::char::from_digit(d as u32, radix).expect("in range");
+        let digit = |d: u64| core::char::from_digit(d as u32, radix).expect("in range");
         let mut s = String::new();
         if self.neg {
             s.push('-');
@@ -444,7 +445,7 @@ impl fmt::Display for ParseBigIntError {
     }
 }
 
-impl std::error::Error for ParseBigIntError {}
+impl core::error::Error for ParseBigIntError {}
 
 impl FromStr for BigInt {
     type Err = ParseBigIntError;

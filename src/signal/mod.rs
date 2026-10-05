@@ -15,7 +15,8 @@
 //!   `mix` and `through(processor)`.
 //! - Streams ([`SignalRead`], [`SignalWrite`], [`SignalSeek`], [`SignalStream`]): signals moved a block
 //!   at a time as they are generated or arrive at runtime, with [`SampleReader`] / [`SampleWriter`]
-//!   converting to and from bytes (files, sockets, FFI) at the boundary.
+//!   converting to and from bytes (files, sockets, FFI) at the boundary. They're built on
+//!   `std::io`, so they come with the `std` feature.
 //! - Capability tiers ([`SignalOwned`], [`SignalResizable`]) and the operations they unlock
 //!   ([`SigOwnedOps`], [`SigResizeOps`]).
 //! - [`NdArray`] and zero-copy [`NdView`] / [`NdViewMut`] (slicing, steps, transposes, broadcasting and
@@ -39,6 +40,7 @@
 //!
 //! tend: Core / signal
 
+use crate::alloc_prelude::*;
 mod analysis;
 mod array_math;
 mod complex;
@@ -51,6 +53,7 @@ mod ndarray;
 mod peaks;
 mod source;
 mod storage;
+#[cfg(feature = "std")]
 mod stream;
 mod transform;
 
@@ -76,6 +79,7 @@ pub use ndarray::*;
 pub use peaks::*;
 pub use source::*;
 pub use storage::*;
+#[cfg(feature = "std")]
 pub use stream::*;
 pub use transform::*;
 

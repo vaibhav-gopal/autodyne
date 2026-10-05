@@ -1,5 +1,6 @@
 //! Lookahead brickwall limiter.
 
+use crate::alloc_prelude::*;
 use crate::analysis::TruePeak;
 use crate::channels::{AudioBuffer, MultiProcessor};
 

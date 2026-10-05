@@ -1,6 +1,7 @@
 //! [`Signal`]: read-only analysis of real-valued signals (levels, norms, statistics, comparisons,
 //! convolution and correlation), for slices, `Vec`s and arrays.
 
+use crate::alloc_prelude::*;
 use super::{convolve_with, correlate_with, ConvMethod, ConvMode, SignalError};
 use crate::units::*;
 

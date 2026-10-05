@@ -90,7 +90,7 @@ impl<T: Float> Crossover<T> {
     pub fn new(frequencies: &[T], sample_rate: T) -> Self {
         assert!((1..MAX_BANDS).contains(&frequencies.len()), "a crossover takes 1 to {} frequencies", MAX_BANDS - 1);
         assert!(frequencies.windows(2).all(|w| w[0] < w[1]), "crossover frequencies must ascend");
-        let lr = std::array::from_fn(|i| LinkwitzRiley::new(frequencies.get(i).copied().unwrap_or(T::_lit(1_000.0)), sample_rate));
+        let lr = core::array::from_fn(|i| LinkwitzRiley::new(frequencies.get(i).copied().unwrap_or(T::_lit(1_000.0)), sample_rate));
         let mut c = Self { splits: frequencies.len(), lr, compensation: [[lr[0].allpass(); MAX_BANDS - 1]; MAX_BANDS - 1] };
         c.redesign_compensation();
         c

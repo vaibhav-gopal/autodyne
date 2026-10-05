@@ -2,6 +2,7 @@
 //! [`skew_axis`], [`kurtosis_axis`] and [`zscore_axis`]. Two passes (the mean, then deviations
 //! from it), so large offsets don't cost precision.
 
+use crate::alloc_prelude::*;
 use super::{assemble, StatsError};
 use crate::signal::{lanes_f64, NdArray, NdView};
 use crate::units::*;

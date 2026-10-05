@@ -9,10 +9,11 @@
 //!   (files, sockets, pipes, FFI buffers) and convert with a [`SampleEncoding`], so signal code never
 //!   handles bytes, partial samples or endianness.
 
+use crate::alloc_prelude::*;
 use std::io::{self, Read, Seek, SeekFrom, Write};
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
-use super::Source;
+use super::{Endian, Source};
 use crate::processor::Processor;
 use crate::units::*;
 
@@ -283,15 +284,6 @@ where
 }
 
 // BYTE BOUNDARY ===================================================================================
-
-/// Byte order of a multi-byte sample.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Endian {
-    /// Least significant byte first (WAV, x86, ARM).
-    Little,
-    /// Most significant byte first (AIFF, network order).
-    Big,
-}
 
 /// How samples are laid out as bytes: element type plus byte order.
 ///

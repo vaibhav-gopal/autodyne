@@ -6,7 +6,8 @@
 //! another library comes in through [`ForeignBuffer`](crate::dlpack::ForeignBuffer) (DLPack). Every
 //! kind gives the same views, so every operation works on all of them without copying.
 
-use std::sync::Arc;
+use crate::alloc_prelude::*;
+use alloc::sync::Arc;
 
 /// Contiguous element memory an `NdArray` can be built on.
 ///
@@ -78,4 +79,13 @@ unsafe impl<T> Storage for Arc<[T]> {
         self.as_ptr().cast_mut()
     }
     const WRITABLE: bool = false;
+}
+
+/// Byte order of multi-byte elements or samples as bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Endian {
+    /// Least significant byte first (WAV, x86, ARM).
+    Little,
+    /// Most significant byte first (AIFF, network order).
+    Big,
 }

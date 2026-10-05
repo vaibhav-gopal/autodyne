@@ -1,6 +1,7 @@
 //! Wavetable synthesis: single-cycle frames you morph between, band-limited for every pitch.
 
-use std::sync::Arc;
+use crate::alloc_prelude::*;
+use alloc::sync::Arc;
 
 use super::band_limited_increment;
 use crate::signal::Source;
@@ -10,7 +11,7 @@ use crate::units::*;
 /// The most harmonics a table keeps (its full-bandwidth level, used for the lowest notes).
 pub const MAX_HARMONICS: usize = 1023;
 /// Band limits of successive levels are half an octave apart.
-const LEVEL_RATIO: f64 = std::f64::consts::SQRT_2;
+const LEVEL_RATIO: f64 = core::f64::consts::SQRT_2;
 
 /// One band-limited version of every frame.
 #[derive(Debug, Clone)]
@@ -77,10 +78,10 @@ impl<T: Float> Wavetable<T> {
     /// [`classic`](Self::classic), built once per sample type and shared: every call after the first
     /// just clones an `Arc` (cheap enough to give every voice its own handle).
     pub fn shared_classic() -> Arc<Self> {
-        use std::any::{Any, TypeId};
-        use std::sync::OnceLock;
-        static F32: OnceLock<Arc<Wavetable<f32>>> = OnceLock::new();
-        static F64: OnceLock<Arc<Wavetable<f64>>> = OnceLock::new();
+        use crate::units::lazy::Lazy;
+        use core::any::{Any, TypeId};
+        static F32: Lazy<Arc<Wavetable<f32>>> = Lazy::new();
+        static F64: Lazy<Arc<Wavetable<f64>>> = Lazy::new();
         let shared: Option<&dyn Any> = if TypeId::of::<T>() == TypeId::of::<f32>() {
             Some(F32.get_or_init(|| Arc::new(Wavetable::classic())))
         } else if TypeId::of::<T>() == TypeId::of::<f64>() {
@@ -308,7 +309,7 @@ fn harmonics_of<T: Float>(frame: &[T]) -> Vec<Complex<f64>> {
         for (k, ck) in c.iter_mut().enumerate().skip(1) {
             let mut sum = Complex::zero();
             for (i, &v) in x.iter().enumerate() {
-                sum += Complex::cis(-std::f64::consts::TAU * (k * i) as f64 / n as f64) * v;
+                sum += Complex::cis(-core::f64::consts::TAU * (k * i) as f64 / n as f64) * v;
             }
             *ck = sum * (2.0 / n as f64);
         }

@@ -17,6 +17,7 @@
 //!
 //! Naming: past tense returns new data (`convolved`), imperative mutates (`convolve`).
 
+use crate::alloc_prelude::*;
 use super::{Broadcast, SignalError, SignalMut};
 use crate::units::*;
 

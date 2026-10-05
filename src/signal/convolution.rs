@@ -4,6 +4,7 @@
 //! [`oaconvolve`]. [`ConvMethod::Auto`] picks the cheapest method from the two lengths, as
 //! `scipy.signal.choose_conv_method` does; `Signal::convolved` and `Signal::correlated` use it.
 
+use crate::alloc_prelude::*;
 use crate::fft::{next_fast_len, RealFft};
 use crate::units::*;
 

@@ -19,7 +19,8 @@
 //!
 //! tend: Numerics / random
 
-use std::sync::OnceLock;
+use crate::alloc_prelude::*;
+use crate::units::lazy::Lazy;
 
 use thiserror::Error;
 
@@ -72,9 +73,10 @@ impl Rng {
     }
 
     /// A generator seeded from the process's hash randomness and the clock: different on every
-    /// call and every run.
+    /// call and every run. Needs `std` (without it, seed with [`new`](Self::new)).
+    #[cfg(feature = "std")]
     pub fn from_entropy() -> Self {
-        use std::hash::{BuildHasher, Hasher};
+        use core::hash::{BuildHasher, Hasher};
         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
         h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
         Self::new(h.finish())
@@ -465,12 +467,12 @@ fn ziggurat(pdf: fn(f64) -> f64, inv: impl Fn(f64) -> f64, r: f64, v: f64, bits:
 }
 
 fn ziggurat_normal() -> &'static Ziggurat {
-    static Z: OnceLock<Ziggurat> = OnceLock::new();
+    static Z: Lazy<Ziggurat> = Lazy::new();
     Z.get_or_init(|| ziggurat(|x| (-0.5 * x * x).exp(), |y| (-2.0 * y.ln()).sqrt(), NORMAL_R, NORMAL_V, 52))
 }
 
 fn ziggurat_exponential() -> &'static Ziggurat {
-    static Z: OnceLock<Ziggurat> = OnceLock::new();
+    static Z: Lazy<Ziggurat> = Lazy::new();
     Z.get_or_init(|| ziggurat(|x| (-x).exp(), |y| -y.ln(), EXPONENTIAL_R, EXPONENTIAL_V, 53))
 }
 
@@ -663,7 +665,7 @@ continuous!(Laplace, |s, rng| {
 
 /// `ln k!`: a table below 256, Stirling's series above (relative error below 1e-15).
 fn ln_factorial(k: f64) -> f64 {
-    static TABLE: OnceLock<[f64; 256]> = OnceLock::new();
+    static TABLE: Lazy<[f64; 256]> = Lazy::new();
     if k < 256.0 {
         let t = TABLE.get_or_init(|| {
             let mut t = [0.0; 256];
@@ -676,7 +678,7 @@ fn ln_factorial(k: f64) -> f64 {
     }
     let (n, inv) = (k + 1.0, 1.0 / (k + 1.0));
     let inv2 = inv * inv;
-    (n - 0.5) * n.ln() - n + 0.5 * std::f64::consts::TAU.ln() + inv * (1.0 / 12.0 - inv2 * (1.0 / 360.0 - inv2 / 1260.0))
+    (n - 0.5) * n.ln() - n + 0.5 * core::f64::consts::TAU.ln() + inv * (1.0 / 12.0 - inv2 * (1.0 / 360.0 - inv2 / 1260.0))
 }
 
 /// Hörmann's transformed rejection with squeeze (PTRS) for Poisson means of 10 or more, its

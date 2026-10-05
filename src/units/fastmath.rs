@@ -6,6 +6,8 @@
 // the coefficients as Cephes publishes them (rounded to f32 by the compiler)
 #![allow(clippy::excessive_precision)]
 
+use super::float_math::FloatMath;
+
 /// The exponential, logarithm and hyperbolic tangent each float type computes with: these for
 /// `f32`, std's for `f64`.
 pub(crate) trait Transcendental: Sized {
@@ -32,15 +34,15 @@ impl Transcendental for f32 {
 impl Transcendental for f64 {
     #[inline(always)]
     fn t_exp(self) -> f64 {
-        f64::exp(self)
+        FloatMath::exp(&self)
     }
     #[inline(always)]
     fn t_ln(self) -> f64 {
-        f64::ln(self)
+        FloatMath::ln(&self)
     }
     #[inline(always)]
     fn t_tanh(self) -> f64 {
-        f64::tanh(self)
+        FloatMath::tanh(&self)
     }
 }
 
@@ -60,7 +62,7 @@ fn round(x: f32) -> f32 {
 /// `e^x`.
 #[inline(always)]
 pub fn exp(x: f32) -> f32 {
-    const LOG2E: f32 = std::f32::consts::LOG2_E;
+    const LOG2E: f32 = core::f32::consts::LOG2_E;
     // ln 2 in two parts: the first exact in few bits, so k * C1 is exact
     const C1: f32 = 0.693_359_375;
     const C2: f32 = -2.121_944_4e-4;
@@ -83,7 +85,7 @@ pub fn exp(x: f32) -> f32 {
 /// The natural logarithm.
 #[inline(always)]
 pub fn ln(x: f32) -> f32 {
-    const SQRT_HALF: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    const SQRT_HALF: f32 = core::f32::consts::FRAC_1_SQRT_2;
     // subnormals: scaled into the normal range first
     let subnormal = x < f32::MIN_POSITIVE;
     let xs = if subnormal { x * 8_388_608.0 } else { x };

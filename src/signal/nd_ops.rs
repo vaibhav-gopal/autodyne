@@ -11,8 +11,9 @@
 //! (the write side of broadcasting) is a reduction with an explicit rule: [`NdView::fold_into`],
 //! [`NdView::sum_into`] and friends write into a smaller array whose shape broadcasts to the input.
 
-use std::mem::MaybeUninit;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
+use crate::alloc_prelude::*;
+use core::mem::MaybeUninit;
+use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 
 use super::ndarray::{Layout, NdArray, NdError, NdView, NdViewMut, MAX_DIMS};
 use super::{Storage, StorageMut};
@@ -121,7 +122,7 @@ fn walk<const N: usize>(p: &Plan<N>, axes: usize, mut f: impl FnMut([isize; N]))
 #[inline]
 fn execute<const N: usize>(p: &Plan<N>, mut body: impl FnMut([isize; N], usize, [isize; N])) {
     let inner = p.ndim - 1;
-    let inner_strides: [isize; N] = std::array::from_fn(|k| p.strides[k][inner]);
+    let inner_strides: [isize; N] = core::array::from_fn(|k| p.strides[k][inner]);
     if !p.tiled {
         walk(p, inner, |at| body(at, p.dims[inner], inner_strides));
         return;
@@ -136,7 +137,7 @@ fn execute<const N: usize>(p: &Plan<N>, mut body: impl FnMut([isize; N], usize, 
             while i0 < n_inner {
                 let len = TILE.min(n_inner - i0);
                 for o in o0..o1 {
-                    let at: [isize; N] = std::array::from_fn(|k| base[k] + o as isize * p.strides[k][outer] + i0 as isize * p.strides[k][inner]);
+                    let at: [isize; N] = core::array::from_fn(|k| base[k] + o as isize * p.strides[k][outer] + i0 as isize * p.strides[k][inner]);
                     body(at, len, inner_strides);
                 }
                 i0 += len;
@@ -308,7 +309,7 @@ macro_rules! zip_arity {
                 });
                 // every index was written exactly once (the zip visits each index once)
                 let shape = out.layout.shape;
-                let mut data = std::mem::ManuallyDrop::new(out.into_vec());
+                let mut data = core::mem::ManuallyDrop::new(out.into_vec());
                 // SAFETY: all `len` elements are initialized; MaybeUninit<R> has R's layout
                 let data = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast::<R>(), data.len(), data.capacity()) };
                 NdArray::from_vec(data, &shape[..self.ndim]).expect("the zip's shape is valid")
@@ -537,7 +538,7 @@ fn lanes_pairwise<T: Float, const LANES: usize>(run: &[T]) -> [T; LANES] {
     }
     let mid = run.len().div_ceil(BLOCK) / 2 * BLOCK;
     let (a, b) = (lanes_pairwise::<T, LANES>(&run[..mid]), lanes_pairwise::<T, LANES>(&run[mid..]));
-    std::array::from_fn(|i| a[i] + b[i])
+    core::array::from_fn(|i| a[i] + b[i])
 }
 
 fn contiguous_sum<T: Float, const LANES: usize>(run: &[T]) -> T {
@@ -559,8 +560,8 @@ fn contiguous_sum<T: Float, const LANES: usize>(run: &[T]) -> T {
 fn pairwise_sum<T: Float>(ptr: *const T, n: usize, stride: isize) -> T {
     if stride == 1 {
         // SAFETY: the caller passes a run of `n` consecutive elements inside a validated layout
-        let run = unsafe { std::slice::from_raw_parts(ptr, n) };
-        return match LANE_BYTES / std::mem::size_of::<T>() {
+        let run = unsafe { core::slice::from_raw_parts(ptr, n) };
+        return match LANE_BYTES / core::mem::size_of::<T>() {
             16 => contiguous_sum::<T, 16>(run),
             _ => contiguous_sum::<T, 32>(run),
         };
@@ -652,8 +653,8 @@ impl<'a, T> NdView<'a, T> {
                 // both runs contiguous (e.g. column sums of a row-major matrix): plain slices, which
                 // the compiler vectorizes
                 unsafe {
-                    let out = std::slice::from_raw_parts_mut(op.wrapping_offset(at[0]), n);
-                    let input = std::slice::from_raw_parts(ip.wrapping_offset(at[1]), n);
+                    let out = core::slice::from_raw_parts_mut(op.wrapping_offset(at[0]), n);
+                    let input = core::slice::from_raw_parts(ip.wrapping_offset(at[1]), n);
                     for (o, x) in out.iter_mut().zip(input) {
                         *o = reducer.element(*o, x);
                     }
@@ -676,7 +677,7 @@ impl<'a, T> NdView<'a, T> {
         T: Copy + PartialOrd,
     {
         self.fold(None, |m: Option<T>, &x| match m {
-            Some(m) if x.partial_cmp(&m) != Some(std::cmp::Ordering::Less) => Some(m),
+            Some(m) if x.partial_cmp(&m) != Some(core::cmp::Ordering::Less) => Some(m),
             _ if x.partial_cmp(&x).is_some() => Some(x),
             m => m,
         })
@@ -687,7 +688,7 @@ impl<'a, T> NdView<'a, T> {
         T: Copy + PartialOrd,
     {
         self.fold(None, |m: Option<T>, &x| match m {
-            Some(m) if x.partial_cmp(&m) != Some(std::cmp::Ordering::Greater) => Some(m),
+            Some(m) if x.partial_cmp(&m) != Some(core::cmp::Ordering::Greater) => Some(m),
             _ if x.partial_cmp(&x).is_some() => Some(x),
             m => m,
         })

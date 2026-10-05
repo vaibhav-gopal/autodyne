@@ -1,5 +1,6 @@
 //! Monophonic pitch detection (YIN).
 
+use crate::alloc_prelude::*;
 use crate::processor::Processor;
 use crate::fft::RealFft;
 use crate::units::*;
@@ -126,7 +127,7 @@ impl<T: Float> PitchDetector<T> {
             self.since += 1;
             if self.since >= self.hop {
                 self.since = 0;
-                let mut frame = std::mem::take(&mut self.frame);
+                let mut frame = core::mem::take(&mut self.frame);
                 for (i, f) in frame.iter_mut().enumerate() {
                     *f = self.history[(self.write + i) % len];
                 }

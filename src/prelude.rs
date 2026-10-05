@@ -15,9 +15,11 @@ pub use crate::params::{ParamInfo, Parameterized};
 pub use crate::processor::Processor;
 pub use crate::resample::Resample;
 pub use crate::signal::{
-    Axis, Broadcast, ComplexSignal, NdArray, SigOwnedOps, SigResizeOps, Signal, SignalMut, SignalOwned, SignalRead,
-    SignalResizable, SignalSeek, SignalStream, SignalWrite, Source,
+    Axis, Broadcast, ComplexSignal, NdArray, SigOwnedOps, SigResizeOps, Signal, SignalMut, SignalOwned, SignalResizable,
+    Source,
 };
+#[cfg(feature = "std")]
+pub use crate::signal::{SignalRead, SignalSeek, SignalStream, SignalWrite};
 pub use crate::units::{Complex, DType, Float, Reflection};
 
 #[cfg(test)]

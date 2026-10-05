@@ -1,5 +1,7 @@
 //! Noise gate and downward expander.
 
+#[cfg(not(any(feature = "std", test)))]
+use crate::alloc_prelude::*;
 use super::{time_coeff, GainComputer};
 
 use crate::units::*;

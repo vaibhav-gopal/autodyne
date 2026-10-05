@@ -1,7 +1,8 @@
 //! A modulation matrix: routes control signals (LFOs, envelopes, velocity, macros, ...) to any
 //! parameter of any processor.
 
-use std::ops::Range;
+use crate::alloc_prelude::*;
+use core::ops::Range;
 
 use thiserror::Error;
 

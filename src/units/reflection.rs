@@ -4,8 +4,9 @@
 //! [`DType`] names an element type as a value, the same idea as a NumPy / PyTorch / ONNX dtype, plus
 //! 24-bit integers for audio PCM. [`Reflection`] links a Rust type to its `DType`.
 
-use std::any::{Any, TypeId};
-use std::fmt::{self, Debug, Display};
+use crate::alloc_prelude::*;
+use core::any::{Any, TypeId};
+use core::fmt::{self, Debug, Display};
 
 use super::Complex;
 
@@ -121,7 +122,7 @@ pub trait Reflection: Any + Send + Sync + Copy + Debug + PartialEq + 'static {
     }
     /// Human-readable type name.
     fn type_name() -> &'static str {
-        std::any::type_name::<Self>()
+        core::any::type_name::<Self>()
     }
     /// Human-readable type name as an owned String.
     fn type_name_string() -> String {

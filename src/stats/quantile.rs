@@ -1,6 +1,7 @@
 //! Order statistics along an axis: [`median_axis`] and [`quantile_axis`] (`numpy.median`,
 //! `numpy.quantile` / `numpy.percentile`), found by selection (`O(n)`) rather than sorting.
 
+use crate::alloc_prelude::*;
 use super::{assemble, StatsError};
 use crate::signal::{lanes_f64, NdArray, NdView};
 use crate::units::*;

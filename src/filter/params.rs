@@ -63,7 +63,7 @@ parameterized!(Svf, "State-variable filter",
         [
             ParamInfo::choice("mode", "Mode", &SvfMode::NAMES, 0),
             ParamInfo::new("cutoff_hz", "Cutoff", Hertz, 20.0, top, 1_000.0f64.min(top)).log(),
-            ParamInfo::new("q", "Q", ParamUnit::None, 0.1, 25.0, std::f64::consts::FRAC_1_SQRT_2).log(),
+            ParamInfo::new("q", "Q", ParamUnit::None, 0.1, 25.0, core::f64::consts::FRAC_1_SQRT_2).log(),
         ]
     },
     read: |p, i| match i {
@@ -101,7 +101,7 @@ impl<T: Float> Parameterized for Biquad<T> {
         let top = 0.49 * to_f64(d.sample_rate);
         [
             ParamInfo::new("frequency_hz", "Frequency", Hertz, 10.0, top, 1_000.0f64.min(top)).log(),
-            ParamInfo::new("q", "Q", ParamUnit::None, 0.1, 20.0, std::f64::consts::FRAC_1_SQRT_2).log(),
+            ParamInfo::new("q", "Q", ParamUnit::None, 0.1, 20.0, core::f64::consts::FRAC_1_SQRT_2).log(),
             ParamInfo::new("gain_db", "Gain", Decibels, -24.0, 24.0, 0.0),
         ]
         .get(index)

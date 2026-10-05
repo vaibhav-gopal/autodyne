@@ -1,5 +1,6 @@
 //! A parametric equalizer with any number of bands (up to [`MAX_EQ_BANDS`]).
 
+use crate::alloc_prelude::*;
 use super::{Biquad, BiquadCoeffs, BUTTERWORTH_Q};
 use crate::units::*;
 
@@ -203,10 +204,10 @@ impl<T: Float> ParametricEq<T> {
         let (f, q, gain, sr) = (T::_lit(b.frequency), T::_lit(b.q), T::_lit(b.gain_db), self.sample_rate);
         let butterworth = |stage: usize, sections: usize| {
             // Q of section `stage` of a Butterworth filter of order 2 x sections
-            let angle = (2 * stage + 1) as f64 * std::f64::consts::PI / (4 * sections) as f64;
+            let angle = (2 * stage + 1) as f64 * core::f64::consts::PI / (4 * sections) as f64;
             T::_lit(1.0 / (2.0 * angle.cos()))
         };
-        let designs: [Option<BiquadCoeffs<T>>; MAX_STAGES] = std::array::from_fn(|s| match b.kind {
+        let designs: [Option<BiquadCoeffs<T>>; MAX_STAGES] = core::array::from_fn(|s| match b.kind {
             EqBandKind::Peak if s == 0 => Some(BiquadCoeffs::peaking(f, q, gain, sr)),
             EqBandKind::LowShelf if s == 0 => Some(BiquadCoeffs::low_shelf(f, q, gain, sr)),
             EqBandKind::HighShelf if s == 0 => Some(BiquadCoeffs::high_shelf(f, q, gain, sr)),

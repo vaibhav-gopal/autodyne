@@ -27,10 +27,11 @@
 //! instead of hard-coding positions. Shapes hold at most [`MAX_DIMS`] axes in fixed-size arrays, so
 //! making and transforming views never allocates.
 
-use std::fmt;
-use std::marker::PhantomData;
-use std::ops::{Index, IndexMut, Range};
-use std::sync::Arc;
+use crate::alloc_prelude::*;
+use core::fmt;
+use core::marker::PhantomData;
+use core::ops::{Index, IndexMut, Range};
+use alloc::sync::Arc;
 
 use thiserror::Error;
 
@@ -261,7 +262,7 @@ impl Layout {
     fn permute(&self, axes: &[usize]) -> Result<Layout, NdError> {
         let n = self.ndim;
         let mut seen = [false; MAX_DIMS];
-        if axes.len() != n || axes.iter().any(|&a| a >= n || std::mem::replace(&mut seen[a], true)) {
+        if axes.len() != n || axes.iter().any(|&a| a >= n || core::mem::replace(&mut seen[a], true)) {
             return Err(NdError::InvalidPermutation);
         }
         let mut out = *self;
@@ -938,8 +939,8 @@ macro_rules! view_common {
                     unsafe {
                         let p = self.ptr.offset(offset);
                         match step {
-                            1 => out.extend_from_slice(std::slice::from_raw_parts(p, row)),
-                            0 => out.extend(std::iter::repeat_n(*p, row)),
+                            1 => out.extend_from_slice(core::slice::from_raw_parts(p, row)),
+                            0 => out.extend(core::iter::repeat_n(*p, row)),
                             _ => out.extend((0..row).map(|j| *p.offset(j as isize * step))),
                         }
                     }
@@ -1025,7 +1026,7 @@ impl<'a, T> NdView<'a, T> {
     /// The elements as one slice, if the view is contiguous (row-major).
     pub fn as_slice(&self) -> Option<&'a [T]> {
         // SAFETY: a standard layout covers exactly `len` consecutive elements from the origin
-        self.is_contiguous().then(|| unsafe { std::slice::from_raw_parts(self.ptr, self.len()) })
+        self.is_contiguous().then(|| unsafe { core::slice::from_raw_parts(self.ptr, self.len()) })
     }
     /// Elements in logical (row-major) order, borrowed for the view's whole lifetime.
     pub fn iter_all(&self) -> Iter<'a, T> {
@@ -1122,13 +1123,13 @@ impl<'a, T> NdViewMut<'a, T> {
     pub fn as_mut_slice(&mut self) -> Option<&mut [T]> {
         let len = self.len();
         // SAFETY: as `NdView::as_slice`, exclusively borrowed
-        self.is_contiguous().then(|| unsafe { std::slice::from_raw_parts_mut(self.ptr, len) })
+        self.is_contiguous().then(|| unsafe { core::slice::from_raw_parts_mut(self.ptr, len) })
     }
     /// Converts into the contiguous slice for the view's whole lifetime (`None` if the view isn't
     /// contiguous: check [`is_contiguous`](Self::is_contiguous) first to keep the view otherwise).
     pub fn into_slice(self) -> Option<&'a mut [T]> {
         // SAFETY: as above; `self` is consumed, so the borrow moves to the slice
-        self.is_contiguous().then(|| unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len()) })
+        self.is_contiguous().then(|| unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len()) })
     }
     /// Every element, mutably, in logical order.
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {

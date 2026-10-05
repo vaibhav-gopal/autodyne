@@ -25,7 +25,7 @@ impl<T: Real> OnePole<T> {
 
     /// The pole `exp(-2π fc / fs)` for a cutoff.
     pub fn pole(cutoff: T, sample_rate: T) -> T {
-        (-T::lit(std::f64::consts::TAU) * cutoff / sample_rate).exp()
+        (-T::lit(core::f64::consts::TAU) * cutoff / sample_rate).exp()
     }
 
     /// The smoothing coefficient `a = 1 - exp(-2π fc / fs)` for a cutoff.

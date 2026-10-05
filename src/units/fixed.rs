@@ -16,13 +16,14 @@
 //! assert_eq!(Q15::lit(0.1).to_bits(), 3277);
 //! ```
 
-use std::fmt;
-use std::ops::{Add, Div, Mul, Neg, Rem, Sub};
+use crate::alloc_prelude::*;
+use core::fmt;
+use core::ops::{Add, Div, Mul, Neg, Rem, Sub};
 
 use super::{Elementwise, RealValued};
 
 /// The integer types fixed-point values are stored in.
-pub trait FixedStorage: Copy + Ord + Eq + std::hash::Hash + fmt::Debug + Default + Send + Sync + 'static {
+pub trait FixedStorage: Copy + Ord + Eq + core::hash::Hash + fmt::Debug + Default + Send + Sync + 'static {
     /// Width in bits.
     const BITS: u32;
     /// The smallest value.

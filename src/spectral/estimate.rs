@@ -5,7 +5,8 @@
 //! Inputs are views with any strides; the frequency axis replaces the input's `axis`, and segment
 //! times (where there are several) form a new last axis. Computation is in f64.
 
-use std::f64::consts::PI;
+use crate::alloc_prelude::*;
+use core::f64::consts::PI;
 
 use thiserror::Error;
 

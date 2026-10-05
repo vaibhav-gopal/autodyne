@@ -15,6 +15,7 @@
 //!
 //! tend: Core / params
 
+use crate::alloc_prelude::*;
 use thiserror::Error;
 
 mod smoothed;

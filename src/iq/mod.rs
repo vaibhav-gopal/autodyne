@@ -60,8 +60,8 @@ impl<T: Float> IqDemodulator<T> {
     /// 2 * carrier so the image is rejected.
     pub fn new(carrier: T, bandwidth: T, sample_rate: T) -> Self {
         // A 4th-order Butterworth is two biquads with Q = 1 / (2 cos(pi/8)) and 1 / (2 cos(3pi/8)).
-        let q1 = T::_lit(1.0 / (2.0 * (std::f64::consts::PI / 8.0).cos()));
-        let q2 = T::_lit(1.0 / (2.0 * (3.0 * std::f64::consts::PI / 8.0).cos()));
+        let q1 = T::_lit(1.0 / (2.0 * (core::f64::consts::PI / 8.0).cos()));
+        let q2 = T::_lit(1.0 / (2.0 * (3.0 * core::f64::consts::PI / 8.0).cos()));
         let stages = [Biquad::lowpass(bandwidth, q1, sample_rate), Biquad::lowpass(bandwidth, q2, sample_rate)];
         Self { lo: Phasor::new(carrier, sample_rate), lp_i: stages, lp_q: stages }
     }

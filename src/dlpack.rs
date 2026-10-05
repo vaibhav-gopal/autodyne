@@ -15,9 +15,10 @@
 //!
 //! tend: Core / dlpack
 
-use std::ffi::c_void;
-use std::marker::PhantomData;
-use std::mem::{align_of, size_of};
+use crate::alloc_prelude::*;
+use core::ffi::c_void;
+use core::marker::PhantomData;
+use core::mem::{align_of, size_of};
 
 use thiserror::Error;
 
@@ -268,12 +269,12 @@ fn tensor_for<T: DynElement, S: Storage<Elem = T>>(array: &NdArray<T, S>, axes: 
     }
     let tensor = DLTensor {
         // set once the storage has reached its final place (see into_dlpack)
-        data: std::ptr::null_mut(),
+        data: core::ptr::null_mut(),
         device: DLDevice { device_type: DL_CPU, device_id: 0 },
         ndim: n as i32,
         dtype: to_dl_dtype(T::DTYPE).expect("array element types all have a DLPack type"),
-        shape: std::ptr::null_mut(),
-        strides: std::ptr::null_mut(),
+        shape: core::ptr::null_mut(),
+        strides: core::ptr::null_mut(),
         byte_offset: 0,
     };
     (tensor, shape, strides)
@@ -286,7 +287,7 @@ impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
     pub fn into_dlpack(self) -> *mut DLManagedTensorVersioned {
         let (tensor, shape, strides) = tensor_for(&self, None);
         let flags = if S::WRITABLE { 0 } else { DLPACK_FLAG_READ_ONLY };
-        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
+        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: core::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
         let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
         // SAFETY: `block` is a live allocation; point the tensor at its own shape and strides, and at
         // the elements through the storage in its final place (so the pointer stays valid and, for
@@ -309,10 +310,10 @@ impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
     pub fn into_dlpack_permuted(self, axes: &[usize]) -> *mut DLManagedTensorVersioned {
         let n = self.ndim();
         let mut seen = [false; MAX_DIMS];
-        assert!(axes.len() == n && axes.iter().all(|&a| a < n && !std::mem::replace(&mut seen[a], true)), "axes must be a permutation");
+        assert!(axes.len() == n && axes.iter().all(|&a| a < n && !core::mem::replace(&mut seen[a], true)), "axes must be a permutation");
         let (tensor, shape, strides) = tensor_for(&self, Some(axes));
         let flags = if S::WRITABLE { 0 } else { DLPACK_FLAG_READ_ONLY };
-        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
+        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: core::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
         let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
         // SAFETY: as in `into_dlpack`
         unsafe {
@@ -330,7 +331,7 @@ impl<T: DynElement, S: StorageMut<Elem = T> + 'static> NdArray<T, S> {
     /// flag, so only writable storage can be exported this way.
     pub fn into_dlpack_legacy(self) -> *mut DLManagedTensor {
         let (tensor, shape, strides) = tensor_for(&self, None);
-        let managed = DLManagedTensor { dl_tensor: tensor, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_legacy::<S>) };
+        let managed = DLManagedTensor { dl_tensor: tensor, manager_ctx: core::ptr::null_mut(), deleter: Some(delete_legacy::<S>) };
         let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
         // SAFETY: as in `into_dlpack`
         unsafe {
@@ -439,7 +440,7 @@ impl DlpackTensor {
 
     /// Ownership first, so an error from here on still runs the deleter (through `Drop`).
     fn owning(managed: Managed, read_only: bool) -> Self {
-        Self { managed, dtype: DType::U8, ndim: 0, shape: [0; MAX_DIMS], strides: [0; MAX_DIMS], origin: std::ptr::null_mut(), read_only }
+        Self { managed, dtype: DType::U8, ndim: 0, shape: [0; MAX_DIMS], strides: [0; MAX_DIMS], origin: core::ptr::null_mut(), read_only }
     }
 
     /// # Safety
@@ -518,7 +519,7 @@ impl DlpackTensor {
     /// The bytes spanned by the layout, and the element offset of index [0, 0, ...] within them.
     fn span(&self) -> Result<(*mut u8, usize, usize), DlpackError> {
         if self.is_empty() {
-            return Ok((std::ptr::NonNull::<u8>::dangling().as_ptr(), 0, 0));
+            return Ok((core::ptr::NonNull::<u8>::dangling().as_ptr(), 0, 0));
         }
         let (mut lo, mut hi) = (0isize, 0isize);
         for (&d, &s) in self.shape().iter().zip(self.strides()) {
@@ -540,7 +541,7 @@ impl DlpackTensor {
         let (start, bytes, offset) = self.span()?;
         // SAFETY: the producer guarantees the described elements are readable memory for as long
         // as the tensor lives; the slice covers exactly the bytes they span and borrows `self`
-        let bytes = unsafe { std::slice::from_raw_parts(start, bytes) };
+        let bytes = unsafe { core::slice::from_raw_parts(start, bytes) };
         Ok(DynView::with_strides(bytes, self.dtype, self.shape(), Some(self.strides()), offset)?)
     }
     /// A mutable runtime-typed view; errors on read-only tensors.
@@ -550,7 +551,7 @@ impl DlpackTensor {
         }
         let (start, bytes, offset) = self.span()?;
         // SAFETY: as in `view`, writable (not flagged read-only) and exclusively borrowed
-        let bytes = unsafe { std::slice::from_raw_parts_mut(start, bytes) };
+        let bytes = unsafe { core::slice::from_raw_parts_mut(start, bytes) };
         Ok(DynViewMut::with_strides(bytes, self.dtype, self.shape(), Some(self.strides()), offset)?)
     }
     /// The typed view, if the element type is `T` and the memory is aligned for it.
@@ -574,7 +575,7 @@ impl DlpackTensor {
         }
         // SAFETY: aligned (checked), sized and valid elements of type T (dtype checked) for the
         // tensor's lifetime, writable and exclusively borrowed
-        let elements = unsafe { std::slice::from_raw_parts_mut(start.cast::<T>(), bytes / size_of::<T>()) };
+        let elements = unsafe { core::slice::from_raw_parts_mut(start.cast::<T>(), bytes / size_of::<T>()) };
         Ok(NdViewMut::from_parts(elements, self.shape(), self.strides(), offset).map_err(DynError::from)?)
     }
 
@@ -592,7 +593,7 @@ impl DlpackTensor {
             return Err(DlpackError::NotContiguous);
         }
         let len = self.len();
-        let ptr = if len == 0 { std::ptr::NonNull::<T>::dangling().as_ptr() } else { self.origin.cast::<T>() };
+        let ptr = if len == 0 { core::ptr::NonNull::<T>::dangling().as_ptr() } else { self.origin.cast::<T>() };
         if !(ptr as usize).is_multiple_of(align_of::<T>()) {
             return Err(DynError::Unaligned(self.dtype).into());
         }
@@ -619,7 +620,7 @@ unsafe impl<T> Storage for ForeignBuffer<T> {
     type Elem = T;
     fn as_slice(&self) -> &[T] {
         // SAFETY: checked contiguous, aligned and typed in `into_array`; alive while `_tensor` is
-        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+        unsafe { core::slice::from_raw_parts(self.ptr, self.len) }
     }
     fn as_raw_ptr(&mut self) -> *mut T {
         self.ptr
@@ -629,7 +630,7 @@ unsafe impl<T> Storage for ForeignBuffer<T> {
 impl<T> StorageMut for ForeignBuffer<T> {
     fn as_mut_slice(&mut self) -> &mut [T] {
         // SAFETY: as above, and not read-only (checked in `into_array`)
-        unsafe { std::slice::from_raw_parts_mut(self.ptr, self.len) }
+        unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
     }
 }
 

@@ -1,5 +1,6 @@
 //! A running spectrum for analyzers and GUIs.
 
+use crate::alloc_prelude::*;
 use crate::processor::Processor;
 use crate::fft::RealFft;
 use crate::units::*;
@@ -31,7 +32,7 @@ impl Window {
         };
         (0..len)
             .map(|n| {
-                let x = std::f64::consts::TAU * n as f64 / len as f64;
+                let x = core::f64::consts::TAU * n as f64 / len as f64;
                 // a0 - a1 cos x + a2 cos 2x - a3 cos 3x
                 let w = terms.iter().enumerate().fold(0.0, |acc, (k, a)| acc + if k % 2 == 0 { *a } else { -*a } * (k as f64 * x).cos());
                 T::_lit(w)

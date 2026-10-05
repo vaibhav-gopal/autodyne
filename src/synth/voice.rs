@@ -1,10 +1,12 @@
 //! [`SynthVoice`]: the subtractive voice (unison oscillators, a [`VoiceFilter`], envelopes) for
 //! [`Poly`](super::Poly).
 
+#[cfg(not(any(feature = "std", test)))]
+use crate::alloc_prelude::*;
 use super::{midi_to_hz, Voice};
 use crate::envelope::Adsr;
 use crate::filter::{Ladder, Svf, SvfMode};
-use std::sync::Arc;
+use alloc::sync::Arc;
 
 use crate::osc::{Oscillator, Waveform, Wavetable, WavetableOsc};
 use crate::units::*;
@@ -84,15 +86,15 @@ impl<T: Float> SynthVoice<T> {
     pub fn new(sample_rate: T) -> Self {
         let lit = T::_lit;
         // golden-ratio spacing keeps unison oscillators' starting phases apart for any count
-        let phases: [T; MAX_UNISON] = std::array::from_fn(|i| lit((i as f64 * 0.618_034).fract()));
+        let phases: [T; MAX_UNISON] = core::array::from_fn(|i| lit((i as f64 * 0.618_034).fract()));
         let cutoff = lit(800.0);
         let top = lit(0.45) * sample_rate;
         let mut voice = Self {
             sample_rate,
-            oscs: std::array::from_fn(|i| Oscillator::new(Waveform::Saw, lit(440.0), sample_rate).with_phase(phases[i])),
+            oscs: core::array::from_fn(|i| Oscillator::new(Waveform::Saw, lit(440.0), sample_rate).with_phase(phases[i])),
             wt_oscs: {
                 let table = Wavetable::shared_classic();
-                std::array::from_fn(|i| WavetableOsc::new(table.clone(), lit(440.0), sample_rate).with_phase(phases[i]))
+                core::array::from_fn(|i| WavetableOsc::new(table.clone(), lit(440.0), sample_rate).with_phase(phases[i]))
             },
             wavetable: false,
             wt_position: T::_ZERO,

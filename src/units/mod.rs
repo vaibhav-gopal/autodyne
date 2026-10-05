@@ -6,6 +6,8 @@
 //! tend: Core / units
 
 pub(crate) mod fastmath;
+pub(crate) mod float_math;
+pub(crate) mod lazy;
 mod cast;
 pub use cast::*;
 

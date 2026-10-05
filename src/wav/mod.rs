@@ -16,6 +16,7 @@
 //!
 //! tend: Audio / wav
 
+use crate::alloc_prelude::*;
 use crate::units::*;
 use thiserror::Error;
 

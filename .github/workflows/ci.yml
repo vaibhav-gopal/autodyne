@@ -29,7 +29,7 @@ jobs:
       - name: Test
         run: cargo test --workspace --all-targets
       - name: Test the portable FFT (without the rustfft backend)
-        run: cargo test -p autodyne --no-default-features --lib fft
+        run: cargo test -p autodyne --no-default-features --features std --lib fft
       - name: Test with the ndarray interop
         run: cargo test -p autodyne --features ndarray --lib
       # the JIT compiles flux's scans with Cranelift; GPU tests skip themselves without an adapter
@@ -60,6 +60,24 @@ jobs:
       # The crate is warning-free; keep it that way.
       - name: Clippy
         run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
+
+  # The core without std (core + alloc, libm for float maths): tested on the host (the tests link
+  # std, the code under test doesn't) and built for the browser.
+  no-std:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Test without std
+        run: cargo test -p autodyne --no-default-features
+      - name: Clippy without std
+        run: cargo clippy -p autodyne --no-default-features --lib --tests -- -D warnings
+      - name: Build for wasm32
+        run: cargo build -p autodyne --no-default-features --lib --target wasm32-unknown-unknown
 
   # The n-d views are raw pointers over validated layouts: check their unsafe code for undefined
   # behaviour (Miri's float noise is turned off so exact-equality assertions stay meaningful).

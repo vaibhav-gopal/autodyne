@@ -2,6 +2,7 @@
 //! that fits a polynomial to each window by least squares and evaluates it (or a derivative) at one
 //! point.
 
+use crate::alloc_prelude::*;
 use crate::filter::FilterError;
 use crate::linalg::lstsq;
 use crate::signal::NdArray;

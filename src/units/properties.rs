@@ -1,6 +1,6 @@
 //! Properties of number types: [`Ordered`], [`Bounded`], [`Signed`] and their combinations.
 
-use std::ops::Neg;
+use core::ops::Neg;
 use super::*;
 
 /// Describes a unit that can be ordered w.r.t itself

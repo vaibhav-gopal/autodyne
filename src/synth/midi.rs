@@ -1,5 +1,8 @@
 //! Minimal MIDI 1.0 channel-message parsing: the messages a synth needs.
 
+#[cfg(not(any(feature = "std", test)))]
+use crate::alloc_prelude::*;
+
 /// A MIDI channel message. Channels are 0-15; data values are 0-127.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MidiMessage {

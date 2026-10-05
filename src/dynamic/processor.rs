@@ -5,7 +5,8 @@
 //! [`DynProcessor`]: object-safe, parameterized, and checked against the data's `DType` instead of
 //! panicking on a mismatch.
 
-use std::marker::PhantomData;
+use crate::alloc_prelude::*;
+use core::marker::PhantomData;
 
 use super::{DynArray, DynElement, DynError};
 use crate::params::{ParamError, ParamInfo, Parameterized};

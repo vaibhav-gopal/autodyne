@@ -1,5 +1,6 @@
 //! Onset (note attack) detection.
 
+use crate::alloc_prelude::*;
 use super::Window;
 use crate::processor::Processor;
 use crate::fft::RealFft;

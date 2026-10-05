@@ -2,6 +2,7 @@
 //! `DynArray` and traces (and differentiates) with `flux`: framing and convolution along the last
 //! axis, built from the array primitives alone.
 
+use crate::alloc_prelude::*;
 use super::array_math::{ArrayMath, RealArrayMath};
 use crate::units::gcd;
 /// Overlapping frames along the last axis: `[..., n]` becomes `[..., count, length]`, frame `f`

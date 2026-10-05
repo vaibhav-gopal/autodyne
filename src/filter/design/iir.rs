@@ -1,7 +1,8 @@
 //! IIR design: analog prototypes (Butterworth, Chebyshev I and II, elliptic, Bessel), frequency
 //! transformations, and digital filters through the bilinear transform (`scipy.signal.iirfilter`).
 
-use std::f64::consts::PI;
+use crate::alloc_prelude::*;
+use core::f64::consts::PI;
 
 use crate::special::{arc_jac_sc1, ellipj, ellipk, ellipkm1};
 use crate::filter::FilterError;
@@ -262,7 +263,7 @@ pub fn lp2lp_zpk(z: &[C64], p: &[C64], k: f64, wo: f64) -> (Vec<C64>, Vec<C64>, 
 pub fn lp2hp_zpk(z: &[C64], p: &[C64], k: f64, wo: f64) -> (Vec<C64>, Vec<C64>, f64) {
     let degree = p.len().saturating_sub(z.len());
     let mut zh: Vec<C64> = z.iter().map(|&x| real(wo) / x).collect();
-    zh.extend(std::iter::repeat_n(C64::zero(), degree));
+    zh.extend(core::iter::repeat_n(C64::zero(), degree));
     let ph = p.iter().map(|&x| real(wo) / x).collect();
     let neg = |v: &[C64]| v.iter().map(|&x| -x).collect::<Vec<_>>();
     (zh, ph, k * (prod(&neg(z)) / prod(&neg(p))).re)
@@ -277,7 +278,7 @@ pub fn lp2bp_zpk(z: &[C64], p: &[C64], k: f64, wo: f64, bw: f64) -> (Vec<C64>, V
         lp.iter().zip(&roots).map(|(&a, &r)| a + r).chain(lp.iter().zip(&roots).map(|(&a, &r)| a - r)).collect()
     };
     let mut zb = split(z);
-    zb.extend(std::iter::repeat_n(C64::zero(), degree));
+    zb.extend(core::iter::repeat_n(C64::zero(), degree));
     (zb, split(p), k * bw.powi(degree as i32))
 }
 
@@ -290,8 +291,8 @@ pub fn lp2bs_zpk(z: &[C64], p: &[C64], k: f64, wo: f64, bw: f64) -> (Vec<C64>, V
         hp.iter().zip(&roots).map(|(&a, &r)| a + r).chain(hp.iter().zip(&roots).map(|(&a, &r)| a - r)).collect()
     };
     let mut zb = split(z);
-    zb.extend(std::iter::repeat_n(C64::new(0.0, wo), degree));
-    zb.extend(std::iter::repeat_n(C64::new(0.0, -wo), degree));
+    zb.extend(core::iter::repeat_n(C64::new(0.0, wo), degree));
+    zb.extend(core::iter::repeat_n(C64::new(0.0, -wo), degree));
     let neg = |v: &[C64]| v.iter().map(|&x| -x).collect::<Vec<_>>();
     (zb, split(p), k * (prod(&neg(z)) / prod(&neg(p))).re)
 }

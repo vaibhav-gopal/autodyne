@@ -1,6 +1,7 @@
 //! Histograms as NumPy makes them (`numpy.histogram`, `numpy.histogram_bin_edges`): a number of
 //! equal bins, explicit edges, or a bin-width rule; the last bin includes its right edge.
 
+use crate::alloc_prelude::*;
 use super::{QuantileMethod, StatsError};
 use crate::signal::NdArray;
 use crate::units::*;
@@ -56,7 +57,7 @@ fn rule_width(rule: BinRule, x: &[f64]) -> Result<f64, StatsError> {
         BinRule::Scott => {
             let mean = x.iter().sum::<f64>() / n;
             let std = (x.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n).sqrt();
-            (24.0 * std::f64::consts::PI.sqrt() / n).powf(1.0 / 3.0) * std
+            (24.0 * core::f64::consts::PI.sqrt() / n).powf(1.0 / 3.0) * std
         }
         BinRule::Fd => fd()?,
         // NumPy 2: the FD width, at least half the √n width (capping the bin count), or Sturges'

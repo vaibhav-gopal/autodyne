@@ -1,5 +1,6 @@
 //! Covariance and correlation matrices (`numpy.cov`, `numpy.corrcoef`).
 
+use crate::alloc_prelude::*;
 use super::StatsError;
 use crate::signal::{NdArray, NdView};
 use crate::units::*;

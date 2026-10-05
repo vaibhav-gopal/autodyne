@@ -13,7 +13,8 @@
 //!
 //! tend: Core / dynamic
 
-use std::mem::size_of;
+use crate::alloc_prelude::*;
+use core::mem::size_of;
 
 use thiserror::Error;
 
@@ -325,7 +326,7 @@ impl DynArray {
             let s = a.as_slice();
             // SAFETY: the elements are plain data (see `DynElement`), so their memory is `len * size`
             // initialized bytes; the byte slice borrows `self`, so it can't outlive or alias a write.
-            unsafe { std::slice::from_raw_parts(s.as_ptr().cast::<u8>(), std::mem::size_of_val(s)) }
+            unsafe { core::slice::from_raw_parts(s.as_ptr().cast::<u8>(), core::mem::size_of_val(s)) }
         })
     }
     /// Serializes the elements (row-major) in the given byte order.

@@ -1,6 +1,7 @@
 //! The algorithmic stereo [`Reverb`]: pre-delay, all-pass diffusion and an 8-line feedback delay network
 //! with damping and an exact RT60.
 
+use crate::alloc_prelude::*;
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::delay::DelayLine;
 use crate::gain::SmoothedValue;
@@ -121,8 +122,8 @@ impl<T: Float> Reverb<T> {
             gains: [T::_ZERO; LINES],
             lowpass: [T::_ZERO; LINES],
             damping_coeff: T::_ONE,
-            mod_phase: std::array::from_fn(|i| T::_lit(i as f64 / LINES as f64)),
-            mod_increment: std::array::from_fn(|i| T::_lit(MOD_RATES[i] / fs)),
+            mod_phase: core::array::from_fn(|i| T::_lit(i as f64 / LINES as f64)),
+            mod_increment: core::array::from_fn(|i| T::_lit(MOD_RATES[i] / fs)),
             mod_depth: T::_ZERO,
             modulation: T::_lit(0.5),
             allpass_state: [T::_ZERO; LINES],
@@ -164,7 +165,7 @@ impl<T: Float> Reverb<T> {
         let fc = self.damping.to_f64().unwrap_or(20_000.0);
         // at the top of the range the low-pass is bypassed (coefficient 1) rather than left slightly
         // closed: even a mild loss per pass adds up over the many passes of a long decay
-        self.damping_coeff = if fc >= 0.45 * fs { T::_ONE } else { T::_lit(1.0 - (-std::f64::consts::TAU * fc / fs).exp()) };
+        self.damping_coeff = if fc >= 0.45 * fs { T::_ONE } else { T::_lit(1.0 - (-core::f64::consts::TAU * fc / fs).exp()) };
         self.mod_depth = self.modulation * T::_lit(MAX_MOD_48K * fs / 48_000.0);
         let predelay = (self.predelay_seconds.to_f64().unwrap_or(0.0) * fs).round() as usize;
         self.predelay = predelay.min(self.predelay_line.max_delay());
@@ -239,7 +240,7 @@ impl<T: Float> Reverb<T> {
         self.diffusers.iter_mut().for_each(|d| d.line.reset());
         self.predelay_line.reset();
         self.lowpass = [T::_ZERO; LINES];
-        self.mod_phase = std::array::from_fn(|i| T::_lit(i as f64 / LINES as f64));
+        self.mod_phase = core::array::from_fn(|i| T::_lit(i as f64 / LINES as f64));
         self.allpass_state = [T::_ZERO; LINES];
         self.mod_countdown = 0;
     }
@@ -299,7 +300,7 @@ impl<T: Float> Reverb<T> {
         hadamard(&mut state);
         let input_gain = T::_lit(1.0 / (LINES as f64).sqrt());
         // computed as a whole array first (vectorizes) rather than interleaved with the line writes
-        let writes: [T; LINES] = std::array::from_fn(|i| (state[i] + x * T::_lit(INPUT_SIGNS[i]) * input_gain)._flush_denormal());
+        let writes: [T; LINES] = core::array::from_fn(|i| (state[i] + x * T::_lit(INPUT_SIGNS[i]) * input_gain)._flush_denormal());
         for (line, w) in self.lines.iter_mut().zip(writes) {
             line.push(w);
         }

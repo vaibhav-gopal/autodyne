@@ -3,6 +3,7 @@
 //! autocorrelation ([`pacf`]), and autoregressive fits ([`levinson_durbin`], [`yule_walker`],
 //! [`burg`]).
 
+use crate::alloc_prelude::*;
 use super::StatsError;
 use crate::fft::{next_fast_len, RealFft};
 use crate::units::*;

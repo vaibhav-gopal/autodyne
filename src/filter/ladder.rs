@@ -26,7 +26,7 @@ impl<T: Real> LadderCoeffs<T> {
     pub fn new(cutoff: T, resonance: T, drive: T, compensate: bool, sample_rate: T) -> Self {
         let cutoff = cutoff.clip(T::lit(1.0), T::lit(0.49) * sample_rate);
         Self {
-            g: (T::lit(std::f64::consts::PI) * cutoff / sample_rate).tan(),
+            g: (T::lit(core::f64::consts::PI) * cutoff / sample_rate).tan(),
             resonance: resonance.clip(T::lit(0.0), T::lit(1.0)),
             drive: drive.maximum(T::lit(0.01)),
             compensate,

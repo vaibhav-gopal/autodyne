@@ -10,7 +10,8 @@
 //! integers, `f64` otherwise, complex for complex). Integer sums and products wrap, as NumPy's do.
 //! Operators panic on combinations the checked methods report as errors.
 
-use std::ops::{Add, Div, Mul, Neg, Sub};
+use crate::alloc_prelude::*;
+use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{BinaryOp, DynArray, DynElement, Promotion, UnaryOp};
 use crate::signal::{

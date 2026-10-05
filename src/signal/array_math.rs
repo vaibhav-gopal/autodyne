@@ -1,7 +1,8 @@
 //! [`ArrayMath`]: array operations written once and run either eagerly on [`NdArray`]s or traced
 //! (`flux::Tracer`), like NumPy and JAX's `jax.numpy` sharing one API.
 
-use std::ops::{Add, Mul};
+use crate::alloc_prelude::*;
+use core::ops::{Add, Mul};
 
 use super::nd_ops::{broadcast_shapes, Zip};
 use super::ndarray::NdArray;
@@ -758,14 +759,14 @@ impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
             // (pairwise, vectorized) along the same axes
             let mut shape = self.shape().to_vec();
             shape[last] *= 2;
-            let mut data = std::mem::ManuallyDrop::new(self.into_vec());
+            let mut data = core::mem::ManuallyDrop::new(self.into_vec());
             // SAFETY: Complex<T> is repr(C) { re, im }: a Vec of n of them is a Vec of 2n T's
             let reals = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast::<T>(), data.len() * 2, data.capacity() * 2) };
             let sums = NdArray::from_vec(reals, &shape).expect("valid shape").sum_axes(axes);
             let mut out_shape = sums.shape().to_vec();
             let n = out_shape.len();
             out_shape[n - 1] /= 2;
-            let mut sums = std::mem::ManuallyDrop::new(sums.into_vec());
+            let mut sums = core::mem::ManuallyDrop::new(sums.into_vec());
             // SAFETY: an even number of T's laid out as (re, im) pairs, as above
             let pairs = unsafe { Vec::from_raw_parts(sums.as_mut_ptr().cast::<Complex<T>>(), sums.len() / 2, sums.capacity() / 2) };
             return NdArray::from_vec(pairs, &out_shape).expect("valid shape");
@@ -818,10 +819,18 @@ fn join_complex<T: Float + Default>(re: &NdArray<T>, im: &NdArray<T>) -> NdArray
 }
 
 /// FFT plans (real or complex, by element type and length) kept per thread, so repeated
-/// transforms of one length plan once.
+/// transforms of one length plan once. (Without `std` there are no thread-locals: each transform
+/// plans.)
+#[cfg(not(feature = "std"))]
 fn with_plan<P: Plan + 'static, R>(n: usize, f: impl FnOnce(&mut P) -> R) -> R {
-    use std::any::{Any, TypeId};
-    use std::cell::RefCell;
+    f(&mut P::plan(n))
+}
+
+/// See the no-std version above.
+#[cfg(feature = "std")]
+fn with_plan<P: Plan + 'static, R>(n: usize, f: impl FnOnce(&mut P) -> R) -> R {
+    use core::any::{Any, TypeId};
+    use core::cell::RefCell;
     use std::collections::HashMap;
     thread_local! {
         static PLANS: RefCell<HashMap<(TypeId, usize), Box<dyn Any>>> = RefCell::new(HashMap::new());

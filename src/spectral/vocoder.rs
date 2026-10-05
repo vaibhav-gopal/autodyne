@@ -1,5 +1,6 @@
 //! Phase vocoder: pitch shifting and time stretching.
 
+use crate::alloc_prelude::*;
 use crate::fft::RealFft;
 use crate::processor::Processor;
 use crate::units::*;
@@ -34,7 +35,7 @@ impl<T: Float> Vocoder<T> {
         let bins = fft_len / 2 + 1;
         Self {
             fft: RealFft::new(fft_len),
-            window: (0..fft_len).map(|i| T::_lit(0.5 - 0.5 * (std::f64::consts::TAU * i as f64 / fft_len as f64).cos())).collect(),
+            window: (0..fft_len).map(|i| T::_lit(0.5 - 0.5 * (core::f64::consts::TAU * i as f64 / fft_len as f64).cos())).collect(),
             frame: vec![T::_ZERO; fft_len],
             spectrum: vec![Complex::zero(); bins],
             magnitude: vec![T::_ZERO; bins],
@@ -91,7 +92,7 @@ impl<T: Float> Vocoder<T> {
         for (i, &p) in self.peaks.iter().enumerate() {
             // the region runs to the lowest bin between this peak and the next
             let region_end = match self.peaks.get(i + 1) {
-                Some(&next) => (p..next).min_by(|&a, &b| self.magnitude[a].partial_cmp(&self.magnitude[b]).unwrap_or(std::cmp::Ordering::Equal)).unwrap_or(p) + 1,
+                Some(&next) => (p..next).min_by(|&a, &b| self.magnitude[a].partial_cmp(&self.magnitude[b]).unwrap_or(core::cmp::Ordering::Equal)).unwrap_or(p) + 1,
                 None => bins,
             };
             // true frequency of the peak from its phase advance, in radians per sample

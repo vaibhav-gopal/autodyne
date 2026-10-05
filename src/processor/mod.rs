@@ -10,6 +10,7 @@
 //!
 //! tend: Core / processor
 
+use crate::alloc_prelude::*;
 use crate::units::*;
 
 /// A stateful processor that transforms a block of samples in place.

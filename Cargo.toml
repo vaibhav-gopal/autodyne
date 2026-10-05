@@ -21,7 +21,9 @@ mimalloc = { version = "0.1", optional = true }
 ndarray = { version = "0.17.2", default-features = false, features = ["std"], optional = true }
 realfft = { version = "3.5.0", optional = true }
 rustfft = { version = "6.4.1", optional = true }
-thiserror = "2.0.12"
+thiserror = { version = "2.0.12", default-features = false }
+# float maths without std (the units traits use it when the `std` feature is off)
+libm = "0.2"
 
 [dev-dependencies]
 cpal = "0.18.2"
@@ -33,25 +35,28 @@ serde_json = "1"
 
 [features]
 # rustfft: the FFT backend (AVX / SSE / NEON mixed-radix kernels); without it, a portable radix-2
-default = ["rustfft", "faer"]
-ndarray = ["dep:ndarray"]
+default = ["std", "rustfft", "faer"]
+# std: the standard library. Without it autodyne is no_std + alloc (float maths through libm,
+# compile-time target features instead of runtime CPU detection); the features below need it
+std = ["thiserror/std"]
+ndarray = ["std", "dep:ndarray"]
 # flux: trace, differentiate and emit StableHLO; IREE / XLA run as external tools, or PJRT plugins
 # loaded at run time (libloading)
-flux = ["dep:libloading"]
+flux = ["std", "dep:libloading"]
 # jit: flux compiles scalar scans (per-sample recurrences and their gradients) to machine code with
 # Cranelift, in process, instead of running them as register programs
 jit = ["flux", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
-rustfft = ["dep:rustfft", "dep:realfft"]
+rustfft = ["std", "dep:rustfft", "dep:realfft"]
 # faer: linear algebra (solve, least squares, eigenvalues, SVD) and fast matrix products; also what
 # LTI systems and filter design build on
-faer = ["dep:faer"]
-realfft = ["dep:realfft"]
+faer = ["std", "dep:faer"]
+realfft = ["std", "dep:realfft"]
 # gpu: arrays in GPU memory (autodyne::gpu::GpuArray), CubeCL kernels through wgpu
-gpu = ["dep:cubecl"]
+gpu = ["std", "dep:cubecl"]
 # mimalloc: the process's global allocator (for a binary or extension module that wants it; one per
 # program). It keeps freed pages mapped for reuse, so a large new array is not paid for in page faults
 # on first touch: 2000 x 2000 f32 `a * x + b` into a new array, 2.2 ms with the Windows heap, 0.35 ms
-mimalloc = ["dep:mimalloc"]
+mimalloc = ["std", "dep:mimalloc"]
 
 # autodyne's own criterion benchmarks; comparisons with other libraries are in bench/ (bench/README.md)
 [[bench]]
@@ -62,6 +67,11 @@ harness = false
 [[example]]
 name = "flux_programs"
 required-features = ["flux"]
+
+# streams samples through std::io
+[[example]]
+name = "interop"
+required-features = ["std"]
 
 # The library is the root package; plugins and the bundler live alongside it so `autodyne` itself
 # never depends on a plugin framework.

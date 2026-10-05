@@ -45,13 +45,18 @@ unsafe fn dot_avx2<T: Float>(a: &[T], b: &[T]) -> T {
     dot_kernel(a, b)
 }
 
-/// Whether the AVX2 versions of the hot loops can run on this CPU. The check is cached by std,
-/// so calling it once per block is cheap. Always false off x86-64.
+/// Whether the AVX2 versions of the hot loops can run on this CPU. With `std` it's detected at run
+/// time (cached by std, so calling it once per block is cheap); without, it's whether the build
+/// targets AVX2 (`-C target-feature=+avx2`). Always false off x86-64.
 #[inline]
 pub fn avx2_available() -> bool {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     {
         std::arch::is_x86_feature_detected!("avx2")
+    }
+    #[cfg(all(target_arch = "x86_64", not(feature = "std")))]
+    {
+        cfg!(target_feature = "avx2")
     }
     #[cfg(not(target_arch = "x86_64"))]
     {
@@ -60,12 +65,16 @@ pub fn avx2_available() -> bool {
 }
 
 /// Whether the CPU also has fused multiply-add (with AVX2), for loops written with `mul_add`.
-/// Cached by std like [`avx2_available`]. Always false off x86-64.
+/// Decided like [`avx2_available`]. Always false off x86-64.
 #[inline]
 pub fn avx2_fma_available() -> bool {
-    #[cfg(target_arch = "x86_64")]
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
     {
         std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
+    }
+    #[cfg(all(target_arch = "x86_64", not(feature = "std")))]
+    {
+        cfg!(all(target_feature = "avx2", target_feature = "fma"))
     }
     #[cfg(not(target_arch = "x86_64"))]
     {

@@ -1,9 +1,10 @@
 //! Recorded samples and how they're mapped: [`Sample`] (frames, root key, loops), [`Zone`] and [`SampleMap`]
 //! (key and velocity ranges, round robin).
 
-use std::ops::RangeInclusive;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use crate::alloc_prelude::*;
+use core::ops::RangeInclusive;
+use core::sync::atomic::{AtomicUsize, Ordering};
+use alloc::sync::Arc;
 
 use super::voice::{MAX_STRETCH, SINC_CUTOFF, SINC_ZEROS};
 use crate::filter::design_lowpass;

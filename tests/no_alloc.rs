@@ -131,10 +131,14 @@ fn generators_sources_and_streams_do_not_allocate() {
     assert_no_alloc("Phasor::fill", || phasor.fill(&mut zs));
     let mut lazy = Sine::new(220.0, FS).mix(Noise::new(2).scaled(0.1)).through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS));
     assert_no_alloc("Source::through", || lazy.fill(&mut block));
-    let mut stream = Sine::new(220.0, FS).stream().through(Compressor::new(FS));
-    assert_no_alloc("SignalRead::through", || {
-        stream.read_samples(&mut block).unwrap();
-    });
+    // streams are built on std::io
+    #[cfg(feature = "std")]
+    {
+        let mut stream = Sine::new(220.0, FS).stream().through(Compressor::new(FS));
+        assert_no_alloc("SignalRead::through", || {
+            stream.read_samples(&mut block).unwrap();
+        });
+    }
 }
 
 #[test]

@@ -14,6 +14,7 @@
 //!
 //! tend: Signal processing / filter
 
+use crate::alloc_prelude::*;
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::units::*;
 
@@ -201,7 +202,7 @@ pub fn design_lowpass<T: Float>(cutoff: T, num_taps: usize, sample_rate: T) -> V
 // BIQUAD ==========================================================================================
 
 /// Q for a maximally flat (Butterworth) 2nd-order response.
-pub const BUTTERWORTH_Q: f64 = std::f64::consts::FRAC_1_SQRT_2;
+pub const BUTTERWORTH_Q: f64 = core::f64::consts::FRAC_1_SQRT_2;
 
 /// Normalized biquad coefficients (a0 = 1):
 /// H(z) = (b0 + b1 z^-1 + b2 z^-2) / (1 + a1 z^-1 + a2 z^-2)
@@ -224,7 +225,7 @@ pub struct BiquadCoeffs<T> {
 impl<T: Real> BiquadCoeffs<T> {
     /// RBJ-cookbook setup: (cos w0, alpha).
     fn rbj_real(frequency: T, sample_rate: T, q: T) -> (T, T) {
-        let w = T::lit(std::f64::consts::TAU) * frequency / sample_rate;
+        let w = T::lit(core::f64::consts::TAU) * frequency / sample_rate;
         (w.cos(), w.sin() / (T::lit(2.0) * q))
     }
     fn normalized(b0: T, b1: T, b2: T, a0: T, a1: T, a2: T) -> Self {
@@ -580,9 +581,9 @@ impl<T: Float> MultiBiquad<T> {
             };
             let (group, rest) = filters.split_at_mut(lanes);
             match lanes {
-                4 => run_lanes::<T, 4>(group, std::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
-                2 => run_lanes::<T, 2>(group, std::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
-                _ => run_lanes::<T, 1>(group, std::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
+                4 => run_lanes::<T, 4>(group, core::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
+                2 => run_lanes::<T, 2>(group, core::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
+                _ => run_lanes::<T, 1>(group, core::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
             }
             filters = rest;
         }
@@ -594,7 +595,7 @@ impl<T: Float> MultiBiquad<T> {
 // indexing by frame is the point: every lane handles frame f before any moves on to f + 1
 #[allow(clippy::needless_range_loop)]
 fn run_lanes<T: Float, const L: usize>(filters: &mut [Biquad<T>], channels: [&mut [T]; L], frames: usize) {
-    let lane = |f: fn(&Biquad<T>) -> T| -> [T; L] { std::array::from_fn(|l| f(&filters[l])) };
+    let lane = |f: fn(&Biquad<T>) -> T| -> [T; L] { core::array::from_fn(|l| f(&filters[l])) };
     let (b0, b1, b2) = (lane(|q| q.coeffs.b0), lane(|q| q.coeffs.b1), lane(|q| q.coeffs.b2));
     let (a1, a2) = (lane(|q| q.coeffs.a1), lane(|q| q.coeffs.a2));
     let (mut s1, mut s2) = (lane(|q| q.s1), lane(|q| q.s2));

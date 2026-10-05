@@ -3,6 +3,7 @@
 //! event times of a [`poisson_process`]. Each draws from the [`Rng`] it is given, so a seed
 //! reproduces the path.
 
+use crate::alloc_prelude::*;
 use super::{RandomError, Rng};
 use crate::fft::RealFft;
 use crate::units::*;
@@ -36,10 +37,10 @@ pub fn colored_noise(rng: &mut Rng, beta: f64, n: usize) -> Result<Vec<f64>, Ran
     let sigma = 2.0 * weights.iter().map(|w| w * w).sum::<f64>().sqrt() / n as f64;
     let mut spectrum: Vec<Complex<f64>> = scale.iter().map(|&s| Complex::new(s * rng.standard_normal(), s * rng.standard_normal())).collect();
     // DC (and Nyquist, for even n) are real: their power goes into the real part
-    spectrum[0] = Complex::new(spectrum[0].re * std::f64::consts::SQRT_2, 0.0);
+    spectrum[0] = Complex::new(spectrum[0].re * core::f64::consts::SQRT_2, 0.0);
     if n.is_multiple_of(2) {
         let last = bins - 1;
-        spectrum[last] = Complex::new(spectrum[last].re * std::f64::consts::SQRT_2, 0.0);
+        spectrum[last] = Complex::new(spectrum[last].re * core::f64::consts::SQRT_2, 0.0);
     }
     let mut y = vec![0.0; n];
     RealFft::<f64>::new(n).inverse(&spectrum, &mut y);
