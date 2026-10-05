@@ -1,3 +1,5 @@
+//! [`ComplexSignal`]: analysis and transforms of complex signals (IQ baseband, spectra).
+
 use super::SignalError;
 use crate::units::*;
 

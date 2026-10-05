@@ -1,3 +1,5 @@
+//! Tests for LTI systems against SciPy and python-control.
+
 use super::*;
 
 #[test]

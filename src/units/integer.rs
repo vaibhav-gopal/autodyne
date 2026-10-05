@@ -1,3 +1,6 @@
+//! [`Integer`]: the primitive integer types, ordered and bounded, with bit operations, integer powers and
+//! checked casts.
+
 use super::*;
 
 /// Greatest common divisor (Euclid).

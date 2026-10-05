@@ -1,3 +1,5 @@
+//! [`FmVoice`]: a four-operator FM voice, its operators connected by an [`Algorithm`].
+
 use super::{midi_to_hz, Voice};
 use crate::envelope::Adsr;
 use crate::units::*;

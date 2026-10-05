@@ -1,3 +1,5 @@
+//! Tests for flux: tracing, both differentiation modes and the interpreter, against finite differences and eager evaluation.
+
 use super::*;
 use crate::testing::{noise_f32 as noise, random_f32 as random};
 use crate::signal::frames;

@@ -1,3 +1,5 @@
+//! Tests for the random number generator and its distributions (KS and chi-squared tests).
+
 use super::*;
 use crate::special::ndtr;
 

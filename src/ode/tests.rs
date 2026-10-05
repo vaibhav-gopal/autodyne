@@ -1,3 +1,5 @@
+//! Tests for the ODE solvers against closed-form solutions and SciPy's steps.
+
 use super::*;
 
 fn opts(method: OdeMethod, rtol: f64, atol: f64) -> OdeOptions<'static> {

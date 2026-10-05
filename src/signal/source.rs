@@ -1,3 +1,6 @@
+//! [`Source`]: signals produced on demand (oscillators, noise, streams) that compose lazily: scaled, mixed
+//! and run through processors as samples are pulled.
+
 use std::ops::{Add, Mul};
 
 use super::SourceStream;

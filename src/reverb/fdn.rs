@@ -1,3 +1,6 @@
+//! The algorithmic stereo [`Reverb`]: pre-delay, all-pass diffusion and an 8-line feedback delay network
+//! with damping and an exact RT60.
+
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::delay::DelayLine;
 use crate::gain::SmoothedValue;

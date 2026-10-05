@@ -1,3 +1,6 @@
+//! [`Float`]: the concrete floating-point types (`f32`, `f64`), real arithmetic plus everything that
+//! inspects a value.
+
 use super::*;
 
 /// A concrete floating-point number (`f32`, `f64`): [`Real`] arithmetic plus everything that

@@ -1,3 +1,6 @@
+//! [`Complex`]: complex numbers over any [`Float`](super::Float), laid out like C99's and NumPy's, the basis
+//! for FFTs and IQ (de)modulation.
+
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
 use super::*;
 

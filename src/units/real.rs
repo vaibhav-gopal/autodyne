@@ -1,3 +1,6 @@
+//! The traits code is written over to run eagerly or traced: [`Elementwise`] (arithmetic and elementary
+//! functions, for numbers and arrays), [`RealValued`] and [`Real`] (per-sample, `Copy`).
+
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{Complex, Float};

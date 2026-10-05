@@ -1,3 +1,6 @@
+//! [`SignalMut`]: in-place transforms of real-valued signals, and the [`Broadcast`] policy for pointwise
+//! operations between signals of different lengths.
+
 use super::{Signal, SignalError};
 use crate::units::*;
 

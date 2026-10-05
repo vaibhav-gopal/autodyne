@@ -1,3 +1,5 @@
+//! Tests for filter design, checked against SciPy's designs and closed-form responses.
+
 use super::*;
 use crate::filter::FilterError;
 use crate::systems::sosfreqz;

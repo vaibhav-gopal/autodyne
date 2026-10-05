@@ -1,3 +1,6 @@
+//! [`SamplerVoice`]: plays a [`SampleMap`](super::SampleMap)'s zones at any pitch, with the chosen
+//! [`Interpolation`], for [`Poly`](crate::synth::Poly).
+
 use std::sync::{Arc, OnceLock};
 
 use super::sample::{Level, PAD};

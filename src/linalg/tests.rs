@@ -1,3 +1,5 @@
+//! Tests for linear algebra: reconstructions, residuals and known answers.
+
 use super::*;
 use crate::testing::random_f64 as random;
 

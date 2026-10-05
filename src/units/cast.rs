@@ -1,3 +1,6 @@
+//! Checked conversions between the primitive number types: [`FromPrimitive`], [`ToPrimitive`] and
+//! [`CastPrimitive`], `None` when a value doesn't fit.
+
 /// Conversion from every primitive number type, `None` when the value doesn't fit (out of range,
 /// or a NaN / infinity into an integer).
 pub trait FromPrimitive: Copy {

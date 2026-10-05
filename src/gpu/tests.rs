@@ -1,3 +1,5 @@
+//! Tests for the GPU arrays against the CPU's results (they return early without a GPU adapter).
+
 use super::*;
 use crate::testing::random_f32 as data;
 

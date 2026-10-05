@@ -1,3 +1,5 @@
+//! The one-pole low-pass ([`OnePole`]): 6 dB/octave without overshoot, also the usual parameter smoother.
+
 use crate::units::*;
 
 /// One-pole low-pass: `y[n] = p y[n-1] + a x[n]`, with pole `p = exp(-2π fc / fs)` and `a = 1 - p`

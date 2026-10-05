@@ -1,3 +1,6 @@
+//! FFTs of real signals ([`RealFft`]): the half spectrum (bins `0..=N/2`) and back, about twice as fast
+//! as a complex FFT of the same length.
+
 use super::Fft;
 use crate::units::*;
 

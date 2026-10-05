@@ -1,3 +1,6 @@
+//! [`SynthVoice`]: the subtractive voice (unison oscillators, a [`VoiceFilter`], envelopes) for
+//! [`Poly`](super::Poly).
+
 use super::{midi_to_hz, Voice};
 use crate::envelope::Adsr;
 use crate::filter::{Ladder, Svf, SvfMode};

@@ -1,3 +1,6 @@
+//! Recorded samples and how they're mapped: [`Sample`] (frames, root key, loops), [`Zone`] and [`SampleMap`]
+//! (key and velocity ranges, round robin).
+
 use std::ops::RangeInclusive;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;

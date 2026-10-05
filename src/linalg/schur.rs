@@ -983,6 +983,26 @@ mod tests {
         }
     }
 
+    /// Best-of-several times by size (`cargo test --release -p autodyne --lib schur::tests::timing --
+    /// --ignored --nocapture`); the comparison with SciPy is bench/numpy.
+    #[test]
+    #[ignore]
+    fn timing() {
+        for n in [100, 150, 200, 250, 300, 400] {
+            let a = random(n, 7 + n as u64);
+            check(&a, &format!("random {n}"));
+            let reps = if n <= 200 { 15 } else { 6 };
+            let best = (0..reps)
+                .map(|_| {
+                    let t = std::time::Instant::now();
+                    std::hint::black_box(real_schur(&a).expect("converges"));
+                    t.elapsed().as_secs_f64()
+                })
+                .fold(f64::MAX, f64::min);
+            eprintln!("schur {n}: {:.2} ms", best * 1e3);
+        }
+    }
+
     #[test]
     fn window_updates_write_only_their_blocks() {
         // (faer 0.24's from_row_major_slice_with_stride_mut swaps its strides; apply_window must
