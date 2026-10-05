@@ -2,8 +2,10 @@
 # built on autodyne (permissive licenses only require keeping each copyright and license text with
 # copies, binaries included). Regenerated automatically: see README "License".
 
-# same policy as deny.toml: third-party code must be permissively licensed
+# the licenses whose notices it renders; which licenses a dependency may carry is Tend's to judge
+# (`tend check`, against the baseline's library combo)
 accepted = [
+    "MPL-2.0",
     "MIT",
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",

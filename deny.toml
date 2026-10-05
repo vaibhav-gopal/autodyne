@@ -1,47 +1,14 @@
-# cargo-deny policy: `cargo deny check` (runs in CI).
+# cargo-deny policy: `cargo deny check advisories bans sources` (runs in CI).
 #
-# autodyne's own crates are GPL-3.0-only, and its author also licenses them commercially (see
-# README). That only works while every third-party dependency that ends up in a product is
-# permissively licensed: a single GPL/LGPL/AGPL dependency would bind closed products too. So
-# third-party crates must use one of the licenses below; anything else fails the check and needs a
-# deliberate decision.
+# Licenses are not checked here: autodyne is licensed under the vg-paradigms baseline's library combo
+# (.tend/extends.toml), and `tend check` judges every shipping dependency's license against what
+# that combo's options allow (and DCO sign-offs on contributions). This file keeps the rest:
+# security advisories, banned or duplicated crates, and where crates come from.
 
 [graph]
 # dev-dependencies (examples, tests, benchmarks) never ship in a product
 exclude-dev = true
 all-features = true
-
-[licenses]
-confidence-threshold = 0.9
-# the list is a policy, not an inventory: entries no current dependency uses are fine
-unused-allowed-license = "allow"
-# permissive: each only requires keeping the copyright / license notice with copies
-allow = [
-    "MIT",
-    "Apache-2.0",
-    "Apache-2.0 WITH LLVM-exception",
-    "ISC",
-    "BSD-1-Clause",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "Zlib",
-    "BSL-1.0",
-    "Unicode-3.0",
-    "0BSD",
-    "CC0-1.0",
-    # file-level copyleft: changes to its own files stay MPL, the rest of a product is untouched,
-    # so it blocks none of the licenses autodyne is offered under (the baseline's library combo).
-    # option-ext, through dirs, through cubecl (feature gpu).
-    "MPL-2.0",
-]
-# our own crates
-exceptions = [
-    { allow = ["GPL-3.0-only"], crate = "autodyne" },
-    { allow = ["GPL-3.0-only"], crate = "autodyne-plug" },
-    { allow = ["GPL-3.0-only"], crate = "autodyne-reverb" },
-    { allow = ["GPL-3.0-only"], crate = "autodyne-synth" },
-    { allow = ["GPL-3.0-only"], crate = "xtask" },
-]
 
 [advisories]
 # RustSec: known vulnerabilities fail the check; unmaintained crates only when we depend on them
