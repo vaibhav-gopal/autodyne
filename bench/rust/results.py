@@ -35,7 +35,7 @@ lines = [
     "- GPU \"resident\": data already on the GPU, timed until the device is idle. \"round trip\": upload, compute, download,",
     "  which is what a CPU caller pays.",
     "- Relative = autodyne's time / this row's time (above 1: faster than autodyne).",
-    "- Absolute times on a shared desktop vary from run to run (up to ~20% on the CPU, more on the GPU, which other"
+    "- Absolute times on a shared desktop vary from run to run (up to ~20% on the CPU, more on the GPU, which other",
     "  programs use too); every library in a group is measured in the same run, so compare within a group.",
     "",
 ]
@@ -50,4 +50,4 @@ for group, rows in groups.items():
 text = "\n".join(lines)
 print(text)
 if args.out:
-    args.out.write_text(text, encoding="utf-8")
+    args.out.write_text(text, encoding="utf-8", newline="\n")

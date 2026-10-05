@@ -14,7 +14,7 @@ pub(crate) fn matmul<T: 'static>(a: *const T, b: *const T, c: *mut T, m: usize, 
     #[cfg(target_arch = "x86_64")]
     {
         use std::any::TypeId;
-        if m == 0 || n == 0 || k == 0 || m * n * k > LIMIT || !fma_available() {
+        if m == 0 || n == 0 || k == 0 || m * n * k > LIMIT || !crate::simd::avx2_fma_available() {
             return false;
         }
         if TypeId::of::<T>() == TypeId::of::<f64>() && n.is_multiple_of(8) {
@@ -30,13 +30,6 @@ pub(crate) fn matmul<T: 'static>(a: *const T, b: *const T, c: *mut T, m: usize, 
     }
     let _ = (a, b, c, m, k, n);
     false
-}
-
-#[cfg(target_arch = "x86_64")]
-fn fma_available() -> bool {
-    use std::sync::OnceLock;
-    static FMA: OnceLock<bool> = OnceLock::new();
-    *FMA.get_or_init(|| is_x86_feature_detected!("avx2") && is_x86_feature_detected!("fma"))
 }
 
 /// Blocks of six rows, then the remaining one to five.

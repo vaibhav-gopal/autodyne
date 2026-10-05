@@ -27,6 +27,10 @@ impl Mat {
         }
         m
     }
+    /// Entry `(i, j)` is `f(i, j)`, filled row by row.
+    pub(crate) fn from_fn(rows: usize, cols: usize, f: impl Fn(usize, usize) -> f64) -> Self {
+        Self { rows, cols, data: (0..rows).flat_map(|i| (0..cols).map(move |j| (i, j))).map(|(i, j)| f(i, j)).collect() }
+    }
     #[inline]
     pub(crate) fn at(&self, i: usize, j: usize) -> f64 {
         self.data[i * self.cols + j]

@@ -262,4 +262,4 @@ for group, name, t_np, t_ad in cases:
 text = "\n".join(lines) + "\n"
 print("\n" + text)
 if args.out:
-    args.out.write_text(text, encoding="utf-8")
+    args.out.write_text(text, encoding="utf-8", newline="\n")

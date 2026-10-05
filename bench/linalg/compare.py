@@ -294,7 +294,7 @@ def main():
     text = "\n".join(lines) + "\n"
     print(text)
     if args.out:
-        args.out.write_text(text, encoding="utf-8")
+        args.out.write_text(text, encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":

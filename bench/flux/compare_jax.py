@@ -232,7 +232,7 @@ def main():
     ]
     text = "\n".join(out) + "\n"
     if args.out:
-        args.out.write_text(text, encoding="utf-8")
+        args.out.write_text(text, encoding="utf-8", newline="\n")
     print(text)
 
 

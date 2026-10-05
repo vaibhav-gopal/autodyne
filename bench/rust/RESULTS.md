@@ -7,7 +7,8 @@ NVIDIA GeForce RTX 5070 Ti for the GPU rows (wgpu). Every case first checks that
 - GPU "resident": data already on the GPU, timed until the device is idle. "round trip": upload, compute, download,
   which is what a CPU caller pays.
 - Relative = autodyne's time / this row's time (above 1: faster than autodyne).
-- Absolute times on a shared desktop vary from run to run (up to ~20% on the CPU, more on the GPU, which other  programs use too); every library in a group is measured in the same run, so compare within a group.
+- Absolute times on a shared desktop vary from run to run (up to ~20% on the CPU, more on the GPU, which other
+  programs use too); every library in a group is measured in the same run, so compare within a group.
 
 ## a*x+b on a transposed 2000x2000 f32
 

@@ -76,16 +76,16 @@ Python 3.12.14, NumPy 2.5.3, SciPy 1.18.1. autodyne times are end to end
 | time series (statsmodels) | acf 100k, 50 lags | 8,350.9 µs | 1,039.1 µs | 8.04x |
 | time series (statsmodels) | pacf 100k, 40 lags | 27,623.0 µs | 1,000.9 µs | 27.60x |
 | time series (statsmodels) | burg 100k, order 10 | 2,101.3 µs | 1,217.0 µs | 1.73x |
-| matrix equations (scipy.linalg) | schur 10x10 | 17.8 µs | 6.6 µs | 2.70x |
-| matrix equations (scipy.linalg) | solve_continuous_lyapunov 10x10 | 33.6 µs | 11.7 µs | 2.87x |
+| matrix equations (scipy.linalg) | schur 10x10 | 17.7 µs | 7.2 µs | 2.47x |
+| matrix equations (scipy.linalg) | solve_continuous_lyapunov 10x10 | 33.7 µs | 12.2 µs | 2.75x |
 | matrix equations (scipy.linalg) | solve_continuous_are 10x10 | 374.8 µs | 108.8 µs | 3.45x |
 | matrix equations (scipy.linalg) | solve_discrete_are 10x10 | 404.1 µs | 95.2 µs | 4.24x |
-| matrix equations (scipy.linalg) | schur 50x50 | 368.3 µs | 260.1 µs | 1.42x |
-| matrix equations (scipy.linalg) | solve_continuous_lyapunov 50x50 | 501.5 µs | 392.1 µs | 1.28x |
+| matrix equations (scipy.linalg) | schur 50x50 | 369.6 µs | 299.4 µs | 1.23x |
+| matrix equations (scipy.linalg) | solve_continuous_lyapunov 50x50 | 502.5 µs | 404.0 µs | 1.24x |
 | matrix equations (scipy.linalg) | solve_continuous_are 50x50 | 7,062.4 µs | 2,677.1 µs | 2.64x |
 | matrix equations (scipy.linalg) | solve_discrete_are 50x50 | 7,026.9 µs | 2,198.7 µs | 3.20x |
-| matrix equations (scipy.linalg) | schur 200x200 | 9,245.6 µs | 12,375.3 µs | 0.75x |
-| matrix equations (scipy.linalg) | solve_continuous_lyapunov 200x200 | 13,699.1 µs | 16,668.1 µs | 0.82x |
+| matrix equations (scipy.linalg) | schur 200x200 | 9,337.1 µs | 8,844.6 µs | 1.06x |
+| matrix equations (scipy.linalg) | solve_continuous_lyapunov 200x200 | 13,646.3 µs | 13,709.3 µs | 1.00x |
 | matrix equations (scipy.linalg) | solve_continuous_are 200x200 | 245,358.4 µs | 97,895.2 µs | 2.51x |
 | matrix equations (scipy.linalg) | solve_discrete_are 200x200 | 224,738.9 µs | 75,148.6 µs | 2.99x |
 | ODEs (scipy.integrate) | solve_ivp RK45, Lotka-Volterra to t=50, rtol 1e-8 | 41,545.7 µs | 10,161.2 µs | 4.09x |

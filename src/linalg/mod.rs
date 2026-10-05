@@ -30,6 +30,7 @@ pub(crate) mod dense;
 mod equations;
 mod expm;
 mod poly;
+mod reorder;
 mod schur;
 mod values;
 pub use equations::*;

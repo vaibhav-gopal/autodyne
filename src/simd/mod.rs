@@ -57,6 +57,20 @@ pub fn avx2_available() -> bool {
     }
 }
 
+/// Whether the CPU also has fused multiply-add (with AVX2), for loops written with `mul_add`.
+/// Cached by std like [`avx2_available`]. Always false off x86-64.
+#[inline]
+pub fn avx2_fma_available() -> bool {
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("avx2") && std::arch::is_x86_feature_detected!("fma")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        false
+    }
+}
+
 /// The dot-product body, for use inside loops that do their own per-block dispatch (see the module
 /// docs). `inline(always)` so each caller compiles its own copy with its own instruction set.
 /// Unlike `dot`, lengths are not checked: the shorter slice wins.

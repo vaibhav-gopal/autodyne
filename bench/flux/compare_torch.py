@@ -220,7 +220,7 @@ def main():
                 emit(f"| {title} | {mode} | failed: {type(e).__name__} | — |")
                 print(f"{name} {mode}: {str(e)[:400]}", file=sys.stderr)
     if args.out:
-        args.out.write_text("\n".join(rows) + "\n", encoding="utf-8")
+        args.out.write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
 
 
 if __name__ == "__main__":
