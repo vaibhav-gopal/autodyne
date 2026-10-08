@@ -6,6 +6,7 @@
 //! measurable share of the work.
 
 /// Products up to this many multiply-adds take the small kernel (beyond, packing pays off).
+#[cfg(target_arch = "x86_64")]
 const LIMIT: usize = 96 * 96 * 96;
 
 /// `c = a · b` for row-major contiguous `a` (m x k), `b` (k x n) and `c` (m x n), if the shapes
