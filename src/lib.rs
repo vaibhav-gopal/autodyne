@@ -40,7 +40,7 @@
 //! the lower layers' errors rather than flattening them. Processors clamp settings into range instead
 //! of failing; the few constructors that panic say so ("Panics if ...").
 //!
-//! Layering (each module uses only those before it): `units`; `simd`, `fft`, `special`, `processor`;
+//! Layering (each module uses only those before it): `units`; `simd`, `geometry`, `fft`, `special`, `processor`;
 //! `signal`; `random`, `channels`, `linalg`; `stats`; `params`; then the processors, instruments and analysis,
 //! each declaring its own `Processor` and `Parameterized` implementations (`<module>/params.rs`).
 
@@ -78,6 +78,7 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 pub mod units;
 pub mod signal;
 pub mod simd;
+pub mod geometry;
 pub mod processor;
 pub mod channels;
 pub mod fft;

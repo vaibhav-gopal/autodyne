@@ -24,8 +24,11 @@ rustfft = { version = "6.4.1", optional = true }
 thiserror = { version = "2.0.12", default-features = false }
 # float maths without std (the units traits use it when the `std` feature is off)
 libm = "0.2"
+bytemuck = { version = "1.16", default-features = false, optional = true }
 
-[dev-dependencies]
+# For the examples, benchmarks and integration tests; none builds for wasm, where only the lib's own
+# tests run (CI's no-std job, under wasmtime).
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 cpal = "0.18.2"
 criterion = "0.8.2"
 hound = "3.5.1"
@@ -40,6 +43,8 @@ default = ["std", "rustfft", "faer"]
 # compile-time target features instead of runtime CPU detection); the features below need it
 std = ["thiserror/std"]
 ndarray = ["std", "dep:ndarray"]
+# bytemuck: geometry's vectors and matrices are Pod (f32 and f64), for GPU buffers; works without std
+bytemuck = ["dep:bytemuck"]
 # flux: trace, differentiate and emit StableHLO; IREE / XLA run as external tools, or PJRT plugins
 # loaded at run time (libloading)
 flux = ["std", "dep:libloading"]

@@ -1,0 +1,2 @@
+{"batch":"01a119e8-18e7-7341-b796-14124804441c","after":"01a119c6-4ff8-770e-96de-6d00f5c6ea31","author":"agent:claude-code","at":1791436003559,"message":"The clippy check runs with the new bytemuck feature, as CI does."}
+{"op":"node.check.set","node":"01a109e3-1684-7524-a84a-7bffca3db947","check":{"kind":"test","name":"clippy","run":"cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/bytemuck,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings"}}

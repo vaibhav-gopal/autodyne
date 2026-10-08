@@ -33,6 +33,7 @@ Modules, from the base up: each uses only modules above it in the table. `flux` 
 |---|---|
 | `units` | number traits (`Float`, `Real`, `Integer`, `Trig`, casts, ...), `Complex<T>`, decibels (`db_to_gain` / `gain_to_db`), and reflection: `DType` (runtime element type) and `Reflection` |
 | `simd` | vectorized `dot` kernel on stable Rust; AVX2 chosen at runtime on x86-64 (used by `Fir`, `Resampler` and the `Signal` reductions) |
+| `geometry` | small fixed-size types generic over `Float`: `Vec2` / `Vec3` / `Vec4`, `Mat3` / `Mat4` (column-major, `#[repr(C)]`, `Pod` with the `bytemuck` feature; glam's conventions), single `f32` products and the 4x4 inverse on four SIMD lanes (SSE2, NEON, wasm simd128), and `compose_world` (world matrices for a forest in one pass); benchmarked against glam in `bench/geometry` |
 | `fft` | `Fft` (forward, inverse, real input) and `RealFft` (real signals) on `rustfft` / `realfft` kernels (AVX / SSE / NEON, default feature `rustfft`; a portable radix-2 / Bluestein path otherwise), planned with their scratch so transforms never allocate (plans cached per length); `next_fast_len`; a reference `dft` |
 | `special` | special functions (`scipy.special` names): `gammaln` / `gamma`, `erf` / `erfc` (accurate in the tails), the normal distribution `ndtr` / `ndtri`, `bessel_i0`, `ellipk` / `ellipkm1`, Jacobi `ellipj` and its inverses |
 | `processor` | the `Processor` trait all effects share; tuples are zero-cost chains, `Vec<Box<dyn Processor>>` is a runtime chain |

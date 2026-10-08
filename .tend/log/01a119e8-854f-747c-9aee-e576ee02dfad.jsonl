@@ -1,0 +1,7 @@
+{"batch":"01a119e8-854f-747c-9aee-e576ee02dfad","after":"01a119e8-18e7-7341-b796-14124804441c","author":"agent:claude-code","at":1791436031311,"message":"The geometry module's code links on their own (they were bundled with a status change in proposal 01a119e7, which waits on the user), so tend check finds every new file owned."}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/mod.rs"}}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/vector.rs"}}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/matrix.rs"}}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/quad.rs"}}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/batch.rs"}}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"bench/geometry/src/main.rs"}}

@@ -11,5 +11,6 @@ __pycache__/
 .pytest_cache/
 *.pyd
 *.pdb
-# Rust comparison benchmarks (their own workspace)
+# Rust comparison benchmarks (their own workspaces)
 bench/rust/target/
+bench/geometry/target/

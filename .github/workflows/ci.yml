@@ -35,8 +35,8 @@ jobs:
         run: cargo test --workspace --all-targets
       - name: Test the portable FFT (without the rustfft backend)
         run: cargo test -p autodyne --no-default-features --features std --lib fft
-      - name: Test with the ndarray interop
-        run: cargo test -p autodyne --features ndarray --lib
+      - name: Test with the ndarray interop and bytemuck
+        run: cargo test -p autodyne --features ndarray,bytemuck --lib
       # the JIT compiles flux's scans with Cranelift; GPU tests skip themselves without an adapter
       - name: Test the JIT and GPU features
         # (quoted: ": " in a plain YAML value starts a mapping)
@@ -64,7 +64,7 @@ jobs:
         run: cargo bench --no-run
       # The crate is warning-free; keep it that way.
       - name: Clippy
-        run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
+        run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/bytemuck,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 
   # The core without std (core + alloc, libm for float maths): tested on the host (the tests link
   # std, the code under test doesn't) and built for the browser.
@@ -86,6 +86,31 @@ jobs:
         run: cargo clippy -p autodyne --no-default-features --lib --tests -- -D warnings
       - name: Build for wasm32
         run: cargo build -p autodyne --no-default-features --lib --target wasm32-unknown-unknown
+      # geometry's simd128 backend, against the portable arithmetic and the scalar cofactors
+      - uses: taiki-e/install-action@wasmtime
+      - name: Geometry tests on wasm32 with simd128 (wasmtime)
+        run: |
+          rustup target add wasm32-wasip1
+          cargo test -p autodyne --no-default-features --lib --target wasm32-wasip1 geometry
+        env:
+          RUSTFLAGS: -C target-feature=+simd128
+          CARGO_TARGET_WASM32_WASIP1_RUNNER: wasmtime
+
+  # aarch64: geometry's NEON backend and the NEON paths elsewhere, on an ARM runner
+  arm:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ALSA headers
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
+      - name: Test the library
+        run: cargo test -p autodyne --lib --features bytemuck
+      - name: Clippy
+        run: cargo clippy -p autodyne --lib --tests --features bytemuck -- -D warnings
 
   # The n-d views are raw pointers over validated layouts: check their unsafe code for undefined
   # behaviour (Miri's float noise is turned off so exact-equality assertions stay meaningful).

@@ -1,0 +1,18 @@
+[package]
+name = "autodyne-geometry-bench"
+version = "0.1.0"
+edition = "2021"
+description = "autodyne's geometry (small vectors and matrices, compose_world) against glam"
+license = "GPL-3.0-only OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0"
+publish = false
+
+[dependencies]
+# without faer and rustfft: geometry needs neither, and the build stays a few seconds
+autodyne = { path = "../..", default-features = false, features = ["std"] }
+glam = "0.30"
+
+[profile.release]
+codegen-units = 1
+
+# A workspace of its own, so the core crate's builds don't pay for glam.
+[workspace]
