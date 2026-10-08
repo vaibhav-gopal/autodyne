@@ -159,6 +159,8 @@ mod tests {
         v
     }
 
+    // against an AVX2 build of the same loop, so x86-64 only
+    #[cfg(target_arch = "x86_64")]
     #[test]
     #[ignore]
     fn timing() {
