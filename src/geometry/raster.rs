@@ -126,32 +126,57 @@ unsafe fn fill_avx512(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, c
 /// hold. Written for it: the pixel index converted from 32 bits (64-bit integers have no vector
 /// conversion to float before AVX-512DQ), each pixel read and written as one word with channels
 /// taken apart by shifts, and bytes rounded by clamping first and truncating after (a saturating
-/// float-to-byte cast doesn't vectorize). The same arithmetic as the plain loop, so the same bytes.
+/// float-to-byte cast doesn't vectorize). The square roots go in a pass of their own over a block
+/// of pixels, through the lanes' `sqrt`: with `std` it's the same instruction either way, and
+/// without it the lanes use each target's square-root instruction where a per-pixel call would be
+/// libm's, one pixel at a time. The same arithmetic as the plain loop, so the same bytes.
 #[inline(always)]
 fn fill_row(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
     let (c, h, r) = rect.shape();
-    let ay = (y - c.y).abs();
+    let qy = (y - c.y).abs() - h.y + r;
+    let oy = qy.max(0.0);
     let inv_width = 1.0 / aa_width;
     let scaled = [color[0] * 255.0, color[1] * 255.0, color[2] * 255.0, color[3] * 255.0];
-    for (i, p) in dst.iter_mut().enumerate() {
-        let px = x + (i as u32 as i32) as f32;
-        let d = sdf((px - c.x).abs(), ay, h, r);
-        let cov = (0.5 - d * inv_width).clamp(0.0, 1.0);
-        let keep = 1.0 - cov * color[3];
-        let word = u32::from_le_bytes(*p);
-        let mut out = 0u32;
-        for (ch, &s) in scaled.iter().enumerate() {
-            let shift = 8 * ch as u32;
-            let under = ((word >> shift) & 0xff) as i32 as f32;
-            // NaN to 0 (max returns the number), then within a byte: truncating needs no checks.
-            // Not clamp: clamp passes NaN through, which to_int_unchecked must never see.
-            #[allow(clippy::manual_clamp)]
-            let v = (cov * s + under * keep + 0.5).max(0.0).min(255.0);
-            // SAFETY: v is finite and within 0..=255
-            out |= (unsafe { v.to_int_unchecked::<i32>() } as u32) << shift;
+    for (b, block) in dst.chunks_mut(BLOCK).enumerate() {
+        let first = b * BLOCK;
+        // the rounded box's (`sdf`'s) arithmetic, its square roots for the whole block at once
+        let mut qx = [0.0f32; BLOCK];
+        let mut squares = F32s::<BLOCK>::splat(0.0);
+        for (j, (q, s)) in qx.iter_mut().zip(squares.0.iter_mut()).enumerate().take(block.len()) {
+            let px = x + ((first + j) as u32 as i32) as f32;
+            *q = (px - c.x).abs() - h.x + r;
+            let ox = q.max(0.0);
+            *s = ox * ox + oy * oy;
         }
-        *p = out.to_le_bytes();
+        let lengths = squares.sqrt();
+        for ((p, &q), &length) in block.iter_mut().zip(&qx).zip(&lengths.0) {
+            let d = length + q.max(qy).min(0.0) - r;
+            blend_pixel(p, d, inv_width, color[3], scaled);
+        }
     }
+}
+
+/// Pixels per pass of [`fill_row`].
+const BLOCK: usize = 64;
+
+/// One pixel of [`fill_row`]: coverage from the distance, then premultiplied source over.
+#[inline(always)]
+fn blend_pixel(p: &mut [u8; 4], d: f32, inv_width: f32, alpha: f32, scaled: [f32; 4]) {
+    let cov = (0.5 - d * inv_width).clamp(0.0, 1.0);
+    let keep = 1.0 - cov * alpha;
+    let word = u32::from_le_bytes(*p);
+    let mut out = 0u32;
+    for (ch, &s) in scaled.iter().enumerate() {
+        let shift = 8 * ch as u32;
+        let under = ((word >> shift) & 0xff) as i32 as f32;
+        // NaN to 0 (max returns the number), then within a byte: truncating needs no checks.
+        // Not clamp: clamp passes NaN through, which to_int_unchecked must never see.
+        #[allow(clippy::manual_clamp)]
+        let v = (cov * s + under * keep + 0.5).max(0.0).min(255.0);
+        // SAFETY: v is finite and within 0..=255
+        out |= (unsafe { v.to_int_unchecked::<i32>() } as u32) << shift;
+    }
+    *p = out.to_le_bytes();
 }
 
 /// [`fill_rounded_rect`] one pixel at a time, as a plain loop writes it: the reference the lanes

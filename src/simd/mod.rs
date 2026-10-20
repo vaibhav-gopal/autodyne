@@ -50,6 +50,18 @@ unsafe fn dot_avx2<T: Float>(a: &[T], b: &[T]) -> T {
     dot_kernel(a, b)
 }
 
+/// Timing candidates for the AVX-512 copy (see the ignored `timing` test).
+#[cfg(all(test, target_arch = "x86_64"))]
+#[target_feature(enable = "avx512f")]
+unsafe fn dot_avx512_lanes<T: Float, const L: usize>(a: &[T], b: &[T]) -> T {
+    dot_lanes::<T, L>(a, b)
+}
+#[cfg(all(test, target_arch = "x86_64"))]
+#[target_feature(enable = "avx2")]
+unsafe fn dot_avx2_lanes<T: Float, const L: usize>(a: &[T], b: &[T]) -> T {
+    dot_lanes::<T, L>(a, b)
+}
+
 /// Whether the AVX2 versions of the hot loops can run on this CPU. With `std` it's detected at run
 /// time (cached by std, so calling it once per block is cheap); without, it's whether the build
 /// targets AVX2 (`-C target-feature=+avx2`). Always false off x86-64.
@@ -137,14 +149,21 @@ impl Level {
 /// Unlike `dot`, lengths are not checked: the shorter slice wins.
 #[inline(always)]
 pub fn dot_kernel<T: Float>(a: &[T], b: &[T]) -> T {
+    dot_lanes::<T, LANES>(a, b)
+}
+
+/// [`dot_kernel`] with `L` independent accumulators (a power of two): more for wider registers,
+/// so each register still has several add chains in flight.
+#[inline(always)]
+fn dot_lanes<T: Float, const L: usize>(a: &[T], b: &[T]) -> T {
     let n = a.len().min(b.len());
     let (a, b) = (&a[..n], &b[..n]); // equal lengths, so the remainders line up
-    let mut acc = [T::_ZERO; LANES];
-    let (a_chunks, a_rest) = a.as_chunks::<LANES>();
-    let (b_chunks, b_rest) = b.as_chunks::<LANES>();
+    let mut acc = [T::_ZERO; L];
+    let (a_chunks, a_rest) = a.as_chunks::<L>();
+    let (b_chunks, b_rest) = b.as_chunks::<L>();
     for (ca, cb) in a_chunks.iter().zip(b_chunks) {
         // fixed-size arrays: no bounds checks, so the loop body is straight-line SIMD
-        for i in 0..LANES {
+        for i in 0..L {
             acc[i] = acc[i] + ca[i] * cb[i];
         }
     }
@@ -153,7 +172,7 @@ pub fn dot_kernel<T: Float>(a: &[T], b: &[T]) -> T {
         tail = tail + x * y;
     }
     // pairwise reduction keeps rounding error low
-    let mut width = LANES;
+    let mut width = L;
     while width > 1 {
         width /= 2;
         for i in 0..width {
@@ -222,6 +241,53 @@ mod tests {
 
     fn naive(a: &[f64], b: &[f64]) -> f64 {
         a.iter().zip(b).map(|(x, y)| x * y).sum()
+    }
+
+    /// Dot-product throughput by copy and accumulator count, in cache (4 Ki) and out (1 Mi):
+    /// `cargo test --release -p autodyne --lib simd::tests::timing -- --ignored --nocapture`.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    #[ignore]
+    fn timing() {
+        fn best(f: &mut dyn FnMut() -> f64, reps: usize) -> f64 {
+            let mut best = f64::MAX;
+            for _ in 0..21 {
+                let t = std::time::Instant::now();
+                for _ in 0..reps {
+                    std::hint::black_box(f());
+                }
+                best = best.min(t.elapsed().as_secs_f64() / reps as f64);
+            }
+            best
+        }
+        for n in [4_096usize, 1 << 20] {
+            let reps = (1 << 24) / n;
+            let a64 = noise(1, n);
+            let b64 = noise(2, n);
+            let a32: Vec<f32> = a64.iter().map(|&x| x as f32).collect();
+            let b32: Vec<f32> = b64.iter().map(|&x| x as f32).collect();
+            let gflops = |s: f64| 2.0 * n as f64 / s / 1e9;
+            let mut row = format!("TIMING n {n}:");
+            let mut add = |name: &str, s: f64| row.push_str(&format!(" {name} {:.1}", gflops(s)));
+            add("f32 base16", best(&mut || dot_kernel(&a32, &b32) as f64, reps));
+            if avx2_available() {
+                add("avx2-16", best(&mut || unsafe { dot_avx2_lanes::<f32, 16>(&a32, &b32) } as f64, reps));
+                add("avx2-32", best(&mut || unsafe { dot_avx2_lanes::<f32, 32>(&a32, &b32) } as f64, reps));
+            }
+            if avx512_available() {
+                add("512-16", best(&mut || unsafe { dot_avx512_lanes::<f32, 16>(&a32, &b32) } as f64, reps));
+                add("512-64", best(&mut || unsafe { dot_avx512_lanes::<f32, 64>(&a32, &b32) } as f64, reps));
+            }
+            add("| f64 base16", best(&mut || dot_kernel(&a64, &b64), reps));
+            if avx2_available() {
+                add("avx2-16", best(&mut || unsafe { dot_avx2_lanes::<f64, 16>(&a64, &b64) }, reps));
+            }
+            if avx512_available() {
+                add("512-16", best(&mut || unsafe { dot_avx512_lanes::<f64, 16>(&a64, &b64) }, reps));
+                add("512-32", best(&mut || unsafe { dot_avx512_lanes::<f64, 32>(&a64, &b64) }, reps));
+            }
+            eprintln!("{row} (GFLOP/s)");
+        }
     }
 
     #[test]

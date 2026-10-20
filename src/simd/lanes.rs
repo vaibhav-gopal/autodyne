@@ -10,7 +10,7 @@
 //! They suit a group of values computed together (sixteen pixels' distances to a shape). For a
 //! kernel over a whole row, a plain per-element loop in the loop vectorizer's shape, compiled the
 //! same way, vectorizes more reliably than a loop over lane groups, whose straight-line body LLVM
-//! may leave scalar: `geometry::raster` measured 3.6x / 6.7x / 9.9x a plain loop (SSE2 / AVX2 /
+//! may leave scalar: `geometry::raster` measured 4.3x / 8.8x / 10.8x a plain loop (SSE2 / AVX2 /
 //! AVX-512) the first way, and under 3x the second.
 //!
 //! tend: Geometry and lanes / simd lanes
