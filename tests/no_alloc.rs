@@ -14,6 +14,7 @@ use autodyne::dynamic::{build_dyn, DynBlock, FloatElement, ProcessorFactory};
 use autodyne::dynamics::{Compressor, EnvelopeFollower, Gate, LookaheadLimiter, MultibandCompressor, TransientShaper};
 use autodyne::filter::{Biquad, Crossover, Fir, MultiBiquad, ParametricEq, BUTTERWORTH_Q, MAX_BANDS};
 use autodyne::gain::{Gain, Panner, StereoWidth};
+use autodyne::geometry::{Ease, SpringConfig, Springs, Tweens};
 use autodyne::iq::{FmDiscriminator, FmModulator, IqDemodulator, IqModulator};
 use autodyne::modulation::{ModulatedDelay, Phaser};
 use autodyne::distortion::{Bitcrusher, Shape, Waveshaper};
@@ -383,6 +384,20 @@ fn analyzers_do_not_allocate() {
         pitch.process(&tone);
     });
     assert!(pitch.pitch().is_some());
+    let mut springs = Springs::new(1e-4, 1e-3);
+    let mut tweens = Tweens::new();
+    for i in 0..64 {
+        springs.add(0.0, i as f64, SpringConfig::from_response(0.3, 0.7));
+        tweens.add(0.0, i as f64, 0.0, 0.5, Ease::css_ease());
+    }
+    assert_no_alloc("Springs and Tweens", || {
+        for frame in 0..240 {
+            springs.step(1.0 / 120.0);
+            tweens.sample(frame as f64 / 120.0);
+        }
+        springs.set_target(3, -10.0);
+        springs.step(1.0 / 120.0);
+    });
     let mut tracker = PitchTracker::new(50.0, 1_000.0, FS);
     let mut decided = 0;
     // pushing a long tone decides frames along the way; finishing decides the rest

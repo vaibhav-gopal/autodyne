@@ -1,6 +1,8 @@
 //! Small fixed-size geometry: [`Vec2`], [`Vec3`], [`Vec4`], [`Mat3`] and [`Mat4`], generic over
 //! [`Float`](crate::units::Float) like the rest of autodyne, and batched kernels over arrays of
-//! them ([`compose_world`]).
+//! them: [`compose_world`] (world matrices for a forest), [`transform_points`] (points through a
+//! homography), [`Springs`] (damped springs, exact for any time step) and [`Tweens`] (easing
+//! curves, [`Ease`]).
 //!
 //! - Column-major and `#[repr(C)]`, so arrays of them go into GPU buffers as they are; with the
 //!   `bytemuck` feature they're `Pod` for `f32` and `f64`.
@@ -24,13 +26,17 @@
 //! assert!(i.iter().zip(Mat4::<f32>::identity().to_cols_array()).all(|(a, b)| (a - b).abs() < 1e-5));
 //! ```
 //!
-//! tend: Geometry and lanes / small types
+//! tend: Geometry and lanes
 
 mod batch;
 mod matrix;
 mod quad;
+mod spring;
+mod tween;
 mod vector;
 
-pub use batch::{compose_world, NO_PARENT};
+pub use batch::{compose_world, transform_points, NO_PARENT};
 pub use matrix::{Mat3, Mat4};
+pub use spring::{SpringConfig, Springs};
+pub use tween::{Ease, Tweens};
 pub use vector::{Vec2, Vec3, Vec4};

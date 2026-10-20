@@ -1,0 +1,4 @@
+{"batch":"01a15b91-883d-7523-89e7-24fa67ce9a5d","after":"01a15b91-3fd7-7799-8016-aa43ef3d440b","author":"agent:claude-code","at":1792537626685,"message":"compose_world and transform_points (batch.rs) are the batched kernels node's; geometry/mod.rs re-exports every child, so it sits on the parent (as lib.rs sits on the root), not on small types."}
+{"op":"node.code.unlink","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/batch.rs"}}
+{"op":"node.code.unlink","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","link":{"kind":"path","value":"src/geometry/mod.rs"}}
+{"op":"node.code.link","node":"01a10a63-7b9e-7190-9274-80c327fcb414","link":{"kind":"path","value":"src/geometry/mod.rs"}}

@@ -10,7 +10,7 @@
 use std::hint::black_box;
 use std::time::Instant;
 
-use autodyne::geometry::{compose_world, Mat3, Mat4, Vec3, Vec4, NO_PARENT};
+use autodyne::geometry::{compose_world, transform_points, Ease, Mat3, Mat4, SpringConfig, Springs, Tweens, Vec3, Vec4, NO_PARENT};
 
 /// Elements per timed pass (independent operations: throughput, as a transform or hit-test pass).
 const N: usize = 1024;
@@ -190,9 +190,96 @@ fn main() {
         rows.push(Row { case: format!("compose_world, {n} nodes, f32 (glam: the same loop)"), ours: x, theirs: y, agree });
     }
 
+    // homographies: 10k 2-D points, columns in place against glam's Mat3 on each Vec2 (both copy
+    // their inputs first, since ours works in place)
+    {
+        let n = 10_000;
+        let m = Mat3::from_cols(Vec3::new(2.0f32, 0.1, 0.0005), Vec3::new(0.3, 1.5, 0.0002), Vec3::new(4.0, -1.0, 1.0));
+        let gm = glam::Mat3::from_cols_array(&m.to_cols_array());
+        let mut r = Rng(5);
+        let (x0, y0): (Vec<f32>, Vec<f32>) = (0..n).map(|_| ((r.next() * 500.0) as f32, (r.next() * 500.0) as f32)).unzip();
+        let g0: Vec<glam::Vec2> = x0.iter().zip(&y0).map(|(&x, &y)| glam::Vec2::new(x, y)).collect();
+        let (mut xs, mut ys) = (x0.clone(), y0.clone());
+        let mut gs = g0.clone();
+        let ours = |xs: &mut [f32], ys: &mut [f32]| {
+            xs.copy_from_slice(&x0);
+            ys.copy_from_slice(&y0);
+            transform_points(&m, xs, ys);
+        };
+        let theirs = |gs: &mut [glam::Vec2]| {
+            gs.copy_from_slice(&g0);
+            for p in gs.iter_mut() {
+                let h = gm * p.extend(1.0);
+                *p = h.truncate() / h.z;
+            }
+        };
+        ours(&mut xs, &mut ys);
+        theirs(&mut gs);
+        let a: Vec<f64> = xs.iter().zip(&ys).flat_map(|(&x, &y)| [x as f64, y as f64]).collect();
+        let b: Vec<f64> = gs.iter().flat_map(|p| [p.x as f64, p.y as f64]).collect();
+        let agree = check("transform_points", rel_diff(&a, &b), 1e-6);
+        let (x, y) = race(|| ours(black_box(&mut xs), black_box(&mut ys)), || theirs(black_box(&mut gs)));
+        rows.push(Row { case: format!("transform_points, {n} points, f32 (glam: Mat3 * Vec3 and divide per point)"), ours: x, theirs: y, agree });
+    }
+
+    // springs: 10k lanes on 4 presets, one 120 Hz step, against a plain loop where each lane
+    // computes its own transition (what a spring per element does)
+    {
+        let n = 10_000;
+        let presets = [SpringConfig::from_response(0.3f32, 1.0), SpringConfig::from_response(0.5, 0.7), SpringConfig::from_response(0.2, 0.4), SpringConfig::from_response(0.8, 1.6)];
+        let mut r = Rng(9);
+        let start: Vec<(f32, f32, usize)> = (0..n).map(|i| ((r.next() * 300.0) as f32, (r.next() * 300.0) as f32, i % 4)).collect();
+        let mut springs = Springs::new(1e-4, 1e-3);
+        for &(p, t, c) in &start {
+            springs.add(p, t, presets[c]);
+        }
+        let mut plain: Vec<(f32, f32, f32, usize)> = start.iter().map(|&(p, t, c)| (p, 0.0, t, c)).collect();
+        let dt = 1.0 / 120.0;
+        let plain_step = |lanes: &mut [(f32, f32, f32, usize)]| {
+            for l in lanes.iter_mut() {
+                let m = presets[l.3].transition(dt);
+                let x = l.0 - l.2;
+                (l.0, l.1) = (l.2 + (m[0] * x + m[1] * l.1), m[2] * x + m[3] * l.1);
+            }
+        };
+        springs.step(dt);
+        plain_step(&mut plain);
+        let a: Vec<f64> = springs.positions().iter().map(|&p| p as f64).collect();
+        let b: Vec<f64> = plain.iter().map(|l| l.0 as f64).collect();
+        let agree = check("springs", rel_diff(&a, &b), 0.0);
+        let (x, y) = race(|| { black_box(springs.step(dt)); }, || plain_step(black_box(&mut plain)));
+        rows.push(Row { case: format!("Springs::step, {n} lanes on 4 presets, f32 (a plain loop of per-lane transitions)"), ours: x, theirs: y, agree });
+    }
+
+    // tweens: 10k lanes with mixed easings, against a plain loop of Ease::apply
+    {
+        let n = 10_000;
+        let eases = [Ease::OutCubic, Ease::css_ease(), Ease::InOutQuad, Ease::OutExpo];
+        let mut r = Rng(13);
+        let lanes: Vec<(f32, f32, f32, f32, Ease<f32>)> = (0..n).map(|i| ((r.next() * 100.0) as f32, (r.next() * 100.0) as f32, r.next().abs() as f32, 0.2 + r.next().abs() as f32, eases[i % 4])).collect();
+        let mut tweens = Tweens::new();
+        for &(from, to, start, duration, ease) in &lanes {
+            tweens.add(from, to, start, duration, ease);
+        }
+        let mut out = vec![0.0f32; n];
+        let now = 0.6f32;
+        let plain = |out: &mut [f32]| {
+            for (o, &(from, to, start, duration, ease)) in out.iter_mut().zip(&lanes) {
+                *o = from + (to - from) * ease.apply((now - start) / duration);
+            }
+        };
+        tweens.sample(now);
+        plain(&mut out);
+        let a: Vec<f64> = tweens.values().iter().map(|&v| v as f64).collect();
+        let b: Vec<f64> = out.iter().map(|&v| v as f64).collect();
+        let agree = check("tweens", rel_diff(&a, &b), 1e-6);
+        let (x, y) = race(|| { black_box(tweens.sample(black_box(now))); }, || plain(black_box(&mut out)));
+        rows.push(Row { case: format!("Tweens::sample, {n} lanes, 4 easings, f32 (a plain loop of Ease::apply)"), ours: x, theirs: y, agree });
+    }
+
     let fmt = |s: f64| if s >= 1e-3 { format!("{:.3} ms", s * 1e3) } else { format!("{:.2} µs", s * 1e6) };
     let mut lines = vec![
-        "# autodyne geometry vs glam".to_string(),
+        "# autodyne geometry vs glam and plain loops".to_string(),
         String::new(),
         format!(
             "Generated by `cargo run --release` in `bench/geometry` (glam 0.30, {}). Each case checks that the two agree, then times both over",
@@ -200,12 +287,13 @@ fn main() {
         ),
         format!("the same {N} inputs (independent operations) in {ROUNDS} alternating rounds; times are each side's best round per pass."),
         String::new(),
-        "- Relative = glam's time / autodyne's (above 1: autodyne is faster).".to_string(),
+        "- Reference = glam, or for batched kernels glam has no counterpart for, a plain loop of the single-value calls (named in the case).".to_string(),
+        "- Relative = the reference's time / autodyne's (above 1: autodyne is faster).".to_string(),
         "- Agree = the largest difference between the two results, relative to the largest value.".to_string(),
         "- Across builds, where the code lands alone moves the single-value cases by up to ~8% (glam's own Mat4 product measured".to_string(),
         "  3.14 and 3.40 µs in two builds of this harness), so within that read as parity.".to_string(),
         String::new(),
-        "| Case | autodyne | glam | Relative | Agree |".to_string(),
+        "| Case | autodyne | reference | Relative | Agree |".to_string(),
         "|---|---:|---:|---:|---:|".to_string(),
     ];
     for r in &rows {
