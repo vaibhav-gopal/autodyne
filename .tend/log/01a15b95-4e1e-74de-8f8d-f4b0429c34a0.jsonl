@@ -1,0 +1,2 @@
+{"batch":"01a15b95-4e1e-74de-8f8d-f4b0429c34a0","after":"01a15b95-4d43-7178-9757-85ff6bccd388","author":"agent:claude-code","at":1792537873950,"message":"compose_world and transform_points work on Mat4 and Mat3 (batch.rs imports them): declared, as the drift report found. (proposal 01a15b91-d341-76fd-9840-ba3cac0ab25c, proposed by agent:claude-code, accepted by user)"}
+{"op":"node.relate","from":"01a10a63-7b9e-7190-9274-80c91784a19d","kind":"uses","to":"01a10a63-7b9e-7190-9274-80c6e4cf66a2"}

@@ -14,7 +14,12 @@
 //! `avx2_available()` (see `Fir::process`). The kernel then inlines into each version of the loop,
 //! with no per-sample call or check.
 //!
+//! [`lanes`] has the lane types (`F32x4`, `F32x8`, `F32x16`) kernels are written over, and
+//! [`Level`] the instruction sets they're compiled for.
+//!
 //! tend: Core / simd
+
+pub mod lanes;
 
 use crate::units::*;
 
@@ -79,6 +84,51 @@ pub fn avx2_fma_available() -> bool {
     #[cfg(not(target_arch = "x86_64"))]
     {
         false
+    }
+}
+
+/// Whether the CPU has AVX-512 (the foundation set: sixteen `f32` lanes), for loops compiled with
+/// `#[target_feature(enable = "avx512f")]`. Decided like [`avx2_available`]. Always false off
+/// x86-64.
+#[inline]
+pub fn avx512_available() -> bool {
+    #[cfg(all(target_arch = "x86_64", feature = "std"))]
+    {
+        std::arch::is_x86_feature_detected!("avx512f")
+    }
+    #[cfg(all(target_arch = "x86_64", not(feature = "std")))]
+    {
+        cfg!(target_feature = "avx512f")
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        false
+    }
+}
+
+/// The widest instruction set [`lanes`] kernels are compiled for that this CPU runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Level {
+    /// The target's baseline: SSE2 on x86-64, NEON on aarch64, simd128 on wasm32 built with it, or
+    /// scalar code.
+    Baseline,
+    /// AVX2 and FMA (eight `f32` lanes).
+    Avx2,
+    /// AVX-512F (sixteen `f32` lanes).
+    Avx512,
+}
+
+impl Level {
+    /// The best level here, detected once per call (std caches the detection).
+    #[inline]
+    pub fn detect() -> Self {
+        if avx512_available() {
+            Level::Avx512
+        } else if avx2_fma_available() {
+            Level::Avx2
+        } else {
+            Level::Baseline
+        }
     }
 }
 

@@ -251,6 +251,48 @@ fn main() {
         rows.push(Row { case: format!("Springs::step, {n} lanes on 4 presets, f32 (a plain loop of per-lane transitions)"), ours: x, theirs: y, agree });
     }
 
+    // the rasterizer: a rounded rectangle filled over a 1920 x 1080 frame, one row at a time,
+    // against the plain loop of the same arithmetic per pixel, at each instruction set this CPU runs
+    {
+        use autodyne::geometry::raster::{fill_rounded_rect_at, fill_rounded_rect_scalar, RoundedRect};
+        use autodyne::geometry::Vec2;
+        use autodyne::simd::{avx2_fma_available, avx512_available, Level};
+        let (w, h) = (1920usize, 1080usize);
+        let rect = RoundedRect { min: Vec2::new(100.3, 80.6), max: Vec2::new(1800.2, 1000.9), radius: 48.0 };
+        let color = [0.2, 0.4, 0.1, 0.7];
+        let base: Vec<[u8; 4]> = (0..w * h).map(|i| [(i % 251) as u8, (i % 241) as u8, (i % 239) as u8, 255]).collect();
+        let mut theirs = base.clone();
+        let mut ours = base.clone();
+        let frame_scalar = |px: &mut [[u8; 4]]| {
+            for (row, line) in px.chunks_mut(w).enumerate() {
+                fill_rounded_rect_scalar(line, 0.5, row as f32 + 0.5, &rect, color, 1.0);
+            }
+        };
+        let frame_at = |level: Level, px: &mut [[u8; 4]]| {
+            for (row, line) in px.chunks_mut(w).enumerate() {
+                fill_rounded_rect_at(level, line, 0.5, row as f32 + 0.5, &rect, color, 1.0);
+            }
+        };
+        let mut levels = vec![(Level::Baseline, "baseline (SSE2)")];
+        if avx2_fma_available() {
+            levels.push((Level::Avx2, "AVX2"));
+        }
+        if avx512_available() {
+            levels.push((Level::Avx512, "AVX-512"));
+        }
+        for (level, name) in levels {
+            theirs.copy_from_slice(&base);
+            ours.copy_from_slice(&base);
+            frame_scalar(&mut theirs);
+            frame_at(level, &mut ours);
+            let same = ours == theirs;
+            assert!(same, "fill_rounded_rect at {level:?} differs from the plain loop");
+            // blending over its own output each round: the same work every time
+            let (x, y) = race(|| frame_at(level, black_box(&mut ours)), || frame_scalar(black_box(&mut theirs)));
+            rows.push(Row { case: format!("fill_rounded_rect, 1920 x 1080, {name} (a plain loop per pixel)"), ours: x, theirs: y, agree: 0.0 });
+        }
+    }
+
     // tweens: 10k lanes with mixed easings, against a plain loop of Ease::apply
     {
         let n = 10_000;

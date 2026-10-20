@@ -11,16 +11,19 @@ the same 1024 inputs (independent operations) in 101 alternating rounds; times a
 
 | Case | autodyne | reference | Relative | Agree |
 |---|---:|---:|---:|---:|
-| Mat4 * Mat4, f32 | 3.31 µs | 3.45 µs | 1.04x | 9e-8 |
-| Mat4 * Vec4, f32 | 1.58 µs | 1.77 µs | 1.12x | 0e0 |
-| Mat4 inverse, f32 | 6.49 µs | 8.00 µs | 1.23x | 8e-6 |
-| Mat3 inverse, f32 | 11.95 µs | 12.25 µs | 1.03x | 2e-6 |
-| Mat4 * Mat4, f64 | 5.99 µs | 9.30 µs | 1.55x | 2e-16 |
-| Mat4 * Vec4, f64 | 3.27 µs | 3.09 µs | 0.95x | 0e0 |
-| Mat4 inverse, f64 | 16.46 µs | 18.60 µs | 1.13x | 2e-14 |
-| Mat3 inverse, f64 | 13.21 µs | 13.36 µs | 1.01x | 2e-14 |
-| compose_world, 10000 nodes, f32 (glam: the same loop) | 26.16 µs | 25.93 µs | 0.99x | 1e-7 |
-| compose_world, 100000 nodes, f32 (glam: the same loop) | 279.58 µs | 272.04 µs | 0.97x | 2e-7 |
-| transform_points, 10000 points, f32 (glam: Mat3 * Vec3 and divide per point) | 3.44 µs | 4.11 µs | 1.20x | 7e-8 |
-| Springs::step, 10000 lanes on 4 presets, f32 (a plain loop of per-lane transitions) | 11.02 µs | 57.99 µs | 5.26x | 0e0 |
-| Tweens::sample, 10000 lanes, 4 easings, f32 (a plain loop of Ease::apply) | 61.11 µs | 60.74 µs | 0.99x | 3e-7 |
+| Mat4 * Mat4, f32 | 3.31 µs | 3.57 µs | 1.08x | 9e-8 |
+| Mat4 * Vec4, f32 | 1.63 µs | 1.73 µs | 1.06x | 0e0 |
+| Mat4 inverse, f32 | 6.47 µs | 8.09 µs | 1.25x | 8e-6 |
+| Mat3 inverse, f32 | 12.11 µs | 12.70 µs | 1.05x | 2e-6 |
+| Mat4 * Mat4, f64 | 6.13 µs | 8.40 µs | 1.37x | 2e-16 |
+| Mat4 * Vec4, f64 | 3.33 µs | 3.36 µs | 1.01x | 0e0 |
+| Mat4 inverse, f64 | 16.47 µs | 18.85 µs | 1.14x | 2e-14 |
+| Mat3 inverse, f64 | 13.65 µs | 13.90 µs | 1.02x | 2e-14 |
+| compose_world, 10000 nodes, f32 (glam: the same loop) | 26.78 µs | 26.40 µs | 0.99x | 1e-7 |
+| compose_world, 100000 nodes, f32 (glam: the same loop) | 272.81 µs | 271.11 µs | 0.99x | 2e-7 |
+| transform_points, 10000 points, f32 (glam: Mat3 * Vec3 and divide per point) | 3.65 µs | 4.54 µs | 1.25x | 7e-8 |
+| Springs::step, 10000 lanes on 4 presets, f32 (a plain loop of per-lane transitions) | 11.50 µs | 58.06 µs | 5.05x | 0e0 |
+| fill_rounded_rect, 1920 x 1080, baseline (SSE2) (a plain loop per pixel) | 4.109 ms | 14.207 ms | 3.46x | 0e0 |
+| fill_rounded_rect, 1920 x 1080, AVX2 (a plain loop per pixel) | 2.099 ms | 14.107 ms | 6.72x | 0e0 |
+| fill_rounded_rect, 1920 x 1080, AVX-512 (a plain loop per pixel) | 1.472 ms | 13.287 ms | 9.03x | 0e0 |
+| Tweens::sample, 10000 lanes, 4 easings, f32 (a plain loop of Ease::apply) | 62.71 µs | 61.90 µs | 0.99x | 3e-7 |

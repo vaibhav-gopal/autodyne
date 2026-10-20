@@ -31,6 +31,7 @@
 mod batch;
 mod matrix;
 mod quad;
+pub mod raster;
 mod spring;
 mod tween;
 mod vector;

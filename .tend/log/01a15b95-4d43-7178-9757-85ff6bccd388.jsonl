@@ -1,0 +1,3 @@
+{"batch":"01a15b95-4d43-7178-9757-85ff6bccd388","after":"01a15b91-883d-7523-89e7-24fa67ce9a5d","author":"agent:claude-code","at":1792537873731,"message":"lanes M2's nodes are built: Springs (exact closed form, 5.3x a per-lane loop) and the batched kernels (transform_points 1.2x glam, Tweens at parity), tested in the lean build and without allocation. (proposal 01a15b91-6059-73ae-9dfb-80b7fc1846ce, proposed by agent:claude-code, accepted by user)"}
+{"op":"node.status","id":"01a10a63-7b9e-7190-9274-80c742302e87","status":"done"}
+{"op":"node.status","id":"01a10a63-7b9e-7190-9274-80c91784a19d","status":"done"}
