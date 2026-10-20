@@ -25,7 +25,8 @@ fn apply<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>, #[comptime] op: u3
 }
 
 #[cube(launch_unchecked)]
-pub(super) fn axpb_kernel<F: Float + CubeElement, N: Size>(x: &Array<Vector<F, N>>, out: &mut Array<Vector<F, N>>, a: F, b: F) {
+pub(super) fn axpb_kernel<F: Float + CubeElement, N: Size>(x: &[Vector<F, N>], out: &mut [Vector<F, N>], a: InputScalar, b: InputScalar) {
+    let (a, b) = (a.get::<F>(), b.get::<F>());
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = x[ABSOLUTE_POS] * Vector::new(a) + Vector::new(b);
     }
@@ -33,7 +34,8 @@ pub(super) fn axpb_kernel<F: Float + CubeElement, N: Size>(x: &Array<Vector<F, N
 
 /// `x op s`, or `s op x` when `scalar_first`.
 #[cube(launch_unchecked)]
-pub(super) fn scalar_kernel<F: Float + CubeElement, N: Size>(x: &Array<Vector<F, N>>, out: &mut Array<Vector<F, N>>, s: F, #[comptime] op: u32, #[comptime] scalar_first: bool) {
+pub(super) fn scalar_kernel<F: Float + CubeElement, N: Size>(x: &[Vector<F, N>], out: &mut [Vector<F, N>], s: InputScalar, #[comptime] op: u32, #[comptime] scalar_first: bool) {
+    let s = s.get::<F>();
     if ABSOLUTE_POS < x.len() {
         let v = x[ABSOLUTE_POS];
         let sv = Vector::new(s);
@@ -46,7 +48,7 @@ pub(super) fn scalar_kernel<F: Float + CubeElement, N: Size>(x: &Array<Vector<F,
 }
 
 #[cube(launch_unchecked)]
-pub(super) fn binary_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, y: &Array<Vector<F, N>>, out: &mut Array<Vector<F, N>>, #[comptime] op: u32) {
+pub(super) fn binary_kernel<F: Float, N: Size>(x: &[Vector<F, N>], y: &[Vector<F, N>], out: &mut [Vector<F, N>], #[comptime] op: u32) {
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = apply::<F, N>(x[ABSOLUTE_POS], y[ABSOLUTE_POS], op);
     }
@@ -54,7 +56,7 @@ pub(super) fn binary_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, y: &Arra
 
 /// `x` (rows x cols in memory, cols in vectors) with a vector along its rows (cols, in vectors).
 #[cube(launch_unchecked)]
-pub(super) fn row_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, row: &Array<Vector<F, N>>, out: &mut Array<Vector<F, N>>, cols: usize, #[comptime] op: u32) {
+pub(super) fn row_kernel<F: Float, N: Size>(x: &[Vector<F, N>], row: &[Vector<F, N>], out: &mut [Vector<F, N>], cols: usize, #[comptime] op: u32) {
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = apply::<F, N>(x[ABSOLUTE_POS], row[ABSOLUTE_POS % cols], op);
     }
@@ -62,7 +64,7 @@ pub(super) fn row_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, row: &Array
 
 /// `x` (rows x cols in memory, cols in vectors) with a vector down its columns (rows).
 #[cube(launch_unchecked)]
-pub(super) fn column_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, column: &Array<F>, out: &mut Array<Vector<F, N>>, cols: usize, #[comptime] op: u32) {
+pub(super) fn column_kernel<F: Float, N: Size>(x: &[Vector<F, N>], column: &[F], out: &mut [Vector<F, N>], cols: usize, #[comptime] op: u32) {
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = apply::<F, N>(x[ABSOLUTE_POS], Vector::new(column[ABSOLUTE_POS / cols]), op);
     }
@@ -79,7 +81,7 @@ pub(super) const ABS: u32 = 6;
 pub(super) const NEG: u32 = 7;
 
 #[cube(launch_unchecked)]
-pub(super) fn unary_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, out: &mut Array<Vector<F, N>>, #[comptime] op: u32) {
+pub(super) fn unary_kernel<F: Float, N: Size>(x: &[Vector<F, N>], out: &mut [Vector<F, N>], #[comptime] op: u32) {
     if ABSOLUTE_POS < x.len() {
         let v = x[ABSOLUTE_POS];
         let mut r = v;
@@ -108,7 +110,7 @@ pub(super) fn unary_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, out: &mut
 /// Row-major `out` of `shape`, element `i` read from `x` at the `strides`-weighted index: any
 /// permutation of a layout.
 #[cube(launch_unchecked)]
-pub(super) fn gather_kernel<F: Float>(x: &Array<F>, out: &mut Array<F>, shape: &Array<u32>, strides: &Array<u32>) {
+pub(super) fn gather_kernel<F: Float>(x: &[F], out: &mut [F], shape: &[u32], strides: &[u32]) {
     if ABSOLUTE_POS < out.len() {
         let mut rest = ABSOLUTE_POS as u32;
         let mut offset = 0u32;
@@ -125,7 +127,7 @@ pub(super) fn gather_kernel<F: Float>(x: &Array<F>, out: &mut Array<F>, shape: &
 
 /// The sum of a cube's values in shared memory (a power of two of them), into slot 0.
 #[cube]
-fn reduce_shared<F: Float>(shared: &mut SharedMemory<F>, #[comptime] threads: u32) {
+fn reduce_shared<F: Float>(shared: &mut Shared<[F]>, #[comptime] threads: u32) {
     let unit = UNIT_POS as usize;
     #[unroll]
     for k in 0..comptime![threads.trailing_zeros()] {
@@ -139,7 +141,7 @@ fn reduce_shared<F: Float>(shared: &mut SharedMemory<F>, #[comptime] threads: u3
 
 /// Partial sums: each cube sums a grid-strided share of `x` into `partial[CUBE_POS]`.
 #[cube(launch_unchecked)]
-pub(super) fn sum_partial_kernel<F: Float>(x: &Array<F>, partial: &mut Array<F>, #[comptime] threads: u32) {
+pub(super) fn sum_partial_kernel<F: Float>(x: &[F], partial: &mut [F], #[comptime] threads: u32) {
     let mut s = F::from_int(0);
     let mut i = ABSOLUTE_POS;
     let stride = CUBE_COUNT * CUBE_DIM as usize;
@@ -147,7 +149,7 @@ pub(super) fn sum_partial_kernel<F: Float>(x: &Array<F>, partial: &mut Array<F>,
         s += x[i];
         i += stride;
     }
-    let mut shared = SharedMemory::<F>::new(threads as usize);
+    let mut shared = Shared::<[F]>::new_slice(threads as usize);
     shared[UNIT_POS as usize] = s;
     sync_cube();
     reduce_shared::<F>(&mut shared, threads);
@@ -158,7 +160,7 @@ pub(super) fn sum_partial_kernel<F: Float>(x: &Array<F>, partial: &mut Array<F>,
 
 /// One cube per row of `x` (rows x cols): the row's sum.
 #[cube(launch_unchecked)]
-pub(super) fn row_sum_kernel<F: Float>(x: &Array<F>, out: &mut Array<F>, cols: usize, #[comptime] threads: u32) {
+pub(super) fn row_sum_kernel<F: Float>(x: &[F], out: &mut [F], cols: usize, #[comptime] threads: u32) {
     let row = CUBE_POS;
     let mut s = F::from_int(0);
     let mut j = UNIT_POS as usize;
@@ -166,7 +168,7 @@ pub(super) fn row_sum_kernel<F: Float>(x: &Array<F>, out: &mut Array<F>, cols: u
         s += x[row * cols + j];
         j += threads as usize;
     }
-    let mut shared = SharedMemory::<F>::new(threads as usize);
+    let mut shared = Shared::<[F]>::new_slice(threads as usize);
     shared[UNIT_POS as usize] = s;
     sync_cube();
     reduce_shared::<F>(&mut shared, threads);
@@ -178,7 +180,7 @@ pub(super) fn row_sum_kernel<F: Float>(x: &Array<F>, out: &mut Array<F>, cols: u
 /// Column sums of `x` (rows x cols, cols in vectors) over a chunk of rows per cube row:
 /// `partial[chunk * cols + c]`.
 #[cube(launch_unchecked)]
-pub(super) fn column_partial_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, partial: &mut Array<Vector<F, N>>, rows: usize, cols: usize, chunk: usize) {
+pub(super) fn column_partial_kernel<F: Float, N: Size>(x: &[Vector<F, N>], partial: &mut [Vector<F, N>], rows: usize, cols: usize, chunk: usize) {
     let c = ABSOLUTE_POS_X as usize;
     let part = CUBE_POS_Y as usize;
     if c < cols {
@@ -197,7 +199,7 @@ pub(super) fn column_partial_kernel<F: Float, N: Size>(x: &Array<Vector<F, N>>, 
 
 /// The sums down `parts` rows of `partial` (parts x cols, cols in vectors).
 #[cube(launch_unchecked)]
-pub(super) fn column_total_kernel<F: Float, N: Size>(partial: &Array<Vector<F, N>>, out: &mut Array<Vector<F, N>>, parts: usize, cols: usize) {
+pub(super) fn column_total_kernel<F: Float, N: Size>(partial: &[Vector<F, N>], out: &mut [Vector<F, N>], parts: usize, cols: usize) {
     if ABSOLUTE_POS < cols {
         let mut acc = Vector::<F, N>::new(F::from_int(0));
         for p in 0..parts {
@@ -215,15 +217,15 @@ pub(super) const MM_TILE: usize = 64;
 
 /// `c = a b` for row-major `a` (m x k) and `b` (k x n), register-tiled (see [`MM_TILE`]).
 #[cube(launch_unchecked)]
-pub(super) fn matmul_kernel<F: Float>(a: &Array<F>, b: &Array<F>, c: &mut Array<F>, m: usize, k: usize, n: usize) {
+pub(super) fn matmul_kernel<F: Float>(a: &[F], b: &[F], c: &mut [F], m: usize, k: usize, n: usize) {
     let tx = UNIT_POS_X as usize;
     let ty = UNIT_POS_Y as usize;
     let unit = ty * 16 + tx;
     let row0 = CUBE_POS_Y as usize * 64;
     let col0 = CUBE_POS_X as usize * 64;
     // sa[r * 16 + kk] and sb[kk * 64 + col]
-    let mut sa = SharedMemory::<F>::new(1024usize);
-    let mut sb = SharedMemory::<F>::new(1024usize);
+    let mut sa = Shared::<[F]>::new_slice(1024usize);
+    let mut sb = Shared::<[F]>::new_slice(1024usize);
     let mut acc = Array::<F>::new(16usize);
     #[unroll]
     for i in 0..16usize {
@@ -283,7 +285,7 @@ pub(super) fn matmul_kernel<F: Float>(a: &Array<F>, b: &Array<F>, c: &mut Array<
 
 /// Real lanes (lanes x n) into interleaved complex ones (lanes x n x 2), imaginary parts zero.
 #[cube(launch_unchecked)]
-pub(super) fn real_to_complex_kernel<F: Float>(x: &Array<F>, z: &mut Array<F>) {
+pub(super) fn real_to_complex_kernel<F: Float>(x: &[F], z: &mut [F]) {
     if ABSOLUTE_POS < x.len() {
         z[2 * ABSOLUTE_POS] = x[ABSOLUTE_POS];
         z[2 * ABSOLUTE_POS + 1] = F::from_int(0);
@@ -295,7 +297,8 @@ pub(super) fn real_to_complex_kernel<F: Float>(x: &Array<F>, z: &mut Array<F>) {
 /// and writes `y[2i - k]` and `y[2i - k + ns]`; `ns` doubles each pass, and the output comes out
 /// in natural order (no bit reversal). `sign` -1 conjugates the twiddles (the inverse).
 #[cube(launch_unchecked)]
-pub(super) fn stockham_kernel<F: Float + CubeElement>(x: &Array<F>, y: &mut Array<F>, tw: &Array<F>, n: usize, ns: usize, sign: F) {
+pub(super) fn stockham_kernel<F: Float + CubeElement>(x: &[F], y: &mut [F], tw: &[F], n: usize, ns: usize, sign: InputScalar) {
+    let sign = sign.get::<F>();
     let i = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
     let half = n / 2;
@@ -324,20 +327,21 @@ pub(super) fn stockham_kernel<F: Float + CubeElement>(x: &Array<F>, y: &mut Arra
 #[cube(launch_unchecked)]
 #[allow(clippy::too_many_arguments)]
 pub(super) fn fft_shared_kernel<F: Float + CubeElement>(
-    x: &Array<F>,
-    out: &mut Array<F>,
-    tw: &Array<F>,
+    x: &[F],
+    out: &mut [F],
+    tw: &[F],
     n: usize,
     bits: u32,
     bins: usize,
-    sign: F,
-    scale: F,
+    sign: InputScalar,
+    scale: InputScalar,
     #[comptime] real_input: bool,
     #[comptime] cap: usize,
 ) {
+    let (sign, scale) = (sign.get::<F>(), scale.get::<F>());
     let lane = CUBE_POS;
     let threads = CUBE_DIM as usize;
-    let mut s = SharedMemory::<F>::new(cap);
+    let mut s = Shared::<[F]>::new_slice(cap);
     // load, bit-reversed
     let mut i = UNIT_POS as usize;
     while i < n {
@@ -391,7 +395,7 @@ pub(super) fn fft_shared_kernel<F: Float + CubeElement>(
 /// `out[l, k] = z[l, k] w[k]` for `k < n` and zero up to `m` (complex, interleaved; `z` lanes of
 /// `zn`, `out` lanes of `m`): the chirp products of Bluestein's algorithm.
 #[cube(launch_unchecked)]
-pub(super) fn chirp_kernel<F: Float>(z: &Array<F>, w: &Array<F>, out: &mut Array<F>, zn: usize, n: usize, m: usize) {
+pub(super) fn chirp_kernel<F: Float>(z: &[F], w: &[F], out: &mut [F], zn: usize, n: usize, m: usize) {
     let k = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
     if k < m {
@@ -410,7 +414,7 @@ pub(super) fn chirp_kernel<F: Float>(z: &Array<F>, w: &Array<F>, out: &mut Array
 
 /// `z[l, k] *= h[k]` (complex, interleaved; `h` shared by every lane of length `m`).
 #[cube(launch_unchecked)]
-pub(super) fn complex_mul_kernel<F: Float>(z: &mut Array<F>, h: &Array<F>, m: usize) {
+pub(super) fn complex_mul_kernel<F: Float>(z: &mut [F], h: &[F], m: usize) {
     if ABSOLUTE_POS < z.len() / 2 {
         let k = ABSOLUTE_POS % m;
         let (a, b, c, d) = (z[2 * ABSOLUTE_POS], z[2 * ABSOLUTE_POS + 1], h[2 * k], h[2 * k + 1]);
@@ -421,7 +425,8 @@ pub(super) fn complex_mul_kernel<F: Float>(z: &mut Array<F>, h: &Array<F>, m: us
 
 /// The first `bins` complex values of each lane of `z` (lanes of `n`), times `scale`.
 #[cube(launch_unchecked)]
-pub(super) fn bins_kernel<F: Float + CubeElement>(z: &Array<F>, out: &mut Array<F>, n: usize, bins: usize, scale: F) {
+pub(super) fn bins_kernel<F: Float + CubeElement>(z: &[F], out: &mut [F], n: usize, bins: usize, scale: InputScalar) {
+    let scale = scale.get::<F>();
     let k = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
     if k < bins {
@@ -434,7 +439,7 @@ pub(super) fn bins_kernel<F: Float + CubeElement>(z: &Array<F>, out: &mut Array<
 /// The full Hermitian spectrum (lanes of `n`) from bins `0..=n/2` (lanes of `bins`):
 /// `z[n - k] = conj(z[k])`; the imaginary parts of DC (and Nyquist, for even `n`) are dropped.
 #[cube(launch_unchecked)]
-pub(super) fn hermitian_kernel<F: Float>(half: &Array<F>, z: &mut Array<F>, n: usize, bins: usize) {
+pub(super) fn hermitian_kernel<F: Float>(half: &[F], z: &mut [F], n: usize, bins: usize) {
     let k = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
     if k < n {
@@ -457,7 +462,8 @@ pub(super) fn hermitian_kernel<F: Float>(half: &Array<F>, z: &mut Array<F>, n: u
 
 /// The real parts of complex lanes, times `scale`.
 #[cube(launch_unchecked)]
-pub(super) fn real_part_kernel<F: Float + CubeElement>(z: &Array<F>, out: &mut Array<F>, scale: F) {
+pub(super) fn real_part_kernel<F: Float + CubeElement>(z: &[F], out: &mut [F], scale: InputScalar) {
+    let scale = scale.get::<F>();
     if ABSOLUTE_POS < out.len() {
         out[ABSOLUTE_POS] = z[2 * ABSOLUTE_POS] * scale;
     }
@@ -465,7 +471,7 @@ pub(super) fn real_part_kernel<F: Float + CubeElement>(z: &Array<F>, out: &mut A
 
 /// A causal FIR along each lane of `x` (lanes x len): `out[l, t] = sum_j taps[j] x[l, t - j]`.
 #[cube(launch_unchecked)]
-pub(super) fn fir_kernel<F: Float>(x: &Array<F>, taps: &Array<F>, out: &mut Array<F>, len: usize) {
+pub(super) fn fir_kernel<F: Float>(x: &[F], taps: &[F], out: &mut [F], len: usize) {
     let t = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
     if t < len {

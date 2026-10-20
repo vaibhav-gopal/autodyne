@@ -27,12 +27,10 @@ use std::sync::OnceLock;
 use cubecl::bytes::Bytes;
 use cubecl::prelude::*;
 use cubecl::server::Handle;
-use cubecl::wgpu::{WgpuDevice, WgpuRuntime};
+use cubecl::Device;
 use thiserror::Error;
 
 use crate::signal::{NdArray, NdView};
-
-type Client = ComputeClient<WgpuRuntime>;
 
 /// Errors making GPU arrays.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -53,7 +51,7 @@ fn device() -> Option<&'static Client> {
             // wgpu panics when it finds no adapter: that means no GPU here
             let hook = std::panic::take_hook();
             std::panic::set_hook(Box::new(|_| {}));
-            let client = std::panic::catch_unwind(|| WgpuRuntime::client(&WgpuDevice::default())).ok();
+            let client = std::panic::catch_unwind(|| Device::default().client()).ok();
             std::panic::set_hook(hook);
             client
         })
@@ -72,7 +70,7 @@ pub fn available() -> bool {
 /// Whether the GPU computes in `T` (`f32` everywhere; `f64` where the device has it, e.g. Vulkan
 /// on most desktop GPUs).
 pub fn supports<T: GpuFloat>() -> bool {
-    device().is_some_and(|c| c.properties().supports_type(T::as_type_native_unchecked()))
+    device().is_some_and(|c| c.properties().supports_type(T::elem_type_native()))
 }
 
 /// Waits until the GPU has finished all submitted work (nothing to wait for without a GPU).
@@ -94,6 +92,14 @@ pub trait GpuFloat: Float + CubeElement + Copy + Default + Send + Sync + sealed:
     const NAME: &'static str;
     /// `v` rounded to this type (host-side constants: twiddles, scales).
     fn of(v: f64) -> Self;
+    /// `v` rounded to this type, as a kernel's scalar argument.
+    fn arg(v: f64) -> InputScalar {
+        Self::scalar_arg(Self::of(v))
+    }
+    /// `v` as a kernel's scalar argument.
+    fn scalar_arg(v: Self) -> InputScalar {
+        InputScalar::new(v, Self::elem_type_native())
+    }
 }
 impl GpuFloat for f32 {
     const NAME: &'static str = "f32";
@@ -154,18 +160,18 @@ fn fft_shared<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, real_input: bool,
     // SAFETY: x holds `input_len` values, out lanes * bins complex ones, the twiddles n / 2; each
     // cube's shared buffer holds its row (2 n <= cap values)
     unsafe {
-        fft_shared_kernel::launch_unchecked::<T, WgpuRuntime>(
+        fft_shared_kernel::launch_unchecked::<T>(
             client(),
             CubeCount::Static(lanes as u32, 1, 1),
             CubeDim::new_1d(threads),
-            ArrayArg::from_raw_parts(x.clone(), input_len),
-            ArrayArg::from_raw_parts(out.clone(), 2 * lanes * bins),
-            ArrayArg::from_raw_parts(tw, n.max(2)),
+            BufferArg::from_raw_parts(x.clone(), input_len),
+            BufferArg::from_raw_parts(out.clone(), 2 * lanes * bins),
+            BufferArg::from_raw_parts(tw, n.max(2)),
             n,
             n.trailing_zeros(),
             bins,
-            T::of(if inverse { -1.0 } else { 1.0 }),
-            T::of(scale),
+            T::arg(if inverse { -1.0 } else { 1.0 }),
+            T::arg(scale),
             real_input,
             2 * shared_fft_max::<T>(),
         )
@@ -188,16 +194,16 @@ fn radix2<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> Han
         let dst = buffers[pass % 2].clone();
         // SAFETY: src and dst hold `len` values; the twiddle table n / 2 complex ones
         unsafe {
-            stockham_kernel::launch_unchecked::<T, WgpuRuntime>(
+            stockham_kernel::launch_unchecked::<T>(
                 client(),
                 CubeCount::Static(((n / 2) as u32).div_ceil(THREADS), lanes as u32, 1),
                 CubeDim::new_1d(THREADS),
-                ArrayArg::from_raw_parts(src.clone(), len),
-                ArrayArg::from_raw_parts(dst.clone(), len),
-                ArrayArg::from_raw_parts(tw.clone(), n.max(2)),
+                BufferArg::from_raw_parts(src.clone(), len),
+                BufferArg::from_raw_parts(dst.clone(), len),
+                BufferArg::from_raw_parts(tw.clone(), n.max(2)),
                 n,
                 ns,
-                sign,
+                T::scalar_arg(sign),
             )
         };
         src = dst;
@@ -235,13 +241,13 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
     let padded = client().empty(2 * lanes * m * size_of::<T>());
     // SAFETY: x holds lanes * n complex values, padded lanes * m, the chirp n
     unsafe {
-        chirp_kernel::launch_unchecked::<T, WgpuRuntime>(
+        chirp_kernel::launch_unchecked::<T>(
             client(),
             CubeCount::Static((m as u32).div_ceil(THREADS), lanes as u32, 1),
             CubeDim::new_1d(THREADS),
-            ArrayArg::from_raw_parts(x.clone(), 2 * lanes * n),
-            ArrayArg::from_raw_parts(chirp_gpu.clone(), 2 * n),
-            ArrayArg::from_raw_parts(padded.clone(), 2 * lanes * m),
+            BufferArg::from_raw_parts(x.clone(), 2 * lanes * n),
+            BufferArg::from_raw_parts(chirp_gpu.clone(), 2 * n),
+            BufferArg::from_raw_parts(padded.clone(), 2 * lanes * m),
             n,
             n,
             m,
@@ -251,7 +257,7 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
     let spectrum = radix2::<T>(&padded, lanes, m, false);
     // SAFETY: spectrum holds lanes * m complex values, the filter m
     unsafe {
-        complex_mul_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(lanes * m), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(spectrum.clone(), 2 * lanes * m), ArrayArg::from_raw_parts(filter_gpu, 2 * m), m)
+        complex_mul_kernel::launch_unchecked::<T>(client(), cubes(lanes * m), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(spectrum.clone(), 2 * lanes * m), BufferArg::from_raw_parts(filter_gpu, 2 * m), m)
     };
     let conv = radix2::<T>(&spectrum, lanes, m, true);
     let out = client().empty(2 * lanes * n * size_of::<T>());
@@ -268,13 +274,13 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
     let chirp_scaled = client().create(Bytes::from_elems(chirp_scaled));
     // SAFETY: conv holds lanes * m complex values, out lanes * n
     unsafe {
-        chirp_kernel::launch_unchecked::<T, WgpuRuntime>(
+        chirp_kernel::launch_unchecked::<T>(
             client(),
             CubeCount::Static((n as u32).div_ceil(THREADS), lanes as u32, 1),
             CubeDim::new_1d(THREADS),
-            ArrayArg::from_raw_parts(conv, 2 * lanes * m),
-            ArrayArg::from_raw_parts(chirp_scaled, 2 * n),
-            ArrayArg::from_raw_parts(out.clone(), 2 * lanes * n),
+            BufferArg::from_raw_parts(conv, 2 * lanes * m),
+            BufferArg::from_raw_parts(chirp_scaled, 2 * n),
+            BufferArg::from_raw_parts(out.clone(), 2 * lanes * n),
             m,
             n,
             n,
@@ -449,14 +455,14 @@ impl<T: GpuFloat> GpuArray<T> {
             let (sh, st) = (client().create(Bytes::from_elems(shape_u)), client().create(Bytes::from_elems(strides_u)));
             // SAFETY: every index read is inside the buffer (strides of a permutation of its layout)
             unsafe {
-                gather_kernel::launch_unchecked::<T, WgpuRuntime>(
+                gather_kernel::launch_unchecked::<T>(
                     client(),
                     cubes(len),
                     CubeDim::new_1d(THREADS),
-                    ArrayArg::from_raw_parts(self.handle.clone(), self.len()),
-                    ArrayArg::from_raw_parts(out.clone(), len),
-                    ArrayArg::from_raw_parts(sh, shape.len()),
-                    ArrayArg::from_raw_parts(st, shape.len()),
+                    BufferArg::from_raw_parts(self.handle.clone(), self.len()),
+                    BufferArg::from_raw_parts(out.clone(), len),
+                    BufferArg::from_raw_parts(sh, shape.len()),
+                    BufferArg::from_raw_parts(st, shape.len()),
                 )
             };
         }
@@ -498,7 +504,7 @@ impl<T: GpuFloat> GpuArray<T> {
         if n > 0 {
             // SAFETY: both arrays hold n values; the launch covers n / w vectors
             unsafe {
-                axpb_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(n / w), CubeDim::new_1d(THREADS), w, ArrayArg::from_raw_parts(self.handle.clone(), n), ArrayArg::from_raw_parts(out.handle.clone(), n), a, b)
+                axpb_kernel::launch_unchecked::<T>(client(), cubes(n / w), CubeDim::new_1d(THREADS), w, BufferArg::from_raw_parts(self.handle.clone(), n), BufferArg::from_raw_parts(out.handle.clone(), n), T::scalar_arg(a), T::scalar_arg(b))
             };
         }
         out
@@ -541,14 +547,14 @@ impl<T: GpuFloat> GpuArray<T> {
             let y = self.laid_out_like(other);
             // SAFETY: all three hold n values in one layout
             unsafe {
-                binary_kernel::launch_unchecked::<T, WgpuRuntime>(
+                binary_kernel::launch_unchecked::<T>(
                     client(),
                     cubes(n / w),
                     CubeDim::new_1d(THREADS),
                     w,
-                    ArrayArg::from_raw_parts(self.handle.clone(), n),
-                    ArrayArg::from_raw_parts(y, n),
-                    ArrayArg::from_raw_parts(out.handle.clone(), n),
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(y, n),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
                     op,
                 )
             };
@@ -566,14 +572,14 @@ impl<T: GpuFloat> GpuArray<T> {
         if along_rows == self.is_standard() {
             // SAFETY: x and out hold n values, the vector one per buffer column
             unsafe {
-                row_kernel::launch_unchecked::<T, WgpuRuntime>(
+                row_kernel::launch_unchecked::<T>(
                     client(),
                     cubes(n / w),
                     CubeDim::new_1d(THREADS),
                     w,
-                    ArrayArg::from_raw_parts(self.handle.clone(), n),
-                    ArrayArg::from_raw_parts(vector.handle.clone(), mcols),
-                    ArrayArg::from_raw_parts(out.handle.clone(), n),
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(vector.handle.clone(), mcols),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
                     mcols / w,
                     op,
                 )
@@ -581,14 +587,14 @@ impl<T: GpuFloat> GpuArray<T> {
         } else {
             // SAFETY: x and out hold n values, the vector one per buffer row
             unsafe {
-                column_kernel::launch_unchecked::<T, WgpuRuntime>(
+                column_kernel::launch_unchecked::<T>(
                     client(),
                     cubes(n / w),
                     CubeDim::new_1d(THREADS),
                     w,
-                    ArrayArg::from_raw_parts(self.handle.clone(), n),
-                    ArrayArg::from_raw_parts(vector.handle.clone(), self.memory[0]),
-                    ArrayArg::from_raw_parts(out.handle.clone(), n),
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(vector.handle.clone(), self.memory[0]),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
                     mcols / w,
                     op,
                 )
@@ -622,14 +628,14 @@ impl<T: GpuFloat> GpuArray<T> {
         if n > 0 {
             // SAFETY: both hold n values
             unsafe {
-                scalar_kernel::launch_unchecked::<T, WgpuRuntime>(
+                scalar_kernel::launch_unchecked::<T>(
                     client(),
                     cubes(n / w),
                     CubeDim::new_1d(THREADS),
                     w,
-                    ArrayArg::from_raw_parts(self.handle.clone(), n),
-                    ArrayArg::from_raw_parts(out.handle.clone(), n),
-                    s,
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
+                    T::scalar_arg(s),
                     op,
                     scalar_first,
                 )
@@ -669,12 +675,12 @@ impl<T: GpuFloat> GpuArray<T> {
         if n > 0 && own {
             // SAFETY: both hold n values (f64, checked above)
             unsafe {
-                wide::transcendental_f64_kernel::launch_unchecked::<WgpuRuntime>(client(), cubes(n), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(self.handle.clone(), n), ArrayArg::from_raw_parts(out.handle.clone(), n), op)
+                wide::transcendental_f64_kernel::launch_unchecked(client(), cubes(n), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(self.handle.clone(), n), BufferArg::from_raw_parts(out.handle.clone(), n), op)
             };
         } else if n > 0 {
             // SAFETY: both hold n values
             unsafe {
-                unary_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(n / w), CubeDim::new_1d(THREADS), w, ArrayArg::from_raw_parts(self.handle.clone(), n), ArrayArg::from_raw_parts(out.handle.clone(), n), op)
+                unary_kernel::launch_unchecked::<T>(client(), cubes(n / w), CubeDim::new_1d(THREADS), w, BufferArg::from_raw_parts(self.handle.clone(), n), BufferArg::from_raw_parts(out.handle.clone(), n), op)
             };
         }
         out
@@ -719,12 +725,12 @@ impl<T: GpuFloat> GpuArray<T> {
         let partial = GpuArray::<T>::empty(&[parts as usize], vec![0]);
         // SAFETY: x holds n values, partial one per cube
         unsafe {
-            sum_partial_kernel::launch_unchecked::<T, WgpuRuntime>(
+            sum_partial_kernel::launch_unchecked::<T>(
                 client(),
                 CubeCount::Static(parts, 1, 1),
                 CubeDim::new_1d(THREADS),
-                ArrayArg::from_raw_parts(self.handle.clone(), n),
-                ArrayArg::from_raw_parts(partial.handle.clone(), parts as usize),
+                BufferArg::from_raw_parts(self.handle.clone(), n),
+                BufferArg::from_raw_parts(partial.handle.clone(), parts as usize),
                 THREADS,
             )
         };
@@ -734,12 +740,12 @@ impl<T: GpuFloat> GpuArray<T> {
         let total = GpuArray::<T>::empty(&[], vec![]);
         // SAFETY: partial holds `parts` values, total one
         unsafe {
-            sum_partial_kernel::launch_unchecked::<T, WgpuRuntime>(
+            sum_partial_kernel::launch_unchecked::<T>(
                 client(),
                 CubeCount::Static(1, 1, 1),
                 CubeDim::new_1d(THREADS),
-                ArrayArg::from_raw_parts(partial.handle.clone(), parts as usize),
-                ArrayArg::from_raw_parts(total.handle.clone(), 1),
+                BufferArg::from_raw_parts(partial.handle.clone(), parts as usize),
+                BufferArg::from_raw_parts(total.handle.clone(), 1),
                 THREADS,
             )
         };
@@ -756,12 +762,12 @@ impl<T: GpuFloat> GpuArray<T> {
             if rows > 0 {
                 // SAFETY: x holds rows * cols values, out one per row (one cube each)
                 unsafe {
-                    row_sum_kernel::launch_unchecked::<T, WgpuRuntime>(
+                    row_sum_kernel::launch_unchecked::<T>(
                         client(),
                         CubeCount::Static(rows as u32, 1, 1),
                         CubeDim::new_1d(THREADS),
-                        ArrayArg::from_raw_parts(self.handle.clone(), rows * cols),
-                        ArrayArg::from_raw_parts(out.handle.clone(), rows),
+                        BufferArg::from_raw_parts(self.handle.clone(), rows * cols),
+                        BufferArg::from_raw_parts(out.handle.clone(), rows),
                         cols,
                         THREADS,
                     )
@@ -780,24 +786,24 @@ impl<T: GpuFloat> GpuArray<T> {
         let partial = GpuArray::<T>::empty(&[parts, cols], vec![0, 1]);
         // SAFETY: x holds rows * cols values, partial parts * cols
         unsafe {
-            column_partial_kernel::launch_unchecked::<T, WgpuRuntime>(
+            column_partial_kernel::launch_unchecked::<T>(
                 client(),
                 CubeCount::Static(((cols / w) as u32).div_ceil(THREADS), parts as u32, 1),
                 CubeDim::new_1d(THREADS),
                 w,
-                ArrayArg::from_raw_parts(self.handle.clone(), rows * cols),
-                ArrayArg::from_raw_parts(partial.handle.clone(), parts * cols),
+                BufferArg::from_raw_parts(self.handle.clone(), rows * cols),
+                BufferArg::from_raw_parts(partial.handle.clone(), parts * cols),
                 rows,
                 cols / w,
                 chunk,
             );
-            column_total_kernel::launch_unchecked::<T, WgpuRuntime>(
+            column_total_kernel::launch_unchecked::<T>(
                 client(),
                 cubes(cols / w),
                 CubeDim::new_1d(THREADS),
                 w,
-                ArrayArg::from_raw_parts(partial.handle.clone(), parts * cols),
-                ArrayArg::from_raw_parts(out.handle.clone(), cols),
+                BufferArg::from_raw_parts(partial.handle.clone(), parts * cols),
+                BufferArg::from_raw_parts(out.handle.clone(), cols),
                 parts,
                 cols / w,
             );
@@ -822,13 +828,13 @@ impl<T: GpuFloat> GpuArray<T> {
         let tiles = |d: usize| d.div_ceil(MM_TILE) as u32;
         // SAFETY: a holds m * k values, b k * n, out m * n; every access is bounds-checked against them
         unsafe {
-            matmul_kernel::launch_unchecked::<T, WgpuRuntime>(
+            matmul_kernel::launch_unchecked::<T>(
                 client(),
                 CubeCount::Static(tiles(n), tiles(m), 1),
                 CubeDim::new_2d(MM_THREADS, MM_THREADS),
-                ArrayArg::from_raw_parts(a.handle.clone(), m * k),
-                ArrayArg::from_raw_parts(b.handle.clone(), k * n),
-                ArrayArg::from_raw_parts(out.handle.clone(), m * n),
+                BufferArg::from_raw_parts(a.handle.clone(), m * k),
+                BufferArg::from_raw_parts(b.handle.clone(), k * n),
+                BufferArg::from_raw_parts(out.handle.clone(), m * n),
                 m,
                 k,
                 n,
@@ -868,7 +874,7 @@ impl<T: GpuFloat> GpuArray<T> {
         if !x.is_empty() {
             // SAFETY: x holds lanes * n values, z twice as many
             unsafe {
-                real_to_complex_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(x.len()), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(x.handle.clone(), x.len()), ArrayArg::from_raw_parts(z.handle.clone(), 2 * x.len()))
+                real_to_complex_kernel::launch_unchecked::<T>(client(), cubes(x.len()), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(x.handle.clone(), x.len()), BufferArg::from_raw_parts(z.handle.clone(), 2 * x.len()))
             };
         }
         let spectrum = z.complex_transform(false);
@@ -876,15 +882,15 @@ impl<T: GpuFloat> GpuArray<T> {
         if lanes > 0 {
             // SAFETY: spectrum holds lanes * n complex values, out lanes * bins
             unsafe {
-                bins_kernel::launch_unchecked::<T, WgpuRuntime>(
+                bins_kernel::launch_unchecked::<T>(
                     client(),
                     CubeCount::Static((bins as u32).div_ceil(THREADS), lanes as u32, 1),
                     CubeDim::new_1d(THREADS),
-                    ArrayArg::from_raw_parts(spectrum.handle.clone(), 2 * lanes * n),
-                    ArrayArg::from_raw_parts(out.handle.clone(), 2 * lanes * bins),
+                    BufferArg::from_raw_parts(spectrum.handle.clone(), 2 * lanes * n),
+                    BufferArg::from_raw_parts(out.handle.clone(), 2 * lanes * bins),
                     n,
                     bins,
-                    T::of(1.0),
+                    T::arg(1.0),
                 )
             };
         }
@@ -905,12 +911,12 @@ impl<T: GpuFloat> GpuArray<T> {
         if lanes > 0 {
             // SAFETY: x holds lanes * bins complex values, full lanes * n
             unsafe {
-                hermitian_kernel::launch_unchecked::<T, WgpuRuntime>(
+                hermitian_kernel::launch_unchecked::<T>(
                     client(),
                     CubeCount::Static((n as u32).div_ceil(THREADS), lanes as u32, 1),
                     CubeDim::new_1d(THREADS),
-                    ArrayArg::from_raw_parts(x.handle.clone(), 2 * lanes * bins),
-                    ArrayArg::from_raw_parts(full.handle.clone(), 2 * lanes * n),
+                    BufferArg::from_raw_parts(x.handle.clone(), 2 * lanes * bins),
+                    BufferArg::from_raw_parts(full.handle.clone(), 2 * lanes * n),
                     n,
                     bins,
                 )
@@ -921,7 +927,7 @@ impl<T: GpuFloat> GpuArray<T> {
         if lanes > 0 {
             // SAFETY: z holds lanes * n complex values, out lanes * n
             unsafe {
-                real_part_kernel::launch_unchecked::<T, WgpuRuntime>(client(), cubes(lanes * n), CubeDim::new_1d(THREADS), ArrayArg::from_raw_parts(z.handle.clone(), 2 * lanes * n), ArrayArg::from_raw_parts(out.handle.clone(), lanes * n), T::of(1.0))
+                real_part_kernel::launch_unchecked::<T>(client(), cubes(lanes * n), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(z.handle.clone(), 2 * lanes * n), BufferArg::from_raw_parts(out.handle.clone(), lanes * n), T::arg(1.0))
             };
         }
         shape.push(n);
@@ -946,15 +952,15 @@ impl<T: GpuFloat> GpuArray<T> {
             let scaled = GpuArray::<T>::empty(&[lanes, n, 2], vec![0, 1, 2]);
             // SAFETY: z and scaled hold lanes * n complex values
             unsafe {
-                bins_kernel::launch_unchecked::<T, WgpuRuntime>(
+                bins_kernel::launch_unchecked::<T>(
                     client(),
                     CubeCount::Static((n as u32).div_ceil(THREADS), lanes as u32, 1),
                     CubeDim::new_1d(THREADS),
-                    ArrayArg::from_raw_parts(z.clone(), 2 * lanes * n),
-                    ArrayArg::from_raw_parts(scaled.handle.clone(), 2 * lanes * n),
+                    BufferArg::from_raw_parts(z.clone(), 2 * lanes * n),
+                    BufferArg::from_raw_parts(scaled.handle.clone(), 2 * lanes * n),
                     n,
                     n,
-                    T::of(1.0 / n as f64),
+                    T::arg(1.0 / n as f64),
                 )
             };
             scaled.handle
@@ -976,13 +982,13 @@ impl<T: GpuFloat> GpuArray<T> {
         let taps_gpu = client().create(Bytes::from_elems(taps.to_vec()));
         // SAFETY: x and out hold lanes * len values, the taps taps.len()
         unsafe {
-            fir_kernel::launch_unchecked::<T, WgpuRuntime>(
+            fir_kernel::launch_unchecked::<T>(
                 client(),
                 CubeCount::Static((len as u32).div_ceil(THREADS), lanes as u32, 1),
                 CubeDim::new_1d(THREADS),
-                ArrayArg::from_raw_parts(x.handle.clone(), lanes * len),
-                ArrayArg::from_raw_parts(taps_gpu, taps.len()),
-                ArrayArg::from_raw_parts(out.handle.clone(), lanes * len),
+                BufferArg::from_raw_parts(x.handle.clone(), lanes * len),
+                BufferArg::from_raw_parts(taps_gpu, taps.len()),
+                BufferArg::from_raw_parts(out.handle.clone(), lanes * len),
                 len,
             )
         };

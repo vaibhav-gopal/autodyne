@@ -114,7 +114,8 @@ fn ln_f64(x: f64) -> f64 {
     if x == 0.0f64 {
         out = -1.0f64 / x;
     } else if x < 0.0f64 {
-        out = (x - x) / (x - x);
+        // NaN as the root of a negative: cubecl 0.11 folds (x - x) / (x - x) to a NaN literal, which WGSL has no spelling for
+        out = x.sqrt();
     } else if x > 1.7976931348623157e308f64 {
         out = x;
     } else if x != x {
@@ -184,7 +185,7 @@ fn sin_cos_f64(x: f64, #[comptime] cosine: bool) -> f64 {
 }
 
 #[cube(launch_unchecked)]
-pub(super) fn transcendental_f64_kernel(x: &Array<f64>, out: &mut Array<f64>, #[comptime] op: u32) {
+pub(super) fn transcendental_f64_kernel(x: &[f64], out: &mut [f64], #[comptime] op: u32) {
     if ABSOLUTE_POS < x.len() {
         let v = x[ABSOLUTE_POS];
         let mut r = v;
