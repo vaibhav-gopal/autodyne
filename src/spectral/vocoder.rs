@@ -240,6 +240,174 @@ impl<T: Float> Processor<T> for PitchShifter<T> {
     }
 }
 
+/// Real-time time stretching: plays a sample buffer at a speed (0.5 = half speed, twice as long)
+/// without changing its pitch, the speed changeable while playing, with an optional loop.
+///
+/// The same phase-locked vocoder as [`time_stretch`], driven by the output: [`render`](Self::render)
+/// fills a block, reading the source `speed` samples further for each sample it writes (a frame
+/// every quarter frame of output). Reads wrap inside the loop region, so frames that straddle its
+/// end hold the loop's start, and playback stays continuous across it. At a constant speed the
+/// output is exactly [`time_stretch`]'s. Allocates only when constructed.
+///
+/// tend: Signal processing / spectral / streaming time stretch
+#[derive(Debug, Clone)]
+pub struct TimeStretcher<T: Float> {
+    vocoder: Vocoder<T>,
+    hop: usize,
+    speed: f64,
+    /// source position of the next frame's first sample
+    cursor: f64,
+    /// where the last frame started (for the analysis hop), none right after a seek
+    previous: Option<isize>,
+    latest: f64,
+    /// output samples since the last frame
+    elapsed: usize,
+    looping: Option<(usize, usize)>,
+    /// overlap-add accumulator, a frame ahead (a ring)
+    output: Vec<T>,
+    read: usize,
+    norm: T,
+}
+
+impl<T: Float> TimeStretcher<T> {
+    /// A 2048-sample frame (43 ms at 48 kHz) with 4x overlap, at speed 1, from the source's start.
+    pub fn new() -> Self {
+        Self::with_fft_len(2_048)
+    }
+    /// Longer frames resolve low notes better and smear transients more. Panics unless `fft_len`
+    /// is a power of two >= 64.
+    pub fn with_fft_len(fft_len: usize) -> Self {
+        assert!(fft_len >= 64 && fft_len.is_power_of_two(), "fft_len must be a power of two >= 64");
+        let vocoder = Vocoder::new(fft_len);
+        let hop = fft_len / 4;
+        let norm = T::_ONE / vocoder.overlap_gain(hop);
+        let mut s = Self {
+            vocoder,
+            hop,
+            speed: 1.0,
+            cursor: 0.0,
+            previous: None,
+            latest: 0.0,
+            elapsed: 0,
+            looping: None,
+            output: vec![T::_ZERO; fft_len],
+            read: 0,
+            norm,
+        };
+        s.seek(0.0);
+        s
+    }
+
+    /// Playback speed, 0.1..=10 (clamped): 1 is the original tempo, 0.5 half speed. Takes effect
+    /// from the next frame (a quarter frame of output at most).
+    pub fn set_speed(&mut self, speed: T) {
+        self.speed = speed.to_f64().unwrap_or(1.0).clamp(0.1, 10.0);
+    }
+    /// Playback speed.
+    pub fn speed(&self) -> T {
+        T::_lit(self.speed)
+    }
+    /// Loops source samples `start..end` (playback that reaches `end` continues from `start`), or
+    /// stops looping (`None`). Playback before `start` runs into the loop. Panics on an empty region.
+    pub fn set_loop(&mut self, region: Option<core::ops::Range<usize>>) {
+        self.looping = region.map(|r| {
+            assert!(r.start < r.end, "empty loop region");
+            (r.start, r.end)
+        });
+    }
+    /// Plays from source position `position` (samples; before 0 or past the end is silence): it is
+    /// heard [`latency`](Self::latency) samples of output later. What is already playing fades
+    /// out under the new frames.
+    pub fn seek(&mut self, position: f64) {
+        let half = (self.vocoder.len() / 2) as f64;
+        self.cursor = position - half;
+        self.latest = self.cursor;
+        self.previous = None;
+        self.elapsed = 0;
+        self.vocoder.reset();
+    }
+    /// The source position heard now, in samples (inside the loop when looping).
+    pub fn position(&self) -> f64 {
+        let half = (self.vocoder.len() / 2) as f64;
+        self.wrap_position(self.latest + half + self.speed * (self.elapsed as f64 - half))
+    }
+    /// Output samples from a [`seek`](Self::seek) to hearing its position: half a frame.
+    pub fn latency(&self) -> usize {
+        self.vocoder.len() / 2
+    }
+    /// Silence, from the source's start, at the current speed and loop.
+    pub fn reset(&mut self) {
+        self.output.iter_mut().for_each(|s| *s = T::_ZERO);
+        self.read = 0;
+        self.seek(0.0);
+    }
+
+    /// Fills `out` with the next samples of `source` played at the current speed.
+    pub fn render(&mut self, source: &[T], out: &mut [T]) {
+        let n = self.output.len();
+        for o in out {
+            if self.previous.is_none() || self.elapsed == self.hop {
+                self.frame(source);
+            }
+            *o = self.output[self.read];
+            self.output[self.read] = T::_ZERO;
+            self.read = (self.read + 1) % n;
+            self.elapsed += 1;
+        }
+    }
+
+    /// Analyzes the frame at the cursor and adds its resynthesis to the output, a frame ahead.
+    fn frame(&mut self, source: &[T]) {
+        let n = self.vocoder.len();
+        let start = self.cursor.round() as isize;
+        let analysis_hop = self.previous.map_or(1, |p| (start - p).max(1) as usize);
+        for (i, f) in self.vocoder.frame.iter_mut().enumerate() {
+            *f = Self::sample(source, self.looping, start + i as isize);
+        }
+        self.vocoder.process(analysis_hop, self.hop, T::_ONE);
+        for (i, &s) in self.vocoder.frame.iter().enumerate() {
+            let at = (self.read + i) % n;
+            self.output[at] = self.output[at] + s * self.norm;
+        }
+        self.previous = Some(start);
+        self.latest = start as f64;
+        self.elapsed = 0;
+        self.cursor += self.speed * self.hop as f64;
+        // keep the numbers small while looping: a whole number of loops back
+        if let (Some((a, b)), Some(p)) = (self.looping, self.previous) {
+            let len = (b - a) as isize;
+            if p >= b as isize + n as isize {
+                let back = len * ((p - a as isize) / len);
+                self.previous = Some(p - back);
+                self.latest -= back as f64;
+                self.cursor -= back as f64;
+            }
+        }
+    }
+
+    /// Source sample `i`, wrapped into the loop past its end; silence outside the source.
+    fn sample(source: &[T], looping: Option<(usize, usize)>, i: isize) -> T {
+        let i = match looping {
+            Some((a, b)) if i >= b as isize => a as isize + (i - a as isize) % (b - a) as isize,
+            _ => i,
+        };
+        if i >= 0 && (i as usize) < source.len() { source[i as usize] } else { T::_ZERO }
+    }
+
+    fn wrap_position(&self, p: f64) -> f64 {
+        match self.looping {
+            Some((a, b)) if p >= b as f64 => a as f64 + (p - a as f64) % (b - a) as f64,
+            _ => p,
+        }
+    }
+}
+
+impl<T: Float> Default for TimeStretcher<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Changes the duration of `input` by `factor` (2 = twice as long) without changing its pitch,
 /// with the same phase-locked vocoder as [`PitchShifter`] (frames of `fft_len`, a power of two;
 /// 2048 suits most music at 44.1-48 kHz). The result has `round(input.len() * factor)` samples.
@@ -339,6 +507,65 @@ mod tests {
             let level = 20.0 * (rms(middle) / rms(&x[12_000..36_000])).log10();
             assert!(level.abs() < 1.0, "x{factor}: level {level} dB");
         }
+    }
+
+    #[test]
+    fn streaming_at_a_constant_speed_is_time_stretch() {
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 220.0, FS).zip(Sine::new(3.0, FS)).take(24_000).map(|(s, m)| 0.5 * s * (0.6 + 0.4 * m)).collect();
+        let n = 2_048;
+        for speed in [1.0, 0.5, 2.0, 0.25] {
+            let factor = 1.0 / speed;
+            let offline = time_stretch(&x, factor, n);
+            // time_stretch pads n zeros ahead and drops their output: start that early
+            let mut s = TimeStretcher::with_fft_len(n);
+            s.set_speed(speed);
+            s.seek(-((n / 2) as f64));
+            let offset = (n as f64 * factor).round() as usize;
+            let mut out = vec![0.0; offset + offline.len()];
+            for block in out.chunks_mut(300) {
+                s.render(&x, block);
+            }
+            // the same frames, overlap-added in the same order: the same bits
+            assert!(out[offset..] == offline[..], "speed {speed}: streaming differs from time_stretch");
+        }
+    }
+
+    #[test]
+    fn loops_keep_pitch_and_level_and_stay_inside() {
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 196.0, FS).take(48_000).map(|s| 0.5 * s).collect();
+        let mut s = TimeStretcher::new();
+        s.set_speed(0.75);
+        s.set_loop(Some(12_000..36_000));
+        s.seek(12_000.0);
+        let mut out = vec![0.0; 3 * 48_000];
+        for block in out.chunks_mut(256) {
+            s.render(&x, block);
+            let p = s.position();
+            assert!((11_000.0..36_000.0).contains(&p), "position {p} left the loop");
+        }
+        // 3 s at 0.75 covers the 0.5 s loop four and a half times
+        let found = pitch_of(&out);
+        assert!(cents(found, 196.0).abs() < 5.0, "looped: {found} Hz");
+        let level = 20.0 * (rms(&out[24_000..]) / rms(&x[12_000..36_000])).log10();
+        assert!(level.abs() < 1.0, "looped: level {level} dB");
+        assert!(out.iter().all(|v| v.is_finite()));
+    }
+
+    #[test]
+    fn speed_changes_while_playing() {
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 247.0, FS).take(5 * 48_000).map(|s| 0.5 * s).collect();
+        let mut s = TimeStretcher::new();
+        s.seek(1_000.0);
+        let mut out = vec![0.0; 48_000];
+        s.render(&x, &mut out[..24_000]);
+        s.set_speed(0.5);
+        s.render(&x, &mut out[24_000..]);
+        // 0.5 s at 1x, then 0.5 s at 0.5x: 36,000 samples of source past the seek, less the latency
+        let want = 1_000.0 + 24_000.0 + 12_000.0 - 0.5 * s.latency() as f64;
+        assert!((s.position() - want).abs() < s.latency() as f64, "position {} vs {want}", s.position());
+        let found = pitch_of(&out);
+        assert!(cents(found, 247.0).abs() < 5.0, "after the change: {found} Hz");
+        assert_eq!(s.speed(), 0.5);
     }
 
     #[test]

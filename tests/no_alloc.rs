@@ -25,7 +25,7 @@ use autodyne::resample::{Oversampled, Resampler};
 use autodyne::sampler::{Interpolation, LoopMode, Sample, SampleMap, SamplerVoice, Zone};
 use autodyne::reverb::{synthetic_ir, Convolver, Reverb};
 use autodyne::fft::{Fft, RealFft};
-use autodyne::spectral::PitchShifter;
+use autodyne::spectral::{PitchShifter, TimeStretcher};
 use autodyne::synth::{FmVoice, MidiMessage, Poly, SynthVoice, TimedEvent};
 use autodyne::units::{Complex, DType};
 
@@ -488,6 +488,16 @@ fn pitch_shifter_does_not_allocate() {
     assert_no_alloc("PitchShifter", || {
         shifter.set_param_by_id("semitones", 5.0).unwrap();
         shifter.process(&mut block);
+    });
+    let source = block.clone();
+    let mut stretcher = TimeStretcher::new();
+    stretcher.set_loop(Some(1_000..4_000));
+    assert_no_alloc("TimeStretcher", || {
+        stretcher.set_speed(0.6);
+        stretcher.render(&source, &mut block);
+        stretcher.seek(500.0);
+        stretcher.set_speed(1.3);
+        stretcher.render(&source, &mut block);
     });
 }
 
