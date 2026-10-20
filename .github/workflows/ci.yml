@@ -18,9 +18,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      # the toolchain, components and targets rust-toolchain.toml pins
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       # cpal (used by the `live` example) links against ALSA on Linux
       - name: Install ALSA headers
@@ -73,10 +72,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-          targets: wasm32-unknown-unknown
+      # the toolchain, components and targets rust-toolchain.toml pins
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       # the tests build the dev-dependencies, cpal among them (ALSA on Linux)
       - name: Install ALSA headers
@@ -108,9 +105,8 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+      # the toolchain, components and targets rust-toolchain.toml pins
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
@@ -125,6 +121,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Miri exists only on nightly: the one toolchain besides rust-toolchain.toml's
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: miri
@@ -145,7 +142,8 @@ jobs:
         working-directory: bindings/python
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      # the toolchain, components and targets rust-toolchain.toml pins
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: bindings/python
@@ -164,7 +162,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      # the toolchain, components and targets rust-toolchain.toml pins
+      - run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - uses: astral-sh/setup-uv@v7
       - name: Install ALSA headers

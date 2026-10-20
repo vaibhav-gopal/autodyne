@@ -12,7 +12,8 @@ description: Land a change the way a Tend project expects - find where it belong
    and the decisions in force.
 3. `env_toolbox {query}` before choosing a library, tool or pattern; `env_dependency {package}` before
    adding one (is it already used, and is its license allowed?).
-4. `design_plan`: is it already planned (a node, a revision, a todo)? If so, work from that.
+4. `design_plan`: is it already planned (a node, a todo), or a choice still open (a fork)? If so, work
+   from that.
 
 ## While writing
 

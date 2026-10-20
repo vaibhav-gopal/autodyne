@@ -12,6 +12,7 @@ jobs:
       - uses: actions/checkout@v7
       # On the runner, not cargo-deny-action's container: its musl toolchain isn't the one
       # rust-toolchain.toml asks for.
-      - uses: dtolnay/rust-toolchain@stable
+      # the toolchain, components and targets rust-toolchain.toml pins
+      - run: rustup toolchain install
       - uses: taiki-e/install-action@cargo-deny
       - run: cargo deny --workspace check advisories bans sources
