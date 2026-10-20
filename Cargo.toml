@@ -16,7 +16,7 @@ cranelift-module = { version = "0.136", optional = true }
 cranelift-native = { version = "0.136", optional = true }
 cubecl = { version = "0.10", features = ["wgpu"], optional = true }
 faer = { version = "0.24.4", default-features = false, features = ["std", "linalg", "rayon"], optional = true }
-libloading = { version = "0.8", optional = true }
+libloading = { version = "0.9", optional = true }
 mimalloc = { version = "0.1", optional = true }
 ndarray = { version = "0.17.2", default-features = false, features = ["std"], optional = true }
 realfft = { version = "3.5.0", optional = true }
