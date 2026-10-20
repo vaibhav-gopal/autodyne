@@ -38,26 +38,30 @@ serde_json = "1"
 
 [features]
 # rustfft: the FFT backend (AVX / SSE / NEON mixed-radix kernels); without it, a portable radix-2
-default = ["std", "rustfft", "faer"]
+default = ["std", "dsp", "rustfft", "faer"]
 # std: the standard library. Without it autodyne is no_std + alloc (float maths through libm,
 # compile-time target features instead of runtime CPU detection); the features below need it
 std = ["thiserror/std"]
-ndarray = ["std", "dep:ndarray"]
+# dsp: every module beyond units, simd and geometry (signals, processors, maths, analysis ...). Without
+# it (default-features = false) only those three compile: the small types in a few seconds, for wasm too.
+# Works without std; the no-std DSP build is default-features = false with features = ["dsp"]
+dsp = []
+ndarray = ["std", "dsp", "dep:ndarray"]
 # bytemuck: geometry's vectors and matrices are Pod (f32 and f64), for GPU buffers; works without std
 bytemuck = ["dep:bytemuck"]
 # flux: trace, differentiate and emit StableHLO; IREE / XLA run as external tools, or PJRT plugins
 # loaded at run time (libloading)
-flux = ["std", "dep:libloading"]
+flux = ["std", "dsp", "dep:libloading"]
 # jit: flux compiles scalar scans (per-sample recurrences and their gradients) to machine code with
 # Cranelift, in process, instead of running them as register programs
 jit = ["flux", "dep:cranelift-codegen", "dep:cranelift-frontend", "dep:cranelift-jit", "dep:cranelift-module", "dep:cranelift-native"]
-rustfft = ["std", "dep:rustfft", "dep:realfft"]
+rustfft = ["std", "dsp", "dep:rustfft", "dep:realfft"]
 # faer: linear algebra (solve, least squares, eigenvalues, SVD) and fast matrix products; also what
 # LTI systems and filter design build on
-faer = ["std", "dep:faer"]
-realfft = ["std", "dep:realfft"]
+faer = ["std", "dsp", "dep:faer"]
+realfft = ["std", "dsp", "dep:realfft"]
 # gpu: arrays in GPU memory (autodyne::gpu::GpuArray), CubeCL kernels through wgpu
-gpu = ["std", "dep:cubecl"]
+gpu = ["std", "dsp", "dep:cubecl"]
 # mimalloc: the process's global allocator (for a binary or extension module that wants it; one per
 # program). It keeps freed pages mapped for reuse, so a large new array is not paid for in page faults
 # on first touch: 2000 x 2000 f32 `a * x + b` into a new array, 2.2 ms with the Windows heap, 0.35 ms
@@ -68,6 +72,20 @@ mimalloc = ["std", "dep:mimalloc"]
 name = "dsp"
 path = "bench/dsp.rs"
 harness = false
+required-features = ["dsp"]
+
+# The integration tests and examples use the DSP modules
+[[test]]
+name = "no_alloc"
+required-features = ["dsp"]
+
+[[test]]
+name = "scipy_parity"
+required-features = ["dsp"]
+
+[[test]]
+name = "flux"
+required-features = ["flux"]
 
 [[example]]
 name = "flux_programs"
@@ -76,7 +94,39 @@ required-features = ["flux"]
 # streams samples through std::io
 [[example]]
 name = "interop"
-required-features = ["std"]
+required-features = ["std", "dsp"]
+
+[[example]]
+name = "effects"
+required-features = ["dsp"]
+
+[[example]]
+name = "fm_radio"
+required-features = ["dsp"]
+
+[[example]]
+name = "host"
+required-features = ["dsp"]
+
+[[example]]
+name = "live"
+required-features = ["dsp"]
+
+[[example]]
+name = "reverb"
+required-features = ["dsp"]
+
+[[example]]
+name = "sampler"
+required-features = ["dsp"]
+
+[[example]]
+name = "simple"
+required-features = ["dsp"]
+
+[[example]]
+name = "tone"
+required-features = ["dsp"]
 
 # The library is the root package; plugins and the bundler live alongside it so `autodyne` itself
 # never depends on a plugin framework.

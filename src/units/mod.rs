@@ -22,6 +22,7 @@ pub use unit::*;
 
 mod integer;
 pub use integer::*;
+#[cfg(feature = "dsp")]
 pub(crate) use integer::gcd;
 
 mod float;

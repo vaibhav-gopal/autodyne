@@ -9,20 +9,24 @@
 //! most one of `Processor` / `MultiProcessor` (multichannel linking goes through `Linked`), and the
 //! signal traits apply to disjoint types, so method calls are never ambiguous.
 
-pub use crate::channels::{AudioBuffer, Linked, MultiProcessor, PerChannel};
-pub use crate::dynamic::{DynArray, DynProcessor};
-pub use crate::params::{ParamInfo, Parameterized};
-pub use crate::processor::Processor;
-pub use crate::resample::Resample;
-pub use crate::signal::{
-    Axis, Broadcast, ComplexSignal, NdArray, SigOwnedOps, SigResizeOps, Signal, SignalMut, SignalOwned, SignalResizable,
-    Source,
-};
-#[cfg(feature = "std")]
-pub use crate::signal::{SignalRead, SignalSeek, SignalStream, SignalWrite};
 pub use crate::units::{Complex, DType, Float, Reflection};
 
-#[cfg(test)]
+#[cfg(feature = "dsp")]
+pub use crate::{
+    channels::{AudioBuffer, Linked, MultiProcessor, PerChannel},
+    dynamic::{DynArray, DynProcessor},
+    params::{ParamInfo, Parameterized},
+    processor::Processor,
+    resample::Resample,
+    signal::{
+        Axis, Broadcast, ComplexSignal, NdArray, SigOwnedOps, SigResizeOps, Signal, SignalMut, SignalOwned,
+        SignalResizable, Source,
+    },
+};
+#[cfg(all(feature = "dsp", feature = "std"))]
+pub use crate::signal::{SignalRead, SignalSeek, SignalStream, SignalWrite};
+
+#[cfg(all(test, feature = "dsp"))]
 mod tests {
     use super::*;
     use crate::dynamics::Compressor;

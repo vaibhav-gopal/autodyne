@@ -4,6 +4,7 @@
 use super::*;
 
 /// Greatest common divisor (Euclid).
+#[cfg(feature = "dsp")]
 pub(crate) fn gcd(a: usize, b: usize) -> usize {
     if b == 0 { a } else { gcd(b, a % b) }
 }

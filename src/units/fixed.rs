@@ -312,6 +312,7 @@ impl<I: FixedStorage, const FRAC: u32> RealValued for Fixed<I, FRAC> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "dsp")]
     use crate::filter::OnePole;
 
     #[test]
@@ -335,6 +336,7 @@ mod tests {
         assert_eq!(format!("{}", Q15::from_bits(1)), "0.000030517578125");
     }
 
+    #[cfg(feature = "dsp")]
     #[test]
     fn generic_filters_run_in_fixed_point() {
         // the same OnePole code in Q16.16 and in f64: within a few steps of the format

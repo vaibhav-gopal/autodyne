@@ -156,7 +156,19 @@ pub fn sum_kernel<T: Float>(a: &[T]) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::osc::Noise;
+
+    /// `n` values in [-1, 1) from `seed` (xorshift; simd sits below osc, so no Noise here).
+    fn noise(seed: u64, n: usize) -> Vec<f64> {
+        let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        (0..n)
+            .map(|_| {
+                s ^= s << 13;
+                s ^= s >> 7;
+                s ^= s << 17;
+                (s >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+            })
+            .collect()
+    }
 
     fn naive(a: &[f64], b: &[f64]) -> f64 {
         a.iter().zip(b).map(|(x, y)| x * y).sum()
@@ -164,8 +176,8 @@ mod tests {
 
     #[test]
     fn matches_naive_for_every_length_and_remainder() {
-        let a: Vec<f64> = Noise::new(1).take(300).collect();
-        let b: Vec<f64> = Noise::new(2).take(300).collect();
+        let a: Vec<f64> = noise(1, 300);
+        let b: Vec<f64> = noise(2, 300);
         for len in 0..300 {
             let (x, y) = (&a[..len], &b[..len]);
             assert!((dot(x, y) - naive(x, y)).abs() < 1e-12, "len {len}");
@@ -175,7 +187,7 @@ mod tests {
 
     #[test]
     fn sum_matches_naive_for_every_length() {
-        let a: Vec<f64> = Noise::new(7).take(300).collect();
+        let a: Vec<f64> = noise(7, 300);
         for len in 0..300 {
             let expected: f64 = a[..len].iter().sum();
             assert!((sum(&a[..len]) - expected).abs() < 1e-12, "len {len}");
@@ -184,8 +196,8 @@ mod tests {
 
     #[test]
     fn f32_agrees_with_f64() {
-        let a: Vec<f64> = Noise::new(3).take(1000).collect();
-        let b: Vec<f64> = Noise::new(4).take(1000).collect();
+        let a: Vec<f64> = noise(3, 1000);
+        let b: Vec<f64> = noise(4, 1000);
         let (a32, b32): (Vec<f32>, Vec<f32>) = (a.iter().map(|&x| x as f32).collect(), b.iter().map(|&x| x as f32).collect());
         assert!((dot(&a32, &b32) as f64 - naive(&a, &b)).abs() < 1e-4);
     }
@@ -201,8 +213,8 @@ mod tests {
 
     #[test]
     fn kernel_uses_the_shorter_length() {
-        let a: Vec<f64> = Noise::new(5).take(50).collect();
-        let b: Vec<f64> = Noise::new(6).take(20).collect();
+        let a: Vec<f64> = noise(5, 50);
+        let b: Vec<f64> = noise(6, 20);
         assert!((dot_kernel(&a, &b) - naive(&a[..20], &b)).abs() < 1e-12);
         assert!((dot_kernel(&b, &a) - naive(&b, &a[..20])).abs() < 1e-12);
     }

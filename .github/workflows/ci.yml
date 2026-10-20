@@ -67,7 +67,8 @@ jobs:
         run: cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/bytemuck,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 
   # The core without std (core + alloc, libm for float maths): tested on the host (the tests link
-  # std, the code under test doesn't) and built for the browser.
+  # std, the code under test doesn't) and built for the browser, with the DSP modules (feature dsp)
+  # and lean (units, simd and geometry only, the default-features = false build).
   no-std:
     runs-on: ubuntu-latest
     steps:
@@ -81,11 +82,17 @@ jobs:
       - name: Install ALSA headers
         run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - name: Test without std
-        run: cargo test -p autodyne --no-default-features
+        run: cargo test -p autodyne --no-default-features --features dsp
       - name: Clippy without std
-        run: cargo clippy -p autodyne --no-default-features --lib --tests -- -D warnings
+        run: cargo clippy -p autodyne --no-default-features --features dsp --lib --tests -- -D warnings
       - name: Build for wasm32
-        run: cargo build -p autodyne --no-default-features --lib --target wasm32-unknown-unknown
+        run: cargo build -p autodyne --no-default-features --features dsp --lib --target wasm32-unknown-unknown
+      # lean: the library's own tests (the doc tests use the DSP modules)
+      - name: Lean build (units, simd, geometry)
+        run: |
+          cargo test -p autodyne --no-default-features --lib
+          cargo clippy -p autodyne --no-default-features --lib --tests -- -D warnings
+          cargo build -p autodyne --no-default-features --lib --target wasm32-unknown-unknown
       # geometry's simd128 backend, against the portable arithmetic and the scalar cofactors
       - uses: taiki-e/install-action@wasmtime
       - name: Geometry tests on wasm32 with simd128 (wasmtime)

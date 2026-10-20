@@ -21,8 +21,11 @@ Everything is generic over `f32` / `f64`. Processors are constructed once (that'
 happens) and then run in place on `&mut [T]` blocks, so they are safe to call from an audio callback.
 
 Without default features autodyne is `no_std` (core and `alloc`, float maths through `libm`) and builds for
-`wasm32-unknown-unknown`: every module but `linalg` and `systems` (feature `faer`), `flux` and `gpu` comes along,
-with the portable FFT. What needs the standard library comes with the `std` feature (a default):
+`wasm32-unknown-unknown`, and it is lean: only `units`, `simd` and `geometry` compile (5 s for a cold wasm32
+release build, against about 65 s with the DSP modules). The `dsp` feature (a default) adds every other module;
+`default-features = false, features = ["dsp"]` is the no_std DSP build, everything but `linalg` and `systems`
+(feature `faer`), `flux` and `gpu`, with the portable FFT. What needs the standard library comes with the `std`
+feature (a default):
 streams over `std::io`, runtime CPU detection (without it, AVX2 is used when the build targets it), per-thread
 caches (FFT plans for array maths, `BigFloat`'s default precision and constants) and the features built on std
 crates (`rustfft`, `faer`, `ndarray`, `flux`, `gpu`, `mimalloc`).
@@ -228,11 +231,12 @@ cargo test --workspace --all-targets                     # every processor again
                                                          # proves processing never allocates; tests/scipy_parity.rs
                                                          # checks the SciPy-style APIs against SciPy's own outputs
 cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::   # GPU tests skip themselves without an adapter
-cargo test -p autodyne --no-default-features --features std --lib fft   # the portable FFT
-cargo test -p autodyne --no-default-features             # without std (the tests link it; the library doesn't)
-cargo clippy -p autodyne --no-default-features --lib --tests -- -D warnings
-cargo build -p autodyne --no-default-features --lib --target wasm32-unknown-unknown
-cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
+cargo test -p autodyne --no-default-features --features std,dsp --lib fft   # the portable FFT
+cargo test -p autodyne --no-default-features --features dsp   # without std (the tests link it; the library doesn't)
+cargo clippy -p autodyne --no-default-features --features dsp --lib --tests -- -D warnings
+cargo build -p autodyne --no-default-features --features dsp --lib --target wasm32-unknown-unknown
+cargo test -p autodyne --no-default-features --lib        # lean: units, simd and geometry only
+cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/bytemuck,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux,autodyne/jit,autodyne/gpu
 ```
 

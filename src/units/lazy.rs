@@ -5,6 +5,9 @@
 //!
 //! tend: no_std
 
+// its users are all DSP modules; the lean build (no `dsp`) keeps it, tested, for the next one
+#![cfg_attr(not(feature = "dsp"), allow(dead_code))]
+
 use alloc::boxed::Box;
 use core::ptr;
 use core::sync::atomic::{AtomicPtr, Ordering};
