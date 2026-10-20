@@ -5,6 +5,8 @@
 //! - [`LoudnessMeter`]: ITU-R BS.1770 / EBU R128 momentary, short-term and integrated loudness,
 //!   loudness range, and true peak ([`TruePeak`] on its own for limiters and peak meters).
 //! - [`PitchDetector`]: YIN fundamental-frequency estimation for monophonic sources.
+//! - [`PitchTracker`]: pYIN pitch with a voicing probability, smoothed over time by a hidden Markov
+//!   model, for singing and speech (breathy and low voices that one YIN threshold drops).
 //! - [`OnsetDetector`]: note attacks by SuperFlux-style spectral flux.
 //!
 //! All of them allocate only when constructed, so they can run on the audio thread, and all are
@@ -17,8 +19,10 @@ mod loudness;
 mod onset;
 mod pitch;
 mod spectrum;
+mod voicing;
 
 pub use loudness::*;
 pub use onset::*;
 pub use pitch::*;
 pub use spectrum::*;
+pub use voicing::*;

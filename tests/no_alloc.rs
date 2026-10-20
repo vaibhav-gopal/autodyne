@@ -6,7 +6,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::Arc;
 
-use autodyne::analysis::{LoudnessMeter, OnsetDetector, PitchDetector, SpectrumAnalyzer, TruePeak};
+use autodyne::analysis::{LoudnessMeter, OnsetDetector, PitchDetector, PitchTracker, SpectrumAnalyzer, TruePeak};
 use autodyne::channels::{AudioBuffer, Linked, PerChannel};
 use autodyne::control::{Lfo, LfoShape, Modulated, Route, Transport};
 use autodyne::delay::Echo;
@@ -383,6 +383,16 @@ fn analyzers_do_not_allocate() {
         pitch.process(&tone);
     });
     assert!(pitch.pitch().is_some());
+    let mut tracker = PitchTracker::new(50.0, 1_000.0, FS);
+    let mut decided = 0;
+    // pushing a long tone decides frames along the way; finishing decides the rest
+    assert_no_alloc("PitchTracker", || {
+        for _ in 0..8 {
+            tracker.push(&tone, |_| decided += 1);
+        }
+        tracker.finish(|_| decided += 1);
+    });
+    assert!(decided > tracker.lag());
     let mut onsets = OnsetDetector::new(FS);
     let mut count = 0;
     assert_no_alloc("OnsetDetector", || onsets.process(&tone, |_| count += 1));

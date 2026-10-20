@@ -86,6 +86,10 @@ name = "scipy_parity"
 required-features = ["dsp"]
 
 [[test]]
+name = "librosa_parity"
+required-features = ["dsp"]
+
+[[test]]
 name = "flux"
 required-features = ["flux"]
 

@@ -1,6 +1,7 @@
 //! Special functions (`scipy.special` names): the modified Bessel function I₀ (Kaiser windows and
 //! the sampler's interpolation kernel), complete elliptic integrals, and Jacobi elliptic functions
-//! and their inverses (elliptic filter design).
+//! and their inverses (elliptic filter design), the gamma and error functions, and the regularized
+//! incomplete beta function (the beta distribution's CDF, pYIN's threshold prior).
 //!
 //! tend: Numerics / special
 
@@ -195,6 +196,49 @@ pub fn gamma(x: f64) -> f64 {
     sign * gammaln(x).exp()
 }
 
+/// The regularized incomplete beta function `I_x(a, b)` (`scipy.special.betainc`): the beta
+/// distribution's cumulative distribution function. Its continued fraction (modified Lentz) where it
+/// converges fast, `x < (a + 1) / (a + b + 2)`, and `1 - I_{1-x}(b, a)` above. Relative error about
+/// 1e-13 (1e-12 for parameters in the hundreds, from [`gammaln`]). NaN unless `a, b > 0` and
+/// `0 <= x <= 1`.
+pub fn betainc(a: f64, b: f64, x: f64) -> f64 {
+    if !(a > 0.0 && b > 0.0 && (0.0..=1.0).contains(&x)) {
+        return f64::NAN;
+    }
+    if x == 0.0 || x == 1.0 {
+        return x;
+    }
+    // x^a (1-x)^b / (a B(a, b)), in logs so large parameters don't overflow
+    let front = |a: f64, b: f64, x: f64| (a * x.ln() + b * (-x).ln_1p() + gammaln(a + b) - gammaln(a) - gammaln(b)).exp() / a;
+    if x < (a + 1.0) / (a + b + 2.0) {
+        front(a, b, x) * betainc_fraction(a, b, x)
+    } else {
+        1.0 - front(b, a, 1.0 - x) * betainc_fraction(b, a, 1.0 - x)
+    }
+}
+
+/// The continued fraction `1 / (1 + d1 / (1 + d2 / (1 + ...)))` of [`betainc`], with
+/// `d(2m+1) = -(a+m)(a+b+m) x / ((a+2m)(a+2m+1))` and `d(2m) = m(b-m) x / ((a+2m-1)(a+2m))`.
+fn betainc_fraction(a: f64, b: f64, x: f64) -> f64 {
+    let tiny = 1e-300;
+    let guard = |v: f64| if v.abs() < tiny { tiny } else { v };
+    let mut c = 1.0;
+    let mut d = 1.0 / guard(1.0 - (a + b) * x / (a + 1.0));
+    let mut f = d;
+    for m in 1..10_000 {
+        let m = m as f64;
+        for coeff in [m * (b - m) * x / ((a + 2.0 * m - 1.0) * (a + 2.0 * m)), -(a + m) * (a + b + m) * x / ((a + 2.0 * m) * (a + 2.0 * m + 1.0))] {
+            d = 1.0 / guard(1.0 + coeff * d);
+            c = guard(1.0 + coeff / c);
+            f *= c * d;
+        }
+        if (c * d - 1.0).abs() < 1e-16 {
+            break;
+        }
+    }
+    f
+}
+
 // ERROR FUNCTION AND THE NORMAL DISTRIBUTION ======================================================
 
 /// `exp(-s x²)` for `s` of 1 or 1/2, without the rounding of `x²` (relative error `s x² ε`, 3e-15
@@ -329,6 +373,33 @@ pub fn ndtri(p: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn betainc_matches_scipy() {
+        // (a, b, x, scipy.special.betainc(a, b, x)), scipy 1.18
+        let cases = [
+            (2.0, 18.0, 0.01, 0.015273761488896611),
+            (2.0, 18.0, 0.1, 0.5797350211684026),
+            (2.0, 18.0, 0.5, 0.9999618530273438),
+            (2.0, 18.0, 0.99, 1.0),
+            (0.5, 0.5, 0.3, 0.36901011956554536),
+            (5.0, 3.0, 0.7, 0.6470695),
+            (30.0, 40.0, 0.45, 0.6447480085585666),
+            (0.001, 2.0, 0.2, 0.9991905700234541),
+            (200.0, 300.0, 0.41, 0.677628164772179),
+            (1.0, 1.0, 0.37, 0.37),
+        ];
+        for (a, b, x, want) in cases {
+            let got = betainc(a, b, x);
+            // gammaln's rounding grows with its argument (its logs reach thousands at a + b = 500)
+            let tol = if a + b > 100.0 { 1e-12 } else { 1e-13 };
+            assert!((got - want).abs() <= tol * want, "betainc({a}, {b}, {x}) = {got}, scipy {want}");
+        }
+        // closed form for integer b = 1: I_x(a, 1) = x^a
+        assert!((betainc(3.5, 1.0, 0.6) - 0.6f64.powf(3.5)).abs() < 1e-15);
+        assert_eq!((betainc(2.0, 3.0, 0.0), betainc(2.0, 3.0, 1.0)), (0.0, 1.0));
+        assert!(betainc(-1.0, 3.0, 0.5).is_nan() && betainc(1.0, 3.0, 1.5).is_nan());
+    }
 
     #[test]
     fn elliptic_integrals_match_known_values() {
