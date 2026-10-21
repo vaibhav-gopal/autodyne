@@ -1,3 +1,7 @@
+"""autodyne.flux from Python: traced functions matching NumPy at full precision, gradients, errors
+propagating out of traces, scans of filters, fitting with the STFT loss, programs on a backend, and
+complex spectra with checkpointing."""
+
 import os
 
 import numpy as np

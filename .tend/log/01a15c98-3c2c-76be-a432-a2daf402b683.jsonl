@@ -1,0 +1,5 @@
+{"batch":"01a15c98-3c2c-76be-a432-a2daf402b683","after":"01a15c97-3531-72d3-bc04-63696db2b87a","author":"agent:claude-code","at":1792554843180,"message":"These four no_std decisions went stale when the node's intent gained the lean build; read against the new intent, each still holds as written (float maths through FloatMath, what changes without std, BigFloat's precision, the dsp feature)."}
+{"op":"journal.reaffirm","id":"01a10e56-83b4-750c-8c8f-6c3564742e00","rests_on":[{"of":"design:autodyne / no_std#intent","at":"fp:ee155c924b54","checked":"2026-10-21"}]}
+{"op":"journal.reaffirm","id":"01a10e56-83b4-750c-8c8f-6c36480d0f21","rests_on":[{"of":"design:autodyne / no_std#intent","at":"fp:ee155c924b54","checked":"2026-10-21"}]}
+{"op":"journal.reaffirm","id":"01a119c6-4ff5-77dd-8d99-d7e2dbc97cdc","rests_on":[{"of":"design:autodyne / no_std#intent","at":"fp:ee155c924b54","checked":"2026-10-21"}]}
+{"op":"journal.reaffirm","id":"01a15b66-77d3-708f-8d64-bf70f2d5d5d7","rests_on":[{"of":"design:autodyne / no_std#intent","at":"fp:ee155c924b54","checked":"2026-10-21"}]}

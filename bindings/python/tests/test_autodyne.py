@@ -1,3 +1,7 @@
+"""The bindings against NumPy and SciPy: results as NumPy arrays that own their memory and keep the
+input's layout, inputs read in place, dtype promotion as NumPy's, and the numerics matching NumPy /
+SciPy (sums, filters, FFTs, DLPack export)."""
+
 import gc
 
 import numpy as np

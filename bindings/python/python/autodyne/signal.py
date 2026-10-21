@@ -262,7 +262,7 @@ def peak_prominences(x, peaks, wlen=None):
 def peak_widths(x, peaks, rel_height=0.5, prominence_data=None, wlen=None):
     """``(widths, width_heights, left_ips, right_ips)``, like ``scipy.signal.peak_widths``."""
     if prominence_data is not None:
-        raise NotImplementedError("prominence_data is computed from x and wlen")
+        raise NotImplementedError("prominence_data is unsupported: only x and wlen give the prominences")  # deliberate
     return _native.peak_widths(_data(x), [int(p) for p in peaks], rel_height, None if wlen is None else int(_np.ceil(wlen)))
 
 

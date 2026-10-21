@@ -1,3 +1,6 @@
+"""autodyne.gpu from Python against NumPy: arithmetic and functions, views and sums, FIR filtering,
+conversions, matrix products and FFTs, in f32 and f64 (skipped without a GPU adapter)."""
+
 import numpy as np
 import pytest
 

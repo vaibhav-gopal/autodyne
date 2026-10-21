@@ -9,7 +9,7 @@
 //! 2 ulp of std's), and `FloatMath` supplies the rest. The units' own trait impls call it by name
 //! (`FloatMath::sqrt(&x)`), which is unambiguous on both paths and never recurses into the impl.
 //!
-//! tend: no_std
+//! tend: Core / units
 
 /// The `std`-only float methods, for `f32` and `f64`.
 // std's whole set, so call sites never miss one; each build uses only some

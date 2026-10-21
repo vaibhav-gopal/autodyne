@@ -3,7 +3,7 @@
 //! of them is kept; the others are dropped, so initializers must be pure. Used for lookup tables
 //! (ziggurat layers, interpolation kernels, shared wavetables).
 //!
-//! tend: no_std
+//! tend: Core / units
 
 // its users are all DSP modules; the lean build (no `dsp`) keeps it, tested, for the next one
 #![cfg_attr(not(feature = "dsp"), allow(dead_code))]

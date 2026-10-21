@@ -1,0 +1,22 @@
+{"batch":"01a15c97-3531-72d3-bc04-63696db2b87a","after":"01a15c5d-b292-7388-9b51-45bce13b650b","author":"agent:claude-code","at":1792554775857,"message":"Design cleanup the user asked for: units' two no-std helpers owned by units (their code is units', the no_std specifier keeps the rule), and the 17 unowned files (examples, integration tests, gemm, test helpers) linked to the nodes they serve."}
+{"op":"node.code.unlink","node":"01a10a6a-bc9d-7180-a558-83bb8873c3e5","link":{"kind":"path","value":"src/units/float_math.rs"}}
+{"op":"node.code.unlink","node":"01a10a6a-bc9d-7180-a558-83bb8873c3e5","link":{"kind":"path","value":"src/units/lazy.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-294e09ee996e","link":{"kind":"path","value":"src/units/float_math.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-294e09ee996e","link":{"kind":"path","value":"src/units/lazy.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-295a0d10fe2f","link":{"kind":"path","value":"src/gemm/mod.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-295a0d10fe2f","link":{"kind":"path","value":"src/gemm/small.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-294d037660a7","link":{"kind":"path","value":"src/testing.rs"}}
+{"op":"node.code.link","node":"01a109e3-1684-7524-a84a-7bffca3db947","link":{"kind":"path","value":"tests/no_alloc.rs"}}
+{"op":"node.code.link","node":"01a109e3-1684-7524-a84a-7bffca3db947","link":{"kind":"path","value":"tests/scipy_parity.rs"}}
+{"op":"node.code.link","node":"01a109e3-1684-7524-a84a-7bffca3db947","link":{"kind":"path","value":"tests/scipy/gen_fixtures.py"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-29751e318964","link":{"kind":"path","value":"tests/flux.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-29751e318964","link":{"kind":"path","value":"examples/flux_programs.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-2966b560eeff","link":{"kind":"path","value":"examples/fm_radio.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-295070fe8a8c","link":{"kind":"path","value":"examples/interop.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-296771b56b2e","link":{"kind":"path","value":"examples/effects.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-296771b56b2e","link":{"kind":"path","value":"examples/host.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-296771b56b2e","link":{"kind":"path","value":"examples/live.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-296771b56b2e","link":{"kind":"path","value":"examples/simple.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-296771b56b2e","link":{"kind":"path","value":"examples/tone.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-296fc23bb437","link":{"kind":"path","value":"examples/reverb.rs"}}
+{"op":"node.code.link","node":"01a109e4-7085-7026-b3c7-2971e71fb64e","link":{"kind":"path","value":"examples/sampler.rs"}}
