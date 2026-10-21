@@ -23,8 +23,9 @@ accepted = [
 # only code that ends up in a product: not tests, examples, benchmarks or build scripts' tools
 ignore-dev-dependencies = true
 ignore-build-dependencies = true
-# our own crates (publish = false) are not third-party
-private = { ignore = true }
+# our own crates are not third-party: the unpublished ones (publish = false) and autodyne, published
+# only to crates.io (publish = ["crates-io"], which makes it private to cargo-about)
+private = { ignore = true, registries = ["crates-io"] }
 
 # the platforms we ship on
 targets = [

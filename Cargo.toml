@@ -2,11 +2,21 @@
 name = "autodyne"
 version = "0.1.0"
 edition = "2021"
-description = "DSP and numerical library: signals, filters, spectral, dynamics, reverb, synthesis, runtime-typed buffers and parameters"
+description = "Numerics for signals, processes and systems: NumPy / SciPy-style arrays, FFTs, filters, linear algebra and statistics, real-time audio DSP, small geometry and SIMD lanes, differentiable programs; no_std capable"
 license = "GPL-3.0-only OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0"
-# not on crates.io (yet); also keeps it out of the third-party notices (about.toml)
-publish = false
 repository = "https://github.com/vaibhav-gopal/autodyne"
+# crates.io only, named so cargo-about treats autodyne as our own crate, not a third party (about.toml)
+publish = ["crates-io"]
+readme = "README.md"
+keywords = ["dsp", "audio", "signal-processing", "numerics", "simd"]
+categories = ["multimedia::audio", "science", "mathematics", "no-std"]
+# what a user of the library needs: the sources, the README and the license texts (tests, examples,
+# benchmarks and the design stay in the repository)
+include = ["/src/**/*.rs", "/README.md", "/LICENSE.md", "/LICENSES/*", "/CONTACT.md", "/SECURITY.md"]
+
+[package.metadata.docs.rs]
+# every optional module documented (gpu and flux build on docs.rs; nothing runs there)
+features = ["ndarray", "bytemuck", "flux", "jit", "gpu"]
 
 [dependencies]
 cranelift-codegen = { version = "0.136", optional = true }

@@ -1,0 +1,2 @@
+{"batch":"01a15c35-c4ce-740f-91a9-bcc1fd729965","after":"01a15bac-cc58-7698-a857-435cd75539ca","author":"agent:claude-code","at":1792548390094,"message":"Both remaining pieces resolved: vector square roots without std in the rasterizer (done), and the dot kernel's AVX-512 copy measured and declined (no gain on this CPU; reopenable with the kept timing test). (proposal 01a15bac-eee8-704f-9ed9-89f379723579, proposed by agent:claude-code, accepted by user)"}
+{"op":"node.status","id":"01a10a63-7b9e-7190-9274-80ca5799b895","status":"done"}

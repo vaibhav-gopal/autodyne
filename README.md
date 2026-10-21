@@ -1,5 +1,18 @@
 # Autodyne - DSP and Numerical Library
 
+Numerics for signals, processes and systems in Rust, built to replace and outperform NumPy / SciPy, with
+real-time audio DSP, small geometry and SIMD lanes, and differentiable programs (flux). Every speed claim
+below is a benchmark against the reference library on the same machine, with results checked first.
+
+```toml
+[dependencies]
+autodyne = "0.1"                                             # everything: std, the DSP modules, FFT and linear algebra
+# autodyne = { version = "0.1", default-features = false }   # no_std and lean: units, simd and geometry only
+```
+
+Licensed under GPL-3.0-only, or the royalty-free license for closed-source applications within its
+conditions, or a commercial agreement: see [LICENSE.md](LICENSE.md).
+
 ## Goals
 - should be as performant as possible
   - SIMD/vectorization
