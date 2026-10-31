@@ -1,12 +1,12 @@
 ---
 name: ask-project
-description: Ask another of the user's projects for something it should own - a question answered, a feature, a fix, a change - as a Tend graft, after checking that project's plan for what already covers it (planned, done, retired, declined). Use when you need to know something about another repo, or the work you need belongs there, instead of editing that repo or working around it.
+description: Ask another of the user's projects for something it should own - a question answered, a feature, a fix, a change - as a tend graft, after checking that project's plan for what already covers it (planned, done, retired, declined). Use when you need to know something about another repo, or the work you need belongs there, instead of editing that repo or working around it.
 ---
 
 # Ask another project
 
 **A question** (how something works there, what it decided, whether it has something): first read what
-that project's Tend holds with `graft_look {to, query}` (its design, decisions and earlier answers). If
+that project's tend holds with `graft_look {to, query}` (its design, decisions and earlier answers). If
 that doesn't answer it, file a graft of kind `question` (step 2): its agents answer it in a line, and the answer comes back as
 news. No work is asked of anyone, so don't wait on it as you would on an ask for work.
 

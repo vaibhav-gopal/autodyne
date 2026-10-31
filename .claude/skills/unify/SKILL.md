@@ -6,7 +6,7 @@ description: Simplify recently changed code and make it consistent with how the 
 # Unify: simpler code, and one way of doing each thing
 
 Adapted from Anthropic's `code-simplifier` (claude-plugins-official, Apache-2.0). Consistency across the
-whole repo is added with Tend: the design tree says what code belongs together, the toolbox says which
+whole repo is added with tend: the design tree says what code belongs together, the toolbox says which
 way is accepted, and the code graph and history say how the code does it now and which way it's moving.
 
 ## Scope
@@ -41,7 +41,7 @@ Name the recurring concerns the code in scope touches. Common ones:
 - how modules and files are organized;
 - tests: helpers, naming, fixtures.
 
-## 3. How the repo does each, with Tend
+## 3. How the repo does each, with tend
 
 The accepted way first:
 
@@ -53,11 +53,12 @@ The accepted way first:
 
 Then the code:
 
-- `tend_find`, `code_refs` and `code_symbol` for the concern's markers (an error crate, `unwrap`,
+- `tend_find`, and your own search (grep), for the concern's markers (an error crate, `unwrap`,
   `map_err`, a logger, `println!`, a config loader).
 - `code_outline` of a few files that are typical of the repo.
-- `code_graph {node}` to see which parts of the design do it which way.
-- `code_history` for when each way appeared. The newer one is the way the repo is moving.
+- `design_impact {node, graph: true}` to see which parts of the design do it which way.
+- `design_history` with the file or symbol, for when each way appeared. The newer one is the way the repo
+  is moving.
 
 Write it down as a table: each variant, the files and nodes using it, how many, its newest use, and
 whether a toolbox pattern, rule or decision names it.

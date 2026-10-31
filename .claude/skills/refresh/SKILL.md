@@ -1,11 +1,11 @@
 ---
 name: refresh
-description: Find what no longer holds in a Tend project - document sections, decisions, readings, scores and test results resting on ground that moved, and baseline changes that affect this repo - and bring it up to date in order, cheapest first. Use when tend_basis or the session context reports stale ground, after a large change, or when asked whether the docs or decisions are still current.
+description: Find what no longer holds in a tend project - document sections, decisions, readings, scores and test results resting on ground that moved, and baseline changes that affect this repo - and bring it up to date in order, cheapest first. Use when tend_basis or the session context reports stale ground, after a large change, or when asked whether the docs or decisions are still current.
 ---
 
 # Refresh what's stale
 
-Refreshing is refine's stale-knowledge part: for one part of the design, `design_refine` lists what under
+Refreshing is refine's stale-knowledge part: for one part of the design, `impl_score` with `refine: true` lists what under
 it is stale with the rest of what would bring it level with its code. For the whole project:
 
 1. `tend_basis` with `order: true`: the remake list, everything not fresh in the order to make it again
@@ -14,7 +14,7 @@ it is stale with the rest of what would bring it level with its code. For the wh
 2. Take them in that order:
    - **run:** a measured score with `impl_score`. A check result is the user's to rerun
      (`tend code checks <node> --run`): say so.
-   - **agent:** a reading (`doc_reading`, then `doc_check`), a judged score (`impl_score {fresh: true}`),
+   - **agent:** a reading (`doc_reading`, then `doc_reading` with `check: true`), a judged score (`impl_score {fresh: true}`),
      a design document written again from `doc_write`'s outline. These spend a fresh model's tokens:
      ask first when there are many.
    - **person:** a decision resting on what moved. Read what moved (`tend_basis {address}` gives the chain),

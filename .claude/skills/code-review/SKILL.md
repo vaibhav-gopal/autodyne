@@ -1,12 +1,12 @@
 ---
 name: code-review
-description: Review a change (a pull request, a branch, or what's uncommitted) for real bugs and for drift from the project's design, using Tend - the rules and decisions in force for the code it touches, the missteps made there before, the toolbox, the tests that reach it, and what the change leaves stale. Use when asked to review code or a PR, or before landing a change.
+description: Review a change (a pull request, a branch, or what's uncommitted) for real bugs and for drift from the project's design, using tend - the rules and decisions in force for the code it touches, the missteps made there before, the toolbox, the tests that reach it, and what the change leaves stale. Use when asked to review code or a PR, or before landing a change.
 ---
 
-# Code review, with Tend
+# Code review, with tend
 
 Adapted from Anthropic's `code-review` plugin (claude-plugins-official, Apache-2.0): the same parallel
-reviewers and confidence scoring, with the project's design (through Tend's MCP tools) in place of
+reviewers and confidence scoring, with the project's design (through tend's MCP tools) in place of
 CLAUDE.md files.
 
 Make a todo list first. Don't build, typecheck or run tests: CI does that.
@@ -19,14 +19,14 @@ Make a todo list first. Don't build, typecheck or run tests: CI does that.
 
 ## 2. What the design says about it (once, before any reviewer)
 
-For each changed file, from Tend:
+For each changed file, from tend:
 
 - `design_impact {file}`: the nodes that own it, what depends on them, the rules constraining a change,
   and the decisions in force.
 - `design_rules {file}`, with the node each rule comes from.
 - `design_journal {node, kind: "misstep"}` for each owning node: what went wrong here before.
 - `design_node {node}` for each owning node: its checks, and whether each reaches its code.
-- For each new or changed dependency: `env_dependency {package}` (used elsewhere already? its license
+- For each new or changed dependency: `env_toolbox {package}` (used elsewhere already? its license
   allowed?) and `env_toolbox {name}` (approved, or to avoid, and what instead).
 - `tend_conduct` for how this project works.
 
@@ -42,12 +42,12 @@ with why each was flagged and the evidence: a line, and a rule, decision or comm
    superseding it. Quote the rule or decision.
 2. **Bugs:** a shallow scan of the diff for real bugs. Stay within the changes. Look for bugs that will
    bite, not nitpicks.
-3. **History:** `code_history` for the touched files and symbols, and the owning nodes' missteps. Is a
+3. **History:** `design_history` with the touched files and symbols, and the owning nodes' missteps. Is a
    past mistake being made again? Is something being undone that was done for a reason?
 4. **Toolbox and dependencies:** new imports against the toolbox (`avoid`, `instead_of`), and licenses
    against the policy.
 5. **Documentation:** the changed symbols' doc comments still say what the code does, `tend:` tags still
-   resolve and fit, and changed behavior a document describes is reflected (`code_docs`).
+   resolve and fit, and changed behavior a document describes is reflected (`code_outline` with `docs`).
 6. **Tests and freshness:** new behavior in a node that has tests but no test reaching it, and tests
    linked to a node that don't reach its code. Also what the change leaves stale: `tend_basis` on each
    owning node, and the document sections and decisions resting on them.
@@ -72,7 +72,7 @@ Give it this rubric word for word:
   issue, that will happen frequently in practice. The evidence directly confirms this.
 
 For an issue flagged by the design, the scorer checks that the rule or decision really says it, by
-reading it through Tend (`design_rules`, `tend_explore journal:<id>`).
+reading it through tend (`design_rules`, `tend_explore journal:<id>`).
 
 Keep the issues scoring 80 or more. For a pull request, check it's still eligible (step 1).
 

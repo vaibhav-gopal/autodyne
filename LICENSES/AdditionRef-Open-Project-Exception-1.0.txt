@@ -1,6 +1,6 @@
 # Open Project Exception 1.0
 
-> **DRAFT.** Not yet reviewed by a lawyer. Don't rely on it until it has been.
+> **Provisional.** Accepted for now without a lawyer's review.
 
 Additional permission under section 7 of the GNU General Public License, version 3 (the "GPL").
 
@@ -37,7 +37,9 @@ must be provided as the GPL requires.
 
 ## 3. Conditions
 
-The permission in section 2 applies only while all of these hold.
+The permission in section 2 applies only while all of these hold. They bind only someone relying on that
+permission, and never restrict anything the GPL alone allows: running the Library, and communicating with
+it over a network or by any other means the GPL permits, need no condition here.
 
 (a) **Every part is open.** Every part of the Combined Work other than the Library is licensed under one
 or more Open Source Licenses. Its complete corresponding source is available to every recipient of the
@@ -63,8 +65,8 @@ includes the Library, that the Library is licensed under the GPL with this excep
 Library's source can be obtained. Nothing in the Combined Work states or implies that the Library is
 licensed under the Open Project's licenses.
 
-(f) **Any form of combination.** These conditions apply to every means of combination named in section 1.
-Choosing one means over another doesn't take a work outside them.
+(f) **Any form of combination.** For a work relying on this permission, these conditions apply to every
+means of combination named in section 1. Choosing one means over another doesn't take it outside them.
 
 ## 4. Nothing else
 

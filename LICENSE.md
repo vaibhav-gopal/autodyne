@@ -6,16 +6,16 @@ autodyne is copyright © 2025 Vaibhav Gopal. You may use it under any one of the
 fits what you're doing:
 
 - **GNU General Public License v3.0 only, with the Open Project Exception 1.0** (`GPL-3.0-only WITH AdditionRef-Open-Project-Exception-1.0`): For open source: use, change and share it under the GPL. The exception lets other open-source projects combine it with code under any OSI-approved license without relicensing that code under the GPL.
-- **Royalty-Free License 1.0** (`LicenseRef-Royalty-Free-1.0`): For closed-source applications, free of charge: while your revenue is under USD 1,000,000, with attribution, not redistributed as an SDK, engine or toolkit, and not on embedded devices.
-- **Commercial License** (`LicenseRef-Commercial-1.0`): For everything else (above the revenue limit, without attribution, SDKs and engines, embedded devices, support and warranties): a written agreement with the licensor. Contact Vaibhav Gopal at vabsgop@gmail.com or vabsgop@proton.me, with the subject "[autodyne] Commercial license: <your company or product>".
+- **Royalty-Free License 1.0** (`LicenseRef-Royalty-Free-1.0`): For closed-source applications, free of charge: while your revenue is under USD 1,000,000 and your funding under USD 3,000,000, with attribution, not redistributed as an SDK, engine or toolkit, and not on embedded devices.
+- **Commercial License** (`LicenseRef-Commercial-1.0`): For everything else (above the revenue or funding limit, without attribution, SDKs and engines, embedded devices, support and warranties): a written agreement with the licensor. Contact Vaibhav Gopal at vabsgop@gmail.com or vabsgop@proton.me, with the subject "[autodyne] Commercial license: <your company or product>".
 
 As an SPDX expression: `GPL-3.0-only WITH AdditionRef-Open-Project-Exception-1.0 OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0`. The full texts are in [LICENSES/](LICENSES/).
 
-> **Draft:** Open Project Exception 1.0, Royalty-Free License 1.0 and Commercial License have not yet been reviewed by a lawyer.
+> **Provisional:** Open Project Exception 1.0, Royalty-Free License 1.0 and Commercial License have been accepted for now without a lawyer's review.
 
 ## Contributing
 
-> **DRAFT.** These terms are not yet reviewed by a lawyer.
+> **Provisional.** These terms are accepted for now without a lawyer's review.
 
 By submitting a contribution to autodyne (a patch, a pull request, or any other material), you agree to
 these terms.
@@ -25,7 +25,8 @@ these terms.
    license autodyne is offered under, and in their own products.
 2. **Origin.** You certify the Developer Certificate of Origin 1.1 (below) for your contribution. To do
    that, add a line `Signed-off-by: Your Name <you@example.com>` to each commit (`git commit -s`), using
-   the name and email of the commit's author.
+   the name and email of the commit's author. Where the DCO speaks of "the open source license indicated
+   in the file", for a contribution here that license is MIT-0, as point 1 says.
 3. **Patents.** You grant Vaibhav Gopal, and everyone who receives software distributed by Vaibhav Gopal, a
    patent license. It's perpetual, worldwide, non-exclusive, no-charge, royalty-free and irrevocable,
    except as this section says. It lets them make, have made, use, offer to sell, sell, import and

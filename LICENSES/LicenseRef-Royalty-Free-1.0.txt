@@ -1,6 +1,6 @@
 # Royalty-Free License 1.0
 
-> **DRAFT.** Not yet reviewed by a lawyer. Don't rely on it until it has been.
+> **Provisional.** Accepted for now without a lawyer's review.
 
 Vaibhav Gopal (the "Licensor") licenses autodyne (the "Software") to you on these terms. This is one of
 the licenses the Software is offered under, and you may use it under any of them. This one allows use in
@@ -14,8 +14,10 @@ offers a commercial license.
   means owning more than half of the voting interests, or having the power to direct its management.
 - **Application**: a software product made available to end users, whose value to them is its own
   functionality, and into which the Software is integrated as a component.
-- **Revenue**: the gross revenue and funding (investment, grants and donations included) that You and all
-  your Affiliates received in the preceding twelve months, from any source.
+- **Revenue**: the gross revenue that You and all your Affiliates received in the preceding twelve months,
+  from any source.
+- **Funding**: the money You and all your Affiliates raised in the preceding twelve months as investment
+  (equity, convertible instruments or loans from investors), grants or donations.
 - **Embedded Device**: hardware sold, leased or provided with the Software installed, or for it to be
   installed on, where the Software runs on the device. Examples are consumer electronics, appliances,
   vehicles, kiosks and industrial controllers. General-purpose desktop computers, laptops, tablets and
@@ -30,15 +32,19 @@ to use, copy and modify the Software. You may also distribute it as part of Appl
 and, if you choose, in source form. Each Application may be under any terms you choose, closed-source
 terms included.
 
+The end users of an Application may use the Software as part of it, under the Application's terms. This
+license gives them that right and asks nothing further of them.
+
 ## 3. Conditions
 
-(a) **Revenue limit.** Your Revenue doesn't exceed USD 1,000,000. Once it does, this license continues
-for 90 days. Within that time, You either obtain a commercial license or stop distributing new copies.
+(a) **Size limits.** Your Revenue doesn't exceed USD 1,000,000, and your Funding doesn't exceed
+USD 3,000,000. Once either does, this license continues for 90 days. Within that time, You either
+obtain a commercial license or stop distributing new copies.
 
 (b) **Applications only.** You distribute the Software only as part of an Application. You may not
 distribute it, or a modified version, on its own. Nor may you distribute it in a software development
 kit, library, framework, engine, toolkit or platform that others build software with, whether or not that
-exposes the Software's interfaces. You may not offer a Competing Product.
+exposes the Software's interfaces. No Application may be a Competing Product.
 
 (c) **No Embedded Devices.** Distribution on or for Embedded Devices isn't covered. The Licensor licenses
 it commercially, with royalties per device where they apply.
@@ -81,3 +87,12 @@ DEALINGS IN THE SOFTWARE.
 
 This license grants no rights in the Licensor's names or trademarks, except to give the attribution it
 requires.
+
+## 9. Severability
+
+If a court finds any part of this license unenforceable, that part is enforced as far as it can be, and the
+rest of the license stays in effect.
+
+## 10. Governing law
+
+This license is governed by the laws of the Province of Ontario and the federal laws of Canada that apply there.

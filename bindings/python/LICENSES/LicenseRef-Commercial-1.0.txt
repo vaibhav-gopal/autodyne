@@ -1,0 +1,11 @@
+# Commercial License
+
+> **Provisional.** Accepted for now without a lawyer's review. The agreement it refers to is reviewed by a
+> lawyer before anyone signs it.
+
+autodyne is available under a commercial license from Vaibhav Gopal (the "Licensor"). It covers uses
+that its other licenses don't. Examples are closed-source products beyond the royalty-free license's
+conditions, redistribution in an SDK, engine or toolkit, embedded devices, and support or warranties.
+
+The terms are those of a written agreement signed with the Licensor. Nothing is licensed under this
+identifier without one. To ask for one, contact Vaibhav Gopal at vabsgop@gmail.com or vabsgop@proton.me, with the subject "[autodyne] Commercial license: <your company or product>".

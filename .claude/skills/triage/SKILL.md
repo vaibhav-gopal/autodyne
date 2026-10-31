@@ -1,6 +1,6 @@
 ---
 name: triage
-description: Answer what other projects have asked of this one (Tend grafts) - all of them together, grouped by need so one design serves every asker, answered with the node or todo that carries it, or declined with why. Use when the session context or graft_list shows open grafts, or when asked to go through requests from other projects.
+description: Answer what other projects have asked of this one (tend grafts) - all of them together, grouped by need so one design serves every asker, answered with the node or todo that carries it, or declined with why. Use when the session context or graft_list shows open grafts, or when asked to go through requests from other projects.
 ---
 
 # Triage grafts

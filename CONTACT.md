@@ -11,7 +11,7 @@ Write to vabsgop@gmail.com or vabsgop@proton.me about autodyne, with one of thes
 
 Bugs and feature requests go in the repository's issues. Elsewhere:
 
-- [website](https://vaibhavgopal.pages.dev)
+- [website](https://vaibhavgopal.dev)
 - [github](https://github.com/vaibhav-gopal)
 - [linkedin](https://www.linkedin.com/in/vaibhav-gopal/)
 - [instagram](https://www.instagram.com/alawngnome/)
