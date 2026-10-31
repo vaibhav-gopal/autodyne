@@ -10,7 +10,7 @@ reads: run it). `tend adopt` itself is the user's to run: it takes tend's steps 
 theirs, with its command.
 
 1. **Where it stands:** `tend adopt --check`. The steps before refining aren't yours: the trust steps
-   (`tend init`, the hub signing its history, rendering the MCP server and hooks, passkeys) and the user's
+   (`tend init`, the hub signing its history, rendering the MCP server and hooks) and the user's
    choices (the baseline and its profiles, the license, the code's scope for a large repo). Name the one it
    stops at, with its command, and wait. The first draft (a part per folder of unowned code, filed as a
    proposal) and the documents (the repo's Markdown held where it is, its TODO list made todos) are tend's:

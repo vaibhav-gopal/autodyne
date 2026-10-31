@@ -22,6 +22,15 @@
   versions without instructions; system tools come only from version managers, never ad-hoc installers
   (which ones, and how on each machine: the toolbox and `machines/`). Prefer a dev shell where the
   project has one.
+- **Projects meet only through contracts.** Every arrow between two of your repos is one of six, and
+  crosses a pin. **Depend:** a library, under semantic versions. **Extend:** the baseline or tend, by
+  release. **Render:** files the baseline writes, changed only by rendering again. **Manifest:** how an
+  app is built and what it needs, never where it runs. **Export:** what a system publishes; read that,
+  never its input files, parse it strictly, and check the names you use against it. **Interface:** one
+  running app's contract with another, a Weft schema checked against its released history. Asking
+  another project for something is a graft, not a contract. How projects are built is the baseline's;
+  what runs where (the substrate, machines and placement) is the estate's, which thalam observes. The
+  whole model is the baseline's document `repo-model`.
 - **Secrets never live in repos.** They come from the secret backends (Proton Pass, the OS keychain) at run
   time.
 - **The design is tracked.** Where a feature belongs, the rules that apply, and the decisions and missteps
@@ -50,8 +59,7 @@ writes it again.
   dropped goes in with the measurement that dropped it, so nobody tries it again blind.
 - **Trust is the user's.** Never accept your own proposals, grant yourself trust, or edit what decides it
   (`.mcp.json`, agent settings, hooks): say what you'd change and let the user do it. The same goes for
-  `tend init`, installing hooks and registering passkeys. A tend command that changes the design signs as
-  whoever runs it.
+  `tend init` and installing hooks. A tend command that changes the design signs as whoever runs it.
 - **Document code for the design.** A module's or a symbol's doc comment says what it's for; where it
   carries a design node, a line `tend: <node path>` says which. After implementing, `impl_score` for that
   node, and fix what it finds missing (links, documentation, tests, or the design).
