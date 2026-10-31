@@ -1,0 +1,4 @@
+{"batch":"01a193f5-d3bf-75d8-bb9a-ed52e08990a4","author":"agent:claude-code","at":1793483723711,"message":"read bench/linalg/RESULTS.md"}
+{"op":"doc.create","title":"Linear algebra across languages and libraries","kind":"written","source":"bench/linalg/RESULTS.md"}
+{"op":"section.add","id":"01a193f5-d3bf-75d8-bb9a-ed51c88d2fc2","parent":null,"index":0,"title":"faer's phases"}
+{"op":"doc.made_from","basis":[{"of":"bench/linalg/RESULTS.md","at":"0cd2478227e347146a2afacbf81e2923a90445e7","checked":"2026-10-31"}]}

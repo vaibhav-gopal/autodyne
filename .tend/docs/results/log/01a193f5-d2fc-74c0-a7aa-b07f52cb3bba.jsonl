@@ -1,0 +1,3 @@
+{"batch":"01a193f5-d2fc-74c0-a7aa-b07f52cb3bba","author":"agent:claude-code","at":1793483723516,"message":"read bench/flux/RESULTS.md"}
+{"op":"doc.create","title":"flux against JAX on the same XLA","kind":"written","source":"bench/flux/RESULTS.md"}
+{"op":"doc.made_from","basis":[{"of":"bench/flux/RESULTS.md","at":"0cd2478227e347146a2afacbf81e2923a90445e7","checked":"2026-10-31"}]}

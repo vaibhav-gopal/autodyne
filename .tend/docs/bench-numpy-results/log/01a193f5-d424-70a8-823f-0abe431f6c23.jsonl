@@ -1,0 +1,3 @@
+{"batch":"01a193f5-d424-70a8-823f-0abe431f6c23","author":"agent:claude-code","at":1793483723812,"message":"read bench/numpy/RESULTS.md"}
+{"op":"doc.create","title":"autodyne vs NumPy / SciPy","kind":"written","source":"bench/numpy/RESULTS.md"}
+{"op":"doc.made_from","basis":[{"of":"bench/numpy/RESULTS.md","at":"575bfa2125e7634d7044405352fc5f14e8f2f1e7","checked":"2026-10-31"}]}

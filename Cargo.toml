@@ -1,6 +1,6 @@
 [package]
 name = "autodyne"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Numerics for signals, processes and systems: NumPy / SciPy-style arrays, FFTs, filters, linear algebra and statistics, real-time audio DSP, small geometry and SIMD lanes, differentiable programs; no_std capable"
 license = "GPL-3.0-only OR LicenseRef-Royalty-Free-1.0 OR LicenseRef-Commercial-1.0"

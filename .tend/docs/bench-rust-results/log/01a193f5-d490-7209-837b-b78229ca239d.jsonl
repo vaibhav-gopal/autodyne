@@ -1,0 +1,12 @@
+{"batch":"01a193f5-d490-7209-837b-b78229ca239d","author":"agent:claude-code","at":1793483723920,"message":"read bench/rust/RESULTS.md"}
+{"op":"doc.create","title":"autodyne vs ndarray, Burn and CubeCL","kind":"written","source":"bench/rust/RESULTS.md"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b7794f058666","parent":null,"index":0,"title":"a*x+b on a transposed 2000x2000 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b77ae402bdeb","parent":null,"index":1,"title":"a*x+b, 2000x2000 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b77ba23dfec8","parent":null,"index":2,"title":"column sums, 2000x2000 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b77cec339aee","parent":null,"index":3,"title":"FIR / conv1d, 16 x 48000 f32, 63 taps"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b77d4d87fc22","parent":null,"index":4,"title":"matmul 1024 x 1024 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b77e1a79fbd4","parent":null,"index":5,"title":"matrix + row (broadcast), 2000x2000 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b77fd6045688","parent":null,"index":6,"title":"rfft 256 x 4096 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b780f2a4562e","parent":null,"index":7,"title":"row sums, 2000x2000 f32"}
+{"op":"section.add","id":"01a193f5-d490-7209-837b-b781140397ca","parent":null,"index":8,"title":"sum of everything, 2000x2000 f32"}
+{"op":"doc.made_from","basis":[{"of":"bench/rust/RESULTS.md","at":"0cd2478227e347146a2afacbf81e2923a90445e7","checked":"2026-10-31"}]}
