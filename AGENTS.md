@@ -128,14 +128,14 @@ own in `.tend/conduct.md`, which only the user writes.
 - **Report honestly:** what you did, what you verified and how, what you didn't; a failing test is
   reported with its output, not worked around in silence.
 - **Commit what you say you commit:** compare the staged diff with the message before committing (an
-  edit that failed isn't done), and run the checks CI runs first (`cargo clippy -- -D warnings`, the
-  tests). The message says what changed and why, and nothing else: no agent or session trailers
-  (`Co-Authored-By` naming an agent, `Claude-Session`, "Generated with"), whatever the harness adds by
-  default. After a push that starts a CI run, watch it (`gh run watch`) before moving on. A run that
-  fails in seconds ran nothing: read its annotation. A workflow file issue means GitHub rejected the
-  workflow (an unquoted `: ` in a `run:` line did it once, and no CI ran for days); a spending limit
-  or payment notice means the Actions budget is used up. Then the local checks are the record: say so,
-  don't retry.
+  edit that failed isn't done), and run the project's checks first (`cargo clippy -- -D warnings`, the
+  tests): they're the record, since a project runs CI only when it's open to contributions. The message
+  says what changed and why, and nothing else: no agent or session trailers (`Co-Authored-By` naming an
+  agent, `Claude-Session`, "Generated with"), whatever the harness adds by default. Where a push does
+  start a CI run, watch it (`gh run watch`) before moving on. A run that fails in seconds ran nothing:
+  read its annotation. A workflow file issue means GitHub rejected the workflow (an unquoted `: ` in a
+  `run:` line did it once, and no CI ran for days); a spending limit or payment notice means the Actions
+  budget is used up. Then the local checks are the record: say so, don't retry.
 
 ### Commands on Windows (PowerShell)
 
@@ -205,16 +205,15 @@ a review the user asked for):
 - **js.bun**: JavaScript projects use bun and bunx, never npm, npx, yarn or pnpm (no npm, yarn or pnpm lockfiles).
 - **env.no-secrets**: No secrets in the repo: no .env files or private keys are committed.
 - **env.version-managers** (advice): System tools come only from version managers (rustup, uv, bun, scoop, nix); never install them ad hoc.
-- **ci.private-deps** (advice): CI reads another private repo through a read-only deploy key per dependency (secret <DEP>_DEPLOY_KEY), never a personal access token (toolbox pattern: deploy key per private dependency).
 - **git.no-agent-trailers** (advice): Commits carry no agent or session trailers (a Co-Authored-By naming an agent, Claude-Session, a 'Generated with' line): a commit is the user's. A DCO Signed-off-by stays where the project's license asks for one.
-- **ci.on-demand** (advice): A repo only you commit to runs its checks locally before every commit (the pre-commit hook, `tend code hook --install`) and its CI by hand (on: workflow_dispatch, `gh workflow run`), not on every push. A repo with other committers runs CI on their pull requests and on pushes to main; one whose releases others build on also runs it on its release tags.
+- **ci.contributors-only** (advice): Only a project open to contributions runs CI (it declares itself open, and its repo is public): on others' pull requests, and on its release tags when others build on its releases, on GitHub's hosted runners. Every other project has no workflows and GitHub Actions turned off; its checks run locally before every commit (the pre-commit hook, `tend code hook --install`). Projects are closed unless they say otherwise, and none is open yet.
 - **tests.with-features** (advice): Every feature ships with tests at the right level; they run before every commit, and in CI where the repo runs it.
 - **agents.subagents** (advice): Spawn subagents only for broad searches or truly parallel work, on the cheapest model that can do it, with tight prompts (see agents/conduct.md, Subagents).
 - **agents.fresh-checks** (advice): Work that needs checking is checked by a fresh agent given only the work and the standard, never by the agent that did it or its subagents' shared context (see agents/conduct.md, Checking work).
 - **rust.toolchain-pinned**: A Rust project pins its toolchain (and components) in rust-toolchain.toml.
 - **rust.lockfile** (warn): Binaries and workspaces commit Cargo.lock.
-- **rust.clippy-clean** (advice): Code is clippy-clean with warnings denied (cargo clippy --all-targets -- -D warnings), in CI too, under every feature set CI builds.
-- **rust.ci-reads-toolchain** (advice): CI takes the toolchain from rust-toolchain.toml (rustup reads it when cargo runs); a workflow never pins a second version beside it.
+- **rust.clippy-clean** (advice): Code is clippy-clean with warnings denied (cargo clippy --all-targets -- -D warnings), under every feature set the project builds.
+- **rust.ci-reads-toolchain** (advice): Where a project runs CI, it takes the toolchain from rust-toolchain.toml (rustup reads it when cargo runs); a workflow never pins a second version beside it, except a nightly where only nightly will do (Miri, fuzzing).
 - **rust.features-additive** (advice): Features only add: one never changes a type, a default or a behaviour another crate may rely on, since features unify across a build.
 
 ### Rust
@@ -223,17 +222,18 @@ a review the user asked for):
   project.
 - `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` before every commit.
 - Prefer pure-Rust dependencies where a crate may need to cross-compile (iOS, other targets).
-- A library that may run without std (embedded, wasm) has a default `std` feature, and CI builds it with
-  `--no-default-features --target wasm32-unknown-unknown` (the target pinned in `rust-toolchain.toml`).
-- In CI, install tools on the runner (`taiki-e/install-action`) rather than through an action's container:
-  a container's toolchain is not the one `rust-toolchain.toml` asks for. `cargo deny` checks advisories,
-  bans and sources (the scaffold's `deny.toml` and `.github/workflows/deny.yml`); licenses are tend's
-  (`tend check` judges them against the project's license combo).
-- CI builds and tests on every architecture the code has its own paths for (an arm runner beside x86,
-  wasm32 where it claims no_std), and under each feature set: a new target finds code and tests that only
-  ever built on one. Gate architecture-specific code together with its tests and constants.
+- A library that may run without std (embedded, wasm) has a default `std` feature, and its checks build it
+  with `--no-default-features --target wasm32-unknown-unknown` (the target pinned in `rust-toolchain.toml`).
+- `cargo deny --workspace check advisories bans sources` runs with the checks (the scaffold's `deny.toml`);
+  licenses are tend's (`tend check` judges them against the project's license combo).
+- Before a release, build and test on every architecture the code has its own paths for (an arm machine
+  beside x86, wasm32 where it claims no_std), and under each feature set: a new target finds code and
+  tests that only ever built on one. Gate architecture-specific code together with its tests and constants.
 - Anything that decodes bytes it doesn't trust (a parser, a wire format) gets a fuzz target (cargo-fuzz,
-  its own crate outside the workspace), and CI runs it briefly on nightly (`-max_total_time=60`).
+  its own crate outside the workspace), run briefly on nightly before a release (`-max_total_time=60`).
+- A project open to contributions runs CI (rule ci.contributors-only): tools are installed on the runner
+  (`taiki-e/install-action`) rather than through an action's container, whose toolchain isn't the one
+  `rust-toolchain.toml` asks for.
 - A heavy dependency comes in with `default-features = false` and only what's used, the package count
   measured before and after (a crate's defaults can pull in a database engine). An error type that
   features may grow is `#[non_exhaustive]`.

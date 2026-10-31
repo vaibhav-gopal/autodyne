@@ -9,7 +9,8 @@ Adapted from Anthropic's `code-review` plugin (claude-plugins-official, Apache-2
 reviewers and confidence scoring, with the project's design (through tend's MCP tools) in place of
 CLAUDE.md files.
 
-Make a todo list first. Don't build, typecheck or run tests: CI does that.
+Make a todo list first. Don't build, typecheck or run tests: the project's checks do that, before every
+commit.
 
 ## 1. What to review, and whether to
 
