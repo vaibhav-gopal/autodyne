@@ -1,8 +1,11 @@
 # RustSec advisories, banned crates and dependency sources: see deny.toml. Licenses are `tend check`'s.
+# Rendered by the vg-paradigms baseline (rust profile) every time: ask the baseline to change it.
 name: deny
 
+# Run by hand (`gh workflow run deny.yml`) and on others' pull requests, never on every push: the checks
+# run locally before each commit (rule ci.on-demand).
 on:
-  push:
+  workflow_dispatch:
   pull_request:
 
 jobs:
@@ -10,9 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          path: autodyne
+      # Each private repo this one depends on by path, beside it, through a read-only deploy key
+      # (toolbox pattern: deploy key per private dependency).
       # On the runner, not cargo-deny-action's container: its musl toolchain isn't the one
       # rust-toolchain.toml asks for.
       # the toolchain, components and targets rust-toolchain.toml pins
       - run: rustup toolchain install
+        working-directory: autodyne
       - uses: taiki-e/install-action@cargo-deny
       - run: cargo deny --workspace check advisories bans sources
+        working-directory: autodyne

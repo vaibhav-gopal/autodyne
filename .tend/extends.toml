@@ -1,6 +1,6 @@
 baseline = "vg-paradigms"
-rev = "661c906"
-release = "2026.10.6"
+rev = "bdafa40"
+release = "2026.10.7"
 profiles = ["rust"]
 modules = []
 
