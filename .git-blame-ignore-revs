@@ -1,0 +1,7 @@
+# Formatting-only commits, skipped by `git blame` (GitHub reads this file; locally:
+# git config blame.ignoreRevsFile .git-blame-ignore-revs)
+
+# cargo fmt --all, the workspace (rustfmt's defaults, applied once)
+2df1de7c24fafb87f0b3345eaec2810787395891
+# cargo fmt --all in bindings/python and bench/rust
+b6bedd51c055561a3ccbe4c8bc5dc5ce8d7229e4
