@@ -1,0 +1,8 @@
+{"batch":"01a19cc3-06d8-73fd-887c-797e2aba69b6","after":"01a10a27-6d3a-74b5-82bf-95055b09d24d","author":"user","at":1793631389400,"message":"edited by hand"}
+{"op":"block.set","id":"01a109e8-2f26-7411-8db2-b4a8c33b845a","text":"autodyne doesn't take code contributions: only its licensor commits to it, so pull requests aren't accepted\n([LICENSE.md](LICENSE.md#contributing))."}
+{"op":"part.remove","id":"01a109e8-2f26-7411-8db2-b4a981092451"}
+{"op":"part.remove","id":"01a109e8-2f26-7411-8db2-b4ab9df4e63c"}
+{"op":"part.remove","id":"01a109e8-2f26-7411-8db2-b4ad38bee093"}
+{"op":"part.remove","id":"01a109e8-2f26-7411-8db2-b4b1c53517d5"}
+{"op":"part.remove","id":"01a109e8-2f26-7411-8db2-b4b3bc1c4652"}
+{"op":"block.add","id":"01a19cc3-06d8-73fd-887c-797d5472b650","section":null,"index":1,"text":"Issues are welcome: bug reports (what you ran, what you expected, what happened, ideally a small program that\nshows it), feature requests (what you're building and what's missing), and questions. Security problems go\nprivately, as [SECURITY.md](SECURITY.md) says; anything else about autodyne, [CONTACT.md](CONTACT.md)."}

@@ -1,0 +1,2 @@
+{"batch":"01a19afe-fa8d-715e-9a54-033046352465","after":"01a19a51-3867-7162-813a-da515daeaa0f","author":"user","at":1793601763980,"message":"trusts agent:claude-code at record"}
+{"op":"trust.set","agent":"agent:claude-code","grant":{"trust":"record"}}
