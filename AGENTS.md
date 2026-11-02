@@ -9,33 +9,14 @@
   feature.
 - **Modularity.** Small modules with clear boundaries and one reason to change. A module's public surface is
   deliberate; its insides can change without touching its users.
-- **Testing is part of the feature.** Every feature ships with tests at the right level (unit, integration,
-  end-to-end, accessibility), run before every commit, and CI, where it runs, checks the same things. A
-  snapshot proves output is stable, not that it's correct: code a project generates is compiled and run in
-  its tests. A test is shown able to fail (against the unfixed code, or a deliberately broken control),
-  checks what reaches the user rather than internal state, and takes its expected values from a
-  reference, never a hunch.
+- **Testing is part of the feature** (files tests/**, benches/**, **/*_test.*, **/*.test.*; on check): `tend_conduct` with section "testing-is-part-of-the-feature"
 - **Performance is part of correctness.** A design that's right but slow isn't viable: speed is judged with
   correctness when a design is chosen, never after. It's measured, not assumed (what a person waits on: a
   response, a build after a one-line change, a check before a push), against the alternatives, and
   benchmarks keep it from regressing.
-- **Every format.** Interfaces work on desktop, tablet and phone, by keyboard and screen reader, in light and
-  dark themes.
-- **Environments are declarative.** A project pins its toolchain in the repo (`rust-toolchain.toml`,
-  `.python-version`, `packageManager` in `package.json`, `flake.nix`), so a fresh clone gets the right
-  versions without instructions; system tools come only from version managers, never ad-hoc installers
-  (which ones, and how on each machine: the toolbox and `machines/`). Prefer a dev shell where the
-  project has one.
-- **Projects meet only through contracts.** Every arrow between two of your repos is one of six, and
-  crosses a pin. **Depend:** a library, under semantic versions. **Extend:** the baseline or tend, by
-  release. **Render:** files the baseline writes, changed only by rendering again. **Manifest:** how an
-  app is built and what it needs, never where it runs. **Export:** what a system publishes; read that,
-  never its input files, parse it strictly, and check the names you use against it. **Interface:** one
-  running app's contract with another, a Weft schema checked against its released history. How projects are built is the baseline's;
-  what runs where (the substrate, machines and placement) is the estate's, which thalam observes. The
-  whole model is the baseline's document `repo-model` (`@vg-paradigms/doc:repo-model`). A question about
-  another project is answered by reading its published design and documents by address; a graft (asking
-  it, not a contract) is for work, or for what reading couldn't answer.
+- **Every format** (files **/*.svelte, **/*.tsx, **/*.jsx, **/*.css, web/**): `tend_conduct` with section "every-format"
+- **Environments are declarative** (files rust-toolchain.toml, .python-version, package.json, pyproject.toml, flake.nix; on install, dependency): `tend_conduct` with section "environments-are-declarative"
+- **Projects meet only through contracts** (files Cargo.toml, package.json, pyproject.toml, flake.nix, **/*.weft, placement.toml; on dependency, release): `tend_conduct` with section "projects-meet-only-through-contracts"
 - **Secrets never live in repos in the clear.** Two backends, by who uses the secret. Yours (accounts, keys you
   use yourself) are in Proton Pass. One a machine or service needs at run time is age-encrypted in the repo
   that declares that service, to the machines that run it, and decrypted only there (vg-deployments'
@@ -75,9 +56,11 @@ writes it again.
 - **Nothing enters a project uninvited.** A project's design changes only through its own sessions, its
   declared policies (the subscriptions in its `.tend/extends.toml`) or the user. Other projects inform it
   (news), ask it (grafts), or deliver what it subscribed to (a release: notify, propose or auto).
-- **Ask, don't reach in.** What you need from another of the user's projects (a feature, a fix, a change
-  to its code, its design or its graphs), ask for with `graft_file`: what you need and your use case,
-  after `graft_look` (it may be planned already, or an open graft asks the same: join it). Never edit
+- **Ask, don't reach in.** A question about another of the user's projects is answered by reading it by
+  address (`@<project>/<address>` in tend's read tools, at the version this project is bound to). What you
+  need from it (a feature, a fix, a change to its code, its design or its graphs), or what reading couldn't
+  answer, ask for with `graft_file`: what you need and your use case, after `graft_look` (it may be planned
+  already, or an open graft asks the same: join it). Never edit
   another repo's files, run its tools to change it or propose into its design from here, even when the fix
   is one line and the repo is checked out beside you: its own sessions make the change.
 - **tend and the baseline are projects too.** When tend lacks a feature or gets something wrong, file a
@@ -140,64 +123,15 @@ own in `.tend/conduct.md`, which only the user writes.
 
 ### Commands on Windows (PowerShell)
 
-Each of these cost real work, most of them more than once.
-
-- **Edit text with the editor tool, not PowerShell.** `-replace` ignores case (`-creplace` doesn't); a
-  one-pair `@(@('a','b'))` flattens into single characters; a separator such as `|` meets code
-  (`|w|`); `Add-Content` writes CRLF into LF files. Each has corrupted files. If a script is
-  unavoidable: build pairs with the unary comma `,@(...)`, wrap a pipeline in `@()` before indexing it
-  (one result is a string, and `[0]` its first character), and stop and diff at the first mismatch.
-- **Give .NET calls absolute paths:** `[IO.File]` resolves a relative path against the process's
-  directory, not PowerShell's location.
-- **Keep destructive steps in a command of their own, with literal paths:** the command checker
-  blocks a whole command when one part looks risky, and the edits in it never land. Confirm edits
-  landed before measuring.
-- **Wait on the one process; start long-lived ones detached.** `Start-Process -Wait` waits for the
-  whole process tree (use `-PassThru` and `WaitForExit()`). A child inherits the caller's pipes, so a
-  service started inline holds them open: start it detached, with no stdio. An agent session's
-  background tasks stop after two hours, so anything longer runs detached too.
-- **Replacing a running binary:** Windows won't overwrite a running exe, or a copy of it still
-  running. Move the current one aside under a fresh name and restore exactly that on failure; every
-  step between stopping a service and starting it again belongs inside the restore path.
-- **Logon tasks need admin rights:** start per-user programs from the Run key, with a windowless
-  launcher.
+- **Commands on Windows (PowerShell)** (on windows): `tend_conduct` with section "commands-on-windows-powershell"
 
 ### Subagents
 
-Each subagent makes its own requests, and they add up to most of the usage.
-
-- **Spawn a subagent only when it pays for itself:** a broad search over many files, or independent
-  work that can truly run in parallel. If you already know the file, symbol or command, do it
-  yourself.
-- **Never duplicate work:** once you've delegated a search, wait for its answer instead of running
-  it too. Don't spawn a subagent to re-check another's work unless the user asks (checks that need
-  a fresh agent are under Checking work).
-- **Use the cheapest model that can do the job:** a small, fast model (Haiku) for lookups, searches
-  and mechanical edits; a mid-size one (Sonnet) for routine implementation. Keep the main model for
-  design and hard debugging. A fork copies your whole context and model, so it's the most expensive
-  option.
-- **Prefer read-only search agents** (Claude Code's `Explore`) over general-purpose ones for finding
-  things.
-- **Write tight prompts:** say what to do, where to look, what to return (the conclusion, not file
-  dumps) and when to stop.
-- **No fan-outs or workflows unless the user asks**, and stop background subagents when their job is
-  done.
-- **Parallel branches only for disjoint work.** Work split across worktrees touches different files,
-  and each branch commits and records its decisions as it goes, merged before the next one starts:
-  pieces built apart in overlapping branches cost more to merge than to build.
+- **Subagents** (on agent): `tend_conduct` with section "subagents"
 
 ### Checking work
 
-An agent checking its own work finds what it meant to do, not what it did, and a subagent shares
-your session's context and tools. When a check matters (a document you generated, a reading of one,
-a review the user asked for):
-
-- **A fresh agent checks, given only what it needs.** tend runs one for a document you wrote (a
-  reading, and a check of that reading) and for how far code carries its design (a fresh score).
-  Elsewhere, a new subagent (never a fork) gets only the brief and is told not to look further.
-- **Keep it blind to the answer:** give it the work and the standard, not your reasoning or the
-  result you expect.
-- **Record what it found as it found it,** not your reading of its verdict.
+- **Checking work** (on document): `tend_conduct` with section "checking-work"
 
 ## Rules
 
@@ -205,10 +139,10 @@ a review the user asked for):
 - **env.readme** (warn): Every repo has a README that says what it is and how to run it.
 - **js.bun**: JavaScript projects use bun and bunx, never npm, npx, yarn or pnpm (no npm, yarn or pnpm lockfiles).
 - **env.no-secrets**: No secrets in the repo: no .env files or private keys are committed.
-- **deps.pinned** (advice): A dependency on another of your projects is pinned in what's committed: a released version, a git tag or a revision, never a path to a sibling checkout. To develop two projects together, override it locally and uncommitted (Cargo's `[patch]` in your own .cargo/config.toml, a flake's `--override-input`, `bun link`). The dependency is a subscription: its releases arrive as that project's subscription says, and moving the pin runs this project's checks first.
-- **ci.closed** (warn): A project closed to contributions (the default) has no CI: no workflows, and GitHub Actions turned off. Its declared tests and gates run in git hooks (tend's checks and the tests a change reaches before a commit, all of them before a push), and checks for other systems run on your own machines through Nix remote builders. A check no machine here can run is the exception: its workflow stays, with a decision in the journal that waives ci.closed and says why.
-- **checks.contract** (advice): Tests and benchmarks follow tend's check contract: its published, versioned check schema (kind, command, needs, unit), where needs come from the estate's capability vocabulary (thalam's export). Exit codes follow the automake convention: 0 passed, 1 failed, 77 skipped because it can't run here (the reason on stderr), 99 broken. Results, on request, are JUnit XML for tests and Bencher's BMF for benchmarks. A command never prompts, runs on the pinned runtime with `--locked`, and is idempotent if it changes anything; a benchmark runs on the real machine, alone, best of N, compared only with the same machine's. Gates are tend's, not the project's code.
-- **checks.commands** (advice): A project's commands come first from a proper build environment: its build tool (cargo, uv, bun) in a runtime pinned by the language's own files (rust-toolchain.toml, .python-version, packageManager). What that doesn't cover is, in order of preference: a custom CLI (the most portable, a Rust project's `cargo xtask`), idempotent shell scripts (the least effort), or Nix commands. No task runner (just, make) sits between. The project declares each check as a tend test or gate with the command it runs, which the hooks, agents, other machines and release checks run. A flake's dev shell is optional (system libraries, or a project that's Nix anyway): commands run inside it with its environment cached until flake.nix or flake.lock changes. `nix flake check` is for outputs that are Nix themselves (machine configurations, NixOS VM tests).
+- **deps.pinned** (files Cargo.toml, package.json, pyproject.toml, flake.nix; on dependency): `tend_conduct` with section "rule:deps.pinned"
+- **ci.closed** (files .github/workflows/**; on workflow): `tend_conduct` with section "rule:ci.closed"
+- **checks.contract** (files tests/**, benches/**, xtask/**, scripts/**; on check): `tend_conduct` with section "rule:checks.contract"
+- **checks.commands** (files tests/**, benches/**, xtask/**, scripts/**, flake.nix; on check): `tend_conduct` with section "rule:checks.commands"
 - **rust.toolchain-pinned**: A Rust project pins its toolchain (and components) in rust-toolchain.toml.
 - **rust.lockfile** (warn): Binaries and workspaces commit Cargo.lock.
 - **rust.clippy-clean** (advice): Code is clippy-clean with warnings denied (cargo clippy --all-targets -- -D warnings), under every feature set the project builds.
@@ -261,5 +195,6 @@ Numerics for signals, processes and systems in Rust, built to replace and outper
 - No CI: every check runs locally, the NEON paths on an aarch64 machine and Miri before a release (rule ci.contributors-only)
 - Every public item is documented (#![warn(missing_docs)]); the checks' clippy and rustdoc deny warnings.
 - Issues welcome, no code contributions
+- rustfmt with defaults, applied once in its own commit
 
 The rest of the design (every area's claims, the decisions behind them, the roadmap) is in tend: its MCP server, or `tend design`.
