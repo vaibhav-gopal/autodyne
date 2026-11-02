@@ -292,7 +292,7 @@ Every third-party dependency that ships is permissively licensed (MIT, Apache-2.
 require shipping each dependency's copyright and license text, which is automated:
 
 - **Policy:** `tend check` judges every shipping dependency's license against the three licenses (a GPL or LGPL one
-  would block the closed ones) and checks contributions' sign-offs; [cargo-deny](deny.toml) fails on a known
+  would block the closed ones); [cargo-deny](deny.toml) fails on a known
   vulnerability (RustSec) or an unexpected source. Both run with the checks before each commit.
 - **Notices:** each plugin has a `THIRD-PARTY-LICENSES.html` generated from its own dependency graph by
   [cargo-about](about.toml) (`cargo xtask notices`), regenerated before building a plugin release, and
@@ -300,6 +300,5 @@ require shipping each dependency's copyright and license text, which is automate
 - **Updates:** Dependabot opens weekly dependency update pull requests, checked locally before they're merged.
 
 ## Contributing
-Contributions are welcome, on the terms in [LICENSE.md](LICENSE.md#contributing): you license your contribution under
-MIT-0, sign off each commit under the Developer Certificate of Origin (`git commit -s`), and grant a patent license;
-see [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, feature requests and questions are welcome as issues; autodyne doesn't take code contributions, so
+pull requests aren't accepted ([CONTRIBUTING.md](CONTRIBUTING.md)).
