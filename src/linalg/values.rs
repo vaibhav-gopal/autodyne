@@ -24,12 +24,19 @@ pub(crate) struct NoConvergence;
 
 /// The eigenvalues of the symmetric tridiagonal matrix with diagonal `d` (n) and off-diagonal `e`
 /// (n - 1): ascending, into `values` (which holds the diagonal on entry).
-pub(crate) fn tridiagonal_eigenvalues(values: &mut [f64], off: &[f64]) -> Result<(), NoConvergence> {
+pub(crate) fn tridiagonal_eigenvalues(
+    values: &mut [f64],
+    off: &[f64],
+) -> Result<(), NoConvergence> {
     let n = values.len();
     if n <= 1 {
         return Ok(());
     }
-    assert_eq!(off.len(), n - 1, "tridiagonal_eigenvalues: n - 1 off-diagonal values");
+    assert_eq!(
+        off.len(),
+        n - 1,
+        "tridiagonal_eigenvalues: n - 1 off-diagonal values"
+    );
     // 1-based, as in LAPACK: d[1..=n], e[1..=n-1]
     let mut d = vec![0.0; n + 1];
     let mut e = vec![0.0; n + 1];
@@ -69,7 +76,10 @@ pub(crate) fn tridiagonal_eigenvalues(values: &mut [f64], off: &[f64]) -> Result
             continue;
         }
         // scale the block
-        let anorm = (l..=lend).map(|i| d[i].abs()).chain((l..lend).map(|i| e[i].abs())).fold(0.0, f64::max);
+        let anorm = (l..=lend)
+            .map(|i| d[i].abs())
+            .chain((l..lend).map(|i| e[i].abs()))
+            .fold(0.0, f64::max);
         if anorm == 0.0 {
             continue;
         }
@@ -153,7 +163,11 @@ pub(crate) fn tridiagonal_eigenvalues(values: &mut [f64], off: &[f64]) -> Result
                     let alpha = d[i];
                     gamma = c * (alpha - sigma) - s * oldgam;
                     d[i + 1] = oldgam + (alpha - gamma);
-                    p = if c != 0.0 { gamma * gamma / c } else { oldc * bb };
+                    p = if c != 0.0 {
+                        gamma * gamma / c
+                    } else {
+                        oldc * bb
+                    };
                     if i == l {
                         break;
                     }
@@ -223,7 +237,11 @@ pub(crate) fn tridiagonal_eigenvalues(values: &mut [f64], off: &[f64]) -> Result
                     let alpha = d[i + 1];
                     gamma = c * (alpha - sigma) - s * oldgam;
                     d[i] = oldgam + (alpha - gamma);
-                    p = if c != 0.0 { gamma * gamma / c } else { oldc * bb };
+                    p = if c != 0.0 {
+                        gamma * gamma / c
+                    } else {
+                        oldc * bb
+                    };
                 }
                 e[l - 1] = s * p;
                 d[l] = sigma + gamma;
@@ -274,12 +292,19 @@ fn lae2(a: f64, b: f64, c: f64) -> (f64, f64) {
 /// The singular values of the upper bidiagonal matrix with diagonal `d` (n) and superdiagonal `e`
 /// (n - 1): descending, into `values` (which holds the diagonal on entry). Every singular value is
 /// computed to high relative accuracy.
-pub(crate) fn bidiagonal_singular_values(values: &mut [f64], off: &[f64]) -> Result<(), NoConvergence> {
+pub(crate) fn bidiagonal_singular_values(
+    values: &mut [f64],
+    off: &[f64],
+) -> Result<(), NoConvergence> {
     let n = values.len();
     if n == 0 {
         return Ok(());
     }
-    assert_eq!(off.len(), n.saturating_sub(1), "bidiagonal_singular_values: n - 1 superdiagonal values");
+    assert_eq!(
+        off.len(),
+        n.saturating_sub(1),
+        "bidiagonal_singular_values: n - 1 superdiagonal values"
+    );
     if n == 1 {
         values[0] = values[0].abs();
         return Ok(());
@@ -320,7 +345,11 @@ fn las2(f: f64, g: f64, h: f64) -> (f64, f64) {
     let (fa, ga, ha) = (f.abs(), g.abs(), h.abs());
     let (fhmn, fhmx) = (fa.min(ha), fa.max(ha));
     if fhmn == 0.0 {
-        let smax = if fhmx == 0.0 { ga } else { fhmx.max(ga) * (1.0 + (fhmx.min(ga) / fhmx.max(ga)).powi(2)).sqrt() };
+        let smax = if fhmx == 0.0 {
+            ga
+        } else {
+            fhmx.max(ga) * (1.0 + (fhmx.min(ga) / fhmx.max(ga)).powi(2)).sqrt()
+        };
         (0.0, smax)
     } else if ga < fhmx {
         let as_ = 1.0 + fhmn / fhmx;
@@ -344,7 +373,11 @@ fn las2(f: f64, g: f64, h: f64) -> (f64, f64) {
 
 /// `min` that propagates NaN, as the IEEE path of dqds relies on to detect a failed step.
 fn nmin(a: f64, b: f64) -> f64 {
-    if a.is_nan() || b.is_nan() { f64::NAN } else { a.min(b) }
+    if a.is_nan() || b.is_nan() {
+        f64::NAN
+    } else {
+        a.min(b)
+    }
 }
 
 /// The state LAPACK's dqds routines pass to one another.
@@ -448,7 +481,9 @@ fn lasq2(n: usize, z: &mut [f64]) -> Result<(), NoConvergence> {
                 z[i4 - 2 * pp - 2] = d;
                 z[i4 - 2 * pp] = 0.0;
                 d = z[i4 + 1];
-            } else if SAFMIN * z[i4 + 1] < z[i4 - 2 * pp - 2] && SAFMIN * z[i4 - 2 * pp - 2] < z[i4 + 1] {
+            } else if SAFMIN * z[i4 + 1] < z[i4 - 2 * pp - 2]
+                && SAFMIN * z[i4 - 2 * pp - 2] < z[i4 + 1]
+            {
                 let temp = z[i4 + 1] / z[i4 - 2 * pp - 2];
                 z[i4 - 2 * pp] = z[i4 - 1] * temp;
                 d *= temp;
@@ -539,7 +574,10 @@ fn lasq2(n: usize, z: &mut [f64]) -> Result<(), NoConvergence> {
             lasq3(i0, &mut n0, z, &mut pp, &mut qd);
             pp = 1 - pp;
             // when emin is very small, check for splits
-            if pp == 0 && n0 >= i0 + 3 && (z[4 * n0] <= tol2 * qd.qmax || z[4 * n0 - 1] <= tol2 * qd.sigma) {
+            if pp == 0
+                && n0 >= i0 + 3
+                && (z[4 * n0] <= tol2 * qd.qmax || z[4 * n0 - 1] <= tol2 * qd.sigma)
+            {
                 let mut splt = i0 - 1;
                 qd.qmax = z[4 * i0 - 3];
                 let mut emin = z[4 * i0 - 1];
@@ -595,7 +633,9 @@ fn lasq3(i0: usize, n0: &mut usize, z: &mut [f64], pp: &mut usize, qd: &mut Qd) 
             true
         } else if *n0 == i0 + 1 {
             false
-        } else if z[nn - 5] > tol2 * (qd.sigma + z[nn - 3]) && z[nn - 2 * *pp - 4] > tol2 * z[nn - 7] {
+        } else if z[nn - 5] > tol2 * (qd.sigma + z[nn - 3])
+            && z[nn - 2 * *pp - 4] > tol2 * z[nn - 7]
+        {
             // E(n0 - 1) not negligible: check E(n0 - 2)
             if z[nn - 9] > tol2 * qd.sigma && z[nn - 2 * *pp - 8] > tol2 * z[nn - 11] {
                 break;
@@ -653,8 +693,12 @@ fn lasq3(i0: usize, n0: &mut usize, z: &mut [f64], pp: &mut usize, qd: &mut Qd) 
             z[4 * n0v - ppv] = z[4 * i0 - ppv];
         }
         qd.dmin2 = qd.dmin2.min(z[4 * n0v + ppv - 1]);
-        z[4 * n0v + ppv - 1] = z[4 * n0v + ppv - 1].min(z[4 * i0 + ppv - 1]).min(z[4 * i0 + ppv + 3]);
-        z[4 * n0v - ppv] = z[4 * n0v - ppv].min(z[4 * i0 - ppv]).min(z[4 * i0 - ppv + 4]);
+        z[4 * n0v + ppv - 1] = z[4 * n0v + ppv - 1]
+            .min(z[4 * i0 + ppv - 1])
+            .min(z[4 * i0 + ppv + 3]);
+        z[4 * n0v - ppv] = z[4 * n0v - ppv]
+            .min(z[4 * i0 - ppv])
+            .min(z[4 * i0 - ppv + 4]);
         qd.qmax = qd.qmax.max(z[4 * i0 + ppv - 3]).max(z[4 * i0 + ppv + 1]);
         qd.dmin = -0.0;
     }
@@ -666,7 +710,11 @@ fn lasq3(i0: usize, n0: &mut usize, z: &mut [f64], pp: &mut usize, qd: &mut Qd) 
         qd.iter += 1;
         if qd.dmin >= 0.0 && qd.dmin1 >= 0.0 {
             break; // success
-        } else if qd.dmin < 0.0 && qd.dmin1 > 0.0 && z[4 * (n0v - 1) - ppv] < tol * (qd.sigma + qd.dn1) && qd.dn.abs() < tol * qd.sigma {
+        } else if qd.dmin < 0.0
+            && qd.dmin1 > 0.0
+            && z[4 * (n0v - 1) - ppv] < tol * (qd.sigma + qd.dn1)
+            && qd.dn.abs() < tol * qd.sigma
+        {
             // convergence hidden by a negative dn
             z[4 * (n0v - 1) - ppv + 2] = 0.0;
             qd.dmin = 0.0;
@@ -739,7 +787,11 @@ fn lasq4(i0: usize, n0: usize, z: &[f64], pp: usize, n0in: usize, qd: &mut Qd) {
             if dmin == dn && dmin1 == dn1 {
                 // cases 2 and 3
                 let gap2 = dmin2 - a2 - dmin2 * QURTR;
-                let gap1 = if gap2 > 0.0 && gap2 > b2 { a2 - dn - (b2 / gap2) * b2 } else { a2 - dn - (b1 + b2) };
+                let gap1 = if gap2 > 0.0 && gap2 > b2 {
+                    a2 - dn - (b2 / gap2) * b2
+                } else {
+                    a2 - dn - (b1 + b2)
+                };
                 if gap1 > 0.0 && gap1 > b1 {
                     s = (dn - (b1 / gap1) * b1).max(0.5 * dmin);
                     qd.ttype = -2;
@@ -896,7 +948,11 @@ fn lasq4(i0: usize, n0: usize, z: &[f64], pp: usize, n0in: usize, qd: &mut Qd) {
             s = t;
         } else {
             // case 9
-            s = if dmin1 == dn1 { 0.5 * dmin1 } else { QURTR * dmin1 };
+            s = if dmin1 == dn1 {
+                0.5 * dmin1
+            } else {
+                QURTR * dmin1
+            };
             qd.ttype = -9;
         }
     } else if n0in == n0 + 2 {
@@ -1019,7 +1075,11 @@ fn lasq6(i0: usize, n0: usize, z: &mut [f64], pp: usize, qd: &mut Qd) {
     let mut dmin = d;
     j4 = 4 * i0;
     // (qq, ee) slots and the next (q, e) for ping (pp = 0) and pong (pp = 1)
-    let (q_out, e_in, e_out, q_next) = if pp == 0 { (2usize, 1usize, 0usize, 1usize) } else { (3, 0, 1, 2) };
+    let (q_out, e_in, e_out, q_next) = if pp == 0 {
+        (2usize, 1usize, 0usize, 1usize)
+    } else {
+        (3, 0, 1, 2)
+    };
     while j4 <= 4 * (n0 - 3) {
         let (qo, ei, eo, qn) = (j4 - q_out, j4 - e_in, j4 - e_out, j4 + q_next);
         z[qo] = d + z[ei];

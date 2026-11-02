@@ -1,7 +1,7 @@
 //! Multiband compressor.
 
-use crate::alloc_prelude::*;
 use super::Compressor;
+use crate::alloc_prelude::*;
 use crate::channels::{AudioBuffer, MultiProcessor};
 use crate::filter::{Crossover, MAX_BANDS};
 use crate::units::*;
@@ -9,19 +9,77 @@ use crate::units::*;
 /// Parameters per band: threshold, slope, attack, release, makeup, bypass.
 pub const MULTIBAND_BAND_PARAMS: usize = 6;
 pub(crate) const MULTIBAND_PARAM_IDS: [[&str; MULTIBAND_BAND_PARAMS]; MAX_BANDS] = [
-    ["band1_threshold_db", "band1_slope", "band1_attack_s", "band1_release_s", "band1_makeup_db", "band1_bypass"],
-    ["band2_threshold_db", "band2_slope", "band2_attack_s", "band2_release_s", "band2_makeup_db", "band2_bypass"],
-    ["band3_threshold_db", "band3_slope", "band3_attack_s", "band3_release_s", "band3_makeup_db", "band3_bypass"],
-    ["band4_threshold_db", "band4_slope", "band4_attack_s", "band4_release_s", "band4_makeup_db", "band4_bypass"],
+    [
+        "band1_threshold_db",
+        "band1_slope",
+        "band1_attack_s",
+        "band1_release_s",
+        "band1_makeup_db",
+        "band1_bypass",
+    ],
+    [
+        "band2_threshold_db",
+        "band2_slope",
+        "band2_attack_s",
+        "band2_release_s",
+        "band2_makeup_db",
+        "band2_bypass",
+    ],
+    [
+        "band3_threshold_db",
+        "band3_slope",
+        "band3_attack_s",
+        "band3_release_s",
+        "band3_makeup_db",
+        "band3_bypass",
+    ],
+    [
+        "band4_threshold_db",
+        "band4_slope",
+        "band4_attack_s",
+        "band4_release_s",
+        "band4_makeup_db",
+        "band4_bypass",
+    ],
 ];
 pub(crate) const MULTIBAND_PARAM_NAMES: [[&str; MULTIBAND_BAND_PARAMS]; MAX_BANDS] = [
-    ["Band 1 threshold", "Band 1 slope", "Band 1 attack", "Band 1 release", "Band 1 makeup", "Band 1 bypass"],
-    ["Band 2 threshold", "Band 2 slope", "Band 2 attack", "Band 2 release", "Band 2 makeup", "Band 2 bypass"],
-    ["Band 3 threshold", "Band 3 slope", "Band 3 attack", "Band 3 release", "Band 3 makeup", "Band 3 bypass"],
-    ["Band 4 threshold", "Band 4 slope", "Band 4 attack", "Band 4 release", "Band 4 makeup", "Band 4 bypass"],
+    [
+        "Band 1 threshold",
+        "Band 1 slope",
+        "Band 1 attack",
+        "Band 1 release",
+        "Band 1 makeup",
+        "Band 1 bypass",
+    ],
+    [
+        "Band 2 threshold",
+        "Band 2 slope",
+        "Band 2 attack",
+        "Band 2 release",
+        "Band 2 makeup",
+        "Band 2 bypass",
+    ],
+    [
+        "Band 3 threshold",
+        "Band 3 slope",
+        "Band 3 attack",
+        "Band 3 release",
+        "Band 3 makeup",
+        "Band 3 bypass",
+    ],
+    [
+        "Band 4 threshold",
+        "Band 4 slope",
+        "Band 4 attack",
+        "Band 4 release",
+        "Band 4 makeup",
+        "Band 4 bypass",
+    ],
 ];
-pub(crate) const CROSSOVER_PARAM_IDS: [&str; MAX_BANDS - 1] = ["crossover1_hz", "crossover2_hz", "crossover3_hz"];
-pub(crate) const CROSSOVER_PARAM_NAMES: [&str; MAX_BANDS - 1] = ["Crossover 1", "Crossover 2", "Crossover 3"];
+pub(crate) const CROSSOVER_PARAM_IDS: [&str; MAX_BANDS - 1] =
+    ["crossover1_hz", "crossover2_hz", "crossover3_hz"];
+pub(crate) const CROSSOVER_PARAM_NAMES: [&str; MAX_BANDS - 1] =
+    ["Crossover 1", "Crossover 2", "Crossover 3"];
 
 /// A compressor per frequency band: Linkwitz-Riley crossovers split the signal (2 to 4 bands),
 /// each band is compressed on its own (linked across channels), and the bands are summed back.
@@ -72,7 +130,9 @@ impl<T: Float> MultibandCompressor<T> {
     }
     /// Moves crossover `split` (kept a third of an octave from its neighbours).
     pub fn set_crossover_frequency(&mut self, split: usize, hz: T) {
-        self.crossovers.iter_mut().for_each(|c| c.set_frequency(split, hz));
+        self.crossovers
+            .iter_mut()
+            .for_each(|c| c.set_frequency(split, hz));
     }
     /// Band `band`'s compressor, to read or change its settings.
     pub fn band(&self, band: usize) -> &Compressor<T> {
@@ -114,14 +174,21 @@ impl<T: Float> MultibandCompressor<T> {
             }
         }
         for frame in &mut self.split {
-            let y = frame[..bands].iter().zip(&gains).fold(T::_ZERO, |acc, (&s, &g)| acc + s * g);
+            let y = frame[..bands]
+                .iter()
+                .zip(&gains)
+                .fold(T::_ZERO, |acc, (&s, &g)| acc + s * g);
             frame[0] = y;
         }
     }
 
     /// Compresses every channel of `buffer`. Panics if the channel count differs.
     pub fn process_buffer(&mut self, buffer: &mut AudioBuffer<T>) {
-        assert_eq!(buffer.channels(), self.channels(), "the buffer's channel count must match");
+        assert_eq!(
+            buffer.channels(),
+            self.channels(),
+            "the buffer's channel count must match"
+        );
         for i in 0..buffer.frames() {
             for c in 0..self.channels() {
                 self.split[c][0] = buffer.channel(c)[i];
@@ -131,11 +198,17 @@ impl<T: Float> MultibandCompressor<T> {
                 buffer.channel_mut(c)[i] = self.split[c][0];
             }
         }
-        self.crossovers.iter_mut().for_each(Crossover::flush_denormals);
+        self.crossovers
+            .iter_mut()
+            .for_each(Crossover::flush_denormals);
     }
     /// Compresses one channel. Panics unless built for one channel.
     pub fn process_mono(&mut self, block: &mut [T]) {
-        assert_eq!(self.channels(), 1, "process_mono needs a one-channel multiband compressor");
+        assert_eq!(
+            self.channels(),
+            1,
+            "process_mono needs a one-channel multiband compressor"
+        );
         for s in block {
             self.split[0][0] = *s;
             self.process_frame();
@@ -161,7 +234,9 @@ mod tests {
     const FS: f64 = 48_000.0;
 
     fn tone(freq: f64, amplitude: f64) -> Vec<f64> {
-        (0..48_000).map(|i| amplitude * (std::f64::consts::TAU * freq * i as f64 / FS).sin()).collect()
+        (0..48_000)
+            .map(|i| amplitude * (std::f64::consts::TAU * freq * i as f64 / FS).sin())
+            .collect()
     }
     fn rms_db(x: &[f64]) -> f64 {
         10.0 * (x.iter().map(|s| s * s).sum::<f64>() / x.len() as f64).log10()
@@ -199,19 +274,32 @@ mod tests {
         mb.process_mono(&mut low);
         mb.reset();
         mb.process_mono(&mut mid);
-        assert!((rms_db(&low[24_000..]) - low_in).abs() < 0.1, "the low band is untouched");
+        assert!(
+            (rms_db(&low[24_000..]) - low_in).abs() < 0.1,
+            "the low band is untouched"
+        );
         let reduction = mid_in - rms_db(&mid[24_000..]);
-        assert!(reduction > 15.0, "the mid tone is compressed by {reduction} dB");
+        assert!(
+            reduction > 15.0,
+            "the mid tone is compressed by {reduction} dB"
+        );
     }
 
     #[test]
     fn stereo_bands_are_linked() {
         let mut mb = MultibandCompressor::new(2, 2, FS);
         let mut buffer = AudioBuffer::new(2, 24_000);
-        buffer.channel_mut(0).copy_from_slice(&tone(300.0, 0.9)[..24_000]);
-        buffer.channel_mut(1).copy_from_slice(&tone(300.0, 0.09)[..24_000]);
+        buffer
+            .channel_mut(0)
+            .copy_from_slice(&tone(300.0, 0.9)[..24_000]);
+        buffer
+            .channel_mut(1)
+            .copy_from_slice(&tone(300.0, 0.09)[..24_000]);
         mb.process_buffer(&mut buffer);
         let ratio = rms_db(&buffer.channel(0)[12_000..]) - rms_db(&buffer.channel(1)[12_000..]);
-        assert!((ratio - 20.0).abs() < 0.01, "the 20 dB balance is kept: {ratio}");
+        assert!(
+            (ratio - 20.0).abs() < 0.01,
+            "the 20 dB balance is kept: {ratio}"
+        );
     }
 }

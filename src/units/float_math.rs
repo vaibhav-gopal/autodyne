@@ -101,19 +101,41 @@ macro_rules! impl_float_math {
      $atan2:ident, $sinh:ident, $cosh:ident, $tanh:ident, $asinh:ident, $acosh:ident, $atanh:ident,
      $hypot:ident) => {
         impl FloatMath for $T {
-            fn sqrt(&self) -> Self { libm::$sqrt(*self) }
-            fn cbrt(&self) -> Self { libm::$cbrt(*self) }
-            fn floor(&self) -> Self { libm::$floor(*self) }
-            fn ceil(&self) -> Self { libm::$ceil(*self) }
-            fn round(&self) -> Self { libm::$round(*self) }
-            fn round_ties_even(&self) -> Self { libm::$roundeven(*self) }
-            fn trunc(&self) -> Self { libm::$trunc(*self) }
-            fn fract(&self) -> Self { *self - libm::$trunc(*self) }
-            fn mul_add(&self, a: Self, b: Self) -> Self { libm::$fma(*self, a, b) }
+            fn sqrt(&self) -> Self {
+                libm::$sqrt(*self)
+            }
+            fn cbrt(&self) -> Self {
+                libm::$cbrt(*self)
+            }
+            fn floor(&self) -> Self {
+                libm::$floor(*self)
+            }
+            fn ceil(&self) -> Self {
+                libm::$ceil(*self)
+            }
+            fn round(&self) -> Self {
+                libm::$round(*self)
+            }
+            fn round_ties_even(&self) -> Self {
+                libm::$roundeven(*self)
+            }
+            fn trunc(&self) -> Self {
+                libm::$trunc(*self)
+            }
+            fn fract(&self) -> Self {
+                *self - libm::$trunc(*self)
+            }
+            fn mul_add(&self, a: Self, b: Self) -> Self {
+                libm::$fma(*self, a, b)
+            }
             // as std defines them
             fn rem_euclid(&self, rhs: Self) -> Self {
                 let r = *self % rhs;
-                if r < 0.0 { r + rhs.abs() } else { r }
+                if r < 0.0 {
+                    r + rhs.abs()
+                } else {
+                    r
+                }
             }
             fn div_euclid(&self, rhs: Self) -> Self {
                 let q = libm::$trunc(*self / rhs);
@@ -122,43 +144,94 @@ macro_rules! impl_float_math {
                 }
                 q
             }
-            fn powi(&self, n: i32) -> Self { libm::$pow(*self, n as $T) }
-            fn powf(&self, n: Self) -> Self { libm::$pow(*self, n) }
-            fn exp(&self) -> Self { libm::$exp(*self) }
-            fn exp2(&self) -> Self { libm::$exp2(*self) }
-            fn exp_m1(&self) -> Self { libm::$expm1(*self) }
-            fn ln(&self) -> Self { libm::$log(*self) }
-            fn log(&self, base: Self) -> Self { libm::$log(*self) / libm::$log(base) }
-            fn log2(&self) -> Self { libm::$log2(*self) }
-            fn log10(&self) -> Self { libm::$log10(*self) }
-            fn ln_1p(&self) -> Self { libm::$log1p(*self) }
-            fn sin(&self) -> Self { libm::$sin(*self) }
-            fn cos(&self) -> Self { libm::$cos(*self) }
-            fn tan(&self) -> Self { libm::$tan(*self) }
-            fn sin_cos(&self) -> (Self, Self) { libm::$sincos(*self) }
-            fn asin(&self) -> Self { libm::$asin(*self) }
-            fn acos(&self) -> Self { libm::$acos(*self) }
-            fn atan(&self) -> Self { libm::$atan(*self) }
-            fn atan2(&self, other: Self) -> Self { libm::$atan2(*self, other) }
-            fn sinh(&self) -> Self { libm::$sinh(*self) }
-            fn cosh(&self) -> Self { libm::$cosh(*self) }
-            fn tanh(&self) -> Self { libm::$tanh(*self) }
-            fn asinh(&self) -> Self { libm::$asinh(*self) }
-            fn acosh(&self) -> Self { libm::$acosh(*self) }
-            fn atanh(&self) -> Self { libm::$atanh(*self) }
-            fn hypot(&self, other: Self) -> Self { libm::$hypot(*self, other) }
+            fn powi(&self, n: i32) -> Self {
+                libm::$pow(*self, n as $T)
+            }
+            fn powf(&self, n: Self) -> Self {
+                libm::$pow(*self, n)
+            }
+            fn exp(&self) -> Self {
+                libm::$exp(*self)
+            }
+            fn exp2(&self) -> Self {
+                libm::$exp2(*self)
+            }
+            fn exp_m1(&self) -> Self {
+                libm::$expm1(*self)
+            }
+            fn ln(&self) -> Self {
+                libm::$log(*self)
+            }
+            fn log(&self, base: Self) -> Self {
+                libm::$log(*self) / libm::$log(base)
+            }
+            fn log2(&self) -> Self {
+                libm::$log2(*self)
+            }
+            fn log10(&self) -> Self {
+                libm::$log10(*self)
+            }
+            fn ln_1p(&self) -> Self {
+                libm::$log1p(*self)
+            }
+            fn sin(&self) -> Self {
+                libm::$sin(*self)
+            }
+            fn cos(&self) -> Self {
+                libm::$cos(*self)
+            }
+            fn tan(&self) -> Self {
+                libm::$tan(*self)
+            }
+            fn sin_cos(&self) -> (Self, Self) {
+                libm::$sincos(*self)
+            }
+            fn asin(&self) -> Self {
+                libm::$asin(*self)
+            }
+            fn acos(&self) -> Self {
+                libm::$acos(*self)
+            }
+            fn atan(&self) -> Self {
+                libm::$atan(*self)
+            }
+            fn atan2(&self, other: Self) -> Self {
+                libm::$atan2(*self, other)
+            }
+            fn sinh(&self) -> Self {
+                libm::$sinh(*self)
+            }
+            fn cosh(&self) -> Self {
+                libm::$cosh(*self)
+            }
+            fn tanh(&self) -> Self {
+                libm::$tanh(*self)
+            }
+            fn asinh(&self) -> Self {
+                libm::$asinh(*self)
+            }
+            fn acosh(&self) -> Self {
+                libm::$acosh(*self)
+            }
+            fn atanh(&self) -> Self {
+                libm::$atanh(*self)
+            }
+            fn hypot(&self, other: Self) -> Self {
+                libm::$hypot(*self, other)
+            }
         }
     };
 }
 
 #[cfg(not(feature = "std"))]
 impl_float_math!(
-    f32, sqrtf, cbrtf, floorf, ceilf, roundf, roundevenf, truncf, fmaf, powf, expf, exp2f, expm1f, logf, log2f,
-    log10f, log1pf, sinf, cosf, tanf, sincosf, asinf, acosf, atanf, atan2f, sinhf, coshf, tanhf, asinhf, acoshf,
-    atanhf, hypotf
+    f32, sqrtf, cbrtf, floorf, ceilf, roundf, roundevenf, truncf, fmaf, powf, expf, exp2f, expm1f,
+    logf, log2f, log10f, log1pf, sinf, cosf, tanf, sincosf, asinf, acosf, atanf, atan2f, sinhf,
+    coshf, tanhf, asinhf, acoshf, atanhf, hypotf
 );
 #[cfg(not(feature = "std"))]
 impl_float_math!(
-    f64, sqrt, cbrt, floor, ceil, round, roundeven, trunc, fma, pow, exp, exp2, expm1, log, log2, log10, log1p,
-    sin, cos, tan, sincos, asin, acos, atan, atan2, sinh, cosh, tanh, asinh, acosh, atanh, hypot
+    f64, sqrt, cbrt, floor, ceil, round, roundeven, trunc, fma, pow, exp, exp2, expm1, log, log2,
+    log10, log1p, sin, cos, tan, sincos, asin, acos, atan, atan2, sinh, cosh, tanh, asinh, acosh,
+    atanh, hypot
 );

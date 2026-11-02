@@ -142,14 +142,24 @@ fn stable(poles: &[C64], domain: Domain) -> bool {
 fn margin(poles: &[C64], domain: Domain) -> f64 {
     match domain {
         Domain::Continuous => -poles.iter().map(|p| p.re).fold(f64::NEG_INFINITY, f64::max),
-        Domain::Discrete { .. } => 1.0 - poles.iter().map(|p| p.norm()).fold(f64::NEG_INFINITY, f64::max),
+        Domain::Discrete { .. } => {
+            1.0 - poles
+                .iter()
+                .map(|p| p.norm())
+                .fold(f64::NEG_INFINITY, f64::max)
+        }
     }
 }
 
 impl Zpk {
     /// A system from its zeros, poles and gain.
     pub fn new(zeros: Vec<C64>, poles: Vec<C64>, gain: f64, domain: Domain) -> Self {
-        Zpk { zeros, poles, gain, domain }
+        Zpk {
+            zeros,
+            poles,
+            gain,
+            domain,
+        }
     }
     /// Asymptotically stable: every pole strictly inside the stability region.
     pub fn is_stable(&self) -> bool {
@@ -166,12 +176,22 @@ impl Zpk {
     /// The transfer function (the polynomials expanded).
     pub fn to_tf(&self) -> TransferFunction {
         let (num, den) = zpk2tf(&self.zeros, &self.poles, self.gain);
-        TransferFunction { num, den, domain: self.domain }
+        TransferFunction {
+            num,
+            den,
+            domain: self.domain,
+        }
     }
     /// Second-order sections, pairing poles with their nearest zeros (`scipy.signal.zpk2sos`,
     /// pairing `nearest`).
     pub fn to_sos(&self) -> Result<Sos, SystemError> {
-        zpk2sos(&self.zeros, &self.poles, self.gain, Pairing::Nearest, self.domain)
+        zpk2sos(
+            &self.zeros,
+            &self.poles,
+            self.gain,
+            Pairing::Nearest,
+            self.domain,
+        )
     }
     /// The state-space form (controller canonical, through the transfer function).
     pub fn to_ss(&self) -> Result<StateSpace, SystemError> {
@@ -203,12 +223,23 @@ impl TransferFunction {
     /// The zeros, poles and gain.
     pub fn to_zpk(&self) -> Result<Zpk, SystemError> {
         let (zeros, poles, gain) = tf2zpk(&self.num, &self.den)?;
-        Ok(Zpk { zeros, poles, gain, domain: self.domain })
+        Ok(Zpk {
+            zeros,
+            poles,
+            gain,
+            domain: self.domain,
+        })
     }
     /// The state-space form (controller canonical, `scipy.signal.tf2ss`).
     pub fn to_ss(&self) -> Result<StateSpace, SystemError> {
         let (a, b, c, d) = tf2ss(&self.num, &self.den)?;
-        Ok(StateSpace { a, b, c, d, domain: self.domain })
+        Ok(StateSpace {
+            a,
+            b,
+            c,
+            d,
+            domain: self.domain,
+        })
     }
     /// Second-order sections (through the zeros and poles).
     pub fn to_sos(&self) -> Result<Sos, SystemError> {
@@ -230,8 +261,15 @@ impl TransferFunction {
         if self.domain != other.domain {
             return Err(SystemError::Domain);
         }
-        let num = crate::linalg::polyadd(&crate::linalg::polymul(&self.num, &other.den), &crate::linalg::polymul(&other.num, &self.den));
-        Ok(TransferFunction { num, den: crate::linalg::polymul(&self.den, &other.den), domain: self.domain })
+        let num = crate::linalg::polyadd(
+            &crate::linalg::polymul(&self.num, &other.den),
+            &crate::linalg::polymul(&other.num, &self.den),
+        );
+        Ok(TransferFunction {
+            num,
+            den: crate::linalg::polymul(&self.den, &other.den),
+            domain: self.domain,
+        })
     }
     /// Negative feedback through `feedback`: `G / (1 + G H)`.
     pub fn feedback(&self, feedback: &TransferFunction) -> Result<TransferFunction, SystemError> {
@@ -239,16 +277,34 @@ impl TransferFunction {
             return Err(SystemError::Domain);
         }
         let num = crate::linalg::polymul(&self.num, &feedback.den);
-        let den = crate::linalg::polyadd(&crate::linalg::polymul(&self.den, &feedback.den), &crate::linalg::polymul(&self.num, &feedback.num));
-        Ok(TransferFunction { num, den, domain: self.domain })
+        let den = crate::linalg::polyadd(
+            &crate::linalg::polymul(&self.den, &feedback.den),
+            &crate::linalg::polymul(&self.num, &feedback.num),
+        );
+        Ok(TransferFunction {
+            num,
+            den,
+            domain: self.domain,
+        })
     }
 }
 
 impl StateSpace {
     /// A system from its matrices; errors unless their shapes agree.
-    pub fn new(a: NdArray<f64>, b: NdArray<f64>, c: NdArray<f64>, d: NdArray<f64>, domain: Domain) -> Result<Self, SystemError> {
+    pub fn new(
+        a: NdArray<f64>,
+        b: NdArray<f64>,
+        c: NdArray<f64>,
+        d: NdArray<f64>,
+        domain: Domain,
+    ) -> Result<Self, SystemError> {
         let n = a.shape().first().copied().unwrap_or(0);
-        let ok = a.shape() == [n, n] && b.ndim() == 2 && b.shape()[0] == n && c.ndim() == 2 && c.shape()[1] == n && d.shape() == [c.shape()[0], b.shape()[1]];
+        let ok = a.shape() == [n, n]
+            && b.ndim() == 2
+            && b.shape()[0] == n
+            && c.ndim() == 2
+            && c.shape()[1] == n
+            && d.shape() == [c.shape()[0], b.shape()[1]];
         if !ok {
             return Err(SystemError::invalid(format!(
                 "state-space shapes A {:?}, B {:?}, C {:?}, D {:?} do not agree",
@@ -288,9 +344,15 @@ impl StateSpace {
     pub fn to_tf_siso(&self) -> Result<TransferFunction, SystemError> {
         let (mut num, den) = ss2tf(self, 0)?;
         if num.len() != 1 || self.b.shape()[1] != 1 {
-            return Err(SystemError::invalid("not a single-input, single-output system"));
+            return Err(SystemError::invalid(
+                "not a single-input, single-output system",
+            ));
         }
-        Ok(TransferFunction { num: num.remove(0), den, domain: self.domain })
+        Ok(TransferFunction {
+            num: num.remove(0),
+            den,
+            domain: self.domain,
+        })
     }
     /// The zeros, poles and gain of a single-input, single-output system.
     pub fn to_zpk(&self) -> Result<Zpk, SystemError> {

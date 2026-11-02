@@ -17,8 +17,8 @@
 //!
 //! Naming: past tense returns new data (`convolved`), imperative mutates (`convolve`).
 
-use crate::alloc_prelude::*;
 use super::{Broadcast, SignalError, SignalMut};
+use crate::alloc_prelude::*;
 use crate::units::*;
 
 // TIERS ===========================================================================================
@@ -111,7 +111,9 @@ impl<T: Float, const N: usize> SignalOwned for [T; N] {
         self
     }
     fn from_samples(samples: &[T]) -> Result<Self, SignalError> {
-        samples.try_into().map_err(|_| SignalError::LengthMismatch(N, samples.len()))
+        samples
+            .try_into()
+            .map_err(|_| SignalError::LengthMismatch(N, samples.len()))
     }
 }
 
@@ -306,7 +308,10 @@ mod tests {
         assert_eq!(v.as_container(), &vec![1.0, 2.0]);
         let a: [f64; 2] = SignalOwned::from_samples(&[3.0, 4.0]).unwrap();
         assert_eq!(a.into_container(), [3.0, 4.0]);
-        assert_eq!(<[f64; 3]>::from_samples(&[1.0]), Err(SignalError::LengthMismatch(3, 1)));
+        assert_eq!(
+            <[f64; 3]>::from_samples(&[1.0]),
+            Err(SignalError::LengthMismatch(3, 1))
+        );
     }
 
     #[test]
@@ -316,7 +321,11 @@ mod tests {
         assert_eq!(x.differenced(), [1.0, 1.0, 1.0]);
         assert_eq!(x.differenced().integrated(), x);
         assert_eq!(x.normalized_peak(1.5), [0.5, 1.0, 1.5]);
-        assert_eq!(x.zipped_with(&[1.0], Broadcast::Latch, |a, b| a - b).unwrap(), [0.0, 1.0, 2.0]);
+        assert_eq!(
+            x.zipped_with(&[1.0], Broadcast::Latch, |a, b| a - b)
+                .unwrap(),
+            [0.0, 1.0, 2.0]
+        );
         assert_eq!(x, [1.0, 2.0, 3.0]);
         // fixed-size arrays get them too
         let arr = [2.0f32, -4.0];

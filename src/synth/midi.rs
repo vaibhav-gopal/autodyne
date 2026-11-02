@@ -81,21 +81,47 @@ impl MidiMessage {
         let channel = status & 0x0F;
         let byte = |i: usize| data.get(i).copied().filter(|b| *b < 0x80);
         match status & 0xF0 {
-            0x80 => Some(MidiMessage::NoteOff { channel, note: byte(0)?, velocity: byte(1)? }),
+            0x80 => Some(MidiMessage::NoteOff {
+                channel,
+                note: byte(0)?,
+                velocity: byte(1)?,
+            }),
             0x90 => {
                 let (note, velocity) = (byte(0)?, byte(1)?);
                 Some(if velocity == 0 {
-                    MidiMessage::NoteOff { channel, note, velocity: 0 }
+                    MidiMessage::NoteOff {
+                        channel,
+                        note,
+                        velocity: 0,
+                    }
                 } else {
-                    MidiMessage::NoteOn { channel, note, velocity }
+                    MidiMessage::NoteOn {
+                        channel,
+                        note,
+                        velocity,
+                    }
                 })
             }
-            0xA0 => Some(MidiMessage::PolyPressure { channel, note: byte(0)?, value: byte(1)? }),
-            0xB0 => Some(MidiMessage::ControlChange { channel, controller: byte(0)?, value: byte(1)? }),
-            0xD0 => Some(MidiMessage::ChannelPressure { channel, value: byte(0)? }),
+            0xA0 => Some(MidiMessage::PolyPressure {
+                channel,
+                note: byte(0)?,
+                value: byte(1)?,
+            }),
+            0xB0 => Some(MidiMessage::ControlChange {
+                channel,
+                controller: byte(0)?,
+                value: byte(1)?,
+            }),
+            0xD0 => Some(MidiMessage::ChannelPressure {
+                channel,
+                value: byte(0)?,
+            }),
             0xE0 => {
                 let raw = ((byte(1)? as i16) << 7) | byte(0)? as i16;
-                Some(MidiMessage::PitchBend { channel, value: raw - 8192 })
+                Some(MidiMessage::PitchBend {
+                    channel,
+                    value: raw - 8192,
+                })
             }
             _ => None,
         }
@@ -105,20 +131,40 @@ impl MidiMessage {
     /// meaningful (channel pressure has 2).
     pub fn to_bytes(self) -> [u8; 3] {
         match self {
-            MidiMessage::NoteOn { channel, note, velocity } => [0x90 | channel, note, velocity],
-            MidiMessage::NoteOff { channel, note, velocity } => [0x80 | channel, note, velocity],
-            MidiMessage::ControlChange { channel, controller, value } => [0xB0 | channel, controller, value],
+            MidiMessage::NoteOn {
+                channel,
+                note,
+                velocity,
+            } => [0x90 | channel, note, velocity],
+            MidiMessage::NoteOff {
+                channel,
+                note,
+                velocity,
+            } => [0x80 | channel, note, velocity],
+            MidiMessage::ControlChange {
+                channel,
+                controller,
+                value,
+            } => [0xB0 | channel, controller, value],
             MidiMessage::PitchBend { channel, value } => {
                 let raw = (value.clamp(-8192, 8191) + 8192) as u16;
                 [0xE0 | channel, (raw & 0x7F) as u8, (raw >> 7) as u8]
             }
             MidiMessage::ChannelPressure { channel, value } => [0xD0 | channel, value, 0],
-            MidiMessage::PolyPressure { channel, note, value } => [0xA0 | channel, note, value],
+            MidiMessage::PolyPressure {
+                channel,
+                note,
+                value,
+            } => [0xA0 | channel, note, value],
         }
     }
     /// Number of bytes the message takes on the wire.
     pub fn wire_len(self) -> usize {
-        if matches!(self, MidiMessage::ChannelPressure { .. }) { 2 } else { 3 }
+        if matches!(self, MidiMessage::ChannelPressure { .. }) {
+            2
+        } else {
+            3
+        }
     }
     /// The channel the message is on.
     pub fn channel(self) -> u8 {
@@ -144,13 +190,59 @@ mod tests {
 
     #[test]
     fn parses_channel_messages() {
-        assert_eq!(MidiMessage::parse(&[0x93, 60, 100]), Some(MidiMessage::NoteOn { channel: 3, note: 60, velocity: 100 }));
-        assert_eq!(MidiMessage::parse(&[0x90, 60, 0]), Some(MidiMessage::NoteOff { channel: 0, note: 60, velocity: 0 }));
-        assert_eq!(MidiMessage::parse(&[0x81, 61, 40]), Some(MidiMessage::NoteOff { channel: 1, note: 61, velocity: 40 }));
-        assert_eq!(MidiMessage::parse(&[0xB0, cc::SUSTAIN, 127]), Some(MidiMessage::ControlChange { channel: 0, controller: 64, value: 127 }));
-        assert_eq!(MidiMessage::parse(&[0xE0, 0x00, 0x40]), Some(MidiMessage::PitchBend { channel: 0, value: 0 }));
-        assert_eq!(MidiMessage::parse(&[0xE0, 0x7F, 0x7F]), Some(MidiMessage::PitchBend { channel: 0, value: 8191 }));
-        assert_eq!(MidiMessage::parse(&[0xE0, 0x00, 0x00]), Some(MidiMessage::PitchBend { channel: 0, value: -8192 }));
+        assert_eq!(
+            MidiMessage::parse(&[0x93, 60, 100]),
+            Some(MidiMessage::NoteOn {
+                channel: 3,
+                note: 60,
+                velocity: 100
+            })
+        );
+        assert_eq!(
+            MidiMessage::parse(&[0x90, 60, 0]),
+            Some(MidiMessage::NoteOff {
+                channel: 0,
+                note: 60,
+                velocity: 0
+            })
+        );
+        assert_eq!(
+            MidiMessage::parse(&[0x81, 61, 40]),
+            Some(MidiMessage::NoteOff {
+                channel: 1,
+                note: 61,
+                velocity: 40
+            })
+        );
+        assert_eq!(
+            MidiMessage::parse(&[0xB0, cc::SUSTAIN, 127]),
+            Some(MidiMessage::ControlChange {
+                channel: 0,
+                controller: 64,
+                value: 127
+            })
+        );
+        assert_eq!(
+            MidiMessage::parse(&[0xE0, 0x00, 0x40]),
+            Some(MidiMessage::PitchBend {
+                channel: 0,
+                value: 0
+            })
+        );
+        assert_eq!(
+            MidiMessage::parse(&[0xE0, 0x7F, 0x7F]),
+            Some(MidiMessage::PitchBend {
+                channel: 0,
+                value: 8191
+            })
+        );
+        assert_eq!(
+            MidiMessage::parse(&[0xE0, 0x00, 0x00]),
+            Some(MidiMessage::PitchBend {
+                channel: 0,
+                value: -8192
+            })
+        );
     }
 
     #[test]
@@ -158,20 +250,50 @@ mod tests {
         assert_eq!(MidiMessage::parse(&[]), None);
         assert_eq!(MidiMessage::parse(&[0xF8]), None, "clock");
         assert_eq!(MidiMessage::parse(&[0xC0, 5]), None, "program change");
-        assert_eq!(MidiMessage::parse(&[0xD0]), None, "truncated channel pressure");
+        assert_eq!(
+            MidiMessage::parse(&[0xD0]),
+            None,
+            "truncated channel pressure"
+        );
         assert_eq!(MidiMessage::parse(&[0x90, 60]), None, "truncated");
-        assert_eq!(MidiMessage::parse(&[0x90, 200, 10]), None, "data byte out of range");
+        assert_eq!(
+            MidiMessage::parse(&[0x90, 200, 10]),
+            None,
+            "data byte out of range"
+        );
     }
 
     #[test]
     fn bytes_roundtrip() {
         for m in [
-            MidiMessage::NoteOn { channel: 9, note: 36, velocity: 90 },
-            MidiMessage::NoteOff { channel: 0, note: 36, velocity: 64 },
-            MidiMessage::ControlChange { channel: 2, controller: 1, value: 33 },
-            MidiMessage::PitchBend { channel: 15, value: -1234 },
-            MidiMessage::ChannelPressure { channel: 4, value: 99 },
-            MidiMessage::PolyPressure { channel: 1, note: 60, value: 12 },
+            MidiMessage::NoteOn {
+                channel: 9,
+                note: 36,
+                velocity: 90,
+            },
+            MidiMessage::NoteOff {
+                channel: 0,
+                note: 36,
+                velocity: 64,
+            },
+            MidiMessage::ControlChange {
+                channel: 2,
+                controller: 1,
+                value: 33,
+            },
+            MidiMessage::PitchBend {
+                channel: 15,
+                value: -1234,
+            },
+            MidiMessage::ChannelPressure {
+                channel: 4,
+                value: 99,
+            },
+            MidiMessage::PolyPressure {
+                channel: 1,
+                note: 60,
+                value: 12,
+            },
         ] {
             assert_eq!(MidiMessage::parse(&m.to_bytes()[..m.wire_len()]), Some(m));
         }

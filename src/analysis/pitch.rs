@@ -1,8 +1,8 @@
 //! Monophonic pitch detection (YIN).
 
 use crate::alloc_prelude::*;
-use crate::processor::Processor;
 use crate::fft::RealFft;
+use crate::processor::Processor;
 use crate::units::*;
 
 /// One pitch estimate.
@@ -59,8 +59,14 @@ impl<T: Float> PitchDetector<T> {
     /// Panics unless 0 < min_hz < max_hz < sample_rate / 4.
     pub fn new(min_hz: T, max_hz: T, sample_rate: T) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
-        let (lo, hi) = (min_hz.to_f64().unwrap_or(0.0), max_hz.to_f64().unwrap_or(0.0));
-        assert!(lo > 0.0 && lo < hi && hi < fs / 4.0, "need 0 < min_hz < max_hz < sample_rate / 4");
+        let (lo, hi) = (
+            min_hz.to_f64().unwrap_or(0.0),
+            max_hz.to_f64().unwrap_or(0.0),
+        );
+        assert!(
+            lo > 0.0 && lo < hi && hi < fs / 4.0,
+            "need 0 < min_hz < max_hz < sample_rate / 4"
+        );
         let max_lag = (fs / lo).ceil() as usize + 1;
         let min_lag = ((fs / hi).floor() as usize).max(2);
         let window = max_lag;
@@ -142,7 +148,10 @@ impl<T: Float> PitchDetector<T> {
     /// Estimates the pitch of `frame` (its first [`frame_len`](Self::frame_len) samples; panics if shorter).
     pub fn detect(&mut self, frame: &[T]) -> Option<Pitch<T>> {
         let (w, max_lag) = (self.window, self.max_lag);
-        assert!(frame.len() > w + max_lag, "detect needs frame_len() samples");
+        assert!(
+            frame.len() > w + max_lag,
+            "detect needs frame_len() samples"
+        );
         // r(tau) = sum_{j < w} x[j] x[j + tau] by FFT cross-correlation (zero padding stops wrap-around)
         self.a.iter_mut().for_each(|s| *s = T::_ZERO);
         self.b.iter_mut().for_each(|s| *s = T::_ZERO);
@@ -157,7 +166,10 @@ impl<T: Float> PitchDetector<T> {
 
         // d(tau) = sum (x[j] - x[j + tau])^2 = e(0) + e(tau) - 2 r(tau), with e(tau) the energy of
         // the window shifted by tau (kept in f64: the sliding update would drift in f32)
-        let energy = |s: &[T]| s.iter().fold(0.0, |acc, &x| acc + x.to_f64().unwrap_or(0.0).powi(2));
+        let energy = |s: &[T]| {
+            s.iter()
+                .fold(0.0, |acc, &x| acc + x.to_f64().unwrap_or(0.0).powi(2))
+        };
         let e0 = energy(&frame[..w]);
         if e0 <= 1e-20 * w as f64 {
             return None; // silence
@@ -166,13 +178,20 @@ impl<T: Float> PitchDetector<T> {
         let mut running = 0.0;
         self.difference[0] = T::_ONE;
         for tau in 1..=max_lag + 1 {
-            let (gone, new) = (frame[tau - 1].to_f64().unwrap_or(0.0), frame[tau - 1 + w].to_f64().unwrap_or(0.0));
+            let (gone, new) = (
+                frame[tau - 1].to_f64().unwrap_or(0.0),
+                frame[tau - 1 + w].to_f64().unwrap_or(0.0),
+            );
             shifted += new * new - gone * gone;
             let d = (e0 + shifted - 2.0 * self.correlation[tau].to_f64().unwrap_or(0.0)).max(0.0);
             running += d;
             self.raw[tau] = d;
             // cumulative mean normalization: d'(tau) = d(tau) tau / sum_{1..=tau} d
-            self.difference[tau] = T::_lit(if running > 0.0 { d * tau as f64 / running } else { 1.0 });
+            self.difference[tau] = T::_lit(if running > 0.0 {
+                d * tau as f64 / running
+            } else {
+                1.0
+            });
         }
 
         let dn = &self.difference;
@@ -194,9 +213,16 @@ impl<T: Float> PitchDetector<T> {
         // bias the vertex toward longer lags
         let (l, c, r) = (self.raw[tau - 1], self.raw[tau], self.raw[tau + 1]);
         let curvature = l + r - 2.0 * c;
-        let shift = if curvature > 0.0 { (0.5 * (l - r) / curvature).clamp(-0.5, 0.5) } else { 0.0 };
+        let shift = if curvature > 0.0 {
+            (0.5 * (l - r) / curvature).clamp(-0.5, 0.5)
+        } else {
+            0.0
+        };
         let period = T::_lit(tau as f64 + shift);
-        Some(Pitch { frequency: self.sample_rate / period, clarity: (T::_ONE - dn[tau])._clamp(T::_ZERO, T::_ONE) })
+        Some(Pitch {
+            frequency: self.sample_rate / period,
+            clarity: (T::_ONE - dn[tau])._clamp(T::_ZERO, T::_ONE),
+        })
     }
 }
 
@@ -227,7 +253,11 @@ mod tests {
         for f in [41.2, 55.0, 98.0, 220.0, 440.0, 1_046.5, 1_975.5] {
             let x: Vec<f64> = Sine::new(f, FS).take(d.frame_len()).collect();
             let p = d.detect(&x).expect("voiced");
-            assert!(cents(p.frequency, f).abs() < 1.0, "{f} Hz -> {} Hz", p.frequency);
+            assert!(
+                cents(p.frequency, f).abs() < 1.0,
+                "{f} Hz -> {} Hz",
+                p.frequency
+            );
             assert!(p.clarity > 0.95, "{f} Hz clarity {}", p.clarity);
         }
     }
@@ -235,17 +265,36 @@ mod tests {
     #[test]
     fn rich_tones_and_a_missing_fundamental() {
         let mut d = PitchDetector::new(50.0, 1_500.0, FS);
-        for (wave, f) in [(Waveform::Saw, 98.0), (Waveform::Pulse { pulse_width: 0.3 }, 196.0), (Waveform::Triangle, 330.0), (Waveform::Saw, 1_200.0)] {
+        for (wave, f) in [
+            (Waveform::Saw, 98.0),
+            (Waveform::Pulse { pulse_width: 0.3 }, 196.0),
+            (Waveform::Triangle, 330.0),
+            (Waveform::Saw, 1_200.0),
+        ] {
             let x: Vec<f64> = Oscillator::new(wave, f, FS).take(d.frame_len()).collect();
             let p = d.detect(&x).expect("voiced");
-            assert!(cents(p.frequency, f).abs() < 2.0, "{wave:?} {f} Hz -> {} Hz", p.frequency);
+            assert!(
+                cents(p.frequency, f).abs() < 2.0,
+                "{wave:?} {f} Hz -> {} Hz",
+                p.frequency
+            );
         }
         // harmonics 2..=5 of 150 Hz and no fundamental: the period is still 1 / 150 s
         let x: Vec<f64> = (0..d.frame_len())
-            .map(|n| (2..=5).map(|h| (std::f64::consts::TAU * 150.0 * h as f64 * n as f64 / FS).sin() / h as f64).sum())
+            .map(|n| {
+                (2..=5)
+                    .map(|h| {
+                        (std::f64::consts::TAU * 150.0 * h as f64 * n as f64 / FS).sin() / h as f64
+                    })
+                    .sum()
+            })
             .collect();
         let p = d.detect(&x).expect("voiced");
-        assert!(cents(p.frequency, 150.0).abs() < 2.0, "missing fundamental -> {} Hz", p.frequency);
+        assert!(
+            cents(p.frequency, 150.0).abs() < 2.0,
+            "missing fundamental -> {} Hz",
+            p.frequency
+        );
     }
 
     #[test]
@@ -257,9 +306,16 @@ mod tests {
         // a tone in moderate noise is still found, with lower clarity
         let clean: Vec<f64> = Sine::new(220.0, FS).take(d.frame_len()).collect();
         let clean = d.detect(&clean).unwrap().clarity;
-        let noisy: Vec<f64> = Sine::new(220.0, FS).zip(Noise::<f64>::new(6)).take(d.frame_len()).map(|(s, n)| s + 0.15 * n).collect();
+        let noisy: Vec<f64> = Sine::new(220.0, FS)
+            .zip(Noise::<f64>::new(6))
+            .take(d.frame_len())
+            .map(|(s, n)| s + 0.15 * n)
+            .collect();
         let p = d.detect(&noisy).expect("voiced");
-        assert!(cents(p.frequency, 220.0).abs() < 5.0 && p.clarity < clean - 0.01, "{p:?} vs clean clarity {clean}");
+        assert!(
+            cents(p.frequency, 220.0).abs() < 5.0 && p.clarity < clean - 0.01,
+            "{p:?} vs clean clarity {clean}"
+        );
     }
 
     #[test]
@@ -273,7 +329,11 @@ mod tests {
                 d.process(&block);
             }
             let p = d.pitch().expect("voiced");
-            assert!(cents(p.frequency as f64, f as f64).abs() < 3.0, "{f} Hz -> {} Hz", p.frequency);
+            assert!(
+                cents(p.frequency as f64, f as f64).abs() < 3.0,
+                "{f} Hz -> {} Hz",
+                p.frequency
+            );
         }
         d.reset();
         assert_eq!(d.pitch(), None);

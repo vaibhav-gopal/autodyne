@@ -246,7 +246,11 @@ impl<T: Float> Vec3<T> {
     /// The cross product.
     #[inline(always)]
     pub fn cross(self, o: Self) -> Self {
-        Vec3::new(self.y * o.z - self.z * o.y, self.z * o.x - self.x * o.z, self.x * o.y - self.y * o.x)
+        Vec3::new(
+            self.y * o.z - self.z * o.y,
+            self.z * o.x - self.x * o.z,
+            self.x * o.y - self.y * o.x,
+        )
     }
 }
 
@@ -268,10 +272,29 @@ mod tests {
         assert_eq!(a.length(), 3.0);
         assert_eq!(a.dot(Vec3::new(4.0, -1.0, 0.5)), 3.0);
         // the right-handed basis: x cross y = z
-        assert_eq!(Vec3::new(1.0f32, 0.0, 0.0).cross(Vec3::new(0.0, 1.0, 0.0)), Vec3::new(0.0, 0.0, 1.0));
-        assert_eq!(Vec2::new(1.0f32, 2.0).extend(3.0).extend(4.0).truncate().truncate(), Vec2::new(1.0, 2.0));
-        assert_eq!(Vec4::from_array([1.0f64, 2.0, 3.0, 4.0]).to_array(), [1.0, 2.0, 3.0, 4.0]);
-        assert_eq!(Vec3::new(-1.0f32, 5.0, 2.0).min(Vec3::splat(1.0)).max(Vec3::splat(0.0)).abs(), Vec3::new(0.0, 1.0, 1.0));
+        assert_eq!(
+            Vec3::new(1.0f32, 0.0, 0.0).cross(Vec3::new(0.0, 1.0, 0.0)),
+            Vec3::new(0.0, 0.0, 1.0)
+        );
+        assert_eq!(
+            Vec2::new(1.0f32, 2.0)
+                .extend(3.0)
+                .extend(4.0)
+                .truncate()
+                .truncate(),
+            Vec2::new(1.0, 2.0)
+        );
+        assert_eq!(
+            Vec4::from_array([1.0f64, 2.0, 3.0, 4.0]).to_array(),
+            [1.0, 2.0, 3.0, 4.0]
+        );
+        assert_eq!(
+            Vec3::new(-1.0f32, 5.0, 2.0)
+                .min(Vec3::splat(1.0))
+                .max(Vec3::splat(0.0))
+                .abs(),
+            Vec3::new(0.0, 1.0, 1.0)
+        );
         assert!(!Vec2::new(1.0f32, f32::NAN).is_finite() && Vec2::<f64>::default().is_finite());
     }
 
@@ -281,7 +304,10 @@ mod tests {
         v += Vec4::splat(1.0);
         v -= Vec4::new(0.0, 0.0, 0.0, 5.0);
         assert_eq!(v, Vec4::new(2.0, 3.0, 4.0, 0.0));
-        assert_eq!(-(v * 2.0 + 1.0) / 2.0 - 0.5, Vec4::new(-3.0, -4.0, -5.0, -1.0));
+        assert_eq!(
+            -(v * 2.0 + 1.0) / 2.0 - 0.5,
+            Vec4::new(-3.0, -4.0, -5.0, -1.0)
+        );
         assert_eq!(v * v / Vec4::splat(2.0), Vec4::new(2.0, 4.5, 8.0, 0.0));
         v[3] = 9.0;
         assert_eq!((v[0], v[3]), (2.0, 9.0));

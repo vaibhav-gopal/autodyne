@@ -6,9 +6,9 @@
 //!
 //! tend: Signal processing / spectral
 
-mod params;
 mod analytic;
 mod estimate;
+mod params;
 mod vocoder;
 mod windows;
 pub use analytic::*;

@@ -8,35 +8,60 @@ use crate::signal::NdArray;
 /// Drops leading zeros of `den` (and of `num`, below 1e-14) and divides both by `den[0]`
 /// (`scipy.signal.normalize`).
 pub fn normalize(num: &[f64], den: &[f64]) -> Result<(Vec<f64>, Vec<f64>), SystemError> {
-    let start = den.iter().position(|&d| d != 0.0).ok_or_else(|| SystemError::invalid("the denominator is zero"))?;
+    let start = den
+        .iter()
+        .position(|&d| d != 0.0)
+        .ok_or_else(|| SystemError::invalid("the denominator is zero"))?;
     let den = &den[start..];
-    let lead = num.iter().position(|&b| b.abs() > 1e-14).unwrap_or(num.len().saturating_sub(1));
-    let num = if num.is_empty() { &[0.0][..] } else { &num[lead..] };
+    let lead = num
+        .iter()
+        .position(|&b| b.abs() > 1e-14)
+        .unwrap_or(num.len().saturating_sub(1));
+    let num = if num.is_empty() {
+        &[0.0][..]
+    } else {
+        &num[lead..]
+    };
     let d0 = den[0];
-    Ok((num.iter().map(|b| b / d0).collect(), den.iter().map(|a| a / d0).collect()))
+    Ok((
+        num.iter().map(|b| b / d0).collect(),
+        den.iter().map(|a| a / d0).collect(),
+    ))
 }
 
 /// Zeros, poles and gain of `num / den` (`scipy.signal.tf2zpk`).
 pub fn tf2zpk(num: &[f64], den: &[f64]) -> Result<(Vec<C64>, Vec<C64>, f64), SystemError> {
     let (b, a) = normalize(num, den)?;
     let k = b[0];
-    let zeros = if k == 0.0 { Vec::new() } else { roots(&b.iter().map(|x| x / k).collect::<Vec<_>>())? };
+    let zeros = if k == 0.0 {
+        Vec::new()
+    } else {
+        roots(&b.iter().map(|x| x / k).collect::<Vec<_>>())?
+    };
     Ok((zeros, roots(&a)?, k))
 }
 
 /// Numerator and denominator of `k Π(x - z) / Π(x - p)` (`scipy.signal.zpk2tf`); complex roots must
 /// come in conjugate pairs.
 pub fn zpk2tf(zeros: &[C64], poles: &[C64], gain: f64) -> (Vec<f64>, Vec<f64>) {
-    (poly(zeros).into_iter().map(|b| b * gain).collect(), poly(poles))
+    (
+        poly(zeros).into_iter().map(|b| b * gain).collect(),
+        poly(poles),
+    )
 }
 
 /// The controllable canonical state space of `num / den` (`scipy.signal.tf2ss`).
 #[allow(clippy::type_complexity)]
-pub fn tf2ss(num: &[f64], den: &[f64]) -> Result<(NdArray<f64>, NdArray<f64>, NdArray<f64>, NdArray<f64>), SystemError> {
+pub fn tf2ss(
+    num: &[f64],
+    den: &[f64],
+) -> Result<(NdArray<f64>, NdArray<f64>, NdArray<f64>, NdArray<f64>), SystemError> {
     let (num, den) = normalize(num, den)?;
     let (m, k) = (num.len(), den.len());
     if m > k {
-        return Err(SystemError::invalid("improper transfer function: the numerator is longer than the denominator"));
+        return Err(SystemError::invalid(
+            "improper transfer function: the numerator is longer than the denominator",
+        ));
     }
     let mut padded = vec![0.0; k - m];
     padded.extend_from_slice(&num);
@@ -46,9 +71,19 @@ pub fn tf2ss(num: &[f64], den: &[f64]) -> Result<(NdArray<f64>, NdArray<f64>, Nd
         return Ok((zeros(1, 1), zeros(1, 1), zeros(1, 1), d));
     }
     let n = k - 1;
-    let a = NdArray::from_fn(&[n, n], |i| if i[0] == 0 { -den[1 + i[1]] } else if i[0] == i[1] + 1 { 1.0 } else { 0.0 }).expect("n x n");
+    let a = NdArray::from_fn(&[n, n], |i| {
+        if i[0] == 0 {
+            -den[1 + i[1]]
+        } else if i[0] == i[1] + 1 {
+            1.0
+        } else {
+            0.0
+        }
+    })
+    .expect("n x n");
     let b = NdArray::from_fn(&[n, 1], |i| if i[0] == 0 { 1.0 } else { 0.0 }).expect("n x 1");
-    let c = NdArray::from_fn(&[1, n], |i| padded[1 + i[1]] - padded[0] * den[1 + i[1]]).expect("1 x n");
+    let c =
+        NdArray::from_fn(&[1, n], |i| padded[1 + i[1]] - padded[0] * den[1 + i[1]]).expect("1 x n");
     Ok((a, b, c, d))
 }
 
@@ -58,15 +93,28 @@ pub fn ss2tf(sys: &StateSpace, input: usize) -> Result<(Vec<Vec<f64>>, Vec<f64>)
     let (n, inputs) = (sys.order(), sys.b.shape()[1]);
     let outputs = sys.c.shape()[0];
     if input >= inputs {
-        return Err(SystemError::invalid(format!("the system has {inputs} inputs, not {}", input + 1)));
+        return Err(SystemError::invalid(format!(
+            "the system has {inputs} inputs, not {}",
+            input + 1
+        )));
     }
-    let char_poly = |m: &NdArray<f64>| -> Result<Vec<f64>, SystemError> { if n == 0 { Ok(vec![1.0]) } else { Ok(poly(&eigvals(m.view())?)) } };
+    let char_poly = |m: &NdArray<f64>| -> Result<Vec<f64>, SystemError> {
+        if n == 0 {
+            Ok(vec![1.0])
+        } else {
+            Ok(poly(&eigvals(m.view())?))
+        }
+    };
     let den = char_poly(&sys.a)?;
     let mut nums = Vec::with_capacity(outputs);
     for k in 0..outputs {
         // det(sI - A + B C_k) - det(sI - A) + D det(sI - A), from the matrix determinant lemma
         let d = sys.d.as_slice()[k * inputs + input];
-        let a_bc = NdArray::from_fn(&[n, n], |i| sys.a.as_slice()[i[0] * n + i[1]] - sys.b.as_slice()[i[0] * inputs + input] * sys.c.as_slice()[k * n + i[1]]).expect("n x n");
+        let a_bc = NdArray::from_fn(&[n, n], |i| {
+            sys.a.as_slice()[i[0] * n + i[1]]
+                - sys.b.as_slice()[i[0] * inputs + input] * sys.c.as_slice()[k * n + i[1]]
+        })
+        .expect("n x n");
         let p = char_poly(&a_bc)?;
         nums.push(p.iter().zip(&den).map(|(x, y)| x + (d - 1.0) * y).collect());
     }
@@ -79,7 +127,10 @@ pub fn cplxreal(z: &[C64]) -> Result<(Vec<C64>, Vec<f64>), SystemError> {
     let tol = 100.0 * f64::EPSILON;
     let mut z = z.to_vec();
     // by real part, then by |imaginary part|
-    z.sort_by(|a, b| a.re.total_cmp(&b.re).then(a.im.abs().total_cmp(&b.im.abs())));
+    z.sort_by(|a, b| {
+        a.re.total_cmp(&b.re)
+            .then(a.im.abs().total_cmp(&b.im.abs()))
+    });
     let mut reals = Vec::new();
     let (mut pos, mut neg) = (Vec::new(), Vec::new());
     for x in z {
@@ -92,7 +143,9 @@ pub fn cplxreal(z: &[C64]) -> Result<(Vec<C64>, Vec<f64>), SystemError> {
         }
     }
     if pos.len() != neg.len() {
-        return Err(SystemError::invalid("a complex value has no matching conjugate"));
+        return Err(SystemError::invalid(
+            "a complex value has no matching conjugate",
+        ));
     }
     // within runs of (nearly) equal real parts, order by |imaginary part|
     let mut start = 0;
@@ -108,7 +161,9 @@ pub fn cplxreal(z: &[C64]) -> Result<(Vec<C64>, Vec<f64>), SystemError> {
     let mut pairs = Vec::with_capacity(pos.len());
     for (p, n) in pos.iter().zip(&neg) {
         if (*p - n.conj()).norm() > tol * n.norm() {
-            return Err(SystemError::invalid("a complex value has no matching conjugate"));
+            return Err(SystemError::invalid(
+                "a complex value has no matching conjugate",
+            ));
         }
         // average out rounding between the pair
         pairs.push((*p + n.conj()) * 0.5);
@@ -130,10 +185,20 @@ pub enum Pairing {
 /// Second-order sections of a zeros-poles-gain system (`scipy.signal.zpk2sos`): the poles closest to
 /// the stability boundary go last, each paired with its nearest zeros; the gain goes in the first
 /// section. Complex roots must come in conjugate pairs.
-pub fn zpk2sos(zeros: &[C64], poles: &[C64], gain: f64, pairing: Pairing, domain: Domain) -> Result<Sos, SystemError> {
+pub fn zpk2sos(
+    zeros: &[C64],
+    poles: &[C64],
+    gain: f64,
+    pairing: Pairing,
+    domain: Domain,
+) -> Result<Sos, SystemError> {
     let analog = !domain.is_discrete();
     if zeros.is_empty() && poles.is_empty() {
-        return Ok(vec![if analog { [0.0, 0.0, gain, 0.0, 0.0, 1.0] } else { [gain, 0.0, 0.0, 1.0, 0.0, 0.0] }]);
+        return Ok(vec![if analog {
+            [0.0, 0.0, gain, 0.0, 0.0, 1.0]
+        } else {
+            [gain, 0.0, 0.0, 1.0, 0.0, 0.0]
+        }]);
     }
     let (mut z, mut p) = (zeros.to_vec(), poles.to_vec());
     let n_sections;
@@ -149,19 +214,37 @@ pub fn zpk2sos(zeros: &[C64], poles: &[C64], gain: f64, pairing: Pairing, domain
         }
     } else {
         if p.len() < z.len() {
-            return Err(SystemError::invalid("minimal pairing needs at least as many poles as zeros"));
+            return Err(SystemError::invalid(
+                "minimal pairing needs at least as many poles as zeros",
+            ));
         }
         n_sections = p.len().div_ceil(2);
     }
     // one of each conjugate pair, then the real roots
-    let join = |(c, r): (Vec<C64>, Vec<f64>)| c.into_iter().chain(r.into_iter().map(real)).collect::<Vec<C64>>();
+    let join = |(c, r): (Vec<C64>, Vec<f64>)| {
+        c.into_iter()
+            .chain(r.into_iter().map(real))
+            .collect::<Vec<C64>>()
+    };
     let mut z = join(cplxreal(&z)?);
     let mut p = join(cplxreal(&p)?);
     let is_real = |x: &C64| x.im == 0.0;
     // the "worst" pole: closest to the unit circle (digital) or the imaginary axis (analog)
     let worst = |p: &[C64]| -> usize {
-        let score = |x: &C64| if analog { x.re.abs() } else { (1.0 - x.norm()).abs() };
-        (0..p.len()).fold(0, |best, i| if score(&p[i]) < score(&p[best]) { i } else { best })
+        let score = |x: &C64| {
+            if analog {
+                x.re.abs()
+            } else {
+                (1.0 - x.norm()).abs()
+            }
+        };
+        (0..p.len()).fold(0, |best, i| {
+            if score(&p[i]) < score(&p[best]) {
+                i
+            } else {
+                best
+            }
+        })
     };
     #[derive(PartialEq)]
     enum Which {

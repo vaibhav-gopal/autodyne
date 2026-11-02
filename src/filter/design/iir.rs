@@ -4,8 +4,8 @@
 use crate::alloc_prelude::*;
 use core::f64::consts::PI;
 
-use crate::special::{arc_jac_sc1, ellipj, ellipk, ellipkm1};
 use crate::filter::FilterError;
+use crate::special::{arc_jac_sc1, ellipj, ellipk, ellipkm1};
 use crate::systems::{bilinear_zpk, Domain, Zpk, C64};
 
 /// Which band a filter passes, with its edge frequencies: Hz for a digital design, rad/s for an
@@ -89,7 +89,9 @@ fn spread(n: usize) -> impl Iterator<Item = f64> {
 
 /// Butterworth analog prototype: poles evenly on the unit circle's left half (`buttap`).
 pub fn buttap(n: usize) -> (Vec<C64>, Vec<C64>, f64) {
-    let poles = spread(n).map(|m| -C64::cis(PI * m / (2.0 * n as f64))).collect();
+    let poles = spread(n)
+        .map(|m| -C64::cis(PI * m / (2.0 * n as f64)))
+        .collect();
     (Vec::new(), poles, 1.0)
 }
 
@@ -127,7 +129,10 @@ pub fn cheb2ap(n: usize, rs: f64) -> (Vec<C64>, Vec<C64>, f64) {
         spread(n).collect()
     };
     // zeros on the imaginary axis: -conj(i / sin(mπ / 2n))
-    let zeros: Vec<C64> = ms.iter().map(|&m| -(C64::new(0.0, 1.0) / (m * PI / (2.0 * n as f64)).sin()).conj()).collect();
+    let zeros: Vec<C64> = ms
+        .iter()
+        .map(|&m| -(C64::new(0.0, 1.0) / (m * PI / (2.0 * n as f64)).sin()).conj())
+        .collect();
     let poles: Vec<C64> = spread(n)
         .map(|m| {
             let p = -C64::cis(PI * m / (2.0 * n as f64));
@@ -167,24 +172,43 @@ pub fn ellipap(n: usize, rp: f64, rs: f64) -> Result<(Vec<C64>, Vec<C64>, f64), 
     let eps = eps_sq.sqrt();
     let ck1_sq = eps_sq / pow10m1(0.1 * rs);
     if ck1_sq == 0.0 {
-        return Err(FilterError::invalid("cannot design an elliptic filter with these rp and rs"));
+        return Err(FilterError::invalid(
+            "cannot design an elliptic filter with these rp and rs",
+        ));
     }
     let val0 = ellipk(ck1_sq);
     let m = ellipdeg(n, ck1_sq);
     let capk = ellipk(m);
     let js: Vec<f64> = ((1 - n % 2)..n).step_by(2).map(|j| j as f64).collect();
-    let sncndn: Vec<(f64, f64, f64)> = js.iter().map(|&j| { let (s, c, d, _) = ellipj(j * capk / n as f64, m); (s, c, d) }).collect();
+    let sncndn: Vec<(f64, f64, f64)> = js
+        .iter()
+        .map(|&j| {
+            let (s, c, d, _) = ellipj(j * capk / n as f64, m);
+            (s, c, d)
+        })
+        .collect();
     const EPSILON: f64 = 2e-16;
-    let mut zeros: Vec<C64> = sncndn.iter().filter(|(s, _, _)| s.abs() > EPSILON).map(|(s, _, _)| C64::new(0.0, 1.0 / (m.sqrt() * s))).collect();
+    let mut zeros: Vec<C64> = sncndn
+        .iter()
+        .filter(|(s, _, _)| s.abs() > EPSILON)
+        .map(|(s, _, _)| C64::new(0.0, 1.0 / (m.sqrt() * s)))
+        .collect();
     let conj: Vec<C64> = zeros.iter().map(|z| z.conj()).collect();
     zeros.extend(conj);
     let r = arc_jac_sc1(1.0 / eps, ck1_sq);
     let v0 = capk * r / (n as f64 * val0);
     let (sv, cv, dv, _) = ellipj(v0, 1.0 - m);
-    let mut poles: Vec<C64> = sncndn.iter().map(|&(s, c, d)| -C64::new(c * d * sv * cv, s * dv) / (1.0 - (d * sv).powi(2))).collect();
+    let mut poles: Vec<C64> = sncndn
+        .iter()
+        .map(|&(s, c, d)| -C64::new(c * d * sv * cv, s * dv) / (1.0 - (d * sv).powi(2)))
+        .collect();
     if n % 2 == 1 {
         let total: f64 = poles.iter().map(|p| p.norm_sqr()).sum::<f64>().sqrt();
-        let newp: Vec<C64> = poles.iter().filter(|p| p.im.abs() > EPSILON * total).map(|p| p.conj()).collect();
+        let newp: Vec<C64> = poles
+            .iter()
+            .filter(|p| p.im.abs() > EPSILON * total)
+            .map(|p| p.conj())
+            .collect();
         poles.extend(newp);
     } else {
         let conj: Vec<C64> = poles.iter().map(|p| p.conj()).collect();
@@ -209,10 +233,20 @@ pub fn besselap(n: usize, norm: BesselNorm) -> Result<(Vec<C64>, Vec<C64>, f64),
         return Ok((Vec::new(), Vec::new(), 1.0));
     }
     // θ_n(s) = Σ a_k s^k, a_k = (2n - k)! / (2^(n-k) k! (n - k)!), highest power first
-    let coeffs: Vec<f64> = (0..=n).rev().map(|k| factorial(2 * n - k) / (2f64.powi((n - k) as i32) * factorial(k) * factorial(n - k))).collect();
+    let coeffs: Vec<f64> = (0..=n)
+        .rev()
+        .map(|k| {
+            factorial(2 * n - k) / (2f64.powi((n - k) as i32) * factorial(k) * factorial(n - k))
+        })
+        .collect();
     let mut poles = crate::linalg::roots(&coeffs)?;
     // polish with Newton steps on θ_n (the companion matrix loses digits as n grows)
-    let deriv: Vec<f64> = coeffs.iter().enumerate().take(n).map(|(i, &c)| c * (n - i) as f64).collect();
+    let deriv: Vec<f64> = coeffs
+        .iter()
+        .enumerate()
+        .take(n)
+        .map(|(i, &c)| c * (n - i) as f64)
+        .collect();
     for p in &mut poles {
         for _ in 0..4 {
             let f = crate::linalg::polyval_complex(&coeffs, *p);
@@ -232,7 +266,17 @@ pub fn besselap(n: usize, norm: BesselNorm) -> Result<(Vec<C64>, Vec<C64>, f64),
         BesselNorm::Delay => (poles, a_last),
         BesselNorm::Mag => {
             // the frequency where |H(jw)| = 1/sqrt(2), by bisection then Newton-free refinement
-            let gain = |w: f64| (a_last / prod(&poles.iter().map(|&p| C64::new(0.0, w) - p).collect::<Vec<_>>()).norm()).abs();
+            let gain = |w: f64| {
+                (a_last
+                    / prod(
+                        &poles
+                            .iter()
+                            .map(|&p| C64::new(0.0, w) - p)
+                            .collect::<Vec<_>>(),
+                    )
+                    .norm())
+                .abs()
+            };
             let target = 0.5f64.sqrt();
             let (mut lo, mut hi) = (0.0, 1.0);
             while gain(hi) > target {
@@ -247,7 +291,10 @@ pub fn besselap(n: usize, norm: BesselNorm) -> Result<(Vec<C64>, Vec<C64>, f64),
                 }
             }
             let w = 0.5 * (lo + hi);
-            (poles.into_iter().map(|p| p / w).collect(), a_last / w.powi(n as i32))
+            (
+                poles.into_iter().map(|p| p / w).collect(),
+                a_last / w.powi(n as i32),
+            )
         }
     };
     Ok((Vec::new(), poles, k))
@@ -256,7 +303,11 @@ pub fn besselap(n: usize, norm: BesselNorm) -> Result<(Vec<C64>, Vec<C64>, f64),
 /// Low-pass prototype to low-pass with cutoff `wo` (`lp2lp_zpk`).
 pub fn lp2lp_zpk(z: &[C64], p: &[C64], k: f64, wo: f64) -> (Vec<C64>, Vec<C64>, f64) {
     let degree = p.len() as i32 - z.len() as i32;
-    (z.iter().map(|&x| x * wo).collect(), p.iter().map(|&x| x * wo).collect(), k * wo.powi(degree))
+    (
+        z.iter().map(|&x| x * wo).collect(),
+        p.iter().map(|&x| x * wo).collect(),
+        k * wo.powi(degree),
+    )
 }
 
 /// Low-pass prototype to high-pass with cutoff `wo` (`lp2hp_zpk`).
@@ -275,7 +326,11 @@ pub fn lp2bp_zpk(z: &[C64], p: &[C64], k: f64, wo: f64, bw: f64) -> (Vec<C64>, V
     let split = |v: &[C64]| -> Vec<C64> {
         let lp: Vec<C64> = v.iter().map(|&x| x * (bw / 2.0)).collect();
         let roots: Vec<C64> = lp.iter().map(|&x| (x * x - real(wo * wo)).sqrt()).collect();
-        lp.iter().zip(&roots).map(|(&a, &r)| a + r).chain(lp.iter().zip(&roots).map(|(&a, &r)| a - r)).collect()
+        lp.iter()
+            .zip(&roots)
+            .map(|(&a, &r)| a + r)
+            .chain(lp.iter().zip(&roots).map(|(&a, &r)| a - r))
+            .collect()
     };
     let mut zb = split(z);
     zb.extend(core::iter::repeat_n(C64::zero(), degree));
@@ -288,7 +343,11 @@ pub fn lp2bs_zpk(z: &[C64], p: &[C64], k: f64, wo: f64, bw: f64) -> (Vec<C64>, V
     let split = |v: &[C64]| -> Vec<C64> {
         let hp: Vec<C64> = v.iter().map(|&x| real(bw / 2.0) / x).collect();
         let roots: Vec<C64> = hp.iter().map(|&x| (x * x - real(wo * wo)).sqrt()).collect();
-        hp.iter().zip(&roots).map(|(&a, &r)| a + r).chain(hp.iter().zip(&roots).map(|(&a, &r)| a - r)).collect()
+        hp.iter()
+            .zip(&roots)
+            .map(|(&a, &r)| a + r)
+            .chain(hp.iter().zip(&roots).map(|(&a, &r)| a - r))
+            .collect()
     };
     let mut zb = split(z);
     zb.extend(core::iter::repeat_n(C64::new(0.0, wo), degree));
@@ -301,7 +360,12 @@ pub fn lp2bs_zpk(z: &[C64], p: &[C64], k: f64, wo: f64, bw: f64) -> (Vec<C64>, V
 /// moved to the band (edges prewarped for a digital design) and, for a digital design, mapped to
 /// the z-plane by the bilinear transform. Convert the result with `to_sos()` (recommended) or
 /// `to_tf()`.
-pub fn iirfilter(order: usize, band: Band, kind: IirKind, design: Design) -> Result<Zpk, FilterError> {
+pub fn iirfilter(
+    order: usize,
+    band: Band,
+    kind: IirKind,
+    design: Design,
+) -> Result<Zpk, FilterError> {
     let (z, p, k) = match kind {
         IirKind::Butterworth => buttap(order),
         IirKind::Chebyshev1 { rp } => cheb1ap(order, rp),
@@ -321,7 +385,13 @@ pub fn iirfilter(order: usize, band: Band, kind: IirKind, design: Design) -> Res
                     return Err(FilterError::invalid(format!("digital filter edges must be between 0 and the Nyquist frequency {nyquist} Hz")));
                 }
             }
-            (normalized.iter().map(|&w| 4.0 * (PI * w / 2.0).tan()).collect(), Domain::sampled(fs))
+            (
+                normalized
+                    .iter()
+                    .map(|&w| 4.0 * (PI * w / 2.0).tan())
+                    .collect(),
+                Domain::sampled(fs),
+            )
         }
     };
     let (z, p, k) = match band {
@@ -374,11 +444,22 @@ pub fn cheby2(order: usize, rs: f64, band: Band, design: Design) -> Result<Zpk, 
 
 /// An elliptic (Cauer) filter: `rp` dB passband ripple, `rs` dB stopband attenuation, the steepest
 /// edge for its order (`scipy.signal.ellip`).
-pub fn ellip(order: usize, rp: f64, rs: f64, band: Band, design: Design) -> Result<Zpk, FilterError> {
+pub fn ellip(
+    order: usize,
+    rp: f64,
+    rs: f64,
+    band: Band,
+    design: Design,
+) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Elliptic { rp, rs }, design)
 }
 
 /// A Bessel filter: maximally flat group delay (`scipy.signal.bessel`).
-pub fn bessel(order: usize, band: Band, norm: BesselNorm, design: Design) -> Result<Zpk, FilterError> {
+pub fn bessel(
+    order: usize,
+    band: Band,
+    norm: BesselNorm,
+    design: Design,
+) -> Result<Zpk, FilterError> {
     iirfilter(order, band, IirKind::Bessel { norm }, design)
 }

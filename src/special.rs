@@ -131,7 +131,8 @@ pub fn arc_jac_sn(w: C64, m: f64) -> C64 {
             break;
         }
     }
-    let big_k: f64 = ks[1..].iter().map(|k| 1.0 + k).product::<f64>() * core::f64::consts::FRAC_PI_2;
+    let big_k: f64 =
+        ks[1..].iter().map(|k| 1.0 + k).product::<f64>() * core::f64::consts::FRAC_PI_2;
     let mut wn = w;
     for pair in ks.windows(2) {
         let (kn, knext) = (pair[0], pair[1]);
@@ -178,7 +179,10 @@ pub fn gammaln(x: f64) -> f64 {
     }
     let x = x - 1.0;
     let t = x + LANCZOS_G + 0.5;
-    let series = LANCZOS[1..].iter().enumerate().fold(LANCZOS[0], |s, (i, &c)| s + c / (x + (i + 1) as f64));
+    let series = LANCZOS[1..]
+        .iter()
+        .enumerate()
+        .fold(LANCZOS[0], |s, (i, &c)| s + c / (x + (i + 1) as f64));
     0.5 * core::f64::consts::TAU.ln() + (x + 0.5) * t.ln() - t + series.ln()
 }
 
@@ -192,7 +196,11 @@ pub fn gamma(x: f64) -> f64 {
         return (1..x as u64).map(|k| k as f64).product();
     }
     // Γ is negative on (-1, 0), (-3, -2), ...
-    let sign = if x < 0.0 && (x.floor() as i64).rem_euclid(2) == 1 { -1.0 } else { 1.0 };
+    let sign = if x < 0.0 && (x.floor() as i64).rem_euclid(2) == 1 {
+        -1.0
+    } else {
+        1.0
+    };
     sign * gammaln(x).exp()
 }
 
@@ -209,7 +217,9 @@ pub fn betainc(a: f64, b: f64, x: f64) -> f64 {
         return x;
     }
     // x^a (1-x)^b / (a B(a, b)), in logs so large parameters don't overflow
-    let front = |a: f64, b: f64, x: f64| (a * x.ln() + b * (-x).ln_1p() + gammaln(a + b) - gammaln(a) - gammaln(b)).exp() / a;
+    let front = |a: f64, b: f64, x: f64| {
+        (a * x.ln() + b * (-x).ln_1p() + gammaln(a + b) - gammaln(a) - gammaln(b)).exp() / a
+    };
     if x < (a + 1.0) / (a + b + 2.0) {
         front(a, b, x) * betainc_fraction(a, b, x)
     } else {
@@ -227,7 +237,10 @@ fn betainc_fraction(a: f64, b: f64, x: f64) -> f64 {
     let mut f = d;
     for m in 1..10_000 {
         let m = m as f64;
-        for coeff in [m * (b - m) * x / ((a + 2.0 * m - 1.0) * (a + 2.0 * m)), -(a + m) * (a + b + m) * x / ((a + 2.0 * m) * (a + 2.0 * m + 1.0))] {
+        for coeff in [
+            m * (b - m) * x / ((a + 2.0 * m - 1.0) * (a + 2.0 * m)),
+            -(a + m) * (a + b + m) * x / ((a + 2.0 * m) * (a + 2.0 * m + 1.0)),
+        ] {
             d = 1.0 / guard(1.0 + coeff * d);
             c = guard(1.0 + coeff / c);
             f *= c * d;
@@ -328,7 +341,11 @@ pub fn ndtr(x: f64) -> f64 {
         return 0.5 * erfc(-x / core::f64::consts::SQRT_2);
     }
     let tail = 0.5 * exp_neg_sq(x, 0.5) / (erfc_fraction(z) * core::f64::consts::PI.sqrt());
-    if x < 0.0 { tail } else { 1.0 - tail }
+    if x < 0.0 {
+        tail
+    } else {
+        1.0 - tail
+    }
 }
 
 /// The inverse of [`ndtr`]: the standard normal quantile of probability `p` (`scipy.special.ndtri`).
@@ -344,10 +361,35 @@ pub fn ndtri(p: f64) -> f64 {
     if p == 1.0 {
         return f64::INFINITY;
     }
-    const A: [f64; 6] = [-3.969_683_028_665_376e1, 2.209_460_984_245_205e2, -2.759_285_104_469_687e2, 1.383_577_518_672_69e2, -3.066_479_806_614_716e1, 2.506_628_277_459_239];
-    const B: [f64; 5] = [-5.447_609_879_822_406e1, 1.615_858_368_580_409e2, -1.556_989_798_598_866e2, 6.680_131_188_771_972e1, -1.328_068_155_288_572e1];
-    const C: [f64; 6] = [-7.784_894_002_430_293e-3, -3.223_964_580_411_365e-1, -2.400_758_277_161_838, -2.549_732_539_343_734, 4.374_664_141_464_968, 2.938_163_982_698_783];
-    const D: [f64; 4] = [7.784_695_709_041_462e-3, 3.224_671_290_700_398e-1, 2.445_134_137_142_996, 3.754_408_661_907_416];
+    const A: [f64; 6] = [
+        -3.969_683_028_665_376e1,
+        2.209_460_984_245_205e2,
+        -2.759_285_104_469_687e2,
+        1.383_577_518_672_69e2,
+        -3.066_479_806_614_716e1,
+        2.506_628_277_459_239,
+    ];
+    const B: [f64; 5] = [
+        -5.447_609_879_822_406e1,
+        1.615_858_368_580_409e2,
+        -1.556_989_798_598_866e2,
+        6.680_131_188_771_972e1,
+        -1.328_068_155_288_572e1,
+    ];
+    const C: [f64; 6] = [
+        -7.784_894_002_430_293e-3,
+        -3.223_964_580_411_365e-1,
+        -2.400_758_277_161_838,
+        -2.549_732_539_343_734,
+        4.374_664_141_464_968,
+        2.938_163_982_698_783,
+    ];
+    const D: [f64; 4] = [
+        7.784_695_709_041_462e-3,
+        3.224_671_290_700_398e-1,
+        2.445_134_137_142_996,
+        3.754_408_661_907_416,
+    ];
     let horner = |c: &[f64], x: f64| c.iter().fold(0.0, |acc, &k| acc * x + k);
     let tail = |q: f64| horner(&C, q) / (horner(&D, q) * q + 1.0);
     let low = 0.02425;
@@ -363,7 +405,11 @@ pub fn ndtri(p: f64) -> f64 {
     // Halley's method on ndtr(x) - p, the error taken from the nearer tail so it keeps its digits
     for _ in 0..2 {
         // ndtr(x) - p, the upper tail written as (1 - p) - ndtr(-x)
-        let e = if x < 0.0 { ndtr(x) - p } else { (1.0 - p) - ndtr(-x) };
+        let e = if x < 0.0 {
+            ndtr(x) - p
+        } else {
+            (1.0 - p) - ndtr(-x)
+        };
         let u = e * core::f64::consts::TAU.sqrt() * (x * x / 2.0).exp();
         x -= u / (1.0 + x * u / 2.0);
     }
@@ -393,7 +439,10 @@ mod tests {
             let got = betainc(a, b, x);
             // gammaln's rounding grows with its argument (its logs reach thousands at a + b = 500)
             let tol = if a + b > 100.0 { 1e-12 } else { 1e-13 };
-            assert!((got - want).abs() <= tol * want, "betainc({a}, {b}, {x}) = {got}, scipy {want}");
+            assert!(
+                (got - want).abs() <= tol * want,
+                "betainc({a}, {b}, {x}) = {got}, scipy {want}"
+            );
         }
         // closed form for integer b = 1: I_x(a, 1) = x^a
         assert!((betainc(3.5, 1.0, 0.6) - 0.6f64.powf(3.5)).abs() < 1e-15);
@@ -412,7 +461,13 @@ mod tests {
 
     #[test]
     fn jacobi_functions_satisfy_their_identities() {
-        for &(u, m) in &[(0.3, 0.2), (1.1, 0.7), (2.0, 0.95), (0.5, 1e-12), (0.8, 1.0 - 1e-12)] {
+        for &(u, m) in &[
+            (0.3, 0.2),
+            (1.1, 0.7),
+            (2.0, 0.95),
+            (0.5, 1e-12),
+            (0.8, 1.0 - 1e-12),
+        ] {
             let (sn, cn, dn, _) = ellipj(u, m);
             assert!((sn * sn + cn * cn - 1.0).abs() < 1e-12, "u {u} m {m}");
             assert!((dn * dn + m * sn * sn - 1.0).abs() < 1e-12, "u {u} m {m}");
@@ -446,10 +501,25 @@ mod tests {
             (-2.7, -0.0714070853156458),
         ];
         for (x, want) in cases {
-            assert!(rel(gammaln(x), want) < 1e-14, "gammaln({x}) = {} vs {want}", gammaln(x));
+            assert!(
+                rel(gammaln(x), want) < 1e-14,
+                "gammaln({x}) = {} vs {want}",
+                gammaln(x)
+            );
         }
-        for (x, want) in [(0.1, 9.513507698668732), (0.5, 1.7724538509055159), (4.5, 11.63172839656745), (-0.5, -3.5449077018110318), (-2.7, -0.931082784838964), (20.0, 1.21645100408832e17)] {
-            assert!((gamma(x) - want).abs() < 1e-13 * want.abs(), "gamma({x}) = {} vs {want}", gamma(x));
+        for (x, want) in [
+            (0.1, 9.513507698668732),
+            (0.5, 1.7724538509055159),
+            (4.5, 11.63172839656745),
+            (-0.5, -3.5449077018110318),
+            (-2.7, -0.931082784838964),
+            (20.0, 1.21645100408832e17),
+        ] {
+            assert!(
+                (gamma(x) - want).abs() < 1e-13 * want.abs(),
+                "gamma({x}) = {} vs {want}",
+                gamma(x)
+            );
         }
         assert_eq!(gammaln(0.0), f64::INFINITY);
         assert!(gamma(-3.0).is_nan());
@@ -457,16 +527,62 @@ mod tests {
 
     #[test]
     fn error_functions_match_scipy() {
-        let xs = [-3.5, -1.0, -0.3, 0.0, 1e-5, 0.4, 1.0, 1.7, 2.5, 4.0, 6.0, 10.0];
-        let erfs = [-0.9999992569016276, -0.8427007929497148, -0.3286267594591274, 0.0, 1.1283791670579e-05, 0.42839235504666845, 0.8427007929497148, 0.9837904585907745, 0.999593047982555, 0.9999999845827421, 1.0, 1.0];
-        let erfcs = [1.9999992569016276, 1.8427007929497148, 1.3286267594591274, 1.0, 0.9999887162083294, 0.5716076449533316, 0.15729920705028516, 0.01620954140922544, 0.00040695201744495886, 1.541725790028002e-08, 2.1519736712498913e-17, 2.0884875837625446e-45];
+        let xs = [
+            -3.5, -1.0, -0.3, 0.0, 1e-5, 0.4, 1.0, 1.7, 2.5, 4.0, 6.0, 10.0,
+        ];
+        let erfs = [
+            -0.9999992569016276,
+            -0.8427007929497148,
+            -0.3286267594591274,
+            0.0,
+            1.1283791670579e-05,
+            0.42839235504666845,
+            0.8427007929497148,
+            0.9837904585907745,
+            0.999593047982555,
+            0.9999999845827421,
+            1.0,
+            1.0,
+        ];
+        let erfcs = [
+            1.9999992569016276,
+            1.8427007929497148,
+            1.3286267594591274,
+            1.0,
+            0.9999887162083294,
+            0.5716076449533316,
+            0.15729920705028516,
+            0.01620954140922544,
+            0.00040695201744495886,
+            1.541725790028002e-08,
+            2.1519736712498913e-17,
+            2.0884875837625446e-45,
+        ];
         for ((&x, &e), &c) in xs.iter().zip(&erfs).zip(&erfcs) {
-            assert!((erf(x) - e).abs() <= 1e-15 * e.abs() + 1e-20, "erf({x}) = {} vs {e}", erf(x));
-            assert!((erfc(x) - c).abs() < 1e-14 * c, "erfc({x}) = {} vs {c}", erfc(x));
+            assert!(
+                (erf(x) - e).abs() <= 1e-15 * e.abs() + 1e-20,
+                "erf({x}) = {} vs {e}",
+                erf(x)
+            );
+            assert!(
+                (erfc(x) - c).abs() < 1e-14 * c,
+                "erfc({x}) = {} vs {c}",
+                erfc(x)
+            );
         }
         assert!((erfc(0.5) - 0.4795001221869535).abs() < 1e-15);
-        for (x, want) in [(-10.0, 7.61985302416047e-24), (-2.0, 0.022750131948179195), (0.0, 0.5), (0.5, 0.6914624612740131), (3.0, 0.9986501019683699)] {
-            assert!((ndtr(x) - want).abs() < 1e-14 * want, "ndtr({x}) = {} vs {want}", ndtr(x));
+        for (x, want) in [
+            (-10.0, 7.61985302416047e-24),
+            (-2.0, 0.022750131948179195),
+            (0.0, 0.5),
+            (0.5, 0.6914624612740131),
+            (3.0, 0.9986501019683699),
+        ] {
+            assert!(
+                (ndtr(x) - want).abs() < 1e-14 * want,
+                "ndtr({x}) = {} vs {want}",
+                ndtr(x)
+            );
         }
     }
 
@@ -485,7 +601,11 @@ mod tests {
             (0.99999, 4.264890793923841),
         ];
         for (p, want) in cases {
-            assert!((ndtri(p) - want).abs() < 1e-13 * want.abs().max(1.0), "ndtri({p}) = {} vs {want}", ndtri(p));
+            assert!(
+                (ndtri(p) - want).abs() < 1e-13 * want.abs().max(1.0),
+                "ndtri({p}) = {} vs {want}",
+                ndtri(p)
+            );
         }
         assert_eq!((ndtri(0.0), ndtri(1.0)), (f64::NEG_INFINITY, f64::INFINITY));
         assert!(ndtri(1.5).is_nan());

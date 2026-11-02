@@ -40,16 +40,28 @@ pub fn upfirdn_len(taps: usize, len: usize, up: usize, down: usize) -> usize {
 /// filters it with the FIR `h`, and keeps every `down`-th sample (`scipy.signal.upfirdn`). Computed
 /// in one polyphase pass, so the inserted zeros and the dropped samples cost nothing, and
 /// vectorized across outputs. The output has [`upfirdn_len`] samples.
-pub fn upfirdn<T: Float + Default>(h: &[f64], x: NdView<'_, T>, up: usize, down: usize, axis: usize) -> Result<NdArray<T>, ResampleError> {
+pub fn upfirdn<T: Float + Default>(
+    h: &[f64],
+    x: NdView<'_, T>,
+    up: usize,
+    down: usize,
+    axis: usize,
+) -> Result<NdArray<T>, ResampleError> {
     if h.is_empty() {
         return Err(ResampleError::invalid("the filter is empty"));
     }
     if up == 0 || down == 0 {
-        return Err(ResampleError::invalid(format!("up ({up}) and down ({down}) must be positive")));
+        return Err(ResampleError::invalid(format!(
+            "up ({up}) and down ({down}) must be positive"
+        )));
     }
     let lanes = lanes_f64(&x, axis)?;
     let n = x.shape()[axis];
-    let out_len = if n == 0 { 0 } else { upfirdn_len(h.len(), n, up, down) };
+    let out_len = if n == 0 {
+        0
+    } else {
+        upfirdn_len(h.len(), n, up, down)
+    };
     let mut shape = x.shape().to_vec();
     shape[axis] = out_len;
     let mut out = NdArray::<T>::zeros(&shape)?;
@@ -114,7 +126,15 @@ impl Polyphase {
                 (m0, taps.collect())
             })
             .collect();
-        Self { out_len, period, stream_len, step, front, phases, streams: vec![0.0; step * stream_len] }
+        Self {
+            out_len,
+            period,
+            stream_len,
+            step,
+            front,
+            phases,
+            streams: vec![0.0; step * stream_len],
+        }
     }
 
     /// Every output of one lane into `out` (AVX2 chosen once when the CPU has it).
@@ -148,7 +168,9 @@ fn phases_kernel(plan: &Polyphase, out: &mut [f64]) {
         for block in (0..count).step_by(OUT_BLOCK) {
             let mut acc = [0.0; OUT_BLOCK];
             for &(c, offset) in taps {
-                let run = plan.streams[offset + block..].first_chunk::<OUT_BLOCK>().expect("streams padded past the last block");
+                let run = plan.streams[offset + block..]
+                    .first_chunk::<OUT_BLOCK>()
+                    .expect("streams padded past the last block");
                 for t in 0..OUT_BLOCK {
                     acc[t] += c * run[t];
                 }
@@ -167,20 +189,39 @@ fn phases_kernel(plan: &Polyphase, out: &mut [f64]) {
 /// time `k down / up`. The output has `ceil(len up / down)` samples; the signal is taken as zero
 /// outside.
 #[cfg(feature = "faer")]
-pub fn resample_poly<T: Float + Default>(x: NdView<'_, T>, up: usize, down: usize, axis: usize, window: crate::spectral::WindowSpec) -> Result<NdArray<T>, ResampleError> {
+pub fn resample_poly<T: Float + Default>(
+    x: NdView<'_, T>,
+    up: usize,
+    down: usize,
+    axis: usize,
+    window: crate::spectral::WindowSpec,
+) -> Result<NdArray<T>, ResampleError> {
     if up == 0 || down == 0 {
-        return Err(ResampleError::invalid(format!("up ({up}) and down ({down}) must be positive")));
+        return Err(ResampleError::invalid(format!(
+            "up ({up}) and down ({down}) must be positive"
+        )));
     }
     let g = gcd(up, down);
     let (up, down) = (up / g, down / g);
     if up == 1 && down == 1 {
         return Ok(x.map(|&v| v));
     }
-    let n = x.shape().get(axis).copied().ok_or(crate::signal::NdError::OutOfBounds)?;
+    let n = x
+        .shape()
+        .get(axis)
+        .copied()
+        .ok_or(crate::signal::NdError::OutOfBounds)?;
     let wanted = (n * up).div_ceil(down);
     let max_rate = up.max(down);
     let half_len = 10 * max_rate;
-    let mut h = crate::filter::design::firwin(2 * half_len + 1, &[1.0 / max_rate as f64], window, true, true, 2.0)?;
+    let mut h = crate::filter::design::firwin(
+        2 * half_len + 1,
+        &[1.0 / max_rate as f64],
+        window,
+        true,
+        true,
+        2.0,
+    )?;
     h.iter_mut().for_each(|v| *v *= up as f64);
     // zero-pad the filter so its centre lands on an output sample
     let pre_pad = down - half_len % down;
@@ -189,9 +230,14 @@ pub fn resample_poly<T: Float + Default>(x: NdView<'_, T>, up: usize, down: usiz
     while upfirdn_len(h.len() + pre_pad + post_pad, n, up, down) < wanted + pre_remove {
         post_pad += 1;
     }
-    let padded: Vec<f64> = core::iter::repeat_n(0.0, pre_pad).chain(h).chain(core::iter::repeat_n(0.0, post_pad)).collect();
+    let padded: Vec<f64> = core::iter::repeat_n(0.0, pre_pad)
+        .chain(h)
+        .chain(core::iter::repeat_n(0.0, post_pad))
+        .collect();
     let y = upfirdn(&padded, x, up, down, axis)?;
-    Ok(y.view().slice_axis(axis, pre_remove..pre_remove + wanted)?.to_owned())
+    Ok(y.view()
+        .slice_axis(axis, pre_remove..pre_remove + wanted)?
+        .to_owned())
 }
 
 #[cfg(test)]
@@ -210,10 +256,25 @@ mod tests {
             }
             let full = crate::signal::Signal::convolved(&stuffed[..], &h);
             let len = upfirdn_len(h.len(), x.len(), up, down);
-            let want: Vec<f64> = (0..len).map(|m| full.get(m * down).copied().unwrap_or(0.0)).collect();
-            let got = upfirdn(&h, NdArray::from_vec(x.clone(), &[x.len()]).unwrap().view(), up, down, 0).unwrap();
+            let want: Vec<f64> = (0..len)
+                .map(|m| full.get(m * down).copied().unwrap_or(0.0))
+                .collect();
+            let got = upfirdn(
+                &h,
+                NdArray::from_vec(x.clone(), &[x.len()]).unwrap().view(),
+                up,
+                down,
+                0,
+            )
+            .unwrap();
             assert_eq!(got.as_slice().len(), want.len(), "up {up} down {down}");
-            assert!(got.as_slice().iter().zip(&want).all(|(g, w)| (g - w).abs() < 1e-12), "up {up} down {down}");
+            assert!(
+                got.as_slice()
+                    .iter()
+                    .zip(&want)
+                    .all(|(g, w)| (g - w).abs() < 1e-12),
+                "up {up} down {down}"
+            );
         }
         assert!(upfirdn::<f64>(&[], NdArray::zeros(&[3]).unwrap().view(), 1, 1, 0).is_err());
     }

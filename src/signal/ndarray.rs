@@ -28,10 +28,10 @@
 //! making and transforming views never allocates.
 
 use crate::alloc_prelude::*;
+use alloc::sync::Arc;
 use core::fmt;
 use core::marker::PhantomData;
 use core::ops::{Index, IndexMut, Range};
-use alloc::sync::Arc;
 
 use thiserror::Error;
 
@@ -117,7 +117,11 @@ pub enum NdError {
 }
 
 pub(super) fn check_axis(axis: usize, ndim: usize) -> Result<(), NdError> {
-    if axis < ndim { Ok(()) } else { Err(NdError::AxisOutOfRange { axis, ndim }) }
+    if axis < ndim {
+        Ok(())
+    } else {
+        Err(NdError::AxisOutOfRange { axis, ndim })
+    }
 }
 
 /// Calls `f` with every index of `shape` in row-major order.
@@ -163,9 +167,17 @@ impl Layout {
             return Err(NdError::TooManyDims(shape.len()));
         }
         if strides.len() != shape.len() {
-            return Err(NdError::ShapeMismatch { expected: shape.len(), got: strides.len() });
+            return Err(NdError::ShapeMismatch {
+                expected: shape.len(),
+                got: strides.len(),
+            });
         }
-        let mut l = Self { ndim: shape.len(), shape: [0; MAX_DIMS], strides: [0; MAX_DIMS], labels: [Axis::Unlabeled; MAX_DIMS] };
+        let mut l = Self {
+            ndim: shape.len(),
+            shape: [0; MAX_DIMS],
+            strides: [0; MAX_DIMS],
+            labels: [Axis::Unlabeled; MAX_DIMS],
+        };
         l.shape[..shape.len()].copy_from_slice(shape);
         l.strides[..strides.len()].copy_from_slice(strides);
         Ok(l)
@@ -196,7 +208,13 @@ impl Layout {
         if index.len() != self.ndim || index.iter().zip(self.shape()).any(|(&i, &d)| i >= d) {
             return None;
         }
-        Some(index.iter().zip(self.strides()).map(|(&i, &s)| i as isize * s).sum())
+        Some(
+            index
+                .iter()
+                .zip(self.strides())
+                .map(|(&i, &s)| i as isize * s)
+                .sum(),
+        )
     }
     /// Lowest and highest element offset from the origin, or `None` when empty (or the arithmetic
     /// overflows, which no real buffer allows).
@@ -262,7 +280,11 @@ impl Layout {
     fn permute(&self, axes: &[usize]) -> Result<Layout, NdError> {
         let n = self.ndim;
         let mut seen = [false; MAX_DIMS];
-        if axes.len() != n || axes.iter().any(|&a| a >= n || core::mem::replace(&mut seen[a], true)) {
+        if axes.len() != n
+            || axes
+                .iter()
+                .any(|&a| a >= n || core::mem::replace(&mut seen[a], true))
+        {
             return Err(NdError::InvalidPermutation);
         }
         let mut out = *self;
@@ -293,7 +315,11 @@ impl Layout {
         let mut out = *self;
         out.shape[axis] = d.div_ceil(step.unsigned_abs());
         out.strides[axis] = s * step;
-        let shift = if step < 0 && d > 0 { (d as isize - 1) * s } else { 0 };
+        let shift = if step < 0 && d > 0 {
+            (d as isize - 1) * s
+        } else {
+            0
+        };
         Ok((out, shift))
     }
     fn index_axis(&self, axis: usize, index: usize) -> Result<(Layout, isize), NdError> {
@@ -344,7 +370,11 @@ impl Layout {
     /// leading axes are added (stride 0).
     pub(super) fn broadcast_to(&self, shape: &[usize]) -> Result<Layout, NdError> {
         if shape.len() < self.ndim {
-            return Err(NdError::Broadcast { axis: 0, from: self.ndim, to: shape.len() });
+            return Err(NdError::Broadcast {
+                axis: 0,
+                from: self.ndim,
+                to: shape.len(),
+            });
         }
         let mut out = Layout::new(shape, &[0; MAX_DIMS][..shape.len().min(MAX_DIMS)])?;
         let lead = shape.len() - self.ndim;
@@ -364,7 +394,10 @@ impl Layout {
     fn reshape(&self, shape: &[usize]) -> Result<Layout, NdError> {
         let target: usize = shape.iter().product();
         if target != self.len() {
-            return Err(NdError::ShapeMismatch { expected: target, got: self.len() });
+            return Err(NdError::ShapeMismatch {
+                expected: target,
+                got: self.len(),
+            });
         }
         if self.len() <= 1 {
             return Layout::row_major(shape);
@@ -412,7 +445,10 @@ impl Layout {
 
 impl fmt::Debug for Layout {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Layout").field("shape", &self.shape()).field("strides", &self.strides()).finish()
+        f.debug_struct("Layout")
+            .field("shape", &self.shape())
+            .field("strides", &self.strides())
+            .finish()
     }
 }
 
@@ -426,7 +462,11 @@ struct Odometer {
 
 impl Odometer {
     fn new(layout: &Layout) -> Self {
-        Self { index: [0; MAX_DIMS], offset: 0, remaining: layout.len() }
+        Self {
+            index: [0; MAX_DIMS],
+            offset: 0,
+            remaining: layout.len(),
+        }
     }
     #[inline]
     fn next(&mut self, layout: &Layout) -> Option<isize> {
@@ -469,20 +509,32 @@ pub type SharedArray<T> = NdArray<T, Arc<[T]>>;
 
 impl<T, S: Clone> Clone for NdArray<T, S> {
     fn clone(&self) -> Self {
-        Self { data: self.data.clone(), layout: self.layout, _elem: PhantomData }
+        Self {
+            data: self.data.clone(),
+            layout: self.layout,
+            _elem: PhantomData,
+        }
     }
 }
 
 /// Equal shapes, labels and elements, whatever the storage.
-impl<T: PartialEq, S: Storage<Elem = T>, S2: Storage<Elem = T>> PartialEq<NdArray<T, S2>> for NdArray<T, S> {
+impl<T: PartialEq, S: Storage<Elem = T>, S2: Storage<Elem = T>> PartialEq<NdArray<T, S2>>
+    for NdArray<T, S>
+{
     fn eq(&self, other: &NdArray<T, S2>) -> bool {
-        self.layout.shape() == other.layout.shape() && self.layout.labels() == other.layout.labels() && self.as_slice() == other.as_slice()
+        self.layout.shape() == other.layout.shape()
+            && self.layout.labels() == other.layout.labels()
+            && self.as_slice() == other.as_slice()
     }
 }
 
 impl<T: fmt::Debug, S: Storage<Elem = T>> fmt::Debug for NdArray<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NdArray").field("shape", &self.layout.shape()).field("labels", &self.layout.labels()).field("data", &self.as_slice()).finish()
+        f.debug_struct("NdArray")
+            .field("shape", &self.layout.shape())
+            .field("labels", &self.layout.labels())
+            .field("data", &self.as_slice())
+            .finish()
     }
 }
 
@@ -496,7 +548,11 @@ impl<T> NdArray<T> {
         let layout = Layout::row_major(shape)?;
         let mut data = Vec::with_capacity(layout.len());
         for_each_index(layout.shape(), |idx| data.push(f(idx)));
-        Ok(Self { data, layout, _elem: PhantomData })
+        Ok(Self {
+            data,
+            layout,
+            _elem: PhantomData,
+        })
     }
     /// The elements, row-major, as a vector (no copy).
     pub fn into_vec(self) -> Vec<T> {
@@ -505,7 +561,11 @@ impl<T> NdArray<T> {
     /// Moves the elements into shared storage (one copy into the shared allocation), after which
     /// clones are cheap.
     pub fn into_shared(self) -> SharedArray<T> {
-        NdArray { data: Arc::from(self.data), layout: self.layout, _elem: PhantomData }
+        NdArray {
+            data: Arc::from(self.data),
+            layout: self.layout,
+            _elem: PhantomData,
+        }
     }
 }
 
@@ -513,7 +573,11 @@ impl<T: Copy> NdArray<T> {
     /// An array of `shape` filled with `value`.
     pub fn full(shape: &[usize], value: T) -> Result<Self, NdError> {
         let layout = Layout::row_major(shape)?;
-        Ok(Self { data: vec![value; layout.len()], layout, _elem: PhantomData })
+        Ok(Self {
+            data: vec![value; layout.len()],
+            layout,
+            _elem: PhantomData,
+        })
     }
     /// An array of `shape` filled with `T::default()` (zeros for numbers).
     pub fn zeros(shape: &[usize]) -> Result<Self, NdError>
@@ -529,9 +593,16 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
     pub fn from_storage(storage: S, shape: &[usize]) -> Result<Self, NdError> {
         let layout = Layout::row_major(shape)?;
         if layout.len() != storage.as_slice().len() {
-            return Err(NdError::ShapeMismatch { expected: layout.len(), got: storage.as_slice().len() });
+            return Err(NdError::ShapeMismatch {
+                expected: layout.len(),
+                got: storage.as_slice().len(),
+            });
         }
-        Ok(Self { data: storage, layout, _elem: PhantomData })
+        Ok(Self {
+            data: storage,
+            layout,
+            _elem: PhantomData,
+        })
     }
     /// Labels every axis; errors unless exactly one label per axis is given.
     pub fn with_labels(mut self, labels: &[Axis]) -> Result<Self, NdError> {
@@ -579,7 +650,9 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
     }
     /// The element at `index` (one entry per axis), or `None` outside the array.
     pub fn get(&self, index: &[usize]) -> Option<&T> {
-        self.layout.offset_of(index).map(|o| &self.as_slice()[o as usize])
+        self.layout
+            .offset_of(index)
+            .map(|o| &self.as_slice()[o as usize])
     }
     /// Same elements, new shape (the element count must match). Labels are cleared. No copy.
     pub fn reshape(self, shape: &[usize]) -> Result<Self, NdError> {
@@ -587,7 +660,11 @@ impl<T, S: Storage<Elem = T>> NdArray<T, S> {
     }
     /// A view of the whole array.
     pub fn view(&self) -> NdView<'_, T> {
-        NdView { ptr: self.as_slice().as_ptr(), layout: self.layout, _borrow: PhantomData }
+        NdView {
+            ptr: self.as_slice().as_ptr(),
+            layout: self.layout,
+            _borrow: PhantomData,
+        }
     }
     /// The 1-D lanes along `axis` (see [`NdView::lanes`]).
     pub fn lanes(&self, axis: usize) -> Result<Lanes<'_, T>, NdError> {
@@ -602,11 +679,17 @@ impl<T, S: StorageMut<Elem = T>> NdArray<T, S> {
     }
     /// The element at `index`, mutably, or `None` outside the array.
     pub fn get_mut(&mut self, index: &[usize]) -> Option<&mut T> {
-        self.layout.offset_of(index).map(move |o| &mut self.data.as_mut_slice()[o as usize])
+        self.layout
+            .offset_of(index)
+            .map(move |o| &mut self.data.as_mut_slice()[o as usize])
     }
     /// A mutable view of the whole array.
     pub fn view_mut(&mut self) -> NdViewMut<'_, T> {
-        NdViewMut { ptr: self.data.as_mut_slice().as_mut_ptr(), layout: self.layout, _borrow: PhantomData }
+        NdViewMut {
+            ptr: self.data.as_mut_slice().as_mut_ptr(),
+            layout: self.layout,
+            _borrow: PhantomData,
+        }
     }
     /// The 1-D lanes along `axis`, mutable (see [`NdViewMut::lanes_mut`]).
     pub fn lanes_mut(&mut self, axis: usize) -> Result<LanesMut<'_, T>, NdError> {
@@ -636,11 +719,19 @@ impl<T: Clone> SharedArray<T> {
     /// A mutable view, copying the elements first if they are shared.
     pub fn make_view_mut(&mut self) -> NdViewMut<'_, T> {
         let layout = self.layout;
-        NdViewMut { ptr: self.make_mut().as_mut_ptr(), layout, _borrow: PhantomData }
+        NdViewMut {
+            ptr: self.make_mut().as_mut_ptr(),
+            layout,
+            _borrow: PhantomData,
+        }
     }
     /// A copy in a plain `Vec`-backed array.
     pub fn to_unshared(&self) -> NdArray<T> {
-        NdArray { data: self.data.to_vec(), layout: self.layout, _elem: PhantomData }
+        NdArray {
+            data: self.data.to_vec(),
+            layout: self.layout,
+            _elem: PhantomData,
+        }
     }
 }
 
@@ -725,18 +816,29 @@ unsafe impl<T: Sync> Sync for NdViewMut<'_, T> {}
 
 impl<T> fmt::Debug for NdView<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NdView").field("shape", &self.layout.shape()).field("strides", &self.layout.strides()).finish()
+        f.debug_struct("NdView")
+            .field("shape", &self.layout.shape())
+            .field("strides", &self.layout.strides())
+            .finish()
     }
 }
 
 impl<T> fmt::Debug for NdViewMut<'_, T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("NdViewMut").field("shape", &self.layout.shape()).field("strides", &self.layout.strides()).finish()
+        f.debug_struct("NdViewMut")
+            .field("shape", &self.layout.shape())
+            .field("strides", &self.layout.strides())
+            .finish()
     }
 }
 
 /// Validates a layout over `len` elements with its origin at `offset`; returns the layout.
-fn checked_layout(len: usize, shape: &[usize], strides: &[isize], offset: usize) -> Result<Layout, NdError> {
+fn checked_layout(
+    len: usize,
+    shape: &[usize],
+    strides: &[isize],
+    offset: usize,
+) -> Result<Layout, NdError> {
     let layout = Layout::new(shape, strides)?;
     match layout.span() {
         None if layout.len() == 0 => Ok(layout),
@@ -813,7 +915,9 @@ macro_rules! view_common {
             /// The element at `index` (one entry per axis), or `None` outside the view.
             pub fn get(&self, index: &[usize]) -> Option<&T> {
                 // SAFETY: the offset of a valid index is inside the validated layout
-                self.layout.offset_of(index).map(|o| unsafe { &*self.ptr.wrapping_offset(o) })
+                self.layout
+                    .offset_of(index)
+                    .map(|o| unsafe { &*self.ptr.wrapping_offset(o) })
             }
             /// Labels every axis of the view.
             pub fn with_labels(mut self, labels: &[Axis]) -> Result<Self, NdError> {
@@ -824,7 +928,11 @@ macro_rules! view_common {
                 Ok(self)
             }
             fn relayout(self, layout: Layout, shift: isize) -> Self {
-                Self { ptr: self.ptr.wrapping_offset(shift), layout, _borrow: PhantomData }
+                Self {
+                    ptr: self.ptr.wrapping_offset(shift),
+                    layout,
+                    _borrow: PhantomData,
+                }
             }
             /// Reorders axes: new axis i is old axis `axes[i]`. No copy.
             pub fn permute(self, axes: &[usize]) -> Result<Self, NdError> {
@@ -838,7 +946,8 @@ macro_rules! view_common {
                 for (i, a) in axes[..n].iter_mut().enumerate() {
                     *a = n - 1 - i;
                 }
-                self.permute(&axes[..n]).expect("reversed axes are a permutation")
+                self.permute(&axes[..n])
+                    .expect("reversed axes are a permutation")
             }
             /// Exchanges two axes. No copy.
             pub fn swap_axes(self, a: usize, b: usize) -> Result<Self, NdError> {
@@ -846,7 +955,13 @@ macro_rules! view_common {
                 check_axis(b, self.ndim())?;
                 let mut axes = [0; MAX_DIMS];
                 for (i, x) in axes[..self.ndim()].iter_mut().enumerate() {
-                    *x = if i == a { b } else if i == b { a } else { i };
+                    *x = if i == a {
+                        b
+                    } else if i == b {
+                        a
+                    } else {
+                        i
+                    };
                 }
                 let n = self.ndim();
                 self.permute(&axes[..n])
@@ -896,13 +1011,31 @@ macro_rules! view_common {
                     return Err(NdError::OutOfBounds);
                 }
                 let (first, _) = self.layout.slice_axis(axis, 0..index)?;
-                let (second, shift) = self.layout.slice_axis(axis, index..self.layout.shape[axis])?;
+                let (second, shift) = self
+                    .layout
+                    .slice_axis(axis, index..self.layout.shape[axis])?;
                 let ptr = self.ptr;
-                Ok((Self { ptr, layout: first, _borrow: PhantomData }, Self { ptr: ptr.wrapping_offset(shift), layout: second, _borrow: PhantomData }))
+                Ok((
+                    Self {
+                        ptr,
+                        layout: first,
+                        _borrow: PhantomData,
+                    },
+                    Self {
+                        ptr: ptr.wrapping_offset(shift),
+                        layout: second,
+                        _borrow: PhantomData,
+                    },
+                ))
             }
             /// Elements in logical (row-major) order.
             pub fn iter(&self) -> Iter<'_, T> {
-                Iter { ptr: self.ptr, layout: self.layout, odometer: Odometer::new(&self.layout), _borrow: PhantomData }
+                Iter {
+                    ptr: self.ptr,
+                    layout: self.layout,
+                    odometer: Odometer::new(&self.layout),
+                    _borrow: PhantomData,
+                }
             }
         }
 
@@ -912,7 +1045,11 @@ macro_rules! view_common {
                 let data: Vec<T> = self.to_vec();
                 let mut layout = Layout::row_major(self.shape()).expect("valid shape");
                 layout.labels = self.layout.labels;
-                NdArray { data, layout, _elem: PhantomData }
+                NdArray {
+                    data,
+                    layout,
+                    _elem: PhantomData,
+                }
             }
             /// The elements in logical order, copied into a `Vec`: a row at a time (one copy for a
             /// contiguous last axis, a fill for a broadcast one).
@@ -1002,22 +1139,43 @@ impl<'a, T> NdView<'a, T> {
     /// `[0, 0, ...]` is `data[offset]`, and moving one step along axis `i` moves `strides[i]`
     /// elements (negative strides walk backwards). Errors if any element of the layout would fall
     /// outside `data`.
-    pub fn from_parts(data: &'a [T], shape: &[usize], strides: &[isize], offset: usize) -> Result<Self, NdError> {
+    pub fn from_parts(
+        data: &'a [T],
+        shape: &[usize],
+        strides: &[isize],
+        offset: usize,
+    ) -> Result<Self, NdError> {
         let layout = checked_layout(data.len(), shape, strides, offset)?;
-        let ptr = if layout.len() == 0 { data.as_ptr() } else { data.as_ptr().wrapping_add(offset) };
-        Ok(Self { ptr, layout, _borrow: PhantomData })
+        let ptr = if layout.len() == 0 {
+            data.as_ptr()
+        } else {
+            data.as_ptr().wrapping_add(offset)
+        };
+        Ok(Self {
+            ptr,
+            layout,
+            _borrow: PhantomData,
+        })
     }
     /// A view of memory described only by a pointer (FFI, other array libraries).
     ///
     /// # Safety
     /// Every element the layout reaches from `ptr` (the element at index `[0, 0, ...]`) must be
     /// valid for reads, and not written through anything else, for the lifetime `'a`.
-    pub unsafe fn from_raw_parts(ptr: *const T, shape: &[usize], strides: &[isize]) -> Result<Self, NdError> {
+    pub unsafe fn from_raw_parts(
+        ptr: *const T,
+        shape: &[usize],
+        strides: &[isize],
+    ) -> Result<Self, NdError> {
         let layout = Layout::new(shape, strides)?;
         if layout.len() > 0 && layout.span().is_none() {
             return Err(NdError::OutOfBounds);
         }
-        Ok(Self { ptr, layout, _borrow: PhantomData })
+        Ok(Self {
+            ptr,
+            layout,
+            _borrow: PhantomData,
+        })
     }
     /// A 1-D view of a slice.
     pub fn from_slice(data: &'a [T]) -> Self {
@@ -1026,30 +1184,51 @@ impl<'a, T> NdView<'a, T> {
     /// The elements as one slice, if the view is contiguous (row-major).
     pub fn as_slice(&self) -> Option<&'a [T]> {
         // SAFETY: a standard layout covers exactly `len` consecutive elements from the origin
-        self.is_contiguous().then(|| unsafe { core::slice::from_raw_parts(self.ptr, self.len()) })
+        self.is_contiguous()
+            .then(|| unsafe { core::slice::from_raw_parts(self.ptr, self.len()) })
     }
     /// Elements in logical (row-major) order, borrowed for the view's whole lifetime.
     pub fn iter_all(&self) -> Iter<'a, T> {
-        Iter { ptr: self.ptr, layout: self.layout, odometer: Odometer::new(&self.layout), _borrow: PhantomData }
+        Iter {
+            ptr: self.ptr,
+            layout: self.layout,
+            odometer: Odometer::new(&self.layout),
+            _borrow: PhantomData,
+        }
     }
     /// Repeats the view to `shape` (NumPy broadcasting: axes line up at the end; a length-1 axis
     /// repeats and missing leading axes are added, both with stride 0). No copy; read-only, since
     /// the repeated indices share elements.
     pub fn broadcast_to(&self, shape: &[usize]) -> Result<NdView<'a, T>, NdError> {
         let layout = self.layout.broadcast_to(shape)?;
-        Ok(NdView { ptr: self.ptr, layout, _borrow: PhantomData })
+        Ok(NdView {
+            ptr: self.ptr,
+            layout,
+            _borrow: PhantomData,
+        })
     }
     /// The 1-D lanes along `axis` as views, in row-major order of the other axes; no allocation.
     /// A lane along the last axis of a contiguous view is contiguous, so `lane.as_slice()` gives a
     /// `Signal`.
     pub fn lanes(&self, axis: usize) -> Result<Lanes<'a, T>, NdError> {
         check_axis(axis, self.ndim())?;
-        Ok(Lanes { inner: LaneWalker::new(&self.layout, axis), ptr: self.ptr, _borrow: PhantomData })
+        Ok(Lanes {
+            inner: LaneWalker::new(&self.layout, axis),
+            ptr: self.ptr,
+            _borrow: PhantomData,
+        })
     }
     /// The sub-views at each index along `axis` (that axis dropped), e.g. the items of a batch.
     pub fn axis_iter(&self, axis: usize) -> Result<AxisIter<'a, T>, NdError> {
         check_axis(axis, self.ndim())?;
-        Ok(AxisIter { ptr: self.ptr, sub: self.layout.without_axis(axis), stride: self.layout.strides[axis], index: 0, count: self.layout.shape[axis], _borrow: PhantomData })
+        Ok(AxisIter {
+            ptr: self.ptr,
+            sub: self.layout.without_axis(axis),
+            stride: self.layout.strides[axis],
+            index: 0,
+            count: self.layout.shape[axis],
+            _borrow: PhantomData,
+        })
     }
 }
 
@@ -1059,7 +1238,9 @@ impl<'a, T: Copy> NdView<'a, T> {
     pub fn to_shape(&self, shape: &[usize]) -> Result<CowArray<'a, T>, NdError> {
         match self.reshape(shape) {
             Ok(view) => Ok(CowArray::View(view)),
-            Err(NdError::ReshapeNeedsCopy) => Ok(CowArray::Owned(NdArray::from_vec(self.to_vec(), shape)?)),
+            Err(NdError::ReshapeNeedsCopy) => {
+                Ok(CowArray::Owned(NdArray::from_vec(self.to_vec(), shape)?))
+            }
             Err(e) => Err(e),
         }
     }
@@ -1069,13 +1250,26 @@ impl<'a, T> NdViewMut<'a, T> {
     /// A mutable view over external memory (see [`NdView::from_parts`]). Errors if the layout falls
     /// outside `data`, or if it may reach one element through several indices
     /// ([`NdError::Overlapping`]: zero strides, or axes whose ranges interleave).
-    pub fn from_parts(data: &'a mut [T], shape: &[usize], strides: &[isize], offset: usize) -> Result<Self, NdError> {
+    pub fn from_parts(
+        data: &'a mut [T],
+        shape: &[usize],
+        strides: &[isize],
+        offset: usize,
+    ) -> Result<Self, NdError> {
         let layout = checked_layout(data.len(), shape, strides, offset)?;
         if !layout.is_injective() {
             return Err(NdError::Overlapping);
         }
-        let ptr = if layout.len() == 0 { data.as_mut_ptr() } else { data.as_mut_ptr().wrapping_add(offset) };
-        Ok(Self { ptr, layout, _borrow: PhantomData })
+        let ptr = if layout.len() == 0 {
+            data.as_mut_ptr()
+        } else {
+            data.as_mut_ptr().wrapping_add(offset)
+        };
+        Ok(Self {
+            ptr,
+            layout,
+            _borrow: PhantomData,
+        })
     }
     /// A mutable view of memory described only by a pointer; errors if the layout may reach one
     /// element through several indices ([`NdError::Overlapping`]).
@@ -1083,7 +1277,11 @@ impl<'a, T> NdViewMut<'a, T> {
     /// # Safety
     /// Every element the layout reaches from `ptr` must be valid for reads and writes, and not
     /// accessed through anything else, for the lifetime `'a`.
-    pub unsafe fn from_raw_parts(ptr: *mut T, shape: &[usize], strides: &[isize]) -> Result<Self, NdError> {
+    pub unsafe fn from_raw_parts(
+        ptr: *mut T,
+        shape: &[usize],
+        strides: &[isize],
+    ) -> Result<Self, NdError> {
         let layout = Layout::new(shape, strides)?;
         if layout.len() > 0 && layout.span().is_none() {
             return Err(NdError::OutOfBounds);
@@ -1091,7 +1289,11 @@ impl<'a, T> NdViewMut<'a, T> {
         if !layout.is_injective() {
             return Err(NdError::Overlapping);
         }
-        Ok(Self { ptr, layout, _borrow: PhantomData })
+        Ok(Self {
+            ptr,
+            layout,
+            _borrow: PhantomData,
+        })
     }
     /// A 1-D view of a slice.
     pub fn from_slice(data: &'a mut [T]) -> Self {
@@ -1100,7 +1302,11 @@ impl<'a, T> NdViewMut<'a, T> {
     }
     /// A read-only view of the same elements.
     pub fn view(&self) -> NdView<'_, T> {
-        NdView { ptr: self.ptr, layout: self.layout, _borrow: PhantomData }
+        NdView {
+            ptr: self.ptr,
+            layout: self.layout,
+            _borrow: PhantomData,
+        }
     }
     /// Writable address of the element at index `[0, 0, ...]` (see `as_ptr`).
     pub fn as_mut_ptr(&mut self) -> *mut T {
@@ -1108,32 +1314,49 @@ impl<'a, T> NdViewMut<'a, T> {
     }
     /// A shorter-lived mutable view of the same elements, leaving this one usable afterwards.
     pub fn reborrow(&mut self) -> NdViewMut<'_, T> {
-        NdViewMut { ptr: self.ptr, layout: self.layout, _borrow: PhantomData }
+        NdViewMut {
+            ptr: self.ptr,
+            layout: self.layout,
+            _borrow: PhantomData,
+        }
     }
     /// Gives up mutability, keeping the full lifetime.
     pub fn into_view(self) -> NdView<'a, T> {
-        NdView { ptr: self.ptr, layout: self.layout, _borrow: PhantomData }
+        NdView {
+            ptr: self.ptr,
+            layout: self.layout,
+            _borrow: PhantomData,
+        }
     }
     /// The element at `index`, mutably, or `None` outside the view.
     pub fn get_mut(&mut self, index: &[usize]) -> Option<&mut T> {
         // SAFETY: valid index -> inside the layout; `&mut self` makes the reference exclusive
-        self.layout.offset_of(index).map(|o| unsafe { &mut *self.ptr.wrapping_offset(o) })
+        self.layout
+            .offset_of(index)
+            .map(|o| unsafe { &mut *self.ptr.wrapping_offset(o) })
     }
     /// The elements as one mutable slice, if the view is contiguous (row-major).
     pub fn as_mut_slice(&mut self) -> Option<&mut [T]> {
         let len = self.len();
         // SAFETY: as `NdView::as_slice`, exclusively borrowed
-        self.is_contiguous().then(|| unsafe { core::slice::from_raw_parts_mut(self.ptr, len) })
+        self.is_contiguous()
+            .then(|| unsafe { core::slice::from_raw_parts_mut(self.ptr, len) })
     }
     /// Converts into the contiguous slice for the view's whole lifetime (`None` if the view isn't
     /// contiguous: check [`is_contiguous`](Self::is_contiguous) first to keep the view otherwise).
     pub fn into_slice(self) -> Option<&'a mut [T]> {
         // SAFETY: as above; `self` is consumed, so the borrow moves to the slice
-        self.is_contiguous().then(|| unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len()) })
+        self.is_contiguous()
+            .then(|| unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len()) })
     }
     /// Every element, mutably, in logical order.
     pub fn iter_mut(&mut self) -> IterMut<'_, T> {
-        IterMut { ptr: self.ptr, layout: self.layout, odometer: Odometer::new(&self.layout), _borrow: PhantomData }
+        IterMut {
+            ptr: self.ptr,
+            layout: self.layout,
+            odometer: Odometer::new(&self.layout),
+            _borrow: PhantomData,
+        }
     }
     /// Calls `f` on every element.
     pub fn for_each_mut(&mut self, f: impl FnMut(&mut T)) {
@@ -1146,12 +1369,23 @@ impl<'a, T> NdViewMut<'a, T> {
     /// [`lanes_mut`](Self::lanes_mut) for the view's whole lifetime.
     pub fn into_lanes_mut(self, axis: usize) -> Result<LanesMut<'a, T>, NdError> {
         check_axis(axis, self.ndim())?;
-        Ok(LanesMut { inner: LaneWalker::new(&self.layout, axis), ptr: self.ptr, _borrow: PhantomData })
+        Ok(LanesMut {
+            inner: LaneWalker::new(&self.layout, axis),
+            ptr: self.ptr,
+            _borrow: PhantomData,
+        })
     }
     /// The mutable sub-views at each index along `axis` (that axis dropped).
     pub fn axis_iter_mut(&mut self, axis: usize) -> Result<AxisIterMut<'_, T>, NdError> {
         check_axis(axis, self.ndim())?;
-        Ok(AxisIterMut { ptr: self.ptr, sub: self.layout.without_axis(axis), stride: self.layout.strides[axis], index: 0, count: self.layout.shape[axis], _borrow: PhantomData })
+        Ok(AxisIterMut {
+            ptr: self.ptr,
+            sub: self.layout.without_axis(axis),
+            stride: self.layout.strides[axis],
+            index: 0,
+            count: self.layout.shape[axis],
+            _borrow: PhantomData,
+        })
     }
 }
 
@@ -1163,7 +1397,11 @@ impl<'a, T: Copy> NdViewMut<'a, T> {
     /// Applies `f` to every 1-D lane along `axis`, in row-major order of the other axes. Contiguous
     /// lanes are passed in place without allocating; strided ones are copied to a scratch buffer (one
     /// allocation per call) and written back, so prefer a layout where `axis` is last in real-time code.
-    pub fn for_each_lane(&mut self, axis: usize, mut f: impl FnMut(&mut [T])) -> Result<(), NdError> {
+    pub fn for_each_lane(
+        &mut self,
+        axis: usize,
+        mut f: impl FnMut(&mut [T]),
+    ) -> Result<(), NdError> {
         let mut scratch = Vec::new();
         for mut lane in self.lanes_mut(axis)? {
             if lane.is_contiguous() {
@@ -1196,7 +1434,9 @@ impl<'a, T> Iterator for Iter<'a, T> {
     #[inline]
     fn next(&mut self) -> Option<&'a T> {
         // SAFETY: the odometer only yields offsets of indices inside the validated layout
-        self.odometer.next(&self.layout).map(|o| unsafe { &*self.ptr.wrapping_offset(o) })
+        self.odometer
+            .next(&self.layout)
+            .map(|o| unsafe { &*self.ptr.wrapping_offset(o) })
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.odometer.remaining, Some(self.odometer.remaining))
@@ -1218,7 +1458,9 @@ impl<'a, T> Iterator for IterMut<'a, T> {
     fn next(&mut self) -> Option<&'a mut T> {
         // SAFETY: inside the layout; injective layouts yield each element once, so the references
         // never alias
-        self.odometer.next(&self.layout).map(|o| unsafe { &mut *self.ptr.wrapping_offset(o) })
+        self.odometer
+            .next(&self.layout)
+            .map(|o| unsafe { &mut *self.ptr.wrapping_offset(o) })
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
         (self.odometer.remaining, Some(self.odometer.remaining))
@@ -1239,13 +1481,18 @@ struct LaneWalker {
 impl LaneWalker {
     fn new(layout: &Layout, axis: usize) -> Self {
         let outer = layout.without_axis(axis);
-        let mut lane = Layout::new(&[layout.shape[axis]], &[layout.strides[axis]]).expect("1-D layout");
+        let mut lane =
+            Layout::new(&[layout.shape[axis]], &[layout.strides[axis]]).expect("1-D layout");
         lane.labels[0] = layout.labels[axis];
         let mut odometer = Odometer::new(&outer);
         if layout.shape[axis] == 0 {
             odometer.remaining = 0;
         }
-        Self { outer, odometer, lane }
+        Self {
+            outer,
+            odometer,
+            lane,
+        }
     }
     #[inline]
     fn next(&mut self) -> Option<isize> {
@@ -1264,10 +1511,17 @@ impl<'a, T> Iterator for Lanes<'a, T> {
     type Item = NdView<'a, T>;
     fn next(&mut self) -> Option<NdView<'a, T>> {
         let start = self.inner.next()?;
-        Some(NdView { ptr: self.ptr.wrapping_offset(start), layout: self.inner.lane, _borrow: PhantomData })
+        Some(NdView {
+            ptr: self.ptr.wrapping_offset(start),
+            layout: self.inner.lane,
+            _borrow: PhantomData,
+        })
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.inner.odometer.remaining, Some(self.inner.odometer.remaining))
+        (
+            self.inner.odometer.remaining,
+            Some(self.inner.odometer.remaining),
+        )
     }
 }
 impl<T> ExactSizeIterator for Lanes<'_, T> {}
@@ -1283,10 +1537,17 @@ impl<'a, T> Iterator for LanesMut<'a, T> {
     type Item = NdViewMut<'a, T>;
     fn next(&mut self) -> Option<NdViewMut<'a, T>> {
         let start = self.inner.next()?;
-        Some(NdViewMut { ptr: self.ptr.wrapping_offset(start), layout: self.inner.lane, _borrow: PhantomData })
+        Some(NdViewMut {
+            ptr: self.ptr.wrapping_offset(start),
+            layout: self.inner.lane,
+            _borrow: PhantomData,
+        })
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
-        (self.inner.odometer.remaining, Some(self.inner.odometer.remaining))
+        (
+            self.inner.odometer.remaining,
+            Some(self.inner.odometer.remaining),
+        )
     }
 }
 impl<T> ExactSizeIterator for LanesMut<'_, T> {}
@@ -1307,7 +1568,11 @@ impl<'a, T> Iterator for AxisIter<'a, T> {
         (self.index < self.count).then(|| {
             let ptr = self.ptr.wrapping_offset(self.index as isize * self.stride);
             self.index += 1;
-            NdView { ptr, layout: self.sub, _borrow: PhantomData }
+            NdView {
+                ptr,
+                layout: self.sub,
+                _borrow: PhantomData,
+            }
         })
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1332,7 +1597,11 @@ impl<'a, T> Iterator for AxisIterMut<'a, T> {
         (self.index < self.count).then(|| {
             let ptr = self.ptr.wrapping_offset(self.index as isize * self.stride);
             self.index += 1;
-            NdViewMut { ptr, layout: self.sub, _borrow: PhantomData }
+            NdViewMut {
+                ptr,
+                layout: self.sub,
+                _borrow: PhantomData,
+            }
         })
     }
     fn size_hint(&self) -> (usize, Option<usize>) {
@@ -1363,7 +1632,13 @@ mod tests {
         assert_eq!(a[&[1, 2][..]], 5.0);
         assert_eq!(a.get(&[2, 0]), None);
         assert_eq!(a.get(&[0]), None);
-        assert_eq!(NdArray::from_vec(vec![1.0f32; 5], &[2, 3]), Err(NdError::ShapeMismatch { expected: 6, got: 5 }));
+        assert_eq!(
+            NdArray::from_vec(vec![1.0f32; 5], &[2, 3]),
+            Err(NdError::ShapeMismatch {
+                expected: 6,
+                got: 5
+            })
+        );
         assert_eq!(NdArray::<f32>::zeros(&[1; 9]), Err(NdError::TooManyDims(9)));
         let r = a.reshape(&[3, 2]).unwrap();
         assert_eq!(r[&[2, 1][..]], 5.0);
@@ -1375,7 +1650,9 @@ mod tests {
         let t = a.view().transpose();
         assert_eq!(t.shape(), [4, 3, 2]);
         assert!(!t.is_contiguous());
-        for_each_index(a.shape(), |i| assert_eq!(a.get(i), t.get(&[i[2], i[1], i[0]])));
+        for_each_index(a.shape(), |i| {
+            assert_eq!(a.get(i), t.get(&[i[2], i[1], i[0]]))
+        });
         let p = a.view().permute(&[1, 0, 2]).unwrap();
         assert_eq!(p.get(&[2, 1, 3]), a.get(&[1, 2, 3]));
         assert!(a.view().permute(&[0, 0, 1]).is_err());
@@ -1400,15 +1677,27 @@ mod tests {
         assert!(a.view().slice_axis(0, 2..4).is_err());
         assert!(a.view().index_axis(2, 0).is_err());
         // steps and reversal
-        assert_eq!(a.view().step_axis(1, 2).unwrap().to_vec(), [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]);
-        assert_eq!(a.view().step_axis(1, -3).unwrap().to_vec(), [3.0, 0.0, 7.0, 4.0, 11.0, 8.0]);
-        assert_eq!(a.view().flip(0).unwrap().index_axis(1, 0).unwrap().to_vec(), [8.0, 4.0, 0.0]);
+        assert_eq!(
+            a.view().step_axis(1, 2).unwrap().to_vec(),
+            [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]
+        );
+        assert_eq!(
+            a.view().step_axis(1, -3).unwrap().to_vec(),
+            [3.0, 0.0, 7.0, 4.0, 11.0, 8.0]
+        );
+        assert_eq!(
+            a.view().flip(0).unwrap().index_axis(1, 0).unwrap().to_vec(),
+            [8.0, 4.0, 0.0]
+        );
         assert_eq!(a.view().step_axis(0, 0).err(), Some(NdError::ZeroStep));
         // unit axes
         let e = a.view().insert_axis(1).unwrap();
         assert_eq!(e.shape(), [3, 1, 4]);
         assert_eq!(e.remove_axis(1).unwrap().to_vec(), a.as_slice());
-        assert_eq!(a.view().remove_axis(0).err(), Some(NdError::NotUnitAxis(0, 3)));
+        assert_eq!(
+            a.view().remove_axis(0).err(),
+            Some(NdError::NotUnitAxis(0, 3))
+        );
         // split
         let (top, bottom) = a.view().split_at(0, 1).unwrap();
         assert_eq!((top.shape(), bottom.shape()), (&[1, 4][..], &[2, 4][..]));
@@ -1449,7 +1738,10 @@ mod tests {
         for _ in 0..400 {
             let a = counting(&[4, 5, 3]);
             let mut view = a.view();
-            let mut reference = Dense { shape: vec![4, 5, 3], data: a.as_slice().to_vec() };
+            let mut reference = Dense {
+                shape: vec![4, 5, 3],
+                data: a.as_slice().to_vec(),
+            };
             for _ in 0..6 {
                 let n = view.ndim();
                 if n == 0 {
@@ -1479,7 +1771,11 @@ mod tests {
                         shape[axis] = d.div_ceil(step.unsigned_abs());
                         reference = Dense::build(shape, |i| {
                             let mut j = i.to_vec();
-                            j[axis] = if step > 0 { i[axis] * step as usize } else { d - 1 - i[axis] * step.unsigned_abs() };
+                            j[axis] = if step > 0 {
+                                i[axis] * step as usize
+                            } else {
+                                d - 1 - i[axis] * step.unsigned_abs()
+                            };
                             r.at(&j)
                         });
                     }
@@ -1552,7 +1848,13 @@ mod tests {
         // reversed axes stay viewable
         let f = a.view().flip(1).unwrap();
         assert_eq!(f.reshape(&[4, 3, 2]).unwrap().to_vec(), f.to_vec());
-        assert_eq!(a.view().reshape(&[5, 5]).err(), Some(NdError::ShapeMismatch { expected: 25, got: 24 }));
+        assert_eq!(
+            a.view().reshape(&[5, 5]).err(),
+            Some(NdError::ShapeMismatch {
+                expected: 25,
+                got: 24
+            })
+        );
     }
 
     #[test]
@@ -1562,10 +1864,20 @@ mod tests {
         assert_eq!(b.shape(), [2, 4, 3]);
         assert_eq!(b.strides(), [0, 0, 1]);
         assert_eq!(b.to_vec(), [1.0, 2.0, 3.0].repeat(8));
-        assert_eq!(row.view().broadcast_to(&[2, 2]).err(), Some(NdError::Broadcast { axis: 1, from: 3, to: 2 }));
+        assert_eq!(
+            row.view().broadcast_to(&[2, 2]).err(),
+            Some(NdError::Broadcast {
+                axis: 1,
+                from: 3,
+                to: 2
+            })
+        );
         // a column against rows
         let col = NdArray::from_vec(vec![10.0, 20.0], &[2, 1]).unwrap();
-        assert_eq!(col.view().broadcast_to(&[2, 3]).unwrap().to_vec(), [10.0, 10.0, 10.0, 20.0, 20.0, 20.0]);
+        assert_eq!(
+            col.view().broadcast_to(&[2, 3]).unwrap().to_vec(),
+            [10.0, 10.0, 10.0, 20.0, 20.0, 20.0]
+        );
     }
 
     #[test]
@@ -1579,30 +1891,57 @@ mod tests {
         *v.get_mut(&[0, 0]).unwrap() = 1.0;
         assert_eq!(data[8], 1.0);
         // overlapping: a zero stride, or rows that run into each other
-        assert_eq!(NdViewMut::from_parts(&mut data, &[2, 3], &[0, 1], 0).err(), Some(NdError::Overlapping));
-        assert_eq!(NdViewMut::from_parts(&mut data, &[3, 4], &[2, 1], 0).err(), Some(NdError::Overlapping));
+        assert_eq!(
+            NdViewMut::from_parts(&mut data, &[2, 3], &[0, 1], 0).err(),
+            Some(NdError::Overlapping)
+        );
+        assert_eq!(
+            NdViewMut::from_parts(&mut data, &[3, 4], &[2, 1], 0).err(),
+            Some(NdError::Overlapping)
+        );
         // read-only views may overlap (that is what broadcasting is)
         assert!(NdView::from_parts(&data, &[3, 4], &[2, 1], 0).is_ok());
         // bounds include negative reach
-        assert_eq!(NdView::from_parts(&data, &[3], &[-1], 1).err(), Some(NdError::OutOfBounds));
+        assert_eq!(
+            NdView::from_parts(&data, &[3], &[-1], 1).err(),
+            Some(NdError::OutOfBounds)
+        );
     }
 
     #[test]
     fn lanes_are_signals() {
         // [channel, time]: 2 channels of a sine at different levels
         let tone: Vec<f64> = Sine::new(1_000.0, 48_000.0).take(4_800).collect();
-        let a = NdArray::from_fn(&[2, 4_800], |i| tone[i[1]] * (i[0] + 1) as f64).unwrap().with_labels(&[Axis::Channel, Axis::Time]).unwrap();
+        let a = NdArray::from_fn(&[2, 4_800], |i| tone[i[1]] * (i[0] + 1) as f64)
+            .unwrap()
+            .with_labels(&[Axis::Channel, Axis::Time])
+            .unwrap();
         let time = a.axis_of(Axis::Time).unwrap();
-        let rms: Vec<f64> = a.lanes(time).unwrap().map(|l| l.as_slice().unwrap().rms().unwrap()).collect();
+        let rms: Vec<f64> = a
+            .lanes(time)
+            .unwrap()
+            .map(|l| l.as_slice().unwrap().rms().unwrap())
+            .collect();
         assert_eq!(rms.len(), 2);
         assert!((rms[1] / rms[0] - 2.0).abs() < 1e-12);
         // lanes along the other axis are strided
         let across = a.lanes(0).unwrap();
         assert_eq!(across.len(), 4_800);
-        assert_eq!(a.lanes(0).unwrap().nth(10).unwrap().to_vec(), [tone[10], 2.0 * tone[10]]);
-        assert_eq!(a.lanes(0).unwrap().next().unwrap().labels(), [Axis::Channel]);
+        assert_eq!(
+            a.lanes(0).unwrap().nth(10).unwrap().to_vec(),
+            [tone[10], 2.0 * tone[10]]
+        );
+        assert_eq!(
+            a.lanes(0).unwrap().next().unwrap().labels(),
+            [Axis::Channel]
+        );
         // the items of a batch
-        let items: Vec<Vec<f64>> = counting(&[3, 2]).view().axis_iter(0).unwrap().map(|v| v.to_vec()).collect();
+        let items: Vec<Vec<f64>> = counting(&[3, 2])
+            .view()
+            .axis_iter(0)
+            .unwrap()
+            .map(|v| v.to_vec())
+            .collect();
         assert_eq!(items, [[0.0, 1.0], [2.0, 3.0], [4.0, 5.0]]);
     }
 
@@ -1613,7 +1952,10 @@ mod tests {
         for (c, mut lane) in a.lanes_mut(0).unwrap().enumerate() {
             lane.for_each_mut(|x| *x *= c as f64);
         }
-        assert_eq!(a.as_slice(), [0.0, 1.0, 4.0, 9.0, 0.0, 5.0, 12.0, 21.0, 0.0, 9.0, 20.0, 33.0]);
+        assert_eq!(
+            a.as_slice(),
+            [0.0, 1.0, 4.0, 9.0, 0.0, 5.0, 12.0, 21.0, 0.0, 9.0, 20.0, 33.0]
+        );
         // two disjoint halves at once
         let (mut left, mut right) = a.view_mut().split_at(1, 2).unwrap();
         left.fill(-1.0);
@@ -1630,7 +1972,11 @@ mod tests {
         // [time, channel] layout (interleaved): time is NOT the last axis
         let input: Vec<f64> = Sine::new(9_000.0, 48_000.0).take(2_000).collect();
         let mut interleaved = NdArray::from_fn(&[2_000, 2], |i| input[i[0]]).unwrap();
-        interleaved.for_each_lane(0, |lane| Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0).process(lane)).unwrap();
+        interleaved
+            .for_each_lane(0, |lane| {
+                Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0).process(lane)
+            })
+            .unwrap();
 
         let mut reference = input.clone();
         Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0).process(&mut reference);
@@ -1645,7 +1991,10 @@ mod tests {
         let data = [1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0];
         let v = NdView::from_parts(&data, &[2, 2], &[3, 1], 1).unwrap(); // rows [2,3], [5,6]
         assert_eq!(v.to_vec(), [2.0, 3.0, 5.0, 6.0]);
-        assert_eq!(NdView::from_parts(&data, &[2, 3], &[3, 1], 1).err(), Some(NdError::OutOfBounds));
+        assert_eq!(
+            NdView::from_parts(&data, &[2, 3], &[3, 1], 1).err(),
+            Some(NdError::OutOfBounds)
+        );
         let mut buf = [0.0f32; 4];
         let mut m = NdViewMut::from_parts(&mut buf, &[2, 2], &[1, 2], 0).unwrap(); // column-major
         *m.get_mut(&[1, 0]).unwrap() = 7.0;
@@ -1657,15 +2006,23 @@ mod tests {
     #[test]
     fn storage_kinds_share_one_api() {
         // boxed storage: owned and writable
-        let mut boxed = NdArray::from_storage(vec![1.0f64, 2.0, 3.0, 4.0].into_boxed_slice(), &[2, 2]).unwrap();
+        let mut boxed =
+            NdArray::from_storage(vec![1.0f64, 2.0, 3.0, 4.0].into_boxed_slice(), &[2, 2]).unwrap();
         boxed[&[1, 1][..]] = 40.0;
         assert_eq!(boxed.view().transpose().to_vec(), [1.0, 3.0, 2.0, 40.0]);
         // shared storage: cheap clones, copy on write
         let shared = counting(&[2, 3]).into_shared();
         let mut writer = shared.clone();
-        assert!(std::ptr::eq(shared.as_slice(), writer.as_slice()), "a clone shares the elements");
+        assert!(
+            std::ptr::eq(shared.as_slice(), writer.as_slice()),
+            "a clone shares the elements"
+        );
         writer.make_view_mut().fill(9.0);
-        assert_eq!(shared.as_slice(), [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], "the original is untouched");
+        assert_eq!(
+            shared.as_slice(),
+            [0.0, 1.0, 2.0, 3.0, 4.0, 5.0],
+            "the original is untouched"
+        );
         assert_eq!(writer.as_slice(), [9.0; 6]);
         assert!(writer.is_unique());
         writer.make_mut()[0] = 1.0; // unique now: no copy
@@ -1673,7 +2030,16 @@ mod tests {
         // equality and signals ignore the storage kind
         assert_eq!(shared, counting(&[2, 3]));
         assert_eq!(shared.sum(), 15.0);
-        assert_eq!(shared.reshape(&[3, 2]).unwrap().view().index_axis(0, 2).unwrap().to_vec(), [4.0, 5.0]);
+        assert_eq!(
+            shared
+                .reshape(&[3, 2])
+                .unwrap()
+                .view()
+                .index_axis(0, 2)
+                .unwrap()
+                .to_vec(),
+            [4.0, 5.0]
+        );
         assert!(NdArray::from_storage(vec![1.0f32; 5], &[2, 3]).is_err());
     }
     #[test]

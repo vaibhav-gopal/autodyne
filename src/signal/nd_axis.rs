@@ -10,15 +10,29 @@ use super::Storage;
 use crate::units::*;
 
 /// The lanes of `x` along `axis` as `f64` vectors (contiguous lanes copy as slices).
-pub(crate) fn lanes_f64<T: Float>(x: &NdView<'_, T>, axis: usize) -> Result<Vec<Vec<f64>>, NdError> {
+pub(crate) fn lanes_f64<T: Float>(
+    x: &NdView<'_, T>,
+    axis: usize,
+) -> Result<Vec<Vec<f64>>, NdError> {
     check_axis(axis, x.ndim())?;
     let f = |v: &T| v.to_f64().unwrap_or(f64::NAN);
-    Ok(x.lanes(axis)?.map(|l| match l.as_slice() { Some(s) => s.iter().map(f).collect(), None => l.iter().map(f).collect() }).collect())
+    Ok(x.lanes(axis)?
+        .map(|l| match l.as_slice() {
+            Some(s) => s.iter().map(f).collect(),
+            None => l.iter().map(f).collect(),
+        })
+        .collect())
 }
 
 /// Runs `f` on every lane along `axis` (copied out when strided), writing `out_len` results per
 /// lane; the result has `axis` of length `out_len` (removed when `keep` is false and `out_len` is 1).
-fn lanes_to<T: Copy, R: Copy + Default>(v: &NdView<'_, T>, axis: usize, out_len: usize, keep: bool, mut f: impl FnMut(&[T], &mut [R])) -> Result<NdArray<R>, NdError> {
+fn lanes_to<T: Copy, R: Copy + Default>(
+    v: &NdView<'_, T>,
+    axis: usize,
+    out_len: usize,
+    keep: bool,
+    mut f: impl FnMut(&[T], &mut [R]),
+) -> Result<NdArray<R>, NdError> {
     check_axis(axis, v.ndim())?;
     let mut shape = v.shape().to_vec();
     shape[axis] = out_len;
@@ -67,13 +81,23 @@ impl<'a, T: Float + Default> NdView<'a, T> {
             return Err(NdError::OutOfBounds);
         }
         lanes_to(self, axis, 1, false, |lane, out| {
-            out[0] = lane.iter().skip(1).fold(lane[0], |m, &x| if m._is_nan() || x._is_nan() { T::_NAN } else if better(x, m) { x } else { m });
+            out[0] = lane.iter().skip(1).fold(lane[0], |m, &x| {
+                if m._is_nan() || x._is_nan() {
+                    T::_NAN
+                } else if better(x, m) {
+                    x
+                } else {
+                    m
+                }
+            });
         })
     }
 
     /// The product along `axis` (removed).
     pub fn prod_axis(&self, axis: usize) -> Result<NdArray<T>, NdError> {
-        lanes_to(self, axis, 1, false, |lane, out| out[0] = lane.iter().fold(T::_ONE, |p, &x| p * x))
+        lanes_to(self, axis, 1, false, |lane, out| {
+            out[0] = lane.iter().fold(T::_ONE, |p, &x| p * x)
+        })
     }
 
     /// The index of the minimum along `axis` (removed); the first NaN wins, as in NumPy.
@@ -86,7 +110,11 @@ impl<'a, T: Float + Default> NdView<'a, T> {
         self.arg_extreme(axis, |a, b| a > b)
     }
 
-    fn arg_extreme(&self, axis: usize, better: fn(T, T) -> bool) -> Result<NdArray<usize>, NdError> {
+    fn arg_extreme(
+        &self,
+        axis: usize,
+        better: fn(T, T) -> bool,
+    ) -> Result<NdArray<usize>, NdError> {
         check_axis(axis, self.ndim())?;
         if self.shape()[axis] == 0 {
             return Err(NdError::OutOfBounds);
@@ -111,8 +139,14 @@ impl<'a, T: Float + Default> NdView<'a, T> {
         lanes_to(self, axis, 1, false, |lane, out| {
             let n = lane.len();
             let mean = lane.iter().fold(T::_ZERO, |s, &x| s + x) / T::_lit(n as f64);
-            let ss = lane.iter().fold(T::_ZERO, |s, &x| s + (x - mean) * (x - mean));
-            out[0] = if n > ddof { ss / T::_lit((n - ddof) as f64) } else { T::_NAN };
+            let ss = lane
+                .iter()
+                .fold(T::_ZERO, |s, &x| s + (x - mean) * (x - mean));
+            out[0] = if n > ddof {
+                ss / T::_lit((n - ddof) as f64)
+            } else {
+                T::_NAN
+            };
         })
     }
 
@@ -157,12 +191,18 @@ impl<'a, T: Float + Default> NdView<'a, T> {
     /// The indices that sort each lane along `axis` (stable: equal values keep their order).
     pub fn argsort_axis(&self, axis: usize) -> Result<NdArray<usize>, NdError> {
         check_axis(axis, self.ndim())?;
-        lanes_to(self, axis, self.shape()[axis], true, |lane: &[T], out: &mut [usize]| {
-            for (i, o) in out.iter_mut().enumerate() {
-                *o = i;
-            }
-            out.sort_by(|&a, &b| nan_last(&lane[a], &lane[b]));
-        })
+        lanes_to(
+            self,
+            axis,
+            self.shape()[axis],
+            true,
+            |lane: &[T], out: &mut [usize]| {
+                for (i, o) in out.iter_mut().enumerate() {
+                    *o = i;
+                }
+                out.sort_by(|&a, &b| nan_last(&lane[a], &lane[b]));
+            },
+        )
     }
 
     /// The `n`-th discrete difference along `axis` (that axis shrinks by `n`).
@@ -183,15 +223,26 @@ impl<'a, T: Float + Default> NdView<'a, T> {
 }
 
 /// Joins arrays along an existing `axis` (`numpy.concatenate`): every other axis must match.
-pub fn concatenate<T: Copy + Default>(arrays: &[NdView<'_, T>], axis: usize) -> Result<NdArray<T>, NdError> {
+pub fn concatenate<T: Copy + Default>(
+    arrays: &[NdView<'_, T>],
+    axis: usize,
+) -> Result<NdArray<T>, NdError> {
     let first = arrays.first().ok_or(NdError::OutOfBounds)?;
     check_axis(axis, first.ndim())?;
     let mut shape = first.shape().to_vec();
     shape[axis] = 0;
     for a in arrays {
-        let same = a.ndim() == first.ndim() && a.shape().iter().zip(first.shape()).enumerate().all(|(i, (x, y))| i == axis || x == y);
+        let same = a.ndim() == first.ndim()
+            && a.shape()
+                .iter()
+                .zip(first.shape())
+                .enumerate()
+                .all(|(i, (x, y))| i == axis || x == y);
         if !same {
-            return Err(NdError::ShapeMismatch { expected: first.len(), got: a.len() });
+            return Err(NdError::ShapeMismatch {
+                expected: first.len(),
+                got: a.len(),
+            });
         }
         shape[axis] += a.shape()[axis];
     }
@@ -199,7 +250,10 @@ pub fn concatenate<T: Copy + Default>(arrays: &[NdView<'_, T>], axis: usize) -> 
     let slices: Option<Vec<&[T]>> = arrays.iter().map(|a| a.as_slice()).collect();
     if let Some(slices) = slices {
         let outer: usize = shape[..axis].iter().product();
-        let blocks: Vec<usize> = arrays.iter().map(|a| a.shape()[axis..].iter().product()).collect();
+        let blocks: Vec<usize> = arrays
+            .iter()
+            .map(|a| a.shape()[axis..].iter().product())
+            .collect();
         let mut data = Vec::with_capacity(shape.iter().product());
         for o in 0..outer {
             for (s, &b) in slices.iter().zip(&blocks) {
@@ -220,12 +274,24 @@ pub fn concatenate<T: Copy + Default>(arrays: &[NdView<'_, T>], axis: usize) -> 
 }
 
 /// Joins arrays of one shape along a new `axis` (`numpy.stack`).
-pub fn stack<T: Copy + Default>(arrays: &[NdView<'_, T>], axis: usize) -> Result<NdArray<T>, NdError> {
+pub fn stack<T: Copy + Default>(
+    arrays: &[NdView<'_, T>],
+    axis: usize,
+) -> Result<NdArray<T>, NdError> {
     let first = arrays.first().ok_or(NdError::OutOfBounds)?;
     check_axis(axis, first.ndim() + 1)?;
     let expanded: Vec<NdView<'_, T>> = arrays
         .iter()
-        .map(|a| if a.shape() == first.shape() { a.insert_axis(axis) } else { Err(NdError::ShapeMismatch { expected: first.len(), got: a.len() }) })
+        .map(|a| {
+            if a.shape() == first.shape() {
+                a.insert_axis(axis)
+            } else {
+                Err(NdError::ShapeMismatch {
+                    expected: first.len(),
+                    got: a.len(),
+                })
+            }
+        })
         .collect::<Result<_, _>>()?;
     concatenate(&expanded, axis)
 }
@@ -275,10 +341,16 @@ mod tests {
         assert_eq!(a.prod_axis(1).unwrap().as_slice(), &[6.0, 120.0]);
         assert_eq!(a.argmin_axis(1).unwrap().as_slice(), &[1, 2]);
         assert_eq!(a.argmax_axis(0).unwrap().as_slice(), &[1, 1, 1]);
-        assert_eq!(a.var_axis(1, 0).unwrap().as_slice(), &[2.0 / 3.0, 2.0 / 3.0]);
+        assert_eq!(
+            a.var_axis(1, 0).unwrap().as_slice(),
+            &[2.0 / 3.0, 2.0 / 3.0]
+        );
         assert_eq!(a.std_axis(1, 1).unwrap().as_slice(), &[1.0, 1.0]);
         // on a transposed view: reductions follow the logical axes
-        assert_eq!(a.view().transpose().min_axis(0).unwrap().as_slice(), &[1.0, 4.0]);
+        assert_eq!(
+            a.view().transpose().min_axis(0).unwrap().as_slice(),
+            &[1.0, 4.0]
+        );
         let nan = arr(&[1.0, f64::NAN, 0.0], &[3]);
         assert!(nan.min_axis(0).unwrap().as_slice()[0].is_nan());
         assert_eq!(nan.argmax_axis(0).unwrap().as_slice(), &[1]);
@@ -287,14 +359,26 @@ mod tests {
     #[test]
     fn cumulative_sorting_and_differences() {
         let a = arr(&[3.0, 1.0, 2.0, 6.0, 5.0, 4.0], &[2, 3]);
-        assert_eq!(a.cumsum_axis(1).unwrap().as_slice(), &[3.0, 4.0, 6.0, 6.0, 11.0, 15.0]);
-        assert_eq!(a.cumprod_axis(0).unwrap().as_slice(), &[3.0, 1.0, 2.0, 18.0, 5.0, 8.0]);
-        assert_eq!(a.sort_axis(1).unwrap().as_slice(), &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(
+            a.cumsum_axis(1).unwrap().as_slice(),
+            &[3.0, 4.0, 6.0, 6.0, 11.0, 15.0]
+        );
+        assert_eq!(
+            a.cumprod_axis(0).unwrap().as_slice(),
+            &[3.0, 1.0, 2.0, 18.0, 5.0, 8.0]
+        );
+        assert_eq!(
+            a.sort_axis(1).unwrap().as_slice(),
+            &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+        );
         assert_eq!(a.argsort_axis(1).unwrap().as_slice(), &[1, 2, 0, 2, 1, 0]);
         let with_nan = arr(&[2.0, f64::NAN, 1.0], &[3]).sort_axis(0).unwrap();
         assert_eq!(&with_nan.as_slice()[..2], &[1.0, 2.0]);
         assert!(with_nan.as_slice()[2].is_nan());
-        assert_eq!(a.diff_axis(1, 1).unwrap().as_slice(), &[-2.0, 1.0, -1.0, -1.0]);
+        assert_eq!(
+            a.diff_axis(1, 1).unwrap().as_slice(),
+            &[-2.0, 1.0, -1.0, -1.0]
+        );
         assert_eq!(a.diff_axis(1, 2).unwrap().as_slice(), &[3.0, 0.0]);
     }
 

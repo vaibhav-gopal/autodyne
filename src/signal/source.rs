@@ -63,7 +63,10 @@ pub trait Source {
         Self::Sample: Float,
         P: Processor<Self::Sample>,
     {
-        Through { source: self, processor }
+        Through {
+            source: self,
+            processor,
+        }
     }
 
     /// An infinite `Iterator` over the samples, for use with the std adapters (`take`, `zip`, ...).
@@ -203,8 +206,8 @@ impl<S: Source> Iterator for Samples<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::osc::{Impulse, Noise, Phasor, Sine};
     use crate::filter::{Biquad, BUTTERWORTH_Q};
+    use crate::osc::{Impulse, Noise, Phasor, Sine};
     use crate::signal::Signal;
 
     const FS: f64 = 48_000.0;
@@ -220,7 +223,9 @@ mod tests {
 
     #[test]
     fn through_equals_filling_then_processing() {
-        let mut lazy = Sine::new(3_000.0, FS).mix(Noise::new(1).scaled(0.1)).through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS));
+        let mut lazy = Sine::new(3_000.0, FS)
+            .mix(Noise::new(1).scaled(0.1))
+            .through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q, FS));
         let mut a = vec![0.0; 1_000];
         lazy.fill(&mut a[..600]);
         lazy.fill(&mut a[600..]); // block boundaries don't matter

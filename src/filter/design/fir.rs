@@ -4,8 +4,8 @@
 use crate::alloc_prelude::*;
 use core::f64::consts::PI;
 
-use crate::filter::FilterError;
 use crate::fft::RealFft;
+use crate::filter::FilterError;
 use crate::spectral::{get_window, WindowSpec};
 use crate::units::Complex;
 
@@ -39,7 +39,9 @@ pub fn kaiser_atten(numtaps: usize, width: f64) -> f64 {
 pub fn kaiserord(ripple: f64, width: f64) -> Result<(usize, f64), FilterError> {
     let a = ripple.abs();
     if a < 8.0 {
-        return Err(FilterError::invalid(format!("requested maximum ripple attenuation {a} is too small for the Kaiser formula")));
+        return Err(FilterError::invalid(format!(
+            "requested maximum ripple attenuation {a} is too small for the Kaiser formula"
+        )));
     }
     let numtaps = (a - 7.95) / 2.285 / (PI * width) + 1.0;
     Ok((numtaps.ceil() as usize, kaiser_beta(a)))
@@ -49,23 +51,40 @@ pub fn kaiserord(ripple: f64, width: f64) -> Result<(usize, f64), FilterError> {
 /// rate `fs` (increasing, between 0 and Nyquist), `pass_zero` true if the band containing 0 Hz
 /// passes (one edge: low-pass, else high-pass; two: band-stop, else band-pass; and so on), `scale`
 /// to normalize the passband gain to exactly 1.
-pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: bool, scale: bool, fs: f64) -> Result<Vec<f64>, FilterError> {
+pub fn firwin(
+    numtaps: usize,
+    cutoff: &[f64],
+    window: WindowSpec,
+    pass_zero: bool,
+    scale: bool,
+    fs: f64,
+) -> Result<Vec<f64>, FilterError> {
     let nyq = fs / 2.0;
     if cutoff.is_empty() {
-        return Err(FilterError::invalid("at least one cutoff frequency must be given"));
+        return Err(FilterError::invalid(
+            "at least one cutoff frequency must be given",
+        ));
     }
     let cut: Vec<f64> = cutoff.iter().map(|c| c / nyq).collect();
     if cut.iter().any(|&c| c <= 0.0 || c >= 1.0) {
-        return Err(FilterError::invalid(format!("cutoffs must be between 0 and the Nyquist frequency {nyq} Hz")));
+        return Err(FilterError::invalid(format!(
+            "cutoffs must be between 0 and the Nyquist frequency {nyq} Hz"
+        )));
     }
     if cut.windows(2).any(|w| w[1] <= w[0]) {
         return Err(FilterError::invalid("cutoffs must strictly increase"));
     }
     let pass_nyquist = (cut.len() % 2 == 1) ^ pass_zero;
     if pass_nyquist && numtaps.is_multiple_of(2) {
-        return Err(FilterError::invalid("a filter with an even number of taps must have zero response at the Nyquist frequency"));
+        return Err(FilterError::invalid(
+            "a filter with an even number of taps must have zero response at the Nyquist frequency",
+        ));
     }
-    let edges: Vec<f64> = core::iter::once(0.0).filter(|_| pass_zero).chain(cut).chain(core::iter::once(1.0).filter(|_| pass_nyquist)).collect();
+    let edges: Vec<f64> = core::iter::once(0.0)
+        .filter(|_| pass_zero)
+        .chain(cut)
+        .chain(core::iter::once(1.0).filter(|_| pass_nyquist))
+        .collect();
     let alpha = 0.5 * (numtaps as f64 - 1.0);
     let m: Vec<f64> = (0..numtaps).map(|i| i as f64 - alpha).collect();
     let mut h = vec![0.0; numtaps];
@@ -88,7 +107,11 @@ pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: boo
         } else {
             0.5 * (left + right)
         };
-        let s: f64 = h.iter().zip(&m).map(|(hi, mi)| hi * (PI * mi * f).cos()).sum();
+        let s: f64 = h
+            .iter()
+            .zip(&m)
+            .map(|(hi, mi)| hi * (PI * mi * f).cos())
+            .sum();
         for hi in &mut h {
             *hi /= s;
         }
@@ -100,7 +123,15 @@ pub fn firwin(numtaps: usize, cutoff: &[f64], window: WindowSpec, pass_zero: boo
 /// `(freq, gain)` (Hz, from 0 to Nyquist; a frequency may repeat once for a step), sampled on
 /// `nfreqs` points (default `1 + 2^ceil(log2 numtaps)`), inverse transformed and windowed.
 /// `antisymmetric` gives type III / IV filters (90° phase).
-pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>, window: Option<WindowSpec>, antisymmetric: bool, fs: f64) -> Result<Vec<f64>, FilterError> {
+pub fn firwin2(
+    numtaps: usize,
+    freq: &[f64],
+    gain: &[f64],
+    nfreqs: Option<usize>,
+    window: Option<WindowSpec>,
+    antisymmetric: bool,
+    fs: f64,
+) -> Result<Vec<f64>, FilterError> {
     let nyq = fs / 2.0;
     let bad = |m: &str| Err(FilterError::invalid(m));
     if freq.len() != gain.len() {
@@ -129,7 +160,10 @@ pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>
         (true, _) => 4,
     };
     let last = gain[gain.len() - 1];
-    if (ftype == 2 && last != 0.0) || (ftype == 3 && (gain[0] != 0.0 || last != 0.0)) || (ftype == 4 && gain[0] != 0.0) {
+    if (ftype == 2 && last != 0.0)
+        || (ftype == 3 && (gain[0] != 0.0 || last != 0.0))
+        || (ftype == 4 && gain[0] != 0.0)
+    {
         return bad("this filter type needs zero gain at 0 Hz and/or the Nyquist frequency");
     }
     let nfreqs = nfreqs.unwrap_or(1 + (numtaps as f64).log2().ceil().exp2() as usize);
@@ -148,7 +182,11 @@ pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>
     let interp = |x: f64| -> f64 {
         let i = freq.partition_point(|&f| f <= x).clamp(1, freq.len() - 1);
         let (f0, f1) = (freq[i - 1], freq[i]);
-        if f1 == f0 { gain[i] } else { gain[i - 1] + (gain[i] - gain[i - 1]) * (x - f0) / (f1 - f0) }
+        if f1 == f0 {
+            gain[i]
+        } else {
+            gain[i - 1] + (gain[i] - gain[i - 1]) * (x - f0) / (f1 - f0)
+        }
     };
     let spectrum: Vec<Complex<f64>> = (0..nfreqs)
         .map(|i| {
@@ -164,8 +202,14 @@ pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>
     let n = 2 * (nfreqs - 1);
     let mut full = vec![0.0; n];
     RealFft::new(n).inverse(&spectrum, &mut full);
-    let win = window.map(|w| get_window(w, numtaps, false)).unwrap_or_else(|| vec![1.0; numtaps]);
-    let mut out: Vec<f64> = full[..numtaps].iter().zip(&win).map(|(a, b)| a * b).collect();
+    let win = window
+        .map(|w| get_window(w, numtaps, false))
+        .unwrap_or_else(|| vec![1.0; numtaps]);
+    let mut out: Vec<f64> = full[..numtaps]
+        .iter()
+        .zip(&win)
+        .map(|(a, b)| a * b)
+        .collect();
     if ftype == 3 {
         out[numtaps / 2] = 0.0;
     }
@@ -175,7 +219,13 @@ pub fn firwin2(numtaps: usize, freq: &[f64], gain: &[f64], nfreqs: Option<usize>
 /// A linear-phase FIR minimizing the weighted squared error to a piecewise-linear response
 /// (`scipy.signal.firls`): `bands` are `(start, end)` pairs in Hz, `desired` the gains at each
 /// band's start and end, `weight` one per band (default 1). `numtaps` must be odd.
-pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weight: Option<&[f64]>, fs: f64) -> Result<Vec<f64>, FilterError> {
+pub fn firls(
+    numtaps: usize,
+    bands: &[(f64, f64)],
+    desired: &[(f64, f64)],
+    weight: Option<&[f64]>,
+    fs: f64,
+) -> Result<Vec<f64>, FilterError> {
     if numtaps.is_multiple_of(2) || numtaps < 1 {
         return Err(FilterError::invalid("numtaps must be odd"));
     }
@@ -192,11 +242,19 @@ pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weigh
     let m = (numtaps - 1) / 2;
     // q[n] = Σ_bands w (f1 sinc(f1 n) - f0 sinc(f0 n))
     let q: Vec<f64> = (0..numtaps)
-        .map(|n| bands.iter().zip(weight).map(|(&(f0, f1), w)| w * (f1 * sinc(f1 * n as f64) - f0 * sinc(f0 * n as f64))).sum())
+        .map(|n| {
+            bands
+                .iter()
+                .zip(weight)
+                .map(|(&(f0, f1), w)| w * (f1 * sinc(f1 * n as f64) - f0 * sinc(f0 * n as f64)))
+                .sum()
+        })
         .collect();
     // Q = toeplitz(q[..=m]) + hankel(q[..=m], q[m..])
     let size = m + 1;
-    let qmat = crate::signal::NdArray::from_fn(&[size, size], |i| q[i[0].abs_diff(i[1])] + q[i[0] + i[1]]).expect("shape");
+    let qmat =
+        crate::signal::NdArray::from_fn(&[size, size], |i| q[i[0].abs_diff(i[1])] + q[i[0] + i[1]])
+            .expect("shape");
     let b: Vec<f64> = (0..size)
         .map(|n| {
             let nf = n as f64;
@@ -224,7 +282,13 @@ pub fn firls(numtaps: usize, bands: &[(f64, f64)], desired: &[(f64, f64)], weigh
     let rhs = crate::signal::NdArray::from_vec(b, &[size]).expect("shape");
     let a = crate::linalg::solve(qmat.view(), rhs.view())?;
     let a = a.as_slice();
-    Ok(a[1..].iter().rev().copied().chain(core::iter::once(2.0 * a[0])).chain(a[1..].iter().copied()).collect())
+    Ok(a[1..]
+        .iter()
+        .rev()
+        .copied()
+        .chain(core::iter::once(2.0 * a[0]))
+        .chain(a[1..].iter().copied())
+        .collect())
 }
 
 /// What [`remez`] designs.
@@ -263,7 +327,9 @@ pub fn remez(
     }
     let bands: Vec<(f64, f64)> = bands.iter().map(|&(a, b)| (a / fs, b / fs)).collect();
     if bands.iter().any(|&(a, b)| a < 0.0 || b > 0.5 || b < a) {
-        return Err(FilterError::invalid("bands must be within 0 and fs/2, each increasing"));
+        return Err(FilterError::invalid(
+            "bands must be within 0 and fs/2, each increasing",
+        ));
     }
     let positive = kind == RemezType::Bandpass;
     let odd = numtaps % 2 == 1;
@@ -275,7 +341,11 @@ pub fn remez(
     // dense grid
     let (mut grid, mut d, mut w) = (Vec::new(), Vec::new(), Vec::new());
     for (bi, &(lo, hi)) in bands.iter().enumerate() {
-        let lowf0 = if bi == 0 && !positive && delf > lo { delf } else { lo };
+        let lowf0 = if bi == 0 && !positive && delf > lo {
+            delf
+        } else {
+            lo
+        };
         let k = ((hi - lowf0) / delf + 0.5) as usize;
         let mut lowf = lowf0;
         for _ in 0..k {
@@ -290,7 +360,9 @@ pub fn remez(
     }
     let gridsize = grid.len();
     if gridsize < r + 2 {
-        return Err(FilterError::invalid("the frequency grid is too coarse for this many taps"));
+        return Err(FilterError::invalid(
+            "the frequency grid is too coarse for this many taps",
+        ));
     }
     if !positive && odd && grid[gridsize - 1] > 0.5 - delf {
         grid[gridsize - 1] = 0.5 - delf;
@@ -323,9 +395,15 @@ pub fn remez(
     for _ in 0..maxiter {
         calc_parms(r, &ext, &grid, &d, &w, &mut ad, &mut x, &mut y);
         errors(&xgrid, &d, &w, r, &ad, &x, &y, &mut e);
-        search(r, &mut ext, &e).map_err(|m| FilterError::invalid(format!("remez failed to converge ({m}); try a wider transition band")))?;
+        search(r, &mut ext, &e).map_err(|m| {
+            FilterError::invalid(format!(
+                "remez failed to converge ({m}); try a wider transition band"
+            ))
+        })?;
         let errs: Vec<f64> = ext.iter().map(|&i| e[i].abs()).collect();
-        let (lo, hi) = errs.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        let (lo, hi) = errs.iter().fold((f64::INFINITY, 0.0f64), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        });
         if (hi - lo) / hi < 0.0001 {
             break;
         }
@@ -351,7 +429,16 @@ pub fn remez(
 /// Barycentric weights, the deviation, and the interpolated values at the extremal frequencies
 /// (Oppenheim & Schafer 7.131-7.133).
 #[allow(clippy::too_many_arguments)]
-fn calc_parms(r: usize, ext: &[usize], grid: &[f64], d: &[f64], w: &[f64], ad: &mut [f64], x: &mut [f64], y: &mut [f64]) {
+fn calc_parms(
+    r: usize,
+    ext: &[usize],
+    grid: &[f64],
+    d: &[f64],
+    w: &[f64],
+    ad: &mut [f64],
+    x: &mut [f64],
+    y: &mut [f64],
+) {
     for i in 0..=r {
         x[i] = (2.0 * PI * grid[ext[i]]).cos();
     }
@@ -398,12 +485,30 @@ fn compute_a(freq: f64, r: usize, ad: &[f64], x: &[f64], y: &[f64]) -> f64 {
 /// point within 1e-7 of an extremal frequency is redone by [`interpolate`], which returns that
 /// extremal's value as it should.
 #[allow(clippy::too_many_arguments)]
-fn errors(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], y: &[f64], e: &mut [f64]) {
+fn errors(
+    xgrid: &[f64],
+    d: &[f64],
+    w: &[f64],
+    r: usize,
+    ad: &[f64],
+    x: &[f64],
+    y: &[f64],
+    e: &mut [f64],
+) {
     #[cfg(target_arch = "x86_64")]
     {
         #[target_feature(enable = "avx2")]
         #[allow(clippy::too_many_arguments)]
-        unsafe fn errors_avx2(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], y: &[f64], e: &mut [f64]) {
+        unsafe fn errors_avx2(
+            xgrid: &[f64],
+            d: &[f64],
+            w: &[f64],
+            r: usize,
+            ad: &[f64],
+            x: &[f64],
+            y: &[f64],
+            e: &mut [f64],
+        ) {
             errors_kernel(xgrid, d, w, r, ad, x, y, e)
         }
         if crate::simd::avx2_available() {
@@ -417,7 +522,16 @@ fn errors(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], 
 /// The body of [`errors`], inlined into each instruction-set version.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn errors_kernel(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &[f64], y: &[f64], e: &mut [f64]) {
+fn errors_kernel(
+    xgrid: &[f64],
+    d: &[f64],
+    w: &[f64],
+    r: usize,
+    ad: &[f64],
+    x: &[f64],
+    y: &[f64],
+    e: &mut [f64],
+) {
     const LANES: usize = 8;
     let (x, ad, y) = (&x[..=r], &ad[..=r], &y[..=r]);
     let blocks = xgrid.len() / LANES;
@@ -435,7 +549,11 @@ fn errors_kernel(xgrid: &[f64], d: &[f64], w: &[f64], r: usize, ad: &[f64], x: &
             }
         }
         for l in 0..LANES {
-            let a = if near[l] { interpolate(xc[l], r, ad, x, y) } else { numer[l] / denom[l] };
+            let a = if near[l] {
+                interpolate(xc[l], r, ad, x, y)
+            } else {
+                numer[l] / denom[l]
+            };
             e[at + l] = w[at + l] * (d[at + l] - a);
         }
     }
@@ -467,7 +585,9 @@ fn search(r: usize, ext: &mut [usize], e: &[f64]) -> Result<(), &'static str> {
         found.push(0);
     }
     for i in 1..n - 1 {
-        if (e[i] >= e[i - 1] && e[i] > e[i + 1] && e[i] > 0.0) || (e[i] <= e[i - 1] && e[i] < e[i + 1] && e[i] < 0.0) {
+        if (e[i] >= e[i - 1] && e[i] > e[i + 1] && e[i] > 0.0)
+            || (e[i] <= e[i - 1] && e[i] < e[i + 1] && e[i] < 0.0)
+        {
             if found.len() >= 2 * r {
                 return Err("too many extremal frequencies");
             }
@@ -505,7 +625,11 @@ fn search(r: usize, ext: &mut [usize], e: &[f64]) -> Result<(), &'static str> {
         }
         if alternating && extra == 1 {
             let k = found.len();
-            l = if e[found[k - 1]].abs() < e[found[0]].abs() { k - 1 } else { 0 };
+            l = if e[found[k - 1]].abs() < e[found[0]].abs() {
+                k - 1
+            } else {
+                0
+            };
         }
         found.remove(l);
         extra -= 1;
@@ -540,7 +664,11 @@ fn freq_sample(n: usize, a: &[f64], positive: bool) -> Vec<f64> {
             } else {
                 a[n / 2] * (PI * (i as f64 - m)).sin() + terms(n / 2 - 1, true)
             };
-            if positive { val / n as f64 } else { -val / n as f64 }
+            if positive {
+                val / n as f64
+            } else {
+                -val / n as f64
+            }
         })
         .collect()
 }

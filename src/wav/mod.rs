@@ -35,7 +35,12 @@ pub struct Wav<T> {
 
 impl<T> Default for Wav<T> {
     fn default() -> Self {
-        Self { sample_rate: 48_000, channels: Vec::new(), root_key: None, loops: Vec::new() }
+        Self {
+            sample_rate: 48_000,
+            channels: Vec::new(),
+            root_key: None,
+            loops: Vec::new(),
+        }
     }
 }
 
@@ -105,10 +110,14 @@ pub enum WavFormat {
 }
 
 fn u16_at(b: &[u8], at: usize) -> Result<u16, WavError> {
-    b.get(at..at + 2).map(|s| u16::from_le_bytes([s[0], s[1]])).ok_or(WavError::Truncated)
+    b.get(at..at + 2)
+        .map(|s| u16::from_le_bytes([s[0], s[1]]))
+        .ok_or(WavError::Truncated)
 }
 fn u32_at(b: &[u8], at: usize) -> Result<u32, WavError> {
-    b.get(at..at + 4).map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]])).ok_or(WavError::Truncated)
+    b.get(at..at + 4)
+        .map(|s| u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
+        .ok_or(WavError::Truncated)
 }
 
 #[derive(Clone, Copy)]
@@ -140,7 +149,11 @@ pub fn read<T: Float>(bytes: &[u8]) -> Result<Wav<T>, WavError> {
             b"fmt " => {
                 let tag = u16_at(body, 0)?;
                 let bits = u16_at(body, 14)?;
-                let tag = if tag == 0xFFFE { u16_at(body, 24)? } else { tag }; // extensible: the subformat GUID starts with the tag
+                let tag = if tag == 0xFFFE {
+                    u16_at(body, 24)?
+                } else {
+                    tag
+                }; // extensible: the subformat GUID starts with the tag
                 let float = match (tag, bits) {
                     (1, 8 | 16 | 24 | 32) => false,
                     (3, 32 | 64) => true,
@@ -151,7 +164,13 @@ pub fn read<T: Float>(bytes: &[u8]) -> Result<Wav<T>, WavError> {
                 if channels == 0 || block_align < channels * bits as usize / 8 {
                     return Err(WavError::Unsupported { tag, bits });
                 }
-                format = Some(Format { float, channels, sample_rate: u32_at(body, 4)?, bits, block_align });
+                format = Some(Format {
+                    float,
+                    channels,
+                    sample_rate: u32_at(body, 4)?,
+                    bits,
+                    block_align,
+                });
             }
             b"data" => data = Some(body),
             b"smpl" => {
@@ -166,9 +185,16 @@ pub fn read<T: Float>(bytes: &[u8]) -> Result<Wav<T>, WavError> {
                         2 => WavLoopKind::Backward,
                         _ => WavLoopKind::Forward,
                     };
-                    let (start, last) = (u32_at(body, base + 8)? as usize, u32_at(body, base + 12)? as usize);
+                    let (start, last) = (
+                        u32_at(body, base + 8)? as usize,
+                        u32_at(body, base + 12)? as usize,
+                    );
                     if last >= start {
-                        loops.push(WavLoop { start, end: last + 1, kind });
+                        loops.push(WavLoop {
+                            start,
+                            end: last + 1,
+                            kind,
+                        });
                     }
                 }
             }
@@ -187,7 +213,9 @@ pub fn read<T: Float>(bytes: &[u8]) -> Result<Wav<T>, WavError> {
             let value = match (format.float, format.bits) {
                 (false, 8) => (s[0] as f64 - 128.0) / 128.0,
                 (false, 16) => i16::from_le_bytes([s[0], s[1]]) as f64 / 32_768.0,
-                (false, 24) => (i32::from_le_bytes([0, s[0], s[1], s[2]]) >> 8) as f64 / 8_388_608.0,
+                (false, 24) => {
+                    (i32::from_le_bytes([0, s[0], s[1], s[2]]) >> 8) as f64 / 8_388_608.0
+                }
                 (false, _) => i32::from_le_bytes([s[0], s[1], s[2], s[3]]) as f64 / 2_147_483_648.0,
                 (true, 32) => f32::from_le_bytes([s[0], s[1], s[2], s[3]]) as f64,
                 (true, _) => f64::from_le_bytes([s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7]]),
@@ -196,14 +224,22 @@ pub fn read<T: Float>(bytes: &[u8]) -> Result<Wav<T>, WavError> {
         }
     }
     let loops = loops.into_iter().filter(|l| l.end <= frames).collect();
-    Ok(Wav { sample_rate: format.sample_rate, channels, root_key, loops })
+    Ok(Wav {
+        sample_rate: format.sample_rate,
+        channels,
+        root_key,
+        loops,
+    })
 }
 
 /// Encodes `wav` as a WAV file (with a `smpl` chunk when it has a root key or loops). Integer
 /// formats scale by 2^(bits-1), the inverse of [`read()`], and clip at full scale. Panics if the channels differ in length.
 pub fn write<T: Float>(wav: &Wav<T>, format: WavFormat) -> Vec<u8> {
     let frames = wav.frames();
-    assert!(wav.channels.iter().all(|c| c.len() == frames), "every channel needs the same length");
+    assert!(
+        wav.channels.iter().all(|c| c.len() == frames),
+        "every channel needs the same length"
+    );
     let channels = wav.channels.len();
     let (tag, bits): (u16, u16) = match format {
         WavFormat::Pcm16 => (1, 16),
@@ -214,7 +250,8 @@ pub fn write<T: Float>(wav: &Wav<T>, format: WavFormat) -> Vec<u8> {
     let data_len = frames * block_align;
     let has_smpl = wav.root_key.is_some() || !wav.loops.is_empty();
     let smpl_len = 36 + 24 * wav.loops.len();
-    let total = 4 + (8 + 16) + (8 + data_len + (data_len & 1)) + if has_smpl { 8 + smpl_len } else { 0 };
+    let total =
+        4 + (8 + 16) + (8 + data_len + (data_len & 1)) + if has_smpl { 8 + smpl_len } else { 0 };
     let mut out = Vec::with_capacity(total + 8);
     let u16le = |out: &mut Vec<u8>, v: u16| out.extend_from_slice(&v.to_le_bytes());
     let u32le = |out: &mut Vec<u8>, v: u32| out.extend_from_slice(&v.to_le_bytes());
@@ -234,8 +271,13 @@ pub fn write<T: Float>(wav: &Wav<T>, format: WavFormat) -> Vec<u8> {
         for channel in &wav.channels {
             let x = channel[i].to_f64().unwrap_or(0.0);
             match format {
-                WavFormat::Pcm16 => out.extend_from_slice(&((x * 32_768.0).round().clamp(-32_768.0, 32_767.0) as i16).to_le_bytes()),
-                WavFormat::Pcm24 => out.extend_from_slice(&((x * 8_388_608.0).round().clamp(-8_388_608.0, 8_388_607.0) as i32).to_le_bytes()[..3]),
+                WavFormat::Pcm16 => out.extend_from_slice(
+                    &((x * 32_768.0).round().clamp(-32_768.0, 32_767.0) as i16).to_le_bytes(),
+                ),
+                WavFormat::Pcm24 => out.extend_from_slice(
+                    &((x * 8_388_608.0).round().clamp(-8_388_608.0, 8_388_607.0) as i32)
+                        .to_le_bytes()[..3],
+                ),
                 WavFormat::Float32 => out.extend_from_slice(&(x as f32).to_le_bytes()),
             }
         }
@@ -259,11 +301,14 @@ pub fn write<T: Float>(wav: &Wav<T>, format: WavFormat) -> Vec<u8> {
         u32le(&mut out, 0); // sampler data
         for (i, l) in wav.loops.iter().enumerate() {
             u32le(&mut out, i as u32);
-            u32le(&mut out, match l.kind {
-                WavLoopKind::Forward => 0,
-                WavLoopKind::PingPong => 1,
-                WavLoopKind::Backward => 2,
-            });
+            u32le(
+                &mut out,
+                match l.kind {
+                    WavLoopKind::Forward => 0,
+                    WavLoopKind::PingPong => 1,
+                    WavLoopKind::Backward => 2,
+                },
+            );
             u32le(&mut out, l.start as u32);
             u32le(&mut out, l.end.saturating_sub(1) as u32);
             u32le(&mut out, 0); // fraction
@@ -278,24 +323,54 @@ mod tests {
     use super::*;
 
     fn tone(frames: usize, channels: usize) -> Vec<Vec<f64>> {
-        (0..channels).map(|c| (0..frames).map(|i| 0.9 * ((i as f64 * 0.01) + c as f64).sin()).collect()).collect()
+        (0..channels)
+            .map(|c| {
+                (0..frames)
+                    .map(|i| 0.9 * ((i as f64 * 0.01) + c as f64).sin())
+                    .collect()
+            })
+            .collect()
     }
 
     #[test]
     fn round_trips_every_format_with_metadata() {
-        for (format, tolerance) in [(WavFormat::Pcm16, 1.0 / 32_000.0), (WavFormat::Pcm24, 1.0 / 8_000_000.0), (WavFormat::Float32, 1e-7)] {
+        for (format, tolerance) in [
+            (WavFormat::Pcm16, 1.0 / 32_000.0),
+            (WavFormat::Pcm24, 1.0 / 8_000_000.0),
+            (WavFormat::Float32, 1e-7),
+        ] {
             let wav = Wav {
                 sample_rate: 44_100,
                 channels: tone(1_001, 2),
                 root_key: Some(57.25),
-                loops: vec![WavLoop { start: 100, end: 900, kind: WavLoopKind::Forward }, WavLoop { start: 5, end: 6, kind: WavLoopKind::PingPong }],
+                loops: vec![
+                    WavLoop {
+                        start: 100,
+                        end: 900,
+                        kind: WavLoopKind::Forward,
+                    },
+                    WavLoop {
+                        start: 5,
+                        end: 6,
+                        kind: WavLoopKind::PingPong,
+                    },
+                ],
             };
             let bytes = write(&wav, format);
             let back: Wav<f64> = read(&bytes).unwrap();
-            assert_eq!((back.sample_rate, back.frames(), back.channels.len()), (44_100, 1_001, 2));
+            assert_eq!(
+                (back.sample_rate, back.frames(), back.channels.len()),
+                (44_100, 1_001, 2)
+            );
             assert_eq!(back.loops, wav.loops);
             assert!((back.root_key.unwrap() - 57.25).abs() < 1e-6);
-            let err = back.channels.iter().flatten().zip(wav.channels.iter().flatten()).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            let err = back
+                .channels
+                .iter()
+                .flatten()
+                .zip(wav.channels.iter().flatten())
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f64::max);
             assert!(err < tolerance, "{format:?}: {err}");
         }
     }
@@ -335,11 +410,22 @@ mod tests {
     #[test]
     fn rejects_what_it_cannot_read() {
         assert_eq!(read::<f32>(b"RIFX\0\0\0\0WAVE"), Err(WavError::NotWave));
-        assert_eq!(read::<f32>(b"RIFF\0\0\0\0WAVEdata\0\0\0\0"), Err(WavError::MissingFormat));
-        let adpcm = b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x02\0\x01\0\x44\xac\0\0\x44\xac\0\0\x01\0\x04\0";
-        assert_eq!(read::<f32>(adpcm), Err(WavError::Unsupported { tag: 2, bits: 4 }));
-        let no_data = b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x44\xac\0\0\x88\x58\x01\0\x02\0\x10\0";
+        assert_eq!(
+            read::<f32>(b"RIFF\0\0\0\0WAVEdata\0\0\0\0"),
+            Err(WavError::MissingFormat)
+        );
+        let adpcm =
+            b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x02\0\x01\0\x44\xac\0\0\x44\xac\0\0\x01\0\x04\0";
+        assert_eq!(
+            read::<f32>(adpcm),
+            Err(WavError::Unsupported { tag: 2, bits: 4 })
+        );
+        let no_data =
+            b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0\x01\0\x44\xac\0\0\x88\x58\x01\0\x02\0\x10\0";
         assert_eq!(read::<f32>(no_data), Err(WavError::MissingData));
-        assert_eq!(read::<f32>(b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0"), Err(WavError::Truncated));
+        assert_eq!(
+            read::<f32>(b"RIFF\0\0\0\0WAVEfmt \x10\0\0\0\x01\0"),
+            Err(WavError::Truncated)
+        );
     }
 }

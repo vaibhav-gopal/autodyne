@@ -4,8 +4,8 @@ use crate::alloc_prelude::*;
 use alloc::sync::Arc;
 
 use super::band_limited_increment;
-use crate::signal::Source;
 use crate::fft::RealFft;
+use crate::signal::Source;
 use crate::units::*;
 
 /// The most harmonics a table keeps (its full-bandwidth level, used for the lowest notes).
@@ -43,7 +43,8 @@ impl<T: Float> Wavetable<T> {
     /// From single-cycle waveforms of any length (at least 2 samples each): one frame each.
     /// Panics if there are no frames or a frame is too short.
     pub fn from_frames<F: AsRef<[T]>>(frames: &[F]) -> Self {
-        let spectra: Vec<Vec<Complex<f64>>> = frames.iter().map(|f| harmonics_of(f.as_ref())).collect();
+        let spectra: Vec<Vec<Complex<f64>>> =
+            frames.iter().map(|f| harmonics_of(f.as_ref())).collect();
         Self::from_spectra(spectra)
     }
 
@@ -67,9 +68,17 @@ impl<T: Float> Wavetable<T> {
 
     /// The classic morph: sine, triangle, saw, square (4 frames, in that order).
     pub fn classic() -> Self {
-        let harmonics = |amplitude: &dyn Fn(usize) -> f64| -> Vec<T> { (1..=MAX_HARMONICS).map(|h| T::_lit(amplitude(h))).collect() };
+        let harmonics = |amplitude: &dyn Fn(usize) -> f64| -> Vec<T> {
+            (1..=MAX_HARMONICS).map(|h| T::_lit(amplitude(h))).collect()
+        };
         let sine = harmonics(&|h| if h == 1 { 1.0 } else { 0.0 });
-        let triangle = harmonics(&|h| if h % 2 == 1 { (if (h / 2) % 2 == 0 { 1.0 } else { -1.0 }) / (h * h) as f64 } else { 0.0 });
+        let triangle = harmonics(&|h| {
+            if h % 2 == 1 {
+                (if (h / 2) % 2 == 0 { 1.0 } else { -1.0 }) / (h * h) as f64
+            } else {
+                0.0
+            }
+        });
         let saw = harmonics(&|h| 1.0 / h as f64);
         let square = harmonics(&|h| if h % 2 == 1 { 1.0 / h as f64 } else { 0.0 });
         Self::from_harmonics(&[sine, triangle, saw, square])
@@ -89,7 +98,10 @@ impl<T: Float> Wavetable<T> {
         } else {
             None
         };
-        shared.and_then(|s| s.downcast_ref::<Arc<Self>>()).cloned().unwrap_or_else(|| Arc::new(Self::classic()))
+        shared
+            .and_then(|s| s.downcast_ref::<Arc<Self>>())
+            .cloned()
+            .unwrap_or_else(|| Arc::new(Self::classic()))
     }
     /// Frames from per-frame harmonic coefficients `c[k]` (k = 1..), where the waveform is
     /// `sum |c_k| cos(2 pi k t + arg c_k)`.
@@ -145,10 +157,17 @@ impl<T: Float> Wavetable<T> {
                     data.extend(wave.iter().map(|&x| T::_lit(x)));
                     data.push(T::_lit(wave[0]));
                 }
-                Level { harmonics, len, data }
+                Level {
+                    harmonics,
+                    len,
+                    data,
+                }
             })
             .collect();
-        Self { frames: spectra.len(), levels }
+        Self {
+            frames: spectra.len(),
+            levels,
+        }
     }
 
     /// Number of frames.
@@ -165,7 +184,11 @@ impl<T: Float> Wavetable<T> {
         }
         // harmonics that fit below Nyquist at this pitch
         let fit = T::_lit(0.5) / increment;
-        let a = self.levels.iter().position(|l| T::_lit(l.harmonics as f64) <= fit).unwrap_or(last);
+        let a = self
+            .levels
+            .iter()
+            .position(|l| T::_lit(l.harmonics as f64) <= fit)
+            .unwrap_or(last);
         if a == last {
             return (last, T::_ONE);
         }
@@ -173,8 +196,15 @@ impl<T: Float> Wavetable<T> {
         // the brighter level (a - 1; one ratio above the top for level 0) becomes safe: continuous,
         // and never aliasing
         let this = self.levels[a].harmonics as f64;
-        let brighter = if a == 0 { this * LEVEL_RATIO } else { self.levels[a - 1].harmonics as f64 };
-        (a, ((fit - T::_lit(this)) / T::_lit(brighter - this))._clamp(T::_ZERO, T::_ONE))
+        let brighter = if a == 0 {
+            this * LEVEL_RATIO
+        } else {
+            self.levels[a - 1].harmonics as f64
+        };
+        (
+            a,
+            ((fit - T::_lit(this)) / T::_lit(brighter - this))._clamp(T::_ZERO, T::_ONE),
+        )
     }
 
     /// One level's value at `phase` (cycles, [0, 1)) and `position` (frames, 0..frames-1).
@@ -182,7 +212,11 @@ impl<T: Float> Wavetable<T> {
     fn read(&self, level: usize, position: T, phase: T) -> T {
         let lv = &self.levels[level];
         let stride = lv.len + 1;
-        let f0 = position._floor().to_usize().unwrap_or(0).min(self.frames - 1);
+        let f0 = position
+            ._floor()
+            .to_usize()
+            .unwrap_or(0)
+            .min(self.frames - 1);
         let f1 = (f0 + 1).min(self.frames - 1);
         let ff = position - T::_lit(f0 as f64);
         let x = phase * T::_lit(lv.len as f64);
@@ -193,7 +227,11 @@ impl<T: Float> Wavetable<T> {
             row[0] + (row[1] - row[0]) * frac
         };
         let a = at(f0);
-        if f1 == f0 { a } else { a + (at(f1) - a) * ff }
+        if f1 == f0 {
+            a
+        } else {
+            a + (at(f1) - a) * ff
+        }
     }
 }
 
@@ -213,7 +251,14 @@ pub struct WavetableOsc<T: Float> {
 impl<T: Float> WavetableOsc<T> {
     /// An oscillator over `table` at `frequency` Hz, at the first frame.
     pub fn new(table: Arc<Wavetable<T>>, frequency: T, sample_rate: T) -> Self {
-        let mut osc = Self { table, phase: T::_ZERO, increment: T::_ZERO, position: T::_ZERO, level: 0, weight: T::_ONE };
+        let mut osc = Self {
+            table,
+            phase: T::_ZERO,
+            increment: T::_ZERO,
+            position: T::_ZERO,
+            level: 0,
+            weight: T::_ONE,
+        };
         osc.set_frequency(frequency, sample_rate);
         osc
     }
@@ -320,8 +365,8 @@ fn harmonics_of<T: Float>(frame: &[T]) -> Vec<Complex<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal::Signal;
     use crate::fft::Fft;
+    use crate::signal::Signal;
 
     const FS: f64 = 48_000.0;
 
@@ -347,16 +392,25 @@ mod tests {
     /// Level of the harmonic at `freq` relative to the fundamental at `f0`, in dB.
     fn harmonic_db(mags: &[f64], f0: f64, freq: f64) -> f64 {
         let bin = |f: f64| (f * mags.len() as f64 * 2.0 / FS).round() as usize;
-        let peak = |f: f64| (bin(f) - 3..=bin(f) + 3).map(|i| mags[i]).fold(0.0, f64::max);
+        let peak = |f: f64| {
+            (bin(f) - 3..=bin(f) + 3)
+                .map(|i| mags[i])
+                .fold(0.0, f64::max)
+        };
         20.0 * (peak(freq) / peak(f0)).log10()
     }
 
     #[test]
     fn a_sine_frame_of_any_length_plays_a_pure_sine() {
         // 600 samples: not a power of two, so the frame's spectrum comes from a direct DFT
-        let frame: Vec<f64> = (0..600).map(|i| 0.5 * (std::f64::consts::TAU * i as f64 / 600.0).sin()).collect();
+        let frame: Vec<f64> = (0..600)
+            .map(|i| 0.5 * (std::f64::consts::TAU * i as f64 / 600.0).sin())
+            .collect();
         let x = play(Wavetable::from_frames(&[frame]), 440.0, 0.0, 48_000);
-        assert!((x.rms().unwrap() - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-3, "normalized to a peak of 1");
+        assert!(
+            (x.rms().unwrap() - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-3,
+            "normalized to a peak of 1"
+        );
         let mags = windowed_spectrum(&x[..32_768]);
         assert!(harmonic_db(&mags, 440.0, 880.0) < -90.0, "no harmonics");
     }
@@ -374,12 +428,28 @@ mod tests {
             let h = (f / f0).round();
             h >= 1.0 && (f - h * f0).abs() < 8.0 * bin_hz
         };
-        let worst = mags.iter().enumerate().filter(|&(i, _)| i > 8 && !near_harmonic(i)).map(|(_, &m)| m).fold(0.0, f64::max);
-        assert!(20.0 * (worst / top).log10() < -80.0, "aliasing at {:.1} dB", 20.0 * (worst / top).log10());
+        let worst = mags
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i > 8 && !near_harmonic(i))
+            .map(|(_, &m)| m)
+            .fold(0.0, f64::max);
+        assert!(
+            20.0 * (worst / top).log10() < -80.0,
+            "aliasing at {:.1} dB",
+            20.0 * (worst / top).log10()
+        );
         // the test can see aliasing: a naive saw at the same pitch fails it badly
-        let naive: Vec<f64> = (0..65_536).map(|i| 2.0 * ((i as f64 * f0 / FS).fract()) - 1.0).collect();
+        let naive: Vec<f64> = (0..65_536)
+            .map(|i| 2.0 * ((i as f64 * f0 / FS).fract()) - 1.0)
+            .collect();
         let mags = windowed_spectrum(&naive);
-        let worst = mags.iter().enumerate().filter(|&(i, _)| i > 8 && !near_harmonic(i)).map(|(_, &m)| m).fold(0.0, f64::max);
+        let worst = mags
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| i > 8 && !near_harmonic(i))
+            .map(|(_, &m)| m)
+            .fold(0.0, f64::max);
         assert!(20.0 * (worst / top).log10() > -40.0);
     }
 
@@ -387,23 +457,46 @@ mod tests {
     fn the_classic_table_morphs_sine_triangle_saw_square() {
         // a pitch exactly on an FFT bin, so every harmonic is measured at its true level
         let f0 = 137.0 * FS / 32_768.0;
-        let at = |position: f64| windowed_spectrum(&play(Wavetable::classic(), f0, position, 32_768));
+        let at =
+            |position: f64| windowed_spectrum(&play(Wavetable::classic(), f0, position, 32_768));
         let db = |mags: &[f64], h: f64| harmonic_db(mags, f0, h * f0);
-        let expect = |measured: f64, ratio: f64, what: &str| assert!((measured - 20.0 * ratio.log10()).abs() < 0.05, "{what}: {measured:.3} dB");
+        let expect = |measured: f64, ratio: f64, what: &str| {
+            assert!(
+                (measured - 20.0 * ratio.log10()).abs() < 0.05,
+                "{what}: {measured:.3} dB"
+            )
+        };
         let (sine, triangle, saw, square) = (at(0.0), at(1.0 / 3.0), at(2.0 / 3.0), at(1.0));
-        assert!(db(&sine, 2.0) < -90.0 && db(&sine, 3.0) < -90.0, "frame 0: a sine");
-        expect(db(&triangle, 3.0), 1.0 / 9.0, "frame 1: a triangle (odd harmonics at 1/h^2)");
+        assert!(
+            db(&sine, 2.0) < -90.0 && db(&sine, 3.0) < -90.0,
+            "frame 0: a sine"
+        );
+        expect(
+            db(&triangle, 3.0),
+            1.0 / 9.0,
+            "frame 1: a triangle (odd harmonics at 1/h^2)",
+        );
         expect(db(&saw, 2.0), 0.5, "frame 2: a saw (harmonics at 1/h)");
         expect(db(&saw, 3.0), 1.0 / 3.0, "frame 2: a saw");
-        assert!(db(&square, 2.0) < -90.0, "frame 3: a square (no even harmonics)");
-        expect(db(&square, 3.0), 1.0 / 3.0, "frame 3: a square (odd harmonics at 1/h)");
+        assert!(
+            db(&square, 2.0) < -90.0,
+            "frame 3: a square (no even harmonics)"
+        );
+        expect(
+            db(&square, 3.0),
+            1.0 / 3.0,
+            "frame 3: a square (odd harmonics at 1/h)",
+        );
         // halfway between the saw and the square (no even harmonics), the 2nd harmonic is halved
         let level = |mags: &[f64], h: f64| {
             let bin = (h * f0 * mags.len() as f64 * 2.0 / FS).round() as usize;
             mags[bin]
         };
         let between = at(5.0 / 6.0);
-        assert!((level(&between, 2.0) / level(&saw, 2.0) - 0.5).abs() < 1e-3, "the morph blends linearly");
+        assert!(
+            (level(&between, 2.0) / level(&saw, 2.0) - 0.5).abs() < 1e-3,
+            "the morph blends linearly"
+        );
     }
     #[test]
     fn level_selection_never_aliases_and_moves_continuously() {
@@ -415,7 +508,11 @@ mod tests {
             let fit = 0.5 / increment;
             assert!(k(a) <= fit, "level {a} aliases at increment {increment}");
             if w < 1.0 {
-                assert!(k(a + 1) <= fit, "level {} aliases at increment {increment}", a + 1);
+                assert!(
+                    k(a + 1) <= fit,
+                    "level {} aliases at increment {increment}",
+                    a + 1
+                );
                 (1.0 - w) * k(a + 1) + w * k(a)
             } else {
                 k(a)
@@ -426,7 +523,10 @@ mod tests {
         for i in 1..=steps {
             let increment = 1e-4 * (0.5f64 / 1e-4).powf(i as f64 / steps as f64); // ~1.6 Hz .. Nyquist at 48 kHz
             let now = effective(increment);
-            assert!((now - last).abs() <= 1e-3 * last + 1e-9, "a jump from {last} to {now} at increment {increment}");
+            assert!(
+                (now - last).abs() <= 1e-3 * last + 1e-9,
+                "a jump from {last} to {now} at increment {increment}"
+            );
             last = now;
         }
     }

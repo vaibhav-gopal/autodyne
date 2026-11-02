@@ -8,8 +8,8 @@
 //!
 //! tend: Audio / distortion
 
-mod params;
 mod bitcrusher;
+mod params;
 
 pub use bitcrusher::*;
 
@@ -68,7 +68,12 @@ impl<T: Float> Waveshaper<T> {
     /// No drive, unity output, fully wet.
     pub fn new(shape: Shape, sample_rate: T) -> Self {
         let smoothed = |v: T| SmoothedValue::new(v).with_ramp_seconds(T::_lit(0.02), sample_rate);
-        Self { shape, drive: smoothed(T::_ONE), output: smoothed(T::_ONE), mix: smoothed(T::_ONE) }
+        Self {
+            shape,
+            drive: smoothed(T::_ONE),
+            output: smoothed(T::_ONE),
+            mix: smoothed(T::_ONE),
+        }
     }
     /// Changes the curve.
     pub fn set_shape(&mut self, shape: Shape) {
@@ -112,7 +117,11 @@ impl<T: Float> Waveshaper<T> {
     /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
-        let (drive, output, mix) = (self.drive.next_value(), self.output.next_value(), self.mix.next_value());
+        let (drive, output, mix) = (
+            self.drive.next_value(),
+            self.output.next_value(),
+            self.mix.next_value(),
+        );
         let wet = output * self.shape.apply(drive * x);
         x + mix * (wet - x)
     }
@@ -134,7 +143,10 @@ mod tests {
     fn curves() {
         for shape in [Shape::Tanh, Shape::SoftClip, Shape::HardClip, Shape::Fold] {
             assert_eq!(shape.apply(0.0f64), 0.0, "{shape:?} passes silence");
-            assert!((shape.apply(0.5f64) + shape.apply(-0.5)).abs() < 1e-12, "{shape:?} is odd-symmetric");
+            assert!(
+                (shape.apply(0.5f64) + shape.apply(-0.5)).abs() < 1e-12,
+                "{shape:?} is odd-symmetric"
+            );
         }
         assert!((Shape::Tanh.apply(0.5f64) - 0.5f64.tanh()).abs() < 1e-12);
         assert_eq!(Shape::Tanh.apply(1_000.0f64), 1.0);
@@ -154,7 +166,10 @@ mod tests {
         ws.set_output_db(20.0 * 0.5f64.log10()); // x0.5
         ws.reset(); // jump straight to the targets
         assert!((ws.process_sample(0.1) - 0.2).abs() < 1e-12);
-        assert!((ws.process_sample(1.0) - 0.5).abs() < 1e-12, "clipped at 1, then halved");
+        assert!(
+            (ws.process_sample(1.0) - 0.5).abs() < 1e-12,
+            "clipped at 1, then halved"
+        );
         ws.set_mix(0.0);
         ws.reset();
         assert_eq!(ws.process_sample(0.3), 0.3, "fully dry");

@@ -75,7 +75,11 @@ pub enum LinalgError {
 
 /// Uses `threads` threads for large matrix operations (0: all cores, 1: single-threaded).
 pub fn set_threads(threads: usize) {
-    faer::set_global_parallelism(if threads == 1 { faer::Par::Seq } else { faer::Par::rayon(threads) });
+    faer::set_global_parallelism(if threads == 1 {
+        faer::Par::Seq
+    } else {
+        faer::Par::rayon(threads)
+    });
 }
 
 /// A 2-D view as a faer matrix, in place.
@@ -83,8 +87,13 @@ fn matrix<'a, T>(v: NdView<'a, T>) -> Result<MatRef<'a, T>, LinalgError> {
     match (v.shape(), v.strides()) {
         // SAFETY: the view's layout is validated: every (i, j) inside the shape is inside its memory,
         // which stays borrowed for 'a
-        (&[rows, cols], &[rs, cs]) => Ok(unsafe { MatRef::from_raw_parts(v.as_ptr(), rows, cols, rs, cs) }),
-        shape => Err(LinalgError::Dims { expected: "2-D", got: shape.0.to_vec() }),
+        (&[rows, cols], &[rs, cs]) => {
+            Ok(unsafe { MatRef::from_raw_parts(v.as_ptr(), rows, cols, rs, cs) })
+        }
+        shape => Err(LinalgError::Dims {
+            expected: "2-D",
+            got: shape.0.to_vec(),
+        }),
     }
 }
 
@@ -118,7 +127,10 @@ fn to_array<T: Copy>(m: MatRef<'_, T>, shape: &[usize]) -> NdArray<T> {
 
 /// Matrix product, NumPy `matmul` style for 1-D and 2-D operands: matrix · matrix, matrix · vector,
 /// vector · matrix, vector · vector (a scalar, shape `[]`).
-pub fn matmul<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn matmul<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     let (_, _, shape) = product(a, b)?;
     let mut strides = vec![1isize; shape.len()];
     for i in (0..shape.len().saturating_sub(1)).rev() {
@@ -126,14 +138,19 @@ pub fn matmul<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdAr
     }
     let data = written(shape.iter().product(), |out| {
         // SAFETY: a row-major buffer of the product's shape, borrowed mutably for the call
-        let view = unsafe { NdViewMut::from_raw_parts(out, &shape, &strides) }.expect("a valid layout");
+        let view =
+            unsafe { NdViewMut::from_raw_parts(out, &shape, &strides) }.expect("a valid layout");
         matmul_into(a, b, view)
     })?;
     Ok(NdArray::from_vec(data, &shape).expect("valid shape"))
 }
 
 /// [`matmul`] into `out` (the product's shape, any strides), which is overwritten: no new array.
-pub fn matmul_into<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, mut out: NdViewMut<'_, T>) -> Result<(), LinalgError> {
+pub fn matmul_into<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+    mut out: NdViewMut<'_, T>,
+) -> Result<(), LinalgError> {
     let (lhs, rhs, shape) = product(a, b)?;
     if out.shape() != shape.as_slice() {
         return Err(LinalgError::Mismatch(shape, out.shape().to_vec()));
@@ -153,12 +170,24 @@ pub fn matmul_into<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, mut out: 
     // small row-major products: a register-blocked kernel (no packing)
     let k = lhs.ncols();
     let row_major = |rs: isize, cs: isize, cols: usize| cs == 1 && rs == cols as isize;
-    if shape.len() == 2 && row_major(lhs.row_stride(), lhs.col_stride(), k) && row_major(rhs.row_stride(), rhs.col_stride(), n) && row_major(rs, cs, n) && small::matmul(lhs.as_ptr(), rhs.as_ptr(), out.as_mut_ptr(), m, k, n) {
+    if shape.len() == 2
+        && row_major(lhs.row_stride(), lhs.col_stride(), k)
+        && row_major(rhs.row_stride(), rhs.col_stride(), n)
+        && row_major(rs, cs, n)
+        && small::matmul(lhs.as_ptr(), rhs.as_ptr(), out.as_mut_ptr(), m, k, n)
+    {
         return Ok(());
     }
     // SAFETY: `out` is a validated view of the product's shape, borrowed mutably for the call
     let dst = unsafe { MatMut::from_raw_parts_mut(out.as_mut_ptr(), m, n, rs, cs) };
-    faer::linalg::matmul::matmul(dst, Accum::Replace, lhs, rhs, T::_ONE, product_parallelism(m, n, k));
+    faer::linalg::matmul::matmul(
+        dst,
+        Accum::Replace,
+        lhs,
+        rhs,
+        T::_ONE,
+        product_parallelism(m, n, k),
+    );
     Ok(())
 }
 
@@ -166,19 +195,38 @@ pub fn matmul_into<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, mut out: 
 /// (a 50 x 50 Gram matrix of long rows, say) or little work runs several times slower on a thread
 /// pool than on one core, the hand-offs costing more than the arithmetic.
 fn product_parallelism(m: usize, n: usize, k: usize) -> faer::Par {
-    if m * n < 64 * 64 || m * n * k < 1 << 24 { faer::Par::Seq } else { faer::get_global_parallelism() }
+    if m * n < 64 * 64 || m * n * k < 1 << 24 {
+        faer::Par::Seq
+    } else {
+        faer::get_global_parallelism()
+    }
 }
 
 /// The operands of a product as matrices, and the product's shape.
 #[allow(clippy::type_complexity)]
-fn product<'a, T: LinalgFloat>(a: NdView<'a, T>, b: NdView<'a, T>) -> Result<(MatRef<'a, T>, MatRef<'a, T>, Vec<usize>), LinalgError> {
+fn product<'a, T: LinalgFloat>(
+    a: NdView<'a, T>,
+    b: NdView<'a, T>,
+) -> Result<(MatRef<'a, T>, MatRef<'a, T>, Vec<usize>), LinalgError> {
     let (sa, sb) = (a.shape().to_vec(), b.shape().to_vec());
     let (lhs, rhs) = match (sa.len(), sb.len()) {
         // a 1-D left operand is one row
         // SAFETY: as in `matrix`
-        (1, 1 | 2) => (unsafe { MatRef::from_raw_parts(a.as_ptr(), 1, sa[0], 0, a.strides()[0]) }, columns(b)?),
+        (1, 1 | 2) => (
+            unsafe { MatRef::from_raw_parts(a.as_ptr(), 1, sa[0], 0, a.strides()[0]) },
+            columns(b)?,
+        ),
         (2, 1 | 2) => (matrix(a)?, columns(b)?),
-        _ => return Err(LinalgError::Dims { expected: "1-D or 2-D", got: if sa.len() > 2 || sa.is_empty() { sa } else { sb } }),
+        _ => {
+            return Err(LinalgError::Dims {
+                expected: "1-D or 2-D",
+                got: if sa.len() > 2 || sa.is_empty() {
+                    sa
+                } else {
+                    sb
+                },
+            })
+        }
     };
     if lhs.ncols() != rhs.nrows() {
         return Err(LinalgError::Mismatch(sa, sb));
@@ -188,29 +236,56 @@ fn product<'a, T: LinalgFloat>(a: NdView<'a, T>, b: NdView<'a, T>) -> Result<(Ma
 
 /// The shape of [`matmul`]'s result for operands of these shapes.
 pub fn matmul_shape(a: &[usize], b: &[usize]) -> Result<Vec<usize>, LinalgError> {
-    let inner = |s: &[usize], first: bool| if s.len() == 1 { s[0] } else if first { s[1] } else { s[0] };
+    let inner = |s: &[usize], first: bool| {
+        if s.len() == 1 {
+            s[0]
+        } else if first {
+            s[1]
+        } else {
+            s[0]
+        }
+    };
     match (a.len(), b.len()) {
-        (1 | 2, 1 | 2) if inner(a, true) != inner(b, false) => Err(LinalgError::Mismatch(a.to_vec(), b.to_vec())),
+        (1 | 2, 1 | 2) if inner(a, true) != inner(b, false) => {
+            Err(LinalgError::Mismatch(a.to_vec(), b.to_vec()))
+        }
         (1, 1) => Ok(vec![]),
         (1, 2) => Ok(vec![b[1]]),
         (2, 1) => Ok(vec![a[0]]),
         (2, 2) => Ok(vec![a[0], b[1]]),
-        _ => Err(LinalgError::Dims { expected: "1-D or 2-D", got: if a.len() > 2 || a.is_empty() { a.to_vec() } else { b.to_vec() } }),
+        _ => Err(LinalgError::Dims {
+            expected: "1-D or 2-D",
+            got: if a.len() > 2 || a.is_empty() {
+                a.to_vec()
+            } else {
+                b.to_vec()
+            },
+        }),
     }
 }
 
 /// The solution `x` of `a · x = b` (`a` square; `b` a vector or a matrix of right-hand sides).
-pub fn solve<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn solve<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     let m = square(a)?;
     let rhs = columns(b)?;
     if rhs.nrows() != m.nrows() {
-        return Err(LinalgError::Mismatch(a.shape().to_vec(), b.shape().to_vec()));
+        return Err(LinalgError::Mismatch(
+            a.shape().to_vec(),
+            b.shape().to_vec(),
+        ));
     }
     let (m, transposed) = column_major(m);
     let lu = m.partial_piv_lu();
     check_nonsingular(lu.U())?;
     // aᵀ's factors solve a · x = b as well
-    let x = if transposed { lu.solve_transpose(rhs) } else { lu.solve(rhs) };
+    let x = if transposed {
+        lu.solve_transpose(rhs)
+    } else {
+        lu.solve(rhs)
+    };
     Ok(to_array(x.as_ref(), b.shape()))
 }
 
@@ -219,7 +294,11 @@ pub fn solve<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<NdArr
 /// in place is its transpose in column-major order, copied in memory order, while copying it as
 /// is reads across the rows.
 fn column_major<T>(m: MatRef<'_, T>) -> (MatRef<'_, T>, bool) {
-    if m.col_stride() == 1 && m.row_stride() != 1 { (m.transpose(), true) } else { (m, false) }
+    if m.col_stride() == 1 && m.row_stride() != 1 {
+        (m.transpose(), true)
+    } else {
+        (m, false)
+    }
 }
 
 /// Errors if the triangular factor `u` has a zero (or non-finite) pivot.
@@ -263,7 +342,10 @@ pub fn lstsq<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<Lstsq
     let m = matrix(a)?;
     let rhs = columns(b)?;
     if rhs.nrows() != m.nrows() {
-        return Err(LinalgError::Mismatch(a.shape().to_vec(), b.shape().to_vec()));
+        return Err(LinalgError::Mismatch(
+            a.shape().to_vec(),
+            b.shape().to_vec(),
+        ));
     }
     let svd = m.thin_svd().map_err(|_| LinalgError::NoConvergence)?;
     let s: Vec<T> = svd.S().column_vector().iter().copied().collect();
@@ -280,8 +362,16 @@ pub fn lstsq<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>) -> Result<Lstsq
         }
     }
     let x = svd.V() * &scaled;
-    let shape: Vec<usize> = if b.ndim() == 1 { vec![m.ncols()] } else { vec![m.ncols(), rhs.ncols()] };
-    Ok(Lstsq { solution: to_array(x.as_ref(), &shape), rank, singular_values: s })
+    let shape: Vec<usize> = if b.ndim() == 1 {
+        vec![m.ncols()]
+    } else {
+        vec![m.ncols(), rhs.ncols()]
+    };
+    Ok(Lstsq {
+        solution: to_array(x.as_ref(), &shape),
+        rank,
+        singular_values: s,
+    })
 }
 
 /// The reduced QR decomposition `a = q · r`: `q` is m x k with orthonormal columns, `r` is k x n
@@ -293,13 +383,18 @@ pub fn qr<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), 
     let q = qr.compute_thin_Q();
     let r = qr.R();
     let r = r.subrows(0, k);
-    Ok((to_array(q.as_ref(), &[m.nrows(), k]), to_array(r, &[k, m.ncols()])))
+    Ok((
+        to_array(q.as_ref(), &[m.nrows(), k]),
+        to_array(r, &[k, m.ncols()]),
+    ))
 }
 
 /// The Cholesky factor `l` (lower triangular, `a = l · lᵀ`) of a symmetric positive definite matrix.
 pub fn cholesky<T: LinalgFloat>(a: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
     let m = square(a)?;
-    let llt = m.llt(Side::Lower).map_err(|_| LinalgError::NotPositiveDefinite)?;
+    let llt = m
+        .llt(Side::Lower)
+        .map_err(|_| LinalgError::NotPositiveDefinite)?;
     Ok(to_array(llt.L(), a.shape()))
 }
 
@@ -317,7 +412,12 @@ pub struct Eig<T: Float> {
 pub fn eig<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Eig<T>, LinalgError> {
     let m = square(a)?;
     let e = m.eigen().map_err(|_| LinalgError::NoConvergence)?;
-    let values = e.S().column_vector().iter().map(|z| Complex::new(z.re, z.im)).collect();
+    let values = e
+        .S()
+        .column_vector()
+        .iter()
+        .map(|z| Complex::new(z.re, z.im))
+        .collect();
     let u = e.U();
     let n = m.nrows();
     let mut data = Vec::with_capacity(n * n);
@@ -327,13 +427,20 @@ pub fn eig<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Eig<T>, LinalgError> {
             data.push(Complex::new(z.re, z.im));
         }
     }
-    Ok(Eig { values, vectors: NdArray::from_vec(data, &[n, n]).expect("n x n") })
+    Ok(Eig {
+        values,
+        vectors: NdArray::from_vec(data, &[n, n]).expect("n x n"),
+    })
 }
 
 /// The eigenvalues of a general square matrix.
 pub fn eigvals<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<Complex<T>>, LinalgError> {
     let m = square(a)?;
-    Ok(m.eigenvalues().map_err(|_| LinalgError::NoConvergence)?.iter().map(|z| Complex::new(z.re, z.im)).collect())
+    Ok(m.eigenvalues()
+        .map_err(|_| LinalgError::NoConvergence)?
+        .iter()
+        .map(|z| Complex::new(z.re, z.im))
+        .collect())
 }
 
 /// Eigenvalues (ascending) and orthonormal eigenvectors (columns) of a symmetric matrix; only its
@@ -343,7 +450,10 @@ pub fn eigvals<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<Complex<T>>, Lina
 /// solves that, and faer's blocked Householder products carry the vectors back.
 pub fn eigh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(Vec<T>, NdArray<T>), LinalgError> {
     use faer::linalg::evd::tridiag::{tridiag_in_place, tridiag_in_place_scratch};
-    use faer::linalg::householder::{apply_block_householder_sequence_on_the_left_in_place_scratch, apply_block_householder_sequence_on_the_left_in_place_with_conj};
+    use faer::linalg::householder::{
+        apply_block_householder_sequence_on_the_left_in_place_scratch,
+        apply_block_householder_sequence_on_the_left_in_place_with_conj,
+    };
     let m = square(a)?;
     let n = m.nrows();
     if n == 0 {
@@ -355,10 +465,20 @@ pub fn eigh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(Vec<T>, NdArray<T>), Li
     let mut householder = faer::Mat::<T>::zeros(bs, n.saturating_sub(1));
     let mut buf = faer::dyn_stack::MemBuffer::new(faer::dyn_stack::StackReq::any_of(&[
         tridiag_in_place_scratch::<T>(n, par, Default::default()),
-        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(n.saturating_sub(1), bs, n),
+        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(
+            n.saturating_sub(1),
+            bs,
+            n,
+        ),
     ]));
     if n > 1 {
-        tridiag_in_place(trid.as_mut(), householder.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+        tridiag_in_place(
+            trid.as_mut(),
+            householder.as_mut(),
+            par,
+            faer::dyn_stack::MemStack::new(&mut buf),
+            Default::default(),
+        );
     }
     let mut values: Vec<f64> = (0..n).map(|i| f64_of(trid[(i, i)])).collect();
     let off: Vec<f64> = (0..n - 1).map(|i| f64_of(trid[(i + 1, i)])).collect();
@@ -375,7 +495,10 @@ pub fn eigh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<(Vec<T>, NdArray<T>), Li
             faer::dyn_stack::MemStack::new(&mut buf),
         );
     }
-    Ok((values.into_iter().map(|v| of_f64(v / scale)).collect(), to_array(u.as_ref(), a.shape())))
+    Ok((
+        values.into_iter().map(|v| of_f64(v / scale)).collect(),
+        to_array(u.as_ref(), a.shape()),
+    ))
 }
 
 /// The eigenvalues (ascending) of a symmetric matrix, without eigenvectors; only its lower
@@ -397,8 +520,18 @@ pub fn eigvalsh<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError>
     if n > 1 {
         let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(n, n);
         let mut householder = faer::Mat::<T>::zeros(bs, n - 1);
-        let mut buf = faer::dyn_stack::MemBuffer::new(tridiag_in_place_scratch::<T>(n, par, Default::default()));
-        tridiag_in_place(trid.as_mut(), householder.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+        let mut buf = faer::dyn_stack::MemBuffer::new(tridiag_in_place_scratch::<T>(
+            n,
+            par,
+            Default::default(),
+        ));
+        tridiag_in_place(
+            trid.as_mut(),
+            householder.as_mut(),
+            par,
+            faer::dyn_stack::MemStack::new(&mut buf),
+            Default::default(),
+        );
     }
     let mut diag: Vec<f64> = (0..n).map(|i| f64_of(trid[(i, i)])).collect();
     let off: Vec<f64> = (0..n - 1).map(|i| f64_of(trid[(i + 1, i)])).collect();
@@ -506,22 +639,48 @@ pub fn svd<T: LinalgFloat>(a: NdView<'_, T>, full: bool) -> Result<Svd<T>, Linal
         let Svd { u, s, vt } = svd_tall(m.transpose(), full)?;
         let (ur, uc) = (u.shape()[0], u.shape()[1]);
         let (vr, vc) = (vt.shape()[0], vt.shape()[1]);
-        let u_t = NdArray::from_vec((0..uc).flat_map(|j| (0..ur).map(move |i| (i, j))).map(|(i, j)| u.as_slice()[i * uc + j]).collect(), &[uc, ur]).expect("valid shape");
-        let vt_t = NdArray::from_vec((0..vc).flat_map(|j| (0..vr).map(move |i| (i, j))).map(|(i, j)| vt.as_slice()[i * vc + j]).collect(), &[vc, vr]).expect("valid shape");
-        return Ok(Svd { u: vt_t, s, vt: u_t });
+        let u_t = NdArray::from_vec(
+            (0..uc)
+                .flat_map(|j| (0..ur).map(move |i| (i, j)))
+                .map(|(i, j)| u.as_slice()[i * uc + j])
+                .collect(),
+            &[uc, ur],
+        )
+        .expect("valid shape");
+        let vt_t = NdArray::from_vec(
+            (0..vc)
+                .flat_map(|j| (0..vr).map(move |i| (i, j)))
+                .map(|(i, j)| vt.as_slice()[i * vc + j])
+                .collect(),
+            &[vc, vr],
+        )
+        .expect("valid shape");
+        return Ok(Svd {
+            u: vt_t,
+            s,
+            vt: u_t,
+        });
     }
     svd_tall(m, full)
 }
 
 /// [`svd`] of a matrix with at least as many rows as columns.
 fn svd_tall<T: LinalgFloat>(m: MatRef<'_, T>, full: bool) -> Result<Svd<T>, LinalgError> {
-    use faer::linalg::householder::{apply_block_householder_sequence_on_the_left_in_place_scratch, apply_block_householder_sequence_on_the_left_in_place_with_conj};
+    use faer::linalg::householder::{
+        apply_block_householder_sequence_on_the_left_in_place_scratch,
+        apply_block_householder_sequence_on_the_left_in_place_with_conj,
+    };
     use faer::linalg::svd::bidiag::{bidiag_in_place, bidiag_in_place_scratch};
     let (rows, n) = (m.nrows(), m.ncols());
     let ucols = if full { rows } else { n };
     if n == 0 {
-        let u = faer::Mat::<T>::from_fn(rows, ucols, |i, j| if i == j { T::_ONE } else { T::_ZERO });
-        return Ok(Svd { u: to_array(u.as_ref(), &[rows, ucols]), s: Vec::new(), vt: NdArray::zeros(&[0, 0]).expect("valid shape") });
+        let u =
+            faer::Mat::<T>::from_fn(rows, ucols, |i, j| if i == j { T::_ONE } else { T::_ZERO });
+        return Ok(Svd {
+            u: to_array(u.as_ref(), &[rows, ucols]),
+            s: Vec::new(),
+            vt: NdArray::zeros(&[0, 0]).expect("valid shape"),
+        });
     }
     let par = faer::get_global_parallelism();
     // scaled into range, as LAPACK's gesdd does: smlnum = sqrt(safmin) / eps, bignum = 1 / smlnum
@@ -530,20 +689,49 @@ fn svd_tall<T: LinalgFloat>(m: MatRef<'_, T>, full: bool) -> Result<Svd<T>, Lina
     let k = of_f64::<T>(scale);
     let mut bid = faer::Mat::<T>::from_fn(rows, n, |i, j| m[(i, j)] * k);
     let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(rows, n);
-    let (mut hl, mut hr) = (faer::Mat::<T>::zeros(bs, n), faer::Mat::<T>::zeros(bs, n - 1));
+    let (mut hl, mut hr) = (
+        faer::Mat::<T>::zeros(bs, n),
+        faer::Mat::<T>::zeros(bs, n - 1),
+    );
     let mut buf = faer::dyn_stack::MemBuffer::new(faer::dyn_stack::StackReq::any_of(&[
         bidiag_in_place_scratch::<T>(rows, n, par, Default::default()),
         apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(n, bs, ucols),
-        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(n.saturating_sub(1), bs, n),
+        apply_block_householder_sequence_on_the_left_in_place_scratch::<T>(
+            n.saturating_sub(1),
+            bs,
+            n,
+        ),
     ]));
-    bidiag_in_place(bid.as_mut(), hl.as_mut(), hr.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+    bidiag_in_place(
+        bid.as_mut(),
+        hl.as_mut(),
+        hr.as_mut(),
+        par,
+        faer::dyn_stack::MemStack::new(&mut buf),
+        Default::default(),
+    );
     let mut s: Vec<f64> = (0..n).map(|i| f64_of(bid[(i, i)])).collect();
     let off: Vec<f64> = (0..n - 1).map(|i| f64_of(bid[(i, i + 1)])).collect();
     let (mut ub, mut vb) = (vec![0.0; n * n], vec![0.0; n * n]);
     bdc::bidiagonal_svd(&mut s, &off, &mut ub, &mut vb).map_err(|_| LinalgError::NoConvergence)?;
     // U: [U_B 0; 0 I] through the left reflectors
-    let mut u = faer::Mat::<T>::from_fn(rows, ucols, |i, j| if i < n && j < n { of_f64(ub[j * n + i]) } else if i == j { T::_ONE } else { T::_ZERO });
-    apply_block_householder_sequence_on_the_left_in_place_with_conj(bid.as_ref(), hl.as_ref(), faer::Conj::No, u.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf));
+    let mut u = faer::Mat::<T>::from_fn(rows, ucols, |i, j| {
+        if i < n && j < n {
+            of_f64(ub[j * n + i])
+        } else if i == j {
+            T::_ONE
+        } else {
+            T::_ZERO
+        }
+    });
+    apply_block_householder_sequence_on_the_left_in_place_with_conj(
+        bid.as_ref(),
+        hl.as_ref(),
+        faer::Conj::No,
+        u.as_mut(),
+        par,
+        faer::dyn_stack::MemStack::new(&mut buf),
+    );
     // V: V_B through the right reflectors (stored above the superdiagonal, mirrored below as faer does)
     let mut v = faer::Mat::<T>::from_fn(n, n, |i, j| of_f64(vb[j * n + i]));
     if n > 1 {
@@ -561,7 +749,11 @@ fn svd_tall<T: LinalgFloat>(m: MatRef<'_, T>, full: bool) -> Result<Svd<T>, Lina
             faer::dyn_stack::MemStack::new(&mut buf),
         );
     }
-    Ok(Svd { u: to_array(u.as_ref(), &[rows, ucols]), s: s.into_iter().map(|x| of_f64(x / scale)).collect(), vt: to_array(v.as_ref().transpose(), &[n, n]) })
+    Ok(Svd {
+        u: to_array(u.as_ref(), &[rows, ucols]),
+        s: s.into_iter().map(|x| of_f64(x / scale)).collect(),
+        vt: to_array(v.as_ref().transpose(), &[n, n]),
+    })
 }
 
 /// The singular values, largest first.
@@ -573,7 +765,11 @@ pub fn svdvals<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError> 
     use faer::linalg::svd::bidiag::{bidiag_in_place, bidiag_in_place_scratch};
     let m = matrix(a)?;
     // the transpose has the same singular values; reduce the tall one
-    let m = if m.nrows() < m.ncols() { m.transpose() } else { m };
+    let m = if m.nrows() < m.ncols() {
+        m.transpose()
+    } else {
+        m
+    };
     let (rows, n) = (m.nrows(), m.ncols());
     if n == 0 {
         return Ok(Vec::new());
@@ -585,9 +781,24 @@ pub fn svdvals<T: LinalgFloat>(a: NdView<'_, T>) -> Result<Vec<T>, LinalgError> 
     let k = of_f64::<T>(scale);
     let mut bid = faer::Mat::<T>::from_fn(rows, n, |i, j| m[(i, j)] * k);
     let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<T>(rows, n);
-    let (mut hl, mut hr) = (faer::Mat::<T>::zeros(bs, n), faer::Mat::<T>::zeros(bs, n - 1));
-    let mut buf = faer::dyn_stack::MemBuffer::new(bidiag_in_place_scratch::<T>(rows, n, par, Default::default()));
-    bidiag_in_place(bid.as_mut(), hl.as_mut(), hr.as_mut(), par, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+    let (mut hl, mut hr) = (
+        faer::Mat::<T>::zeros(bs, n),
+        faer::Mat::<T>::zeros(bs, n - 1),
+    );
+    let mut buf = faer::dyn_stack::MemBuffer::new(bidiag_in_place_scratch::<T>(
+        rows,
+        n,
+        par,
+        Default::default(),
+    ));
+    bidiag_in_place(
+        bid.as_mut(),
+        hl.as_mut(),
+        hr.as_mut(),
+        par,
+        faer::dyn_stack::MemStack::new(&mut buf),
+        Default::default(),
+    );
     let mut diag: Vec<f64> = (0..n).map(|i| f64_of(bid[(i, i)])).collect();
     let off: Vec<f64> = (0..n - 1).map(|i| f64_of(bid[(i, i + 1)])).collect();
     values::bidiagonal_singular_values(&mut diag, &off).map_err(|_| LinalgError::NoConvergence)?;
@@ -606,7 +817,9 @@ pub fn pinv<T: LinalgFloat>(a: NdView<'_, T>) -> Result<NdArray<T>, LinalgError>
 pub fn matrix_rank<T: LinalgFloat>(a: NdView<'_, T>) -> Result<usize, LinalgError> {
     let m = matrix(a)?;
     let s = svdvals(a)?;
-    let tol = T::_EPSILON * T::_lit(m.nrows().max(m.ncols()) as f64) * s.first().copied().unwrap_or(T::_ZERO);
+    let tol = T::_EPSILON
+        * T::_lit(m.nrows().max(m.ncols()) as f64)
+        * s.first().copied().unwrap_or(T::_ZERO);
     Ok(s.iter().filter(|&&v| v > tol).count())
 }
 
@@ -615,7 +828,10 @@ pub fn cond<T: LinalgFloat>(a: NdView<'_, T>) -> Result<T, LinalgError> {
     let s = svdvals(a)?;
     match (s.first(), s.last()) {
         (Some(&hi), Some(&lo)) => Ok(hi / lo),
-        _ => Err(LinalgError::Dims { expected: "non-empty", got: a.shape().to_vec() }),
+        _ => Err(LinalgError::Dims {
+            expected: "non-empty",
+            got: a.shape().to_vec(),
+        }),
     }
 }
 

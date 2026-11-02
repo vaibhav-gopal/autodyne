@@ -8,8 +8,8 @@
 //!
 //! How operand types combine is described on [`Promotion`].
 
-use crate::alloc_prelude::*;
 use super::{DynArray, DynElement, DynError, DynView};
+use crate::alloc_prelude::*;
 use crate::signal::{broadcast_shapes, NdArray, NdView, Zip};
 use crate::units::*;
 
@@ -239,13 +239,25 @@ pub fn result_type(a: DType, b: DType, op: BinaryOp, policy: Promotion) -> Resul
         let (signed, unsigned) = if ka == Kind::Int { (a, b) } else { (b, a) };
         let (bs, bu) = (bits(signed), bits(unsigned));
         // the smallest signed type holding both; past 64 bits, i64 (checked) rather than f64
-        return Ok(int_type(true, if bu < bs { bs } else { (2 * bu).min(64).max(bs) }));
+        return Ok(int_type(
+            true,
+            if bu < bs {
+                bs
+            } else {
+                (2 * bu).min(64).max(bs)
+            },
+        ));
     }
     let complex = ka == Kind::Complex || kb == Kind::Complex;
     let precision = match policy {
         Promotion::Standard => float_precision_of(a).max(float_precision_of(b)),
         // integers don't widen a float
-        Promotion::KeepFloat => [a, b].into_iter().filter(|&d| !real(kind(d))).map(bits).max().unwrap_or(64),
+        Promotion::KeepFloat => [a, b]
+            .into_iter()
+            .filter(|&d| !real(kind(d)))
+            .map(bits)
+            .max()
+            .unwrap_or(64),
     };
     Ok(match (complex, precision) {
         (true, 32) => DType::ComplexF32,
@@ -285,18 +297,29 @@ impl PartialEq for Exact {
     fn eq(&self, other: &Exact) -> bool {
         let same = |x: f64, y: f64| x == y || (x.is_nan() && y.is_nan());
         // an integer equals a float only if the float is exactly that integer
-        let int_float = |a: i64, x: f64| x.fract() == 0.0 && (-TWO_63..TWO_63).contains(&x) && x as i64 == a;
-        let uint_float = |a: u64, x: f64| x.fract() == 0.0 && (0.0..TWO_64).contains(&x) && x as u64 == a;
+        let int_float =
+            |a: i64, x: f64| x.fract() == 0.0 && (-TWO_63..TWO_63).contains(&x) && x as i64 == a;
+        let uint_float =
+            |a: u64, x: f64| x.fract() == 0.0 && (0.0..TWO_64).contains(&x) && x as u64 == a;
         match (*self, *other) {
             (Exact::Int(a), Exact::Int(b)) => a == b,
             (Exact::UInt(a), Exact::UInt(b)) => a == b,
-            (Exact::Int(a), Exact::UInt(b)) | (Exact::UInt(b), Exact::Int(a)) => a >= 0 && a as u64 == b,
+            (Exact::Int(a), Exact::UInt(b)) | (Exact::UInt(b), Exact::Int(a)) => {
+                a >= 0 && a as u64 == b
+            }
             (Exact::Int(a), Exact::Float(x)) | (Exact::Float(x), Exact::Int(a)) => int_float(a, x),
-            (Exact::UInt(a), Exact::Float(x)) | (Exact::Float(x), Exact::UInt(a)) => uint_float(a, x),
-            (Exact::Int(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::Int(a)) => im == 0.0 && int_float(a, re),
-            (Exact::UInt(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::UInt(a)) => im == 0.0 && uint_float(a, re),
+            (Exact::UInt(a), Exact::Float(x)) | (Exact::Float(x), Exact::UInt(a)) => {
+                uint_float(a, x)
+            }
+            (Exact::Int(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::Int(a)) => {
+                im == 0.0 && int_float(a, re)
+            }
+            (Exact::UInt(a), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::UInt(a)) => {
+                im == 0.0 && uint_float(a, re)
+            }
             (Exact::Float(x), Exact::Float(y)) => same(x, y),
-            (Exact::Float(x), Exact::Complex(re, im)) | (Exact::Complex(re, im), Exact::Float(x)) => im == 0.0 && same(x, re),
+            (Exact::Float(x), Exact::Complex(re, im))
+            | (Exact::Complex(re, im), Exact::Float(x)) => im == 0.0 && same(x, re),
             (Exact::Complex(a, b), Exact::Complex(c, d)) => same(a, c) && same(b, d),
         }
     }
@@ -313,7 +336,9 @@ fn lossless(from: DType, to: DType) -> bool {
         (Kind::Int, Kind::Int) | (Kind::UInt, Kind::UInt) => bits(from) <= bits(to),
         (Kind::UInt, Kind::Int) => bits(from) < bits(to),
         (Kind::Int | Kind::UInt, Kind::Float | Kind::Complex) => bits(from) <= mantissa(to),
-        (Kind::Float, Kind::Float | Kind::Complex) | (Kind::Complex, Kind::Complex) => bits(from) <= bits(to),
+        (Kind::Float, Kind::Float | Kind::Complex) | (Kind::Complex, Kind::Complex) => {
+            bits(from) <= bits(to)
+        }
         _ => false,
     }
 }
@@ -502,18 +527,54 @@ complex_num!(f32, f64);
 macro_rules! with_num {
     ($dtype:expr, $T:ident => $body:expr) => {
         match $dtype {
-            DType::F32 => { type $T = f32; $body }
-            DType::F64 => { type $T = f64; $body }
-            DType::I8 => { type $T = i8; $body }
-            DType::I16 => { type $T = i16; $body }
-            DType::I32 => { type $T = i32; $body }
-            DType::I64 => { type $T = i64; $body }
-            DType::U8 => { type $T = u8; $body }
-            DType::U16 => { type $T = u16; $body }
-            DType::U32 => { type $T = u32; $body }
-            DType::U64 => { type $T = u64; $body }
-            DType::ComplexF32 => { type $T = Complex<f32>; $body }
-            DType::ComplexF64 => { type $T = Complex<f64>; $body }
+            DType::F32 => {
+                type $T = f32;
+                $body
+            }
+            DType::F64 => {
+                type $T = f64;
+                $body
+            }
+            DType::I8 => {
+                type $T = i8;
+                $body
+            }
+            DType::I16 => {
+                type $T = i16;
+                $body
+            }
+            DType::I32 => {
+                type $T = i32;
+                $body
+            }
+            DType::I64 => {
+                type $T = i64;
+                $body
+            }
+            DType::U8 => {
+                type $T = u8;
+                $body
+            }
+            DType::U16 => {
+                type $T = u16;
+                $body
+            }
+            DType::U32 => {
+                type $T = u32;
+                $body
+            }
+            DType::U64 => {
+                type $T = u64;
+                $body
+            }
+            DType::ComplexF32 => {
+                type $T = Complex<f32>;
+                $body
+            }
+            DType::ComplexF64 => {
+                type $T = Complex<f64>;
+                $body
+            }
             DType::I24 => Err(DynError::Unsupported(DType::I24)),
         }
     };
@@ -522,7 +583,12 @@ macro_rules! with_num {
 // BINARY ==========================================================================================
 
 /// Both operands already of the result type: zero-copy, in memory order.
-fn binary_same<R: Num>(a: NdView<'_, R>, b: NdView<'_, R>, shape: &[usize], op: BinaryOp) -> Result<NdArray<R>, DynError> {
+fn binary_same<R: Num>(
+    a: NdView<'_, R>,
+    b: NdView<'_, R>,
+    shape: &[usize],
+    op: BinaryOp,
+) -> Result<NdArray<R>, DynError> {
     let zip = Zip::from(a.broadcast_to(shape)?).and(b.broadcast_to(shape)?)?;
     Ok(match op {
         BinaryOp::Add => zip.map_collect(|&x, &y| Num::add(x, y)),
@@ -535,29 +601,57 @@ fn binary_same<R: Num>(a: NdView<'_, R>, b: NdView<'_, R>, shape: &[usize], op: 
 }
 
 /// `out = convert(src)`, with `src` broadcast to `out`'s shape: one planned pass, no copy of `src`.
-fn convert_into<S: Num, R: Num>(out: &mut NdArray<R>, src: NdView<'_, S>, mode: CastMode) -> Result<(), DynError> {
+fn convert_into<S: Num, R: Num>(
+    out: &mut NdArray<R>,
+    src: NdView<'_, S>,
+    mode: CastMode,
+) -> Result<(), DynError> {
     let src = src.broadcast_to(out.shape())?;
-    let mode = if mode == CastMode::Checked && lossless(S::DTYPE, R::DTYPE) { CastMode::Saturating } else { mode };
+    let mode = if mode == CastMode::Checked && lossless(S::DTYPE, R::DTYPE) {
+        CastMode::Saturating
+    } else {
+        mode
+    };
     let mut failed = false;
     match mode {
-        CastMode::Saturating => Zip::from(out.view_mut()).and(src)?.for_each(|o, &s| *o = R::saturating(s.exact())),
-        CastMode::Wrapping => Zip::from(out.view_mut()).and(src)?.for_each(|o, &s| *o = R::wrapping(s.exact())),
+        CastMode::Saturating => Zip::from(out.view_mut())
+            .and(src)?
+            .for_each(|o, &s| *o = R::saturating(s.exact())),
+        CastMode::Wrapping => Zip::from(out.view_mut())
+            .and(src)?
+            .for_each(|o, &s| *o = R::wrapping(s.exact())),
         CastMode::Checked => Zip::from(out.view_mut()).and(src)?.for_each(|o, &s| {
             let e = s.exact();
             *o = R::saturating(e);
             failed |= o.exact() != e;
         }),
     }
-    if failed { Err(DynError::Inexact { from: S::DTYPE, to: R::DTYPE }) } else { Ok(()) }
+    if failed {
+        Err(DynError::Inexact {
+            from: S::DTYPE,
+            to: R::DTYPE,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 /// `out = convert(src)` for a source of any runtime type.
-fn convert_dyn_into<R: Num>(out: &mut NdArray<R>, src: &DynView<'_>, mode: CastMode) -> Result<(), DynError> {
+fn convert_dyn_into<R: Num>(
+    out: &mut NdArray<R>,
+    src: &DynView<'_>,
+    mode: CastMode,
+) -> Result<(), DynError> {
     with_num!(src.dtype(), S => convert_into::<S, R>(out, src.typed::<S>()?, mode))
 }
 
 /// `out = op(out, convert(src))`, with `src` broadcast to `out`'s shape.
-fn combine_into<U: Num, R: Num>(out: &mut NdArray<R>, src: NdView<'_, U>, op: BinaryOp, mode: CastMode) -> Result<(), DynError> {
+fn combine_into<U: Num, R: Num>(
+    out: &mut NdArray<R>,
+    src: NdView<'_, U>,
+    op: BinaryOp,
+    mode: CastMode,
+) -> Result<(), DynError> {
     let src = src.broadcast_to(out.shape())?;
     let f: fn(R, R) -> R = match op {
         BinaryOp::Add => R::add,
@@ -577,17 +671,33 @@ fn combine_into<U: Num, R: Num>(out: &mut NdArray<R>, src: NdView<'_, U>, op: Bi
         }
         *o = f(*o, y);
     });
-    if failed { Err(DynError::Inexact { from: U::DTYPE, to: R::DTYPE }) } else { Ok(()) }
+    if failed {
+        Err(DynError::Inexact {
+            from: U::DTYPE,
+            to: R::DTYPE,
+        })
+    } else {
+        Ok(())
+    }
 }
 
 /// `out = out op src` (or `src op out` when `reversed`), `src` already of the result type: the
 /// operation is chosen once, so the loop inlines it.
-fn combine_same<R: Num>(out: &mut NdArray<R>, src: NdView<'_, R>, op: BinaryOp, reversed: bool) -> Result<(), DynError> {
+fn combine_same<R: Num>(
+    out: &mut NdArray<R>,
+    src: NdView<'_, R>,
+    op: BinaryOp,
+    reversed: bool,
+) -> Result<(), DynError> {
     let src = src.broadcast_to(out.shape())?;
     let zip = Zip::from(out.view_mut()).and(src)?;
     macro_rules! run {
         ($f:expr) => {
-            if reversed { zip.for_each(|o, &s| *o = $f(s, *o)) } else { zip.for_each(|o, &s| *o = $f(*o, s)) }
+            if reversed {
+                zip.for_each(|o, &s| *o = $f(s, *o))
+            } else {
+                zip.for_each(|o, &s| *o = $f(*o, s))
+            }
         };
     }
     match op {
@@ -604,7 +714,13 @@ fn combine_same<R: Num>(out: &mut NdArray<R>, src: NdView<'_, R>, op: BinaryOp, 
 /// Mixed types: convert one operand into the result, then combine the other into it. Two planned
 /// passes (contiguous inner loops wherever the layouts allow); neither operand is copied. An operand
 /// already of the result type is the one combined, on the typed path.
-fn binary_mixed<R: Num>(a: &DynView<'_>, b: &DynView<'_>, shape: &[usize], op: BinaryOp, mode: CastMode) -> Result<NdArray<R>, DynError> {
+fn binary_mixed<R: Num>(
+    a: &DynView<'_>,
+    b: &DynView<'_>,
+    shape: &[usize],
+    op: BinaryOp,
+    mode: CastMode,
+) -> Result<NdArray<R>, DynError> {
     let mut out = NdArray::<R>::full(shape, R::default())?;
     if b.dtype() == R::DTYPE {
         convert_dyn_into(&mut out, a, mode)?;
@@ -619,7 +735,13 @@ fn binary_mixed<R: Num>(a: &DynView<'_>, b: &DynView<'_>, shape: &[usize], op: B
     Ok(out)
 }
 
-fn binary_as(a: &DynView<'_>, b: &DynView<'_>, op: BinaryOp, result: DType, mode: CastMode) -> Result<DynArray, DynError> {
+fn binary_as(
+    a: &DynView<'_>,
+    b: &DynView<'_>,
+    op: BinaryOp,
+    result: DType,
+    mode: CastMode,
+) -> Result<DynArray, DynError> {
     if matches!(op, BinaryOp::Min | BinaryOp::Max) && kind(result) == Kind::Complex {
         return Err(DynError::Unsupported(result));
     }
@@ -648,7 +770,12 @@ impl<'a> DynView<'a> {
     /// `self op other`, broadcast to their common shape, in the type `policy` picks (see
     /// [`Promotion`]). Errors on shapes that don't broadcast, conversions that would lose
     /// information (`Standard`), `Min`/`Max` of complex numbers, and unaligned memory.
-    pub fn binary(&self, other: &DynView<'_>, op: BinaryOp, policy: Promotion) -> Result<DynArray, DynError> {
+    pub fn binary(
+        &self,
+        other: &DynView<'_>,
+        op: BinaryOp,
+        policy: Promotion,
+    ) -> Result<DynArray, DynError> {
         let result = result_type(self.dtype(), other.dtype(), op, policy)?;
         binary_as(self, other, op, result, mode_of(policy))
     }
@@ -690,12 +817,22 @@ impl<'a> DynView<'a> {
     pub fn unary(&self, op: UnaryOp) -> Result<DynArray, DynError> {
         let d = self.dtype();
         match op {
-            UnaryOp::Neg => with_num!(d, T => Ok(T::wrap(self.typed::<T>()?.map(|&x| Num::neg(x))))),
+            UnaryOp::Neg => {
+                with_num!(d, T => Ok(T::wrap(self.typed::<T>()?.map(|&x| Num::neg(x)))))
+            }
             UnaryOp::Abs => match d {
-                DType::ComplexF32 => Ok(DynArray::from_array(self.typed::<Complex<f32>>()?.map(|z| z.norm()))),
-                DType::ComplexF64 => Ok(DynArray::from_array(self.typed::<Complex<f64>>()?.map(|z| z.norm()))),
-                DType::U8 | DType::U16 | DType::U32 | DType::U64 => with_num!(d, T => Ok(T::wrap(self.typed::<T>()?.to_owned()))),
-                _ => with_num!(d, T => Ok(T::wrap(self.typed::<T>()?.map(|&x| if Num::min_of(x, T::default()) == Some(x) { Num::neg(x) } else { x })))),
+                DType::ComplexF32 => Ok(DynArray::from_array(
+                    self.typed::<Complex<f32>>()?.map(|z| z.norm()),
+                )),
+                DType::ComplexF64 => Ok(DynArray::from_array(
+                    self.typed::<Complex<f64>>()?.map(|z| z.norm()),
+                )),
+                DType::U8 | DType::U16 | DType::U32 | DType::U64 => {
+                    with_num!(d, T => Ok(T::wrap(self.typed::<T>()?.to_owned())))
+                }
+                _ => {
+                    with_num!(d, T => Ok(T::wrap(self.typed::<T>()?.map(|&x| if Num::min_of(x, T::default()) == Some(x) { Num::neg(x) } else { x }))))
+                }
             },
             _ => match float_function_type(d)? {
                 DType::F32 => Ok(DynArray::from_array(float_function::<f32>(self, op)?)),
@@ -709,16 +846,44 @@ impl<'a> DynView<'a> {
         Ok(match self.dtype() {
             DType::F32 => DynScalar::F32(self.typed::<f32>()?.sum()),
             DType::F64 => DynScalar::F64(self.typed::<f64>()?.sum()),
-            DType::I8 => DynScalar::I64(self.typed::<i8>()?.fold(0i64, |a, &x| a.wrapping_add(x as i64))),
-            DType::I16 => DynScalar::I64(self.typed::<i16>()?.fold(0i64, |a, &x| a.wrapping_add(x as i64))),
-            DType::I32 => DynScalar::I64(self.typed::<i32>()?.fold(0i64, |a, &x| a.wrapping_add(x as i64))),
-            DType::I64 => DynScalar::I64(self.typed::<i64>()?.fold(0i64, |a, &x| a.wrapping_add(x))),
-            DType::U8 => DynScalar::U64(self.typed::<u8>()?.fold(0u64, |a, &x| a.wrapping_add(x as u64))),
-            DType::U16 => DynScalar::U64(self.typed::<u16>()?.fold(0u64, |a, &x| a.wrapping_add(x as u64))),
-            DType::U32 => DynScalar::U64(self.typed::<u32>()?.fold(0u64, |a, &x| a.wrapping_add(x as u64))),
-            DType::U64 => DynScalar::U64(self.typed::<u64>()?.fold(0u64, |a, &x| a.wrapping_add(x))),
-            DType::ComplexF32 => DynScalar::ComplexF32(self.typed::<Complex<f32>>()?.fold(Complex::zero(), |a, &x| a + x)),
-            DType::ComplexF64 => DynScalar::ComplexF64(self.typed::<Complex<f64>>()?.fold(Complex::zero(), |a, &x| a + x)),
+            DType::I8 => DynScalar::I64(
+                self.typed::<i8>()?
+                    .fold(0i64, |a, &x| a.wrapping_add(x as i64)),
+            ),
+            DType::I16 => DynScalar::I64(
+                self.typed::<i16>()?
+                    .fold(0i64, |a, &x| a.wrapping_add(x as i64)),
+            ),
+            DType::I32 => DynScalar::I64(
+                self.typed::<i32>()?
+                    .fold(0i64, |a, &x| a.wrapping_add(x as i64)),
+            ),
+            DType::I64 => {
+                DynScalar::I64(self.typed::<i64>()?.fold(0i64, |a, &x| a.wrapping_add(x)))
+            }
+            DType::U8 => DynScalar::U64(
+                self.typed::<u8>()?
+                    .fold(0u64, |a, &x| a.wrapping_add(x as u64)),
+            ),
+            DType::U16 => DynScalar::U64(
+                self.typed::<u16>()?
+                    .fold(0u64, |a, &x| a.wrapping_add(x as u64)),
+            ),
+            DType::U32 => DynScalar::U64(
+                self.typed::<u32>()?
+                    .fold(0u64, |a, &x| a.wrapping_add(x as u64)),
+            ),
+            DType::U64 => {
+                DynScalar::U64(self.typed::<u64>()?.fold(0u64, |a, &x| a.wrapping_add(x)))
+            }
+            DType::ComplexF32 => DynScalar::ComplexF32(
+                self.typed::<Complex<f32>>()?
+                    .fold(Complex::zero(), |a, &x| a + x),
+            ),
+            DType::ComplexF64 => DynScalar::ComplexF64(
+                self.typed::<Complex<f64>>()?
+                    .fold(Complex::zero(), |a, &x| a + x),
+            ),
             DType::I24 => return Err(DynError::Unsupported(DType::I24)),
         })
     }
@@ -806,10 +971,16 @@ fn float_function<R: Num + Float>(view: &DynView<'_>, op: UnaryOp) -> Result<NdA
 impl DynArray {
     /// A zero-copy runtime-typed view of the array.
     pub fn view(&self) -> DynView<'_> {
-        DynView::new(self.as_bytes(), self.dtype(), self.shape()).expect("an array's bytes match its shape")
+        DynView::new(self.as_bytes(), self.dtype(), self.shape())
+            .expect("an array's bytes match its shape")
     }
     /// See [`DynView::binary`].
-    pub fn binary(&self, other: &DynArray, op: BinaryOp, policy: Promotion) -> Result<DynArray, DynError> {
+    pub fn binary(
+        &self,
+        other: &DynArray,
+        op: BinaryOp,
+        policy: Promotion,
+    ) -> Result<DynArray, DynError> {
         self.view().binary(&other.view(), op, policy)
     }
     /// `self + other`, broadcast, with the standard promotion.
@@ -863,8 +1034,18 @@ mod tests {
     use super::*;
 
     const ORDER: [DType; 12] = [
-        DType::I8, DType::I16, DType::I32, DType::I64, DType::U8, DType::U16, DType::U32, DType::U64,
-        DType::F32, DType::F64, DType::ComplexF32, DType::ComplexF64,
+        DType::I8,
+        DType::I16,
+        DType::I32,
+        DType::I64,
+        DType::U8,
+        DType::U16,
+        DType::U32,
+        DType::U64,
+        DType::F32,
+        DType::F64,
+        DType::ComplexF32,
+        DType::ComplexF64,
     ];
 
     /// NumPy 2.5's np.result_type for these types, row by row in ORDER (i8..u64, f32, f64, c64, c128).
@@ -897,21 +1078,51 @@ mod tests {
             for (j, &b) in ORDER.iter().enumerate() {
                 let numpy = table[i * 12 + j];
                 let ours = result_type(a, b, BinaryOp::Add, Promotion::Standard).unwrap();
-                let signed_with_u64 = (kind(a) == Kind::Int && b == DType::U64) || (kind(b) == Kind::Int && a == DType::U64);
+                let signed_with_u64 = (kind(a) == Kind::Int && b == DType::U64)
+                    || (kind(b) == Kind::Int && a == DType::U64);
                 if signed_with_u64 {
-                    assert_eq!((numpy, ours), ("f64", DType::I64), "{a} + {b}: the deliberate difference");
+                    assert_eq!(
+                        (numpy, ours),
+                        ("f64", DType::I64),
+                        "{a} + {b}: the deliberate difference"
+                    );
                 } else {
                     assert_eq!(numpy_name(ours), numpy, "{a} + {b}");
                 }
-                assert_eq!(result_type(b, a, BinaryOp::Add, Promotion::Standard).unwrap(), ours, "symmetric");
+                assert_eq!(
+                    result_type(b, a, BinaryOp::Add, Promotion::Standard).unwrap(),
+                    ours,
+                    "symmetric"
+                );
             }
         }
-        assert_eq!(result_type(DType::I8, DType::U8, BinaryOp::Div, Promotion::Standard).unwrap(), DType::F64);
-        assert_eq!(result_type(DType::I16, DType::F32, BinaryOp::Div, Promotion::Standard).unwrap(), DType::F32);
+        assert_eq!(
+            result_type(DType::I8, DType::U8, BinaryOp::Div, Promotion::Standard).unwrap(),
+            DType::F64
+        );
+        assert_eq!(
+            result_type(DType::I16, DType::F32, BinaryOp::Div, Promotion::Standard).unwrap(),
+            DType::F32
+        );
         // KeepFloat: integers never widen a float
-        assert_eq!(result_type(DType::I32, DType::F32, BinaryOp::Add, Promotion::KeepFloat).unwrap(), DType::F32);
-        assert_eq!(result_type(DType::I64, DType::ComplexF32, BinaryOp::Mul, Promotion::KeepFloat).unwrap(), DType::ComplexF32);
-        assert_eq!(result_type(DType::I32, DType::U16, BinaryOp::Add, Promotion::KeepFloat).unwrap(), DType::I32);
+        assert_eq!(
+            result_type(DType::I32, DType::F32, BinaryOp::Add, Promotion::KeepFloat).unwrap(),
+            DType::F32
+        );
+        assert_eq!(
+            result_type(
+                DType::I64,
+                DType::ComplexF32,
+                BinaryOp::Mul,
+                Promotion::KeepFloat
+            )
+            .unwrap(),
+            DType::ComplexF32
+        );
+        assert_eq!(
+            result_type(DType::I32, DType::U16, BinaryOp::Add, Promotion::KeepFloat).unwrap(),
+            DType::I32
+        );
     }
 
     fn arr<T: DynElement>(data: Vec<T>, shape: &[usize]) -> DynArray {
@@ -924,45 +1135,97 @@ mod tests {
         let b = arr(vec![0.5f32, 1.0, 1.5], &[3]);
         let c = a.mul(&b).unwrap();
         assert_eq!(c.dtype(), DType::F32);
-        assert_eq!(c.as_array::<f32>().unwrap().as_slice(), [0.5, 2.0, 4.5, 2.0, 5.0, 9.0]);
+        assert_eq!(
+            c.as_array::<f32>().unwrap().as_slice(),
+            [0.5, 2.0, 4.5, 2.0, 5.0, 9.0]
+        );
         // signed meets unsigned in a wider signed type
         let u = arr(vec![200u8, 100], &[2]);
         let s = arr(vec![-100i8, 50], &[2]);
         let sum = u.add(&s).unwrap();
-        assert_eq!((sum.dtype(), sum.as_array::<i16>().unwrap().as_slice()), (DType::I16, &[100i16, 150][..]));
+        assert_eq!(
+            (sum.dtype(), sum.as_array::<i16>().unwrap().as_slice()),
+            (DType::I16, &[100i16, 150][..])
+        );
         // integer division is true division
-        let q = arr(vec![7i32, -7], &[2]).div(&arr(vec![2i32, 2], &[2])).unwrap();
+        let q = arr(vec![7i32, -7], &[2])
+            .div(&arr(vec![2i32, 2], &[2]))
+            .unwrap();
         assert_eq!(q.as_array::<f64>().unwrap().as_slice(), [3.5, -3.5]);
         // integers wrap, as in NumPy
         let w = arr(vec![120i8], &[1]).add(&arr(vec![10i8], &[1])).unwrap();
         assert_eq!(w.as_array::<i8>().unwrap().as_slice(), [-126]);
         // min / max propagate NaN; complex has no order
-        let m = arr(vec![1.0f64, f64::NAN], &[2]).binary(&arr(vec![0.5f64, 0.0], &[2]), BinaryOp::Min, Promotion::Standard).unwrap();
+        let m = arr(vec![1.0f64, f64::NAN], &[2])
+            .binary(
+                &arr(vec![0.5f64, 0.0], &[2]),
+                BinaryOp::Min,
+                Promotion::Standard,
+            )
+            .unwrap();
         let m = m.as_array::<f64>().unwrap().as_slice().to_vec();
         assert!(m[0] == 0.5 && m[1].is_nan());
         let z = arr(vec![Complex::new(1.0f32, 0.0)], &[1]);
-        assert_eq!(z.binary(&z, BinaryOp::Max, Promotion::Standard).err(), Some(DynError::Unsupported(DType::ComplexF32)));
+        assert_eq!(
+            z.binary(&z, BinaryOp::Max, Promotion::Standard).err(),
+            Some(DynError::Unsupported(DType::ComplexF32))
+        );
     }
 
     #[test]
     fn standard_promotion_refuses_to_lose_information() {
         let big = arr(vec![(1i64 << 53) + 1], &[1]);
         let half = arr(vec![0.5f64], &[1]);
-        assert_eq!(big.add(&half).err(), Some(DynError::Inexact { from: DType::I64, to: DType::F64 }));
+        assert_eq!(
+            big.add(&half).err(),
+            Some(DynError::Inexact {
+                from: DType::I64,
+                to: DType::F64
+            })
+        );
         let small = arr(vec![1i64 << 40], &[1]);
-        assert_eq!(small.add(&half).unwrap().as_array::<f64>().unwrap().as_slice(), [(1u64 << 40) as f64 + 0.5]);
+        assert_eq!(
+            small
+                .add(&half)
+                .unwrap()
+                .as_array::<f64>()
+                .unwrap()
+                .as_slice(),
+            [(1u64 << 40) as f64 + 0.5]
+        );
         // u64 with a signed type stays integer, checked
         let u = arr(vec![5u64, 7], &[2]);
         let i = arr(vec![-1i8, 1], &[2]);
-        assert_eq!(u.add(&i).unwrap().as_array::<i64>().unwrap().as_slice(), [4, 8]);
-        assert_eq!(arr(vec![u64::MAX], &[1]).add(&arr(vec![0i8], &[1])).err(), Some(DynError::Inexact { from: DType::U64, to: DType::I64 }));
+        assert_eq!(
+            u.add(&i).unwrap().as_array::<i64>().unwrap().as_slice(),
+            [4, 8]
+        );
+        assert_eq!(
+            arr(vec![u64::MAX], &[1]).add(&arr(vec![0i8], &[1])).err(),
+            Some(DynError::Inexact {
+                from: DType::U64,
+                to: DType::I64
+            })
+        );
         // KeepFloat rounds instead
         let pcm = arr(vec![(1i32 << 24) + 1], &[1]);
         let gain = arr(vec![1.0f32], &[1]);
-        let kept = pcm.binary(&gain, BinaryOp::Mul, Promotion::KeepFloat).unwrap();
-        assert_eq!((kept.dtype(), kept.as_array::<f32>().unwrap().as_slice()), (DType::F32, &[16_777_216.0f32][..]));
+        let kept = pcm
+            .binary(&gain, BinaryOp::Mul, Promotion::KeepFloat)
+            .unwrap();
+        assert_eq!(
+            (kept.dtype(), kept.as_array::<f32>().unwrap().as_slice()),
+            (DType::F32, &[16_777_216.0f32][..])
+        );
         // the standard rule widens to f64 and stays exact
-        assert_eq!(pcm.mul(&gain).unwrap().as_array::<f64>().unwrap().as_slice(), [16_777_217.0]);
+        assert_eq!(
+            pcm.mul(&gain)
+                .unwrap()
+                .as_array::<f64>()
+                .unwrap()
+                .as_slice(),
+            [16_777_217.0]
+        );
     }
 
     #[test]
@@ -974,48 +1237,132 @@ mod tests {
         let t = DynView::with_strides(bytes, DType::F64, &[4, 3], Some(&[1, 4]), 0).unwrap();
         let same = t.binary(&t, BinaryOp::Add, Promotion::Standard).unwrap();
         let ints = arr((0..12).collect::<Vec<i32>>(), &[3, 4]);
-        let ti = DynView::with_strides(ints.as_bytes(), DType::I32, &[4, 3], Some(&[1, 4]), 0).unwrap();
+        let ti =
+            DynView::with_strides(ints.as_bytes(), DType::I32, &[4, 3], Some(&[1, 4]), 0).unwrap();
         let mixed = t.binary(&ti, BinaryOp::Add, Promotion::Standard).unwrap();
         assert_eq!(same, mixed);
-        assert_eq!(same.as_array::<f64>().unwrap().as_slice()[..4], [0.0, 8.0, 16.0, 2.0]);
+        assert_eq!(
+            same.as_array::<f64>().unwrap().as_slice()[..4],
+            [0.0, 8.0, 16.0, 2.0]
+        );
     }
 
     #[test]
     fn weak_scalars_adapt_to_the_array() {
         let f = arr(vec![1.0f32, 2.0], &[2]);
-        assert_eq!(f.binary_scalar(Scalar::Float(2.5), BinaryOp::Mul).unwrap().dtype(), DType::F32);
-        assert_eq!(f.binary_scalar(Scalar::Complex(0.0, 1.0), BinaryOp::Mul).unwrap().dtype(), DType::ComplexF32);
+        assert_eq!(
+            f.binary_scalar(Scalar::Float(2.5), BinaryOp::Mul)
+                .unwrap()
+                .dtype(),
+            DType::F32
+        );
+        assert_eq!(
+            f.binary_scalar(Scalar::Complex(0.0, 1.0), BinaryOp::Mul)
+                .unwrap()
+                .dtype(),
+            DType::ComplexF32
+        );
         let i = arr(vec![1i8, 2], &[2]);
         let plus = i.binary_scalar(Scalar::Int(3), BinaryOp::Add).unwrap();
-        assert_eq!((plus.dtype(), plus.as_array::<i8>().unwrap().as_slice()), (DType::I8, &[4i8, 5][..]));
-        assert_eq!(i.binary_scalar(Scalar::Float(2.5), BinaryOp::Mul).unwrap().dtype(), DType::F64);
-        assert_eq!(i.binary_scalar(Scalar::Int(2), BinaryOp::Div).unwrap().as_array::<f64>().unwrap().as_slice(), [0.5, 1.0]);
-        assert_eq!(i.binary_scalar(Scalar::Int(300), BinaryOp::Add).err(), Some(DynError::Inexact { from: DType::I64, to: DType::I8 }));
+        assert_eq!(
+            (plus.dtype(), plus.as_array::<i8>().unwrap().as_slice()),
+            (DType::I8, &[4i8, 5][..])
+        );
+        assert_eq!(
+            i.binary_scalar(Scalar::Float(2.5), BinaryOp::Mul)
+                .unwrap()
+                .dtype(),
+            DType::F64
+        );
+        assert_eq!(
+            i.binary_scalar(Scalar::Int(2), BinaryOp::Div)
+                .unwrap()
+                .as_array::<f64>()
+                .unwrap()
+                .as_slice(),
+            [0.5, 1.0]
+        );
+        assert_eq!(
+            i.binary_scalar(Scalar::Int(300), BinaryOp::Add).err(),
+            Some(DynError::Inexact {
+                from: DType::I64,
+                to: DType::I8
+            })
+        );
     }
 
     #[test]
     fn functions_reductions_and_casts() {
         let i = arr(vec![4i16, 9, 16], &[3]);
         let r = i.unary(UnaryOp::Sqrt).unwrap();
-        assert_eq!((r.dtype(), r.as_array::<f32>().unwrap().as_slice()), (DType::F32, &[2.0f32, 3.0, 4.0][..]));
+        assert_eq!(
+            (r.dtype(), r.as_array::<f32>().unwrap().as_slice()),
+            (DType::F32, &[2.0f32, 3.0, 4.0][..])
+        );
         assert_eq!(arr(vec![4i64], &[1]).unwrap_dtype(UnaryOp::Ln), DType::F64);
-        let z = arr(vec![Complex::new(3.0f32, 4.0)], &[1]).unary(UnaryOp::Abs).unwrap();
+        let z = arr(vec![Complex::new(3.0f32, 4.0)], &[1])
+            .unary(UnaryOp::Abs)
+            .unwrap();
         assert_eq!(z.as_array::<f32>().unwrap().as_slice(), [5.0]);
-        assert_eq!(arr(vec![-3i8, 3], &[2]).unary(UnaryOp::Abs).unwrap().as_array::<i8>().unwrap().as_slice(), [3, 3]);
+        assert_eq!(
+            arr(vec![-3i8, 3], &[2])
+                .unary(UnaryOp::Abs)
+                .unwrap()
+                .as_array::<i8>()
+                .unwrap()
+                .as_slice(),
+            [3, 3]
+        );
         // integer sums can't overflow their element type
         let bytes = arr(vec![200u8; 10], &[10]);
         assert_eq!(bytes.sum().unwrap(), DynScalar::U64(2_000));
-        assert_eq!(arr(vec![1i32, 2], &[2]).mean().unwrap(), Some(DynScalar::F64(1.5)));
-        assert_eq!(arr(vec![3i16, -7, 5], &[3]).min().unwrap(), Some(DynScalar::I16(-7)));
-        assert_eq!(arr(vec![0.5f32, f32::NAN, 2.0], &[3]).max().unwrap(), Some(DynScalar::F32(2.0)));
+        assert_eq!(
+            arr(vec![1i32, 2], &[2]).mean().unwrap(),
+            Some(DynScalar::F64(1.5))
+        );
+        assert_eq!(
+            arr(vec![3i16, -7, 5], &[3]).min().unwrap(),
+            Some(DynScalar::I16(-7))
+        );
+        assert_eq!(
+            arr(vec![0.5f32, f32::NAN, 2.0], &[3]).max().unwrap(),
+            Some(DynScalar::F32(2.0))
+        );
         // casts: checked, saturating, wrapping
         let v = arr(vec![300i32, -1, 7], &[3]);
-        assert_eq!(v.cast_with(DType::U8, CastMode::Checked).err(), Some(DynError::Inexact { from: DType::I32, to: DType::U8 }));
-        assert_eq!(v.cast_with(DType::U8, CastMode::Saturating).unwrap().as_array::<u8>().unwrap().as_slice(), [255, 0, 7]);
-        assert_eq!(v.cast_with(DType::U8, CastMode::Wrapping).unwrap().as_array::<u8>().unwrap().as_slice(), [44, 255, 7]);
+        assert_eq!(
+            v.cast_with(DType::U8, CastMode::Checked).err(),
+            Some(DynError::Inexact {
+                from: DType::I32,
+                to: DType::U8
+            })
+        );
+        assert_eq!(
+            v.cast_with(DType::U8, CastMode::Saturating)
+                .unwrap()
+                .as_array::<u8>()
+                .unwrap()
+                .as_slice(),
+            [255, 0, 7]
+        );
+        assert_eq!(
+            v.cast_with(DType::U8, CastMode::Wrapping)
+                .unwrap()
+                .as_array::<u8>()
+                .unwrap()
+                .as_slice(),
+            [44, 255, 7]
+        );
         // 64-bit integers cast exactly (no detour through f64)
         let big = arr(vec![i64::MAX - 1], &[1]);
-        assert_eq!(big.cast_with(DType::U64, CastMode::Checked).unwrap().as_array::<u64>().unwrap().as_slice(), [(i64::MAX - 1) as u64]);
+        assert_eq!(
+            big.cast_with(DType::U64, CastMode::Checked)
+                .unwrap()
+                .as_array::<u64>()
+                .unwrap()
+                .as_slice(),
+            [(i64::MAX - 1) as u64]
+        );
     }
 
     impl DynArray {

@@ -61,7 +61,11 @@ impl<T: Float> LookaheadLimiter<T> {
     /// With a lookahead time (at least one sample): longer gives gentler attacks and more latency.
     pub fn with_lookahead(channels: usize, seconds: T, sample_rate: T) -> Self {
         assert!(channels > 0, "a limiter needs at least one channel");
-        let lookahead = (seconds * sample_rate)._round().to_f64().unwrap_or(1.0).max(1.0) as usize;
+        let lookahead = (seconds * sample_rate)
+            ._round()
+            .to_f64()
+            .unwrap_or(1.0)
+            .max(1.0) as usize;
         let detector = TruePeak::new(sample_rate);
         let detect_delay = detector.latency();
         let mut limiter = Self {
@@ -112,7 +116,11 @@ impl<T: Float> LookaheadLimiter<T> {
     /// Time constant of the gain's recovery after a peak.
     pub fn set_release(&mut self, seconds: T) {
         self.release_seconds = seconds._max(T::_ZERO);
-        self.release_coeff = if self.release_seconds > T::_ZERO { (-T::_ONE / (self.release_seconds * self.sample_rate))._exp() } else { T::_ZERO };
+        self.release_coeff = if self.release_seconds > T::_ZERO {
+            (-T::_ONE / (self.release_seconds * self.sample_rate))._exp()
+        } else {
+            T::_ZERO
+        };
     }
     /// Release time in seconds.
     pub fn release(&self) -> T {
@@ -147,10 +155,16 @@ impl<T: Float> LookaheadLimiter<T> {
     #[inline]
     fn next_gain(&mut self, required: T) -> T {
         // release: drop at once, recover exponentially
-        self.held = if required < self.held { required } else { required + (self.held - required) * self.release_coeff };
+        self.held = if required < self.held {
+            required
+        } else {
+            required + (self.held - required) * self.release_coeff
+        };
         // sliding minimum over the last lookahead + 1 frames
         let cap = self.min_gain.len();
-        while self.min_len > 0 && self.min_gain[(self.min_head + self.min_len - 1) % cap] >= self.held {
+        while self.min_len > 0
+            && self.min_gain[(self.min_head + self.min_len - 1) % cap] >= self.held
+        {
             self.min_len -= 1;
         }
         let tail = (self.min_head + self.min_len) % cap;
@@ -186,12 +200,18 @@ impl<T: Float> LookaheadLimiter<T> {
             ring[self.write] = x;
             let at = |back: usize| ring[(self.write + len - back) % len];
             // the samples at the detection point (and the next), plus the points between them
-            peak = peak._max(at(back_detect)._abs())._max(at(back_detect.saturating_sub(1))._abs());
+            peak = peak
+                ._max(at(back_detect)._abs())
+                ._max(at(back_detect.saturating_sub(1))._abs());
             if self.true_peak {
                 peak = peak._max(self.detectors[c].interpolated_peak(x));
             }
         }
-        let required = if peak > self.ceiling { self.ceiling / peak } else { T::_ONE };
+        let required = if peak > self.ceiling {
+            self.ceiling / peak
+        } else {
+            T::_ONE
+        };
         let gain = self.next_gain(required);
         let ceiling = self.ceiling;
         for (f, ring) in self.frame.iter_mut().zip(&self.delays) {
@@ -202,7 +222,11 @@ impl<T: Float> LookaheadLimiter<T> {
 
     /// Limits every channel of `buffer` (linked). Panics if the channel count differs.
     pub fn process_buffer(&mut self, buffer: &mut AudioBuffer<T>) {
-        assert_eq!(buffer.channels(), self.channels(), "the buffer's channel count must match the limiter's");
+        assert_eq!(
+            buffer.channels(),
+            self.channels(),
+            "the buffer's channel count must match the limiter's"
+        );
         for i in 0..buffer.frames() {
             for c in 0..self.channels() {
                 self.frame[c] = buffer.channel(c)[i];
@@ -215,7 +239,11 @@ impl<T: Float> LookaheadLimiter<T> {
     }
     /// Limits a single channel. Panics unless the limiter has one channel.
     pub fn process_mono(&mut self, block: &mut [T]) {
-        assert_eq!(self.channels(), 1, "process_mono needs a one-channel limiter");
+        assert_eq!(
+            self.channels(),
+            1,
+            "process_mono needs a one-channel limiter"
+        );
         for s in block {
             self.frame[0] = *s;
             self.process_frame();
@@ -282,7 +310,11 @@ mod tests {
         let out = run_mono(&mut limiter, &input);
         let latency = limiter.latency();
         let peak_out = 4_800 + latency;
-        assert!((out[peak_out] - db_to_gain(-6.0)).abs() < 1e-9, "the peak lands exactly on the ceiling: {}", out[peak_out]);
+        assert!(
+            (out[peak_out] - db_to_gain(-6.0)).abs() < 1e-9,
+            "the peak lands exactly on the ceiling: {}",
+            out[peak_out]
+        );
         // a linear ramp over the lookahead before it (one sample longer: the detector also covers
         // the neighbouring sample), untouched before that
         let gain = |i: usize| out[i] / 0.1;
@@ -290,7 +322,10 @@ mod tests {
         assert!(gain(peak_out - 241) < 1.0);
         let target = db_to_gain(-6.0);
         let mid = gain(peak_out - 120);
-        assert!((mid - (1.0 + target) / 2.0).abs() < 0.01, "halfway down the ramp: {mid}");
+        assert!(
+            (mid - (1.0 + target) / 2.0).abs() < 0.01,
+            "halfway down the ramp: {mid}"
+        );
         // recovers: 100 ms later about 63% of the way back
         let later = gain(peak_out + 4_800);
         let expected = 1.0 - (1.0 - target) * (-1.0f64).exp();
@@ -300,7 +335,9 @@ mod tests {
     #[test]
     fn true_peak_mode_catches_inter_sample_overs() {
         // a quarter-rate sine 45 degrees off its peaks: samples at 0.707, the wave at 1.0
-        let input: Vec<f64> = (0..9_600).map(|n| (std::f64::consts::FRAC_PI_2 * n as f64 + std::f64::consts::FRAC_PI_4).sin()).collect();
+        let input: Vec<f64> = (0..9_600)
+            .map(|n| (std::f64::consts::FRAC_PI_2 * n as f64 + std::f64::consts::FRAC_PI_4).sin())
+            .collect();
         let true_peak_of = |x: &[f64]| {
             let mut tp = TruePeak::new(FS);
             tp.push(&x[2_000..]);
@@ -312,7 +349,10 @@ mod tests {
             limiter.set_true_peak(true_peak);
             let out = run_mono(&mut limiter, &input);
             let tp = true_peak_of(&out) + 3.0;
-            assert!((tp - expected_db).abs() < 0.3, "true peak {true_peak}: {tp} dB over the ceiling");
+            assert!(
+                (tp - expected_db).abs() < 0.3,
+                "true peak {true_peak}: {tp} dB over the ceiling"
+            );
         }
     }
 
@@ -326,7 +366,10 @@ mod tests {
         buffer.channel_mut(1).iter_mut().for_each(|s| *s = 0.1);
         limiter.process_buffer(&mut buffer);
         let (l, r) = (buffer.channel(0)[4_000], buffer.channel(1)[4_000]);
-        assert!((l / r - 10.0).abs() < 1e-9, "the balance is kept: {l} / {r}");
+        assert!(
+            (l / r - 10.0).abs() < 1e-9,
+            "the balance is kept: {l} / {r}"
+        );
         assert!((limiter.gain_reduction_db() - 6.0).abs() < 0.01);
     }
 }

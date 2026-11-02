@@ -8,9 +8,9 @@
 //! recursions of different lanes (and of a cascade's sections) overlap instead of each waiting on
 //! its own previous output.
 
+use super::FilterError;
 use crate::alloc_prelude::*;
 use crate::signal::{extended, lanes_f64, Edge, NdArray, NdView};
-use super::FilterError;
 use crate::units::*;
 
 /// Lanes filtered together.
@@ -22,7 +22,9 @@ fn invalid(m: impl Into<String>) -> FilterError {
 
 /// `b` and `a` divided by `a[0]` and padded to the same length.
 fn normalized(b: &[f64], a: &[f64]) -> Result<(Vec<f64>, Vec<f64>), FilterError> {
-    let a0 = *a.first().ok_or_else(|| invalid("the denominator is empty"))?;
+    let a0 = *a
+        .first()
+        .ok_or_else(|| invalid("the denominator is empty"))?;
     if a0 == 0.0 {
         return Err(invalid("a[0] must not be zero"));
     }
@@ -30,7 +32,12 @@ fn normalized(b: &[f64], a: &[f64]) -> Result<(Vec<f64>, Vec<f64>), FilterError>
         return Err(invalid("the numerator is empty"));
     }
     let n = a.len().max(b.len());
-    let pad = |c: &[f64]| c.iter().map(|x| x / a0).chain(core::iter::repeat_n(0.0, n - c.len())).collect::<Vec<f64>>();
+    let pad = |c: &[f64]| {
+        c.iter()
+            .map(|x| x / a0)
+            .chain(core::iter::repeat_n(0.0, n - c.len()))
+            .collect::<Vec<f64>>()
+    };
     Ok((pad(b), pad(a)))
 }
 
@@ -50,12 +57,23 @@ fn df2t(b: &[f64], a: &[f64], x: &[f64], z: &mut [[f64; LANES]], y: &mut [f64]) 
     df2t_dynamic(b, a, x, z, y)
 }
 
-fn df2t_fixed<const N: usize>(b: &[f64], a: &[f64], x: &[f64], zs: &mut [[f64; LANES]], y: &mut [f64]) {
+fn df2t_fixed<const N: usize>(
+    b: &[f64],
+    a: &[f64],
+    x: &[f64],
+    zs: &mut [[f64; LANES]],
+    y: &mut [f64],
+) {
     let bf: [f64; N] = core::array::from_fn(|j| b[j + 1]);
     let af: [f64; N] = core::array::from_fn(|j| a[j + 1]);
     let b0 = b[0];
     let mut z: [[f64; LANES]; N] = core::array::from_fn(|j| zs[j]);
-    for (xi, yi) in x.as_chunks::<LANES>().0.iter().zip(y.as_chunks_mut::<LANES>().0.iter_mut()) {
+    for (xi, yi) in x
+        .as_chunks::<LANES>()
+        .0
+        .iter()
+        .zip(y.as_chunks_mut::<LANES>().0.iter_mut())
+    {
         let xi: [f64; LANES] = core::array::from_fn(|k| xi[k]);
         let out: [f64; LANES] = core::array::from_fn(|k| b0 * xi[k] + z[0][k]);
         for j in 0..N {
@@ -69,7 +87,12 @@ fn df2t_fixed<const N: usize>(b: &[f64], a: &[f64], x: &[f64], zs: &mut [[f64; L
 
 fn df2t_dynamic(b: &[f64], a: &[f64], x: &[f64], z: &mut [[f64; LANES]], y: &mut [f64]) {
     let order = z.len();
-    for (xi, yi) in x.as_chunks::<LANES>().0.iter().zip(y.as_chunks_mut::<LANES>().0.iter_mut()) {
+    for (xi, yi) in x
+        .as_chunks::<LANES>()
+        .0
+        .iter()
+        .zip(y.as_chunks_mut::<LANES>().0.iter_mut())
+    {
         let mut out = [0.0; LANES];
         for k in 0..LANES {
             out[k] = b[0] * xi[k] + if order > 0 { z[0][k] } else { 0.0 };
@@ -93,7 +116,13 @@ fn df2t_dynamic(b: &[f64], a: &[f64], x: &[f64], z: &mut [[f64; LANES]], y: &mut
 
 /// Normalized section coefficients `(b0, b1, b2, a1, a2)`.
 fn section(s: &[f64; 6]) -> [f64; 5] {
-    [s[0] / s[3], s[1] / s[3], s[2] / s[3], s[4] / s[3], s[5] / s[3]]
+    [
+        s[0] / s[3],
+        s[1] / s[3],
+        s[2] / s[3],
+        s[4] / s[3],
+        s[5] / s[3],
+    ]
 }
 
 /// Cascaded sections over interleaved lanes, in place, sample by sample (so the sections pipeline),
@@ -117,7 +146,9 @@ fn cascade(sections: &[[f64; 5]], x: &mut [f64], z: &mut [[[f64; LANES]; 2]]) {
 
 fn check_axis(shape: &[usize], axis: usize) -> Result<(), FilterError> {
     if axis >= shape.len() {
-        return Err(invalid(format!("axis {axis} is out of range for shape {shape:?}")));
+        return Err(invalid(format!(
+            "axis {axis} is out of range for shape {shape:?}"
+        )));
     }
     Ok(())
 }
@@ -150,7 +181,10 @@ fn map_groups<T: Float + Default>(
     for (g, chunk) in lanes.chunks(LANES).enumerate() {
         let group: Vec<&[f64]> = chunk.iter().map(Vec::as_slice).collect();
         let y = f(g * LANES, &group);
-        for (k, d) in dst[g * LANES..g * LANES + chunk.len()].iter_mut().enumerate() {
+        for (k, d) in dst[g * LANES..g * LANES + chunk.len()]
+            .iter_mut()
+            .enumerate()
+        {
             match d.as_mut_slice() {
                 Some(s) => {
                     for (i, v) in s.iter_mut().enumerate() {
@@ -169,7 +203,12 @@ fn map_groups<T: Float + Default>(
 }
 
 /// Filters `x` along `axis` with `b(z⁻¹) / a(z⁻¹)` from rest (`scipy.signal.lfilter`).
-pub fn lfilter<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize) -> Result<NdArray<T>, FilterError> {
+pub fn lfilter<T: Float + Default>(
+    b: &[f64],
+    a: &[f64],
+    x: NdView<'_, T>,
+    axis: usize,
+) -> Result<NdArray<T>, FilterError> {
     let (b, a) = normalized(b, a)?;
     check_axis(x.shape(), axis)?;
     let n = x.shape()[axis];
@@ -184,14 +223,23 @@ pub fn lfilter<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis:
 
 /// [`lfilter`] from initial state `zi` (the shape of `x` with `axis` of length
 /// `max(len(a), len(b)) - 1`): returns the output and the final state, the same shape as `zi`.
-pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize, zi: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), FilterError> {
+pub fn lfilter_with_state<T: Float + Default>(
+    b: &[f64],
+    a: &[f64],
+    x: NdView<'_, T>,
+    axis: usize,
+    zi: NdView<'_, T>,
+) -> Result<(NdArray<T>, NdArray<T>), FilterError> {
     let (b, a) = normalized(b, a)?;
     let order = b.len() - 1;
     let mut expected = x.shape().to_vec();
     check_axis(&expected, axis)?;
     expected[axis] = order;
     if zi.shape() != expected.as_slice() {
-        return Err(invalid(format!("zi should have shape {expected:?}, got {:?}", zi.shape())));
+        return Err(invalid(format!(
+            "zi should have shape {expected:?}, got {:?}",
+            zi.shape()
+        )));
     }
     let states = lanes_f64(&zi, axis)?;
     let mut finals = states.clone();
@@ -217,7 +265,11 @@ pub fn lfilter_with_state<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_
 }
 
 /// An array of `shape` whose lanes along `axis` are `lanes`.
-fn assemble_states<T: Float + Default>(shape: &[usize], axis: usize, lanes: &[Vec<f64>]) -> Result<NdArray<T>, FilterError> {
+fn assemble_states<T: Float + Default>(
+    shape: &[usize],
+    axis: usize,
+    lanes: &[Vec<f64>],
+) -> Result<NdArray<T>, FilterError> {
     let mut out = NdArray::<T>::zeros(shape)?;
     for (mut dst, src) in out.lanes_mut(axis)?.zip(lanes) {
         for (d, &s) in dst.iter_mut().zip(src) {
@@ -238,46 +290,77 @@ pub fn lfilter_zi(b: &[f64], a: &[f64]) -> Result<Vec<f64>, FilterError> {
     // (I - companion(a)ᵀ) zi = b[1:] - a[1:] b[0]
     let m = NdArray::from_fn(&[n, n], |i| {
         let (r, c) = (i[0], i[1]);
-        let companion_t = if c == 0 { -a[r + 1] } else if r + 1 == c { 1.0 } else { 0.0 };
+        let companion_t = if c == 0 {
+            -a[r + 1]
+        } else if r + 1 == c {
+            1.0
+        } else {
+            0.0
+        };
         (if r == c { 1.0 } else { 0.0 }) - companion_t
     })
     .expect("n x n");
-    let rhs = NdArray::from_vec((0..n).map(|i| b[i + 1] - a[i + 1] * b[0]).collect(), &[n]).expect("n");
+    let rhs =
+        NdArray::from_vec((0..n).map(|i| b[i + 1] - a[i + 1] * b[0]).collect(), &[n]).expect("n");
     Ok(crate::linalg::solve(m.view(), rhs.view())?.into_vec())
 }
 
 fn check_sos(sos: &[[f64; 6]]) -> Result<Vec<[f64; 5]>, FilterError> {
     if sos.is_empty() || sos.iter().any(|s| s[3] == 0.0) {
-        return Err(invalid("sections need a0 != 0 (and there must be at least one)"));
+        return Err(invalid(
+            "sections need a0 != 0 (and there must be at least one)",
+        ));
     }
     Ok(sos.iter().map(section).collect())
 }
 
 /// Filters `x` along `axis` through second-order sections in series, from rest
 /// (`scipy.signal.sosfilt`).
-pub fn sosfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize) -> Result<NdArray<T>, FilterError> {
+pub fn sosfilt<T: Float + Default>(
+    sos: &[[f64; 6]],
+    x: NdView<'_, T>,
+    axis: usize,
+) -> Result<NdArray<T>, FilterError> {
     let sections = check_sos(sos)?;
     check_axis(x.shape(), axis)?;
     let n = x.shape()[axis];
     map_groups(x, axis, n, |_, group| {
         let mut data = interleave(group, n);
-        cascade(&sections, &mut data, &mut vec![[[0.0; LANES]; 2]; sections.len()]);
+        cascade(
+            &sections,
+            &mut data,
+            &mut vec![[[0.0; LANES]; 2]; sections.len()],
+        );
         data
     })
 }
 
 /// [`sosfilt`] from initial state `zi`, shape `[sections, ...x's shape with axis of length 2]`:
 /// returns the output and the final state.
-pub fn sosfilt_with_state<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize, zi: NdView<'_, T>) -> Result<(NdArray<T>, NdArray<T>), FilterError> {
+pub fn sosfilt_with_state<T: Float + Default>(
+    sos: &[[f64; 6]],
+    x: NdView<'_, T>,
+    axis: usize,
+    zi: NdView<'_, T>,
+) -> Result<(NdArray<T>, NdArray<T>), FilterError> {
     let sections = check_sos(sos)?;
     check_axis(x.shape(), axis)?;
     let mut expected = vec![sos.len()];
     expected.extend_from_slice(x.shape());
     expected[axis + 1] = 2;
     if zi.shape() != expected.as_slice() {
-        return Err(invalid(format!("zi should have shape {expected:?}, got {:?}", zi.shape())));
+        return Err(invalid(format!(
+            "zi should have shape {expected:?}, got {:?}",
+            zi.shape()
+        )));
     }
-    let per_section: usize = x.shape().iter().enumerate().filter(|&(i, _)| i != axis).map(|(_, &n)| n).product();
+    let per_section: usize = x
+        .shape()
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| i != axis)
+        .map(|(_, &n)| n)
+        .product();
     // zi lanes along axis + 1, section-major
     let states = lanes_f64(&zi, axis + 1)?;
     let mut finals = states.clone();
@@ -311,7 +394,10 @@ pub fn sosfilt_zi(sos: &[[f64; 6]]) -> Result<Vec<[f64; 2]>, FilterError> {
     let mut out = Vec::with_capacity(sos.len());
     for s in sos {
         let zi = lfilter_zi(&s[..3], &s[3..])?;
-        out.push([scale * zi.first().copied().unwrap_or(0.0), scale * zi.get(1).copied().unwrap_or(0.0)]);
+        out.push([
+            scale * zi.first().copied().unwrap_or(0.0),
+            scale * zi.get(1).copied().unwrap_or(0.0),
+        ]);
         scale *= s[..3].iter().sum::<f64>() / s[3..].iter().sum::<f64>();
     }
     Ok(out)
@@ -337,7 +423,9 @@ fn pad_len(pad: Pad, default: usize, len: usize) -> Result<usize, FilterError> {
         Pad::None => 0,
     };
     if n > 0 && n >= len {
-        return Err(invalid(format!("the signal (length {len}) must be longer than the padding ({n})")));
+        return Err(invalid(format!(
+            "the signal (length {len}) must be longer than the padding ({n})"
+        )));
     }
     Ok(n)
 }
@@ -355,11 +443,14 @@ fn reverse_samples(x: &mut [f64]) {
 /// The group's lanes extended at both ends, interleaved.
 fn extended_group(group: &[&[f64]], edge: usize, pad: Pad) -> (Vec<f64>, usize) {
     let ext_edge = match pad {
-            Pad::Odd(_) => Edge::Odd,
-            Pad::Even(_) => Edge::Even,
-            _ => Edge::Constant,
-        };
-        let ext: Vec<Vec<f64>> = group.iter().map(|lane| extended(lane, edge, ext_edge)).collect();
+        Pad::Odd(_) => Edge::Odd,
+        Pad::Even(_) => Edge::Even,
+        _ => Edge::Constant,
+    };
+    let ext: Vec<Vec<f64>> = group
+        .iter()
+        .map(|lane| extended(lane, edge, ext_edge))
+        .collect();
     let len = ext[0].len();
     let refs: Vec<&[f64]> = ext.iter().map(Vec::as_slice).collect();
     (interleave(&refs, len), len)
@@ -368,7 +459,13 @@ fn extended_group(group: &[&[f64]], edge: usize, pad: Pad) -> (Vec<f64>, usize) 
 /// Zero-phase filtering (`scipy.signal.filtfilt`, `method="pad"`): forward, then backward, each pass
 /// starting from the steady state of the padded end, so the result has no phase shift and the
 /// magnitude response squared.
-pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis: usize, pad: Pad) -> Result<NdArray<T>, FilterError> {
+pub fn filtfilt<T: Float + Default>(
+    b: &[f64],
+    a: &[f64],
+    x: NdView<'_, T>,
+    axis: usize,
+    pad: Pad,
+) -> Result<NdArray<T>, FilterError> {
     check_axis(x.shape(), axis)?;
     let (bn, an) = normalized(b, a)?;
     let n = x.shape()[axis];
@@ -376,7 +473,11 @@ pub fn filtfilt<T: Float + Default>(b: &[f64], a: &[f64], x: NdView<'_, T>, axis
     let zi = lfilter_zi(&bn, &an)?;
     map_groups(x, axis, n, |_, group| {
         let (ext, _) = extended_group(group, edge, pad);
-        let start = |data: &[f64], at: usize| -> Vec<[f64; LANES]> { zi.iter().map(|&v| core::array::from_fn(|k| v * data[at * LANES + k])).collect() };
+        let start = |data: &[f64], at: usize| -> Vec<[f64; LANES]> {
+            zi.iter()
+                .map(|&v| core::array::from_fn(|k| v * data[at * LANES + k]))
+                .collect()
+        };
         let mut y = vec![0.0; ext.len()];
         let mut z = start(&ext, 0);
         df2t(&bn, &an, &ext, &mut z, &mut y);
@@ -410,12 +511,22 @@ pub enum SavgolMode {
 /// (or `deriv`-th derivative, for samples `delta` apart) at the window's centre of the degree
 /// `polyorder` polynomial fitted by least squares to the `window_length` samples around it; `mode`
 /// handles the ends. Smooths while keeping peaks' heights and widths better than a moving average.
-pub fn savgol_filter<T: Float + Default>(x: NdView<'_, T>, window_length: usize, polyorder: usize, deriv: usize, delta: f64, axis: usize, mode: SavgolMode) -> Result<NdArray<T>, FilterError> {
+pub fn savgol_filter<T: Float + Default>(
+    x: NdView<'_, T>,
+    window_length: usize,
+    polyorder: usize,
+    deriv: usize,
+    delta: f64,
+    axis: usize,
+    mode: SavgolMode,
+) -> Result<NdArray<T>, FilterError> {
     check_axis(x.shape(), axis)?;
     let coeffs = super::design::savgol_coeffs(window_length, polyorder, deriv, delta, None)?;
     let n = x.shape()[axis];
     if mode == SavgolMode::Interp && window_length > n {
-        return Err(invalid(format!("mode Interp needs window_length ({window_length}) <= the signal length ({n})")));
+        return Err(invalid(format!(
+            "mode Interp needs window_length ({window_length}) <= the signal length ({n})"
+        )));
     }
     let w = window_length;
     let half = w / 2;
@@ -467,18 +578,34 @@ pub fn savgol_filter<T: Float + Default>(x: NdView<'_, T>, window_length: usize,
 }
 
 /// Zero-phase filtering through second-order sections (`scipy.signal.sosfiltfilt`).
-pub fn sosfiltfilt<T: Float + Default>(sos: &[[f64; 6]], x: NdView<'_, T>, axis: usize, pad: Pad) -> Result<NdArray<T>, FilterError> {
+pub fn sosfiltfilt<T: Float + Default>(
+    sos: &[[f64; 6]],
+    x: NdView<'_, T>,
+    axis: usize,
+    pad: Pad,
+) -> Result<NdArray<T>, FilterError> {
     check_axis(x.shape(), axis)?;
     let sections = check_sos(sos)?;
     let zi = sosfilt_zi(sos)?;
     // SciPy's default padding: 3 (2 sections + 1), less the trivial second orders
-    let trivial = sos.iter().filter(|s| s[2] == 0.0).count().min(sos.iter().filter(|s| s[5] == 0.0).count());
+    let trivial = sos
+        .iter()
+        .filter(|s| s[2] == 0.0)
+        .count()
+        .min(sos.iter().filter(|s| s[5] == 0.0).count());
     let n = x.shape()[axis];
     let edge = pad_len(pad, 3 * (2 * sos.len() + 1 - trivial), n)?;
     map_groups(x, axis, n, |_, group| {
         let (mut data, _) = extended_group(group, edge, pad);
         let start = |data: &[f64]| -> Vec<[[f64; LANES]; 2]> {
-            zi.iter().map(|z| [core::array::from_fn(|k| z[0] * data[k]), core::array::from_fn(|k| z[1] * data[k])]).collect()
+            zi.iter()
+                .map(|z| {
+                    [
+                        core::array::from_fn(|k| z[0] * data[k]),
+                        core::array::from_fn(|k| z[1] * data[k]),
+                    ]
+                })
+                .collect()
         };
         let mut z = start(&data);
         cascade(&sections, &mut data, &mut z);

@@ -48,15 +48,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut chain = build_dyn(&VoiceChain, dtype, SAMPLE_RATE)?;
-    println!("chain built for {} samples at {SAMPLE_RATE} Hz", chain.dtype());
+    println!(
+        "chain built for {} samples at {SAMPLE_RATE} Hz",
+        chain.dtype()
+    );
 
     for setting in args {
-        let (id, value) = setting.split_once('=').ok_or_else(|| format!("expected id=value, got {setting:?}"))?;
+        let (id, value) = setting
+            .split_once('=')
+            .ok_or_else(|| format!("expected id=value, got {setting:?}"))?;
         let applied = chain.set_param_by_id(id, value.parse()?)?;
         println!("set {id} = {applied}");
     }
 
-    println!("\n{:<18} {:<14} {:>12}   range", "stage", "parameter", "value");
+    println!(
+        "\n{:<18} {:<14} {:>12}   range",
+        "stage", "parameter", "value"
+    );
     for i in 0..chain.param_count() {
         let info = chain.param_info(i).unwrap();
         let value = chain.get_param(i).unwrap();
@@ -72,13 +80,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // One second of a loud-ish tone with noise, generated in f64 and converted to the host's dtype.
     let mut signal = vec![0.0f64; SAMPLE_RATE as usize];
-    Sine::new(220.0, SAMPLE_RATE).with_amplitude(0.8).mix(Noise::new(1).scaled(0.05)).fill(&mut signal);
+    Sine::new(220.0, SAMPLE_RATE)
+        .with_amplitude(0.8)
+        .mix(Noise::new(1).scaled(0.05))
+        .fill(&mut signal);
     let before = signal.rms_db().unwrap();
-    let mut buffer = DynArray::from_array(NdArray::from_vec(signal, &[SAMPLE_RATE as usize])?).cast(dtype)?;
+    let mut buffer =
+        DynArray::from_array(NdArray::from_vec(signal, &[SAMPLE_RATE as usize])?).cast(dtype)?;
 
     chain.process_dyn(buffer.as_block_mut()?)?;
 
-    let processed = buffer.cast(DType::F64)?.into_array::<f64>().map_err(|_| "cast produced f64")?;
+    let processed = buffer
+        .cast(DType::F64)?
+        .into_array::<f64>()
+        .map_err(|_| "cast produced f64")?;
     println!(
         "\nprocessed {} {} samples: rms {before:.1} dB -> {:.1} dB, peak {:.1} dB",
         processed.len(),
@@ -86,6 +101,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         processed.rms_db().unwrap(),
         processed.peak_db(),
     );
-    println!("preset snapshot: {:?}", chain.snapshot().iter().map(|v| (v * 1000.0).round() / 1000.0).collect::<Vec<_>>());
+    println!(
+        "preset snapshot: {:?}",
+        chain
+            .snapshot()
+            .iter()
+            .map(|v| (v * 1000.0).round() / 1000.0)
+            .collect::<Vec<_>>()
+    );
     Ok(())
 }

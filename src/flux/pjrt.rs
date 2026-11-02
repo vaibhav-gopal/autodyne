@@ -17,7 +17,9 @@ use std::ptr::null_mut;
 use std::sync::Arc;
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_resident, Backend, DeviceArray, Executable, HostArray, HostRef, Resident};
+use super::runtime::{
+    check_inputs, check_resident, Backend, DeviceArray, Executable, HostArray, HostRef, Resident,
+};
 use super::FluxError;
 use crate::signal::NdArray;
 use crate::units::DType;
@@ -106,7 +108,11 @@ impl PjrtOption {
         match text {
             "true" => PjrtOption::Bool(true),
             "false" => PjrtOption::Bool(false),
-            _ => text.parse().map(PjrtOption::Int).or_else(|_| text.parse().map(PjrtOption::Float)).unwrap_or_else(|_| PjrtOption::Str(text.to_string())),
+            _ => text
+                .parse()
+                .map(PjrtOption::Int)
+                .or_else(|_| text.parse().map(PjrtOption::Float))
+                .unwrap_or_else(|_| PjrtOption::Str(text.to_string())),
         }
     }
 }
@@ -243,18 +249,28 @@ impl Plugin {
         let mut message = ErrorMessageArgs::new();
         message.error = error;
         // SAFETY: a valid error from the plugin
-        unsafe { self.function(index::ERROR_MESSAGE)((&mut message as *mut ErrorMessageArgs).cast()) };
+        unsafe {
+            self.function(index::ERROR_MESSAGE)((&mut message as *mut ErrorMessageArgs).cast())
+        };
         let text = if message.message.is_null() {
             "unknown error".to_string()
         } else {
             // SAFETY: the plugin returns `message_size` bytes valid until the error is destroyed
-            String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(message.message.cast::<u8>(), message.message_size) }).into_owned()
+            String::from_utf8_lossy(unsafe {
+                std::slice::from_raw_parts(message.message.cast::<u8>(), message.message_size)
+            })
+            .into_owned()
         };
         let mut destroy = ErrorDestroyArgs::new();
         destroy.error = error;
         // SAFETY: destroying the error once
-        unsafe { self.function(index::ERROR_DESTROY)((&mut destroy as *mut ErrorDestroyArgs).cast()) };
-        Err(FluxError::Tool { tool: "pjrt", message: text })
+        unsafe {
+            self.function(index::ERROR_DESTROY)((&mut destroy as *mut ErrorDestroyArgs).cast())
+        };
+        Err(FluxError::Tool {
+            tool: "pjrt",
+            message: text,
+        })
     }
 
     /// Waits for `event` (if any) and destroys it.
@@ -327,14 +343,22 @@ impl Pjrt {
     /// plugin takes `preallocate` (bool; by default it reserves most of the GPU's memory),
     /// `memory_fraction` (float) and `allocator` (`"bfc"`, `"cuda_async"`, `"platform"`), for
     /// instance. Unknown names are errors.
-    pub fn load_with_options(path: &Path, options: &[(String, PjrtOption)]) -> Result<Pjrt, FluxError> {
-        let tool_error = |message: String| FluxError::Tool { tool: "pjrt", message };
+    pub fn load_with_options(
+        path: &Path,
+        options: &[(String, PjrtOption)],
+    ) -> Result<Pjrt, FluxError> {
+        let tool_error = |message: String| FluxError::Tool {
+            tool: "pjrt",
+            message,
+        };
         // SAFETY: loading a PJRT plugin runs its initializers, which is what the caller asks for
-        let library = unsafe { libloading::Library::new(path) }.map_err(|e| tool_error(format!("cannot load {}: {e}", path.display())))?;
+        let library = unsafe { libloading::Library::new(path) }
+            .map_err(|e| tool_error(format!("cannot load {}: {e}", path.display())))?;
         // SAFETY: `GetPjrtApi` has this signature in every PJRT plugin
         let api = unsafe {
-            let get: libloading::Symbol<unsafe extern "C" fn() -> *const ApiHeader> =
-                library.get(b"GetPjrtApi\0").map_err(|e| tool_error(format!("{} is not a PJRT plugin: {e}", path.display())))?;
+            let get: libloading::Symbol<unsafe extern "C" fn() -> *const ApiHeader> = library
+                .get(b"GetPjrtApi\0")
+                .map_err(|e| tool_error(format!("{} is not a PJRT plugin: {e}", path.display())))?;
             get()
         };
         if api.is_null() {
@@ -343,15 +367,27 @@ impl Pjrt {
         // SAFETY: the plugin returns a pointer to its static API table
         let header = unsafe { &*api };
         if header.version.major != 0 {
-            return Err(tool_error(format!("unsupported PJRT API version {}.{}", header.version.major, header.version.minor)));
+            return Err(tool_error(format!(
+                "unsupported PJRT API version {}.{}",
+                header.version.major, header.version.minor
+            )));
         }
         let head = std::mem::size_of::<ApiHeader>();
         if header.struct_size < head + (index::LAST + 1) * std::mem::size_of::<Fn>() {
-            return Err(tool_error(format!("PJRT API table too small ({} bytes)", header.struct_size)));
+            return Err(tool_error(format!(
+                "PJRT API table too small ({} bytes)",
+                header.struct_size
+            )));
         }
         // SAFETY: the function pointers start right after the header (checked large enough above)
         let functions = unsafe { api.cast::<u8>().add(head).cast::<Fn>() };
-        let mut plugin = Plugin { functions, client: null_mut(), device: null_mut(), platform: String::new(), _library: library };
+        let mut plugin = Plugin {
+            functions,
+            client: null_mut(),
+            device: null_mut(),
+            platform: String::new(),
+            _library: library,
+        };
 
         plugin.call(index::PLUGIN_INITIALIZE, &mut PluginInitializeArgs::new())?;
         // the option structs point into `options`, alive for the call
@@ -364,7 +400,15 @@ impl Pjrt {
                     PjrtOption::Float(f) => (3, f.to_bits() as u64, 1),
                     PjrtOption::Bool(b) => (4, *b as u64, 1),
                 };
-                NamedValue { struct_size: std::mem::size_of::<NamedValue>(), extension_start: null_mut(), name: name.as_ptr().cast(), name_size: name.len(), kind, value, value_size }
+                NamedValue {
+                    struct_size: std::mem::size_of::<NamedValue>(),
+                    extension_start: null_mut(),
+                    name: name.as_ptr().cast(),
+                    name_size: name.len(),
+                    kind,
+                    value,
+                    value_size,
+                }
             })
             .collect();
         let mut create = ClientCreateArgs::new();
@@ -386,9 +430,14 @@ impl Pjrt {
         name.client = plugin.client;
         plugin.call(index::CLIENT_PLATFORM_NAME, &mut name)?;
         // SAFETY: `platform_name_size` bytes owned by the client
-        plugin.platform = String::from_utf8_lossy(unsafe { std::slice::from_raw_parts(name.platform_name.cast::<u8>(), name.platform_name_size) }).into_owned();
+        plugin.platform = String::from_utf8_lossy(unsafe {
+            std::slice::from_raw_parts(name.platform_name.cast::<u8>(), name.platform_name_size)
+        })
+        .into_owned();
         plugin.platform = format!("{} (PJRT API 0.{})", plugin.platform, header.version.minor);
-        Ok(Pjrt { plugin: Arc::new(plugin) })
+        Ok(Pjrt {
+            plugin: Arc::new(plugin),
+        })
     }
 
     /// The platform, e.g. `cpu (PJRT API 0.116)`.
@@ -415,7 +464,11 @@ impl Backend for Pjrt {
         args.compile_options = COMPILE_OPTIONS.as_ptr().cast();
         args.compile_options_size = COMPILE_OPTIONS.len();
         self.plugin.call(index::CLIENT_COMPILE, &mut args)?;
-        Ok(Box::new(Compiled { plugin: self.plugin.clone(), executable: args.executable, program: program.clone() }))
+        Ok(Box::new(Compiled {
+            plugin: self.plugin.clone(),
+            executable: args.executable,
+            program: program.clone(),
+        }))
     }
 }
 
@@ -430,7 +483,9 @@ impl Drop for Compiled {
     fn drop(&mut self) {
         let mut args = LoadedExecutableDestroyArgs::new();
         args.executable = self.executable;
-        let _ = self.plugin.call(index::LOADED_EXECUTABLE_DESTROY, &mut args);
+        let _ = self
+            .plugin
+            .call(index::LOADED_EXECUTABLE_DESTROY, &mut args);
     }
 }
 
@@ -456,9 +511,13 @@ impl Compiled {
         match &a.data {
             Resident::Device(handle) => match handle.downcast_ref::<DeviceBuffer>() {
                 Some(b) if Arc::ptr_eq(&b.plugin, &self.plugin) => Ok(b.buffer),
-                _ => Err(FluxError::Shape("this array is held by another backend".into())),
+                _ => Err(FluxError::Shape(
+                    "this array is held by another backend".into(),
+                )),
             },
-            Resident::Host(_) => Err(FluxError::Shape("this array was not uploaded to this backend".into())),
+            Resident::Host(_) => Err(FluxError::Shape(
+                "this array was not uploaded to this backend".into(),
+            )),
         }
     }
 }
@@ -470,7 +529,10 @@ impl Executable for Compiled {
 
     fn run_host(&self, inputs: &[HostRef<'_>]) -> Result<Vec<HostArray>, FluxError> {
         check_inputs(&self.program, inputs)?;
-        let resident = inputs.iter().map(|x| self.upload_host(*x)).collect::<Result<Vec<_>, _>>()?;
+        let resident = inputs
+            .iter()
+            .map(|x| self.upload_host(*x))
+            .collect::<Result<Vec<_>, _>>()?;
         let outputs = self.run_resident(&resident.iter().collect::<Vec<_>>())?;
         outputs.iter().map(|o| self.download_host(o)).collect()
     }
@@ -490,15 +552,25 @@ impl Executable for Compiled {
         args.semantics = HOST_BUFFER_IMMUTABLE_ONLY_DURING_CALL;
         args.device = plugin.device;
         plugin.call(index::CLIENT_BUFFER_FROM_HOST_BUFFER, &mut args)?;
-        let buffer = DeviceBuffer { plugin: self.plugin.clone(), buffer: args.buffer };
+        let buffer = DeviceBuffer {
+            plugin: self.plugin.clone(),
+            buffer: args.buffer,
+        };
         plugin.await_event(args.done_with_host_buffer)?;
-        Ok(DeviceArray::device(a.shape().to_vec(), a.dtype(), Box::new(buffer)))
+        Ok(DeviceArray::device(
+            a.shape().to_vec(),
+            a.dtype(),
+            Box::new(buffer),
+        ))
     }
 
     fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
         check_resident(&self.program, inputs)?;
         let plugin = &*self.plugin;
-        let arguments = inputs.iter().map(|a| self.buffer_of(a)).collect::<Result<Vec<_>, _>>()?;
+        let arguments = inputs
+            .iter()
+            .map(|a| self.buffer_of(a))
+            .collect::<Result<Vec<_>, _>>()?;
 
         // execute on one device
         let mut outputs: Vec<*mut Buffer> = vec![null_mut(); self.program.outputs.len()];
@@ -519,7 +591,16 @@ impl Executable for Compiled {
         let outputs: Vec<DeviceArray> = outputs
             .into_iter()
             .zip(&self.program.outputs)
-            .map(|(buffer, shape)| DeviceArray::device(shape.clone(), self.program.dtype, Box::new(DeviceBuffer { plugin: self.plugin.clone(), buffer })))
+            .map(|(buffer, shape)| {
+                DeviceArray::device(
+                    shape.clone(),
+                    self.program.dtype,
+                    Box::new(DeviceBuffer {
+                        plugin: self.plugin.clone(),
+                        buffer,
+                    }),
+                )
+            })
             .collect();
         plugin.await_event(done)?;
         Ok(outputs)
@@ -532,13 +613,25 @@ impl Executable for Compiled {
         match a.dtype() {
             DType::F64 => {
                 let mut data = vec![0.0f64; shape.iter().product()];
-                self.copy_to_host(buffer, data.as_mut_ptr().cast(), std::mem::size_of_val(data.as_slice()))?;
-                NdArray::from_vec(data, shape).map(HostArray::F64).map_err(shape_error)
+                self.copy_to_host(
+                    buffer,
+                    data.as_mut_ptr().cast(),
+                    std::mem::size_of_val(data.as_slice()),
+                )?;
+                NdArray::from_vec(data, shape)
+                    .map(HostArray::F64)
+                    .map_err(shape_error)
             }
             _ => {
                 let mut data = vec![0.0f32; shape.iter().product()];
-                self.copy_to_host(buffer, data.as_mut_ptr().cast(), std::mem::size_of_val(data.as_slice()))?;
-                NdArray::from_vec(data, shape).map(HostArray::F32).map_err(shape_error)
+                self.copy_to_host(
+                    buffer,
+                    data.as_mut_ptr().cast(),
+                    std::mem::size_of_val(data.as_slice()),
+                )?;
+                NdArray::from_vec(data, shape)
+                    .map(HostArray::F32)
+                    .map_err(shape_error)
             }
         }
     }
@@ -546,7 +639,12 @@ impl Executable for Compiled {
 
 impl Compiled {
     /// Copies `buffer` into `size` bytes at `dst`, waiting until done.
-    fn copy_to_host(&self, buffer: *mut Buffer, dst: *mut c_void, size: usize) -> Result<(), FluxError> {
+    fn copy_to_host(
+        &self,
+        buffer: *mut Buffer,
+        dst: *mut c_void,
+        size: usize,
+    ) -> Result<(), FluxError> {
         let mut args = BufferToHostArgs::new();
         args.src = buffer;
         args.dst = dst;

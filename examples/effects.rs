@@ -7,7 +7,6 @@
 //! The whole chain is one tuple of processors (see `autodyne::processor`); notes are gated by the
 //! `Gain` at its front so each note fades in and out instead of clicking.
 
-use std::path::Path;
 use autodyne::delay::Echo;
 use autodyne::dynamics::Compressor;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
@@ -15,16 +14,26 @@ use autodyne::gain::Gain;
 use autodyne::osc::Sine;
 use autodyne::processor::Processor;
 use autodyne::resample::Resampler;
+use std::path::Path;
 
 const SAMPLE_RATE: u32 = 48_000;
 const OUTPUT_RATE: u32 = 44_100;
 const BLOCK_SIZE: usize = 480; // 10 ms
 
 /// (frequency Hz, length in blocks) — a short C major arpeggio, then a rest for the echoes to ring out
-const MELODY: [(f32, usize); 6] = [(261.63, 25), (329.63, 25), (392.00, 25), (523.25, 50), (0.0, 100), (0.0, 50)];
+const MELODY: [(f32, usize); 6] = [
+    (261.63, 25),
+    (329.63, 25),
+    (392.00, 25),
+    (523.25, 50),
+    (0.0, 100),
+    (0.0, 50),
+];
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = std::env::args().nth(1).unwrap_or_else(|| "target/examples-out".into());
+    let out_dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "target/examples-out".into());
     std::fs::create_dir_all(&out_dir)?;
     let fs = SAMPLE_RATE as f32;
 
@@ -76,14 +85,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         resampler.delay(),
     );
 
-    write_wav(Path::new(&out_dir).join("effects_48k.wav"), &rendered, SAMPLE_RATE)?;
-    write_wav(Path::new(&out_dir).join("effects_44k1.wav"), &converted, OUTPUT_RATE)?;
+    write_wav(
+        Path::new(&out_dir).join("effects_48k.wav"),
+        &rendered,
+        SAMPLE_RATE,
+    )?;
+    write_wav(
+        Path::new(&out_dir).join("effects_44k1.wav"),
+        &converted,
+        OUTPUT_RATE,
+    )?;
     println!("wrote effects_48k.wav and effects_44k1.wav to {out_dir}");
     Ok(())
 }
 
-fn write_wav(path: impl AsRef<Path>, samples: &[f32], sample_rate: u32) -> Result<(), hound::Error> {
-    let spec = hound::WavSpec { channels: 1, sample_rate, bits_per_sample: 32, sample_format: hound::SampleFormat::Float };
+fn write_wav(
+    path: impl AsRef<Path>,
+    samples: &[f32],
+    sample_rate: u32,
+) -> Result<(), hound::Error> {
+    let spec = hound::WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
     let mut writer = hound::WavWriter::create(path, spec)?;
     for &s in samples {
         writer.write_sample(s)?;

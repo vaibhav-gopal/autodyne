@@ -4,7 +4,10 @@
 //! quadratic regulators ([`lqr`], [`dlqr`]), and gain and phase margins ([`stability_margins`]).
 
 use super::{Domain, StateSpace, SystemError, TransferFunction, C64};
-use crate::linalg::{self, matrix_rank, polyadd, polymul, roots, solve_continuous_are, solve_continuous_lyapunov, solve_discrete_are, solve_discrete_lyapunov};
+use crate::linalg::{
+    self, matrix_rank, polyadd, polymul, roots, solve_continuous_are, solve_continuous_lyapunov,
+    solve_discrete_are, solve_discrete_lyapunov,
+};
 use crate::signal::NdArray;
 
 fn mm(a: &NdArray<f64>, b: &NdArray<f64>) -> Result<NdArray<f64>, SystemError> {
@@ -81,7 +84,9 @@ impl StateSpace {
 
     fn require_stable(&self, what: &str) -> Result<(), SystemError> {
         if !self.is_stable()? {
-            return Err(SystemError::invalid(format!("{what} needs a stable system")));
+            return Err(SystemError::invalid(format!(
+                "{what} needs a stable system"
+            )));
         }
         Ok(())
     }
@@ -92,11 +97,23 @@ impl StateSpace {
         let n = self.order();
         let m = match self.domain {
             Domain::Continuous => self.a.map(|v| -v),
-            Domain::Discrete { .. } => NdArray::from_fn(&[n, n], |i| if i[0] == i[1] { 1.0 } else { 0.0 } - self.a.as_slice()[i[0] * n + i[1]])?,
+            Domain::Discrete { .. } => NdArray::from_fn(
+                &[n, n],
+                |i| if i[0] == i[1] { 1.0 } else { 0.0 } - self.a.as_slice()[i[0] * n + i[1]],
+            )?,
         };
-        let x = linalg::solve(m.view(), self.b.view()).map_err(|_| SystemError::invalid("a pole at s = 0 (z = 1): the DC gain is infinite"))?;
+        let x = linalg::solve(m.view(), self.b.view()).map_err(|_| {
+            SystemError::invalid("a pole at s = 0 (z = 1): the DC gain is infinite")
+        })?;
         let cx = mm(&self.c, &x)?;
-        Ok(NdArray::from_vec(cx.as_slice().iter().zip(self.d.as_slice()).map(|(a, b)| a + b).collect(), self.d.shape())?)
+        Ok(NdArray::from_vec(
+            cx.as_slice()
+                .iter()
+                .zip(self.d.as_slice())
+                .map(|(a, b)| a + b)
+                .collect(),
+            self.d.shape(),
+        )?)
     }
 }
 
@@ -129,15 +146,31 @@ pub struct Lqr {
     pub poles: Vec<C64>,
 }
 
-fn closed_loop(a: &NdArray<f64>, b: &NdArray<f64>, k: &NdArray<f64>) -> Result<Vec<C64>, SystemError> {
+fn closed_loop(
+    a: &NdArray<f64>,
+    b: &NdArray<f64>,
+    k: &NdArray<f64>,
+) -> Result<Vec<C64>, SystemError> {
     let bk = mm(b, k)?;
-    let acl = NdArray::from_vec(a.as_slice().iter().zip(bk.as_slice()).map(|(x, y)| x - y).collect(), a.shape())?;
+    let acl = NdArray::from_vec(
+        a.as_slice()
+            .iter()
+            .zip(bk.as_slice())
+            .map(|(x, y)| x - y)
+            .collect(),
+        a.shape(),
+    )?;
     Ok(linalg::eigvals(acl.view())?)
 }
 
 /// The continuous-time LQR for `x' = A x + B u` (`control.lqr`): `K = R⁻¹ Bᵀ S` with `S` from
 /// [`solve_continuous_are`].
-pub fn lqr(a: &NdArray<f64>, b: &NdArray<f64>, q: &NdArray<f64>, r: &NdArray<f64>) -> Result<Lqr, SystemError> {
+pub fn lqr(
+    a: &NdArray<f64>,
+    b: &NdArray<f64>,
+    q: &NdArray<f64>,
+    r: &NdArray<f64>,
+) -> Result<Lqr, SystemError> {
     let s = solve_continuous_are(a.view(), b.view(), q.view(), r.view())?;
     let k = linalg::solve(r.view(), mm(&transposed(b), &s)?.view())?;
     let poles = closed_loop(a, b, &k)?;
@@ -146,11 +179,23 @@ pub fn lqr(a: &NdArray<f64>, b: &NdArray<f64>, q: &NdArray<f64>, r: &NdArray<f64
 
 /// The discrete-time LQR for `x[k+1] = A x[k] + B u[k]` (`control.dlqr`):
 /// `K = (R + Bᵀ S B)⁻¹ Bᵀ S A` with `S` from [`solve_discrete_are`].
-pub fn dlqr(a: &NdArray<f64>, b: &NdArray<f64>, q: &NdArray<f64>, r: &NdArray<f64>) -> Result<Lqr, SystemError> {
+pub fn dlqr(
+    a: &NdArray<f64>,
+    b: &NdArray<f64>,
+    q: &NdArray<f64>,
+    r: &NdArray<f64>,
+) -> Result<Lqr, SystemError> {
     let s = solve_discrete_are(a.view(), b.view(), q.view(), r.view())?;
     let bt = transposed(b);
     let lhs = mm(&mm(&bt, &s)?, b)?;
-    let lhs = NdArray::from_vec(lhs.as_slice().iter().zip(r.as_slice()).map(|(x, y)| x + y).collect(), r.shape())?;
+    let lhs = NdArray::from_vec(
+        lhs.as_slice()
+            .iter()
+            .zip(r.as_slice())
+            .map(|(x, y)| x + y)
+            .collect(),
+        r.shape(),
+    )?;
     let k = linalg::solve(lhs.view(), mm(&mm(&bt, &s)?, a)?.view())?;
     let poles = closed_loop(a, b, &k)?;
     Ok(Lqr { k, s, poles })
@@ -177,7 +222,7 @@ fn on_imaginary_axis(p: &[f64]) -> (Vec<f64>, Vec<f64>) {
     let (mut re, mut im) = (vec![0.0; p.len()], vec![0.0; p.len()]);
     for (i, &c) in p.iter().enumerate() {
         let k = deg - i; // the power of s
-        // (j w)^k = j^k w^k
+                         // (j w)^k = j^k w^k
         match k % 4 {
             0 => re[i] = c,
             1 => im[i] = c,
@@ -203,7 +248,9 @@ fn crossings(p: &[f64], unit_circle: bool) -> Result<Vec<f64>, SystemError> {
         .into_iter()
         .filter_map(|r| {
             if unit_circle {
-                ((r.norm() - 1.0).abs() < tol && r.im >= -tol).then(|| r.im.atan2(r.re).abs()).filter(|&w| w > 0.0)
+                ((r.norm() - 1.0).abs() < tol && r.im >= -tol)
+                    .then(|| r.im.atan2(r.re).abs())
+                    .filter(|&w| w > 0.0)
             } else {
                 (r.im.abs() < tol * (1.0 + r.re.abs()) && r.re > 0.0).then_some(r.re)
             }
@@ -220,10 +267,14 @@ fn crossings(p: &[f64], unit_circle: bool) -> Result<Vec<f64>, SystemError> {
 pub fn stability_margins(l: &TransferFunction) -> Result<Margins, SystemError> {
     let eval = |w: f64| -> C64 {
         match l.domain {
-            Domain::Continuous => crate::linalg::polyval_complex(&l.num, C64::new(0.0, w)) / crate::linalg::polyval_complex(&l.den, C64::new(0.0, w)),
+            Domain::Continuous => {
+                crate::linalg::polyval_complex(&l.num, C64::new(0.0, w))
+                    / crate::linalg::polyval_complex(&l.den, C64::new(0.0, w))
+            }
             Domain::Discrete { dt } => {
                 let z = C64::cis(w * dt);
-                crate::linalg::polyval_complex(&l.num, z) / crate::linalg::polyval_complex(&l.den, z)
+                crate::linalg::polyval_complex(&l.num, z)
+                    / crate::linalg::polyval_complex(&l.den, z)
             }
         }
     };
@@ -231,7 +282,10 @@ pub fn stability_margins(l: &TransferFunction) -> Result<Margins, SystemError> {
         Domain::Continuous => {
             let (nr, ni) = on_imaginary_axis(&l.num);
             let (dr, di) = on_imaginary_axis(&l.den);
-            let gain = sub(&polyadd(&polymul(&nr, &nr), &polymul(&ni, &ni)), &polyadd(&polymul(&dr, &dr), &polymul(&di, &di)));
+            let gain = sub(
+                &polyadd(&polymul(&nr, &nr), &polymul(&ni, &ni)),
+                &polyadd(&polymul(&dr, &dr), &polymul(&di, &di)),
+            );
             let phase = sub(&polymul(&ni, &dr), &polymul(&nr, &di));
             (gain, phase, false, 1.0)
         }
@@ -261,14 +315,23 @@ pub fn stability_margins(l: &TransferFunction) -> Result<Margins, SystemError> {
             }
             (a, fa, b, fb) = (b, fb, c, f(c));
         }
-        if fb.abs() <= f(w0).abs() { b } else { w0 }
+        if fb.abs() <= f(w0).abs() {
+            b
+        } else {
+            w0
+        }
     };
     let gain_error = |w: f64| eval(w).norm().ln();
     let phase_error = |w: f64| {
         let h = eval(w);
         h.im / h.norm()
     };
-    let mut margins = Margins { gain_margin: f64::INFINITY, phase_margin: f64::INFINITY, phase_crossover: f64::NAN, gain_crossover: f64::NAN };
+    let mut margins = Margins {
+        gain_margin: f64::INFINITY,
+        phase_margin: f64::INFINITY,
+        phase_crossover: f64::NAN,
+        gain_crossover: f64::NAN,
+    };
     for w in crossings(&phase_eq, unit)? {
         let w = polish(w * scale, &phase_error);
         let h = eval(w);

@@ -16,8 +16,8 @@ use crate::filter::design_lowpass;
 use crate::signal::{SigResizeOps, Signal, SignalResizable};
 use crate::units::*;
 
-mod params;
 mod oversample;
+mod params;
 mod poly;
 pub use oversample::*;
 pub use poly::*;
@@ -55,10 +55,16 @@ impl<T: Float> Resampler<T> {
     /// Higher `taps_per_phase` = sharper anti-aliasing filter at more CPU per sample.
     /// Panics if either rate is zero or `taps_per_phase` is zero.
     pub fn with_quality(input_rate: u32, output_rate: u32, taps_per_phase: usize) -> Self {
-        assert!(input_rate > 0 && output_rate > 0, "sample rates must be positive");
+        assert!(
+            input_rate > 0 && output_rate > 0,
+            "sample rates must be positive"
+        );
         assert!(taps_per_phase > 0, "need at least one tap per phase");
         let g = gcd(input_rate as usize, output_rate as usize) as u64;
-        let (up, down) = ((output_rate as u64 / g) as usize, (input_rate as u64 / g) as usize);
+        let (up, down) = (
+            (output_rate as u64 / g) as usize,
+            (input_rate as u64 / g) as usize,
+        );
 
         // Prototype runs at input_rate * up. Its cutoff sits below the lower of the two Nyquists,
         // and its length scales with max(up, down) so the transition band stays a fixed fraction of it.
@@ -115,7 +121,10 @@ impl<T: Float> Resampler<T> {
     /// Output count varies block to block (it averages input.len() * L / M); size `out` with
     /// `max_output_len`. Panics if `out` is too small.
     pub fn process(&mut self, input: &[T], out: &mut [T]) -> usize {
-        assert!(out.len() >= self.max_output_len(input.len()), "output buffer too small; use max_output_len");
+        assert!(
+            out.len() >= self.max_output_len(input.len()),
+            "output buffer too small; use max_output_len"
+        );
         #[cfg(target_arch = "x86_64")]
         {
             if crate::simd::avx2_available() {
@@ -142,7 +151,7 @@ impl<T: Float> Resampler<T> {
             self.buf[k - 1..k - 1 + m].copy_from_slice(chunk);
             for i in 0..m {
                 let window = &self.buf[i..i + k]; // the k inputs ending at chunk[i], oldest first
-                // Every output whose upsampled position falls in [i * L, i * L + L) needs no newer input.
+                                                  // Every output whose upsampled position falls in [i * L, i * L + L) needs no newer input.
                 while self.phase < self.up {
                     let branch = &self.poly[self.phase * k..][..k];
                     out[written] = crate::simd::dot_kernel(branch, window);
@@ -176,7 +185,11 @@ pub trait Resample: Signal {
         let mut fed = 0;
         while out.len() < wanted + delay {
             // the input, then silence to flush the filter's delay
-            let block = if fed < input.len() { &input[fed..(fed + chunk).min(input.len())] } else { &zeros[..] };
+            let block = if fed < input.len() {
+                &input[fed..(fed + chunk).min(input.len())]
+            } else {
+                &zeros[..]
+            };
             fed += block.len();
             let n = rs.process(block, &mut scratch);
             out.extend_from_slice(&scratch[..n]);
@@ -205,7 +218,9 @@ mod tests {
     /// after skipping the filter's start-up.
     fn tone_error(freq: f64, input_rate: u32, output_rate: u32) -> f64 {
         let mut rs = Resampler::<f64>::new(input_rate, output_rate);
-        let input: Vec<f64> = Sine::new(freq, input_rate as f64).take(input_rate as usize / 2).collect();
+        let input: Vec<f64> = Sine::new(freq, input_rate as f64)
+            .take(input_rate as usize / 2)
+            .collect();
         let mut out = vec![0.0; rs.max_output_len(input.len())];
         let n = rs.process(&input, &mut out);
         let delay = rs.delay();
@@ -228,7 +243,13 @@ mod tests {
 
     #[test]
     fn delay_is_a_whole_number_of_output_samples() {
-        for (from, to) in [(48_000, 44_100), (44_100, 48_000), (48_000, 96_000), (48_000, 16_000), (22_050, 48_000)] {
+        for (from, to) in [
+            (48_000, 44_100),
+            (44_100, 48_000),
+            (48_000, 96_000),
+            (48_000, 16_000),
+            (22_050, 48_000),
+        ] {
             let d = Resampler::<f64>::new(from, to).delay();
             assert_eq!(d, d.round(), "{from} -> {to}: delay {d}");
         }
@@ -236,7 +257,13 @@ mod tests {
 
     #[test]
     fn tones_survive_conversion() {
-        for (input_rate, output_rate) in [(48_000, 44_100), (44_100, 48_000), (48_000, 96_000), (48_000, 16_000), (48_000, 48_000)] {
+        for (input_rate, output_rate) in [
+            (48_000, 44_100),
+            (44_100, 48_000),
+            (48_000, 96_000),
+            (48_000, 16_000),
+            (48_000, 48_000),
+        ] {
             let err = tone_error(1_000.0, input_rate, output_rate);
             assert!(err < 2e-3, "{input_rate} -> {output_rate}: max error {err}");
         }
@@ -275,8 +302,14 @@ mod tests {
     #[test]
     fn baseline_path_matches_dispatched_path() {
         let input: Vec<f32> = Sine::new(1_000.0, 48_000.0).take(2_000).collect();
-        let (mut a, mut b) = (Resampler::new(48_000, 44_100), Resampler::new(48_000, 44_100));
-        let (mut out_a, mut out_b) = (vec![0.0; a.max_output_len(2_000)], vec![0.0; b.max_output_len(2_000)]);
+        let (mut a, mut b) = (
+            Resampler::new(48_000, 44_100),
+            Resampler::new(48_000, 44_100),
+        );
+        let (mut out_a, mut out_b) = (
+            vec![0.0; a.max_output_len(2_000)],
+            vec![0.0; b.max_output_len(2_000)],
+        );
         let n = a.process(&input, &mut out_a);
         assert_eq!(b.process_block(&input, &mut out_b), n);
         for (x, y) in out_a[..n].iter().zip(&out_b[..n]) {
@@ -298,15 +331,28 @@ mod tests {
     #[test]
     fn resampled_is_aligned_and_sized() {
         use crate::osc::Sine;
-        for (from, to) in [(48_000u32, 44_100u32), (44_100, 48_000), (48_000, 16_000), (48_000, 96_000)] {
-            let tone: Vec<f64> = Sine::new(1_000.0, from as f64).take(from as usize / 10).collect();
+        for (from, to) in [
+            (48_000u32, 44_100u32),
+            (44_100, 48_000),
+            (48_000, 16_000),
+            (48_000, 96_000),
+        ] {
+            let tone: Vec<f64> = Sine::new(1_000.0, from as f64)
+                .take(from as usize / 10)
+                .collect();
             let out = tone.resampled(from, to);
-            assert_eq!(out.len(), (tone.len() * to as usize).div_ceil(from as usize));
+            assert_eq!(
+                out.len(),
+                (tone.len() * to as usize).div_ceil(from as usize)
+            );
             // away from the edges (filter start-up and the flushed tail) it is the same sine at the new rate
             let margin = out.len() / 10;
             for (n, &y) in out.iter().enumerate().take(out.len() - margin).skip(margin) {
                 let ideal = (std::f64::consts::TAU * 1_000.0 * n as f64 / to as f64).sin();
-                assert!((y - ideal).abs() <= 2e-3, "{from} -> {to} sample {n}: {y} vs {ideal}");
+                assert!(
+                    (y - ideal).abs() <= 2e-3,
+                    "{from} -> {to} sample {n}: {y} vs {ideal}"
+                );
             }
         }
         let mut v: Vec<f64> = vec![0.5; 480];

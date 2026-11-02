@@ -67,7 +67,12 @@ impl Rng {
     /// The generator for `seed` (the same seed gives the same numbers).
     pub fn new(seed: u64) -> Self {
         let mut state = seed;
-        let s = [splitmix64(&mut state), splitmix64(&mut state), splitmix64(&mut state), splitmix64(&mut state)];
+        let s = [
+            splitmix64(&mut state),
+            splitmix64(&mut state),
+            splitmix64(&mut state),
+            splitmix64(&mut state),
+        ];
         // splitmix64 never yields four zeros in a row, the one state xoshiro can't leave
         Self { s }
     }
@@ -78,7 +83,11 @@ impl Rng {
     pub fn from_entropy() -> Self {
         use core::hash::{BuildHasher, Hasher};
         let mut h = std::collections::hash_map::RandomState::new().build_hasher();
-        h.write_u128(std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos()));
+        h.write_u128(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos()),
+        );
         Self::new(h.finish())
     }
 
@@ -100,7 +109,12 @@ impl Rng {
     /// Advances the generator by 2^128 draws: from one seed, `jump`ed copies give 2^128
     /// non-overlapping streams (for parallel work).
     pub fn jump(&mut self) {
-        const JUMP: [u64; 4] = [0x180E_C6D3_3CFD_0ABA, 0xD5A6_1266_F0C9_392C, 0xA958_2618_E03F_C9AA, 0x39AB_DC45_29B1_661C];
+        const JUMP: [u64; 4] = [
+            0x180E_C6D3_3CFD_0ABA,
+            0xD5A6_1266_F0C9_392C,
+            0xA958_2618_E03F_C9AA,
+            0x39AB_DC45_29B1_661C,
+        ];
         let mut acc = [0u64; 4];
         for word in JUMP {
             for bit in 0..64 {
@@ -409,7 +423,11 @@ impl Rng {
     }
 
     /// An array of `shape` filled with values of `dist` (row-major order).
-    pub fn array<T: Copy + Default, D: Distribution<T>>(&mut self, dist: &D, shape: &[usize]) -> Result<NdArray<T>, RandomError> {
+    pub fn array<T: Copy + Default, D: Distribution<T>>(
+        &mut self,
+        dist: &D,
+        shape: &[usize],
+    ) -> Result<NdArray<T>, RandomError> {
         let mut out = NdArray::<T>::zeros(shape)?;
         self.fill(dist, out.as_mut_slice());
         Ok(out)
@@ -468,12 +486,28 @@ fn ziggurat(pdf: fn(f64) -> f64, inv: impl Fn(f64) -> f64, r: f64, v: f64, bits:
 
 fn ziggurat_normal() -> &'static Ziggurat {
     static Z: Lazy<Ziggurat> = Lazy::new();
-    Z.get_or_init(|| ziggurat(|x| (-0.5 * x * x).exp(), |y| (-2.0 * y.ln()).sqrt(), NORMAL_R, NORMAL_V, 52))
+    Z.get_or_init(|| {
+        ziggurat(
+            |x| (-0.5 * x * x).exp(),
+            |y| (-2.0 * y.ln()).sqrt(),
+            NORMAL_R,
+            NORMAL_V,
+            52,
+        )
+    })
 }
 
 fn ziggurat_exponential() -> &'static Ziggurat {
     static Z: Lazy<Ziggurat> = Lazy::new();
-    Z.get_or_init(|| ziggurat(|x| (-x).exp(), |y| -y.ln(), EXPONENTIAL_R, EXPONENTIAL_V, 53))
+    Z.get_or_init(|| {
+        ziggurat(
+            |x| (-x).exp(),
+            |y| -y.ln(),
+            EXPONENTIAL_R,
+            EXPONENTIAL_V,
+            53,
+        )
+    })
 }
 
 // DISTRIBUTIONS ===================================================================================
@@ -491,11 +525,23 @@ pub trait Distribution<T> {
 }
 
 fn positive(name: &str, v: f64) -> Result<f64, RandomError> {
-    if v > 0.0 && v.is_finite() { Ok(v) } else { Err(RandomError::invalid(format!("{name} must be positive and finite, got {v}"))) }
+    if v > 0.0 && v.is_finite() {
+        Ok(v)
+    } else {
+        Err(RandomError::invalid(format!(
+            "{name} must be positive and finite, got {v}"
+        )))
+    }
 }
 
 fn probability(p: f64) -> Result<f64, RandomError> {
-    if (0.0..=1.0).contains(&p) { Ok(p) } else { Err(RandomError::invalid(format!("p must be in [0, 1], got {p}"))) }
+    if (0.0..=1.0).contains(&p) {
+        Ok(p)
+    } else {
+        Err(RandomError::invalid(format!(
+            "p must be in [0, 1], got {p}"
+        )))
+    }
 }
 
 macro_rules! continuous {
@@ -520,7 +566,13 @@ pub struct Uniform {
 impl Uniform {
     /// Errors unless `low <= high`, both finite.
     pub fn new(low: f64, high: f64) -> Result<Self, RandomError> {
-        if low <= high && low.is_finite() && high.is_finite() { Ok(Self { low, high }) } else { Err(RandomError::invalid(format!("uniform needs finite low <= high, got [{low}, {high})"))) }
+        if low <= high && low.is_finite() && high.is_finite() {
+            Ok(Self { low, high })
+        } else {
+            Err(RandomError::invalid(format!(
+                "uniform needs finite low <= high, got [{low}, {high})"
+            )))
+        }
     }
 }
 continuous!(Uniform, |s, rng| rng.uniform(s.low, s.high));
@@ -535,11 +587,20 @@ pub struct Normal {
 impl Normal {
     /// Errors unless `std >= 0` and both are finite.
     pub fn new(mean: f64, std: f64) -> Result<Self, RandomError> {
-        if std >= 0.0 && std.is_finite() && mean.is_finite() { Ok(Self { mean, std }) } else { Err(RandomError::invalid(format!("normal needs a finite mean and std >= 0, got {mean}, {std}"))) }
+        if std >= 0.0 && std.is_finite() && mean.is_finite() {
+            Ok(Self { mean, std })
+        } else {
+            Err(RandomError::invalid(format!(
+                "normal needs a finite mean and std >= 0, got {mean}, {std}"
+            )))
+        }
     }
     /// Mean 0, standard deviation 1.
     pub fn standard() -> Self {
-        Self { mean: 0.0, std: 1.0 }
+        Self {
+            mean: 0.0,
+            std: 1.0,
+        }
     }
 }
 impl<T: Float> Distribution<T> for Normal {
@@ -562,10 +623,14 @@ pub struct LogNormal {
 impl LogNormal {
     /// The log of the variate has this mean and standard deviation; errors as [`Normal::new`].
     pub fn new(mean: f64, sigma: f64) -> Result<Self, RandomError> {
-        Ok(Self { normal: Normal::new(mean, sigma)? })
+        Ok(Self {
+            normal: Normal::new(mean, sigma)?,
+        })
     }
 }
-continuous!(LogNormal, |s, rng| (s.normal.mean + s.normal.std * rng.standard_normal()).exp());
+continuous!(LogNormal, |s, rng| (s.normal.mean
+    + s.normal.std * rng.standard_normal())
+.exp());
 
 /// Exponential with mean `scale` (rate `1 / scale`).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -576,7 +641,9 @@ pub struct Exponential {
 impl Exponential {
     /// Errors unless `scale > 0`.
     pub fn new(scale: f64) -> Result<Self, RandomError> {
-        Ok(Self { scale: positive("scale", scale)? })
+        Ok(Self {
+            scale: positive("scale", scale)?,
+        })
     }
 }
 continuous!(Exponential, |s, rng| s.scale * rng.standard_exponential());
@@ -591,7 +658,10 @@ pub struct Gamma {
 impl Gamma {
     /// Errors unless both are positive.
     pub fn new(shape: f64, scale: f64) -> Result<Self, RandomError> {
-        Ok(Self { shape: positive("shape", shape)?, scale: positive("scale", scale)? })
+        Ok(Self {
+            shape: positive("shape", shape)?,
+            scale: positive("scale", scale)?,
+        })
     }
 }
 continuous!(Gamma, |s, rng| s.scale * rng.standard_gamma(s.shape));
@@ -606,7 +676,10 @@ pub struct Beta {
 impl Beta {
     /// Errors unless both are positive.
     pub fn new(a: f64, b: f64) -> Result<Self, RandomError> {
-        Ok(Self { a: positive("a", a)?, b: positive("b", b)? })
+        Ok(Self {
+            a: positive("a", a)?,
+            b: positive("b", b)?,
+        })
     }
 }
 continuous!(Beta, |s, rng| {
@@ -623,7 +696,9 @@ pub struct ChiSquared {
 impl ChiSquared {
     /// Errors unless `df > 0`.
     pub fn new(df: f64) -> Result<Self, RandomError> {
-        Ok(Self { df: positive("df", df)? })
+        Ok(Self {
+            df: positive("df", df)?,
+        })
     }
 }
 continuous!(ChiSquared, |s, rng| 2.0 * rng.standard_gamma(s.df / 2.0));
@@ -637,7 +712,9 @@ pub struct StudentT {
 impl StudentT {
     /// Errors unless `df > 0`.
     pub fn new(df: f64) -> Result<Self, RandomError> {
-        Ok(Self { df: positive("df", df)? })
+        Ok(Self {
+            df: positive("df", df)?,
+        })
     }
 }
 continuous!(StudentT, |s, rng| {
@@ -655,7 +732,10 @@ pub struct Laplace {
 impl Laplace {
     /// Errors unless `scale > 0`.
     pub fn new(loc: f64, scale: f64) -> Result<Self, RandomError> {
-        Ok(Self { loc, scale: positive("scale", scale)? })
+        Ok(Self {
+            loc,
+            scale: positive("scale", scale)?,
+        })
     }
 }
 continuous!(Laplace, |s, rng| {
@@ -678,7 +758,9 @@ fn ln_factorial(k: f64) -> f64 {
     }
     let (n, inv) = (k + 1.0, 1.0 / (k + 1.0));
     let inv2 = inv * inv;
-    (n - 0.5) * n.ln() - n + 0.5 * core::f64::consts::TAU.ln() + inv * (1.0 / 12.0 - inv2 * (1.0 / 360.0 - inv2 / 1260.0))
+    (n - 0.5) * n.ln() - n
+        + 0.5 * core::f64::consts::TAU.ln()
+        + inv * (1.0 / 12.0 - inv2 * (1.0 / 360.0 - inv2 / 1260.0))
 }
 
 /// Hörmann's transformed rejection with squeeze (PTRS) for Poisson means of 10 or more, its
@@ -696,11 +778,25 @@ struct Ptrs {
 impl Ptrs {
     fn new(lam: f64) -> Self {
         let b = 0.931 + 2.53 * lam.sqrt();
-        Self { lam, loglam: lam.ln(), a: -0.059 + 0.02483 * b, b, ln_inv_alpha: (1.1239 + 1.1328 / (b - 3.4)).ln(), vr: 0.9277 - 3.6224 / (b - 2.0) }
+        Self {
+            lam,
+            loglam: lam.ln(),
+            a: -0.059 + 0.02483 * b,
+            b,
+            ln_inv_alpha: (1.1239 + 1.1328 / (b - 3.4)).ln(),
+            vr: 0.9277 - 3.6224 / (b - 2.0),
+        }
     }
 
     fn sample(&self, rng: &mut Rng) -> u64 {
-        let Ptrs { lam, loglam, a, b, ln_inv_alpha, vr } = *self;
+        let Ptrs {
+            lam,
+            loglam,
+            a,
+            b,
+            ln_inv_alpha,
+            vr,
+        } = *self;
         loop {
             let u = rng.random() - 0.5;
             let v = rng.random();
@@ -712,7 +808,9 @@ impl Ptrs {
             if k < 0.0 || (us < 0.013 && v > us) {
                 continue;
             }
-            if v.ln() + ln_inv_alpha - (a / (us * us) + b).ln() <= -lam + k * loglam - ln_factorial(k) {
+            if v.ln() + ln_inv_alpha - (a / (us * us) + b).ln()
+                <= -lam + k * loglam - ln_factorial(k)
+            {
                 return k as u64;
             }
         }
@@ -738,10 +836,14 @@ impl Poisson {
     /// Errors unless `0 <= lam < 1e15` (finite).
     pub fn new(lam: f64) -> Result<Self, RandomError> {
         if !(0.0..1e15).contains(&lam) {
-            return Err(RandomError::invalid(format!("lam must be in [0, 1e15), got {lam}")));
+            return Err(RandomError::invalid(format!(
+                "lam must be in [0, 1e15), got {lam}"
+            )));
         }
         if lam >= 10.0 {
-            return Ok(Self { method: PoissonMethod::Ptrs(Ptrs::new(lam)) });
+            return Ok(Self {
+                method: PoissonMethod::Ptrs(Ptrs::new(lam)),
+            });
         }
         let mut p = (-lam).exp();
         let mut cdf = vec![p];
@@ -751,7 +853,9 @@ impl Poisson {
             p *= lam / k;
             cdf.push(cdf.last().expect("non-empty") + p);
         }
-        Ok(Self { method: PoissonMethod::Table(cdf) })
+        Ok(Self {
+            method: PoissonMethod::Table(cdf),
+        })
     }
 }
 
@@ -778,7 +882,10 @@ pub struct Binomial {
 impl Binomial {
     /// Errors unless `p` is in [0, 1].
     pub fn new(n: u64, p: f64) -> Result<Self, RandomError> {
-        Ok(Self { n, p: probability(p)? })
+        Ok(Self {
+            n,
+            p: probability(p)?,
+        })
     }
 }
 
@@ -816,7 +923,13 @@ pub struct Geometric {
 impl Geometric {
     /// Errors unless `0 < p <= 1`.
     pub fn new(p: f64) -> Result<Self, RandomError> {
-        if p > 0.0 && p <= 1.0 { Ok(Self { p }) } else { Err(RandomError::invalid(format!("p must be in (0, 1], got {p}"))) }
+        if p > 0.0 && p <= 1.0 {
+            Ok(Self { p })
+        } else {
+            Err(RandomError::invalid(format!(
+                "p must be in (0, 1], got {p}"
+            )))
+        }
     }
 }
 
@@ -826,7 +939,9 @@ impl Distribution<u64> for Geometric {
             return 1;
         }
         // inversion: ceil(ln(1 - U) / ln(1 - p))
-        ((-rng.random()).ln_1p() / (-self.p).ln_1p()).ceil().max(1.0) as u64
+        ((-rng.random()).ln_1p() / (-self.p).ln_1p())
+            .ceil()
+            .max(1.0) as u64
     }
 }
 

@@ -1,8 +1,8 @@
 //! Histograms as NumPy makes them (`numpy.histogram`, `numpy.histogram_bin_edges`): a number of
 //! equal bins, explicit edges, or a bin-width rule; the last bin includes its right edge.
 
-use crate::alloc_prelude::*;
 use super::{QuantileMethod, StatsError};
+use crate::alloc_prelude::*;
 use crate::signal::NdArray;
 use crate::units::*;
 
@@ -36,7 +36,10 @@ pub enum BinRule {
 }
 
 fn min_max(x: &[f64]) -> (f64, f64) {
-    x.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| (lo.min(v), hi.max(v)))
+    x.iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(lo, hi), &v| {
+            (lo.min(v), hi.max(v))
+        })
 }
 
 /// The bin width `rule` estimates for `x` (non-empty, finite).
@@ -68,18 +71,26 @@ fn rule_width(rule: BinRule, x: &[f64]) -> Result<f64, StatsError> {
 /// The bin edges [`histogram`] would use (`numpy.histogram_bin_edges`): over `range` (default:
 /// the data's minimum and maximum, widened by 0.5 each way when they are equal). Errors on
 /// non-finite data or range, decreasing edges, or zero bins.
-pub fn histogram_bin_edges<T: Float>(x: &[T], bins: &Bins, range: Option<(f64, f64)>) -> Result<Vec<f64>, StatsError> {
+pub fn histogram_bin_edges<T: Float>(
+    x: &[T],
+    bins: &Bins,
+    range: Option<(f64, f64)>,
+) -> Result<Vec<f64>, StatsError> {
     let data: Vec<f64> = x.iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect();
     if let Bins::Edges(e) = bins {
         if e.len() < 2 || e.windows(2).any(|w| w[0] > w[1]) {
-            return Err(StatsError::invalid("bin edges must increase monotonically, at least two of them"));
+            return Err(StatsError::invalid(
+                "bin edges must increase monotonically, at least two of them",
+            ));
         }
         return Ok(e.clone());
     }
     let (mut first, mut last) = match range {
         Some((lo, hi)) => {
             if lo > hi || !lo.is_finite() || !hi.is_finite() {
-                return Err(StatsError::invalid(format!("the range must be finite with min <= max, got ({lo}, {hi})")));
+                return Err(StatsError::invalid(format!(
+                    "the range must be finite with min <= max, got ({lo}, {hi})"
+                )));
             }
             (lo, hi)
         }
@@ -87,7 +98,9 @@ pub fn histogram_bin_edges<T: Float>(x: &[T], bins: &Bins, range: Option<(f64, f
         None => {
             let (lo, hi) = min_max(&data);
             if !lo.is_finite() || !hi.is_finite() {
-                return Err(StatsError::invalid("the data range is not finite (NaN or infinite values)"));
+                return Err(StatsError::invalid(
+                    "the data range is not finite (NaN or infinite values)",
+                ));
             }
             (lo, hi)
         }
@@ -100,29 +113,55 @@ pub fn histogram_bin_edges<T: Float>(x: &[T], bins: &Bins, range: Option<(f64, f
         Bins::Count(0) => return Err(StatsError::invalid("at least one bin is needed")),
         Bins::Count(c) => *c,
         Bins::Rule(rule) => {
-            let inside: Vec<f64> = data.iter().copied().filter(|&v| v >= first && v <= last).collect();
+            let inside: Vec<f64> = data
+                .iter()
+                .copied()
+                .filter(|&v| v >= first && v <= last)
+                .collect();
             if inside.is_empty() {
                 1
             } else {
                 let w = rule_width(*rule, &inside)?;
-                if w > 0.0 { ((last - first) / w).ceil() as usize } else { 1 }
+                if w > 0.0 {
+                    ((last - first) / w).ceil() as usize
+                } else {
+                    1
+                }
             }
         }
         Bins::Edges(_) => unreachable!("handled above"),
     };
     // numpy.linspace(first, last, count + 1)
     let step = (last - first) / count as f64;
-    Ok((0..=count).map(|i| if i == count { last } else { first + i as f64 * step }).collect())
+    Ok((0..=count)
+        .map(|i| {
+            if i == count {
+                last
+            } else {
+                first + i as f64 * step
+            }
+        })
+        .collect())
 }
 
 /// A histogram of `x` (`numpy.histogram`): `(values, edges)`, where bin `i` counts the samples in
 /// `[edges[i], edges[i + 1])` (the last bin also its right edge); samples outside the range are
 /// left out. With `weights`, each sample adds its weight instead of 1; with `density`, the values
 /// are divided by the total and the bin widths so they integrate to 1.
-pub fn histogram<T: Float>(x: &[T], bins: &Bins, range: Option<(f64, f64)>, weights: Option<&[f64]>, density: bool) -> Result<(Vec<f64>, Vec<f64>), StatsError> {
+pub fn histogram<T: Float>(
+    x: &[T],
+    bins: &Bins,
+    range: Option<(f64, f64)>,
+    weights: Option<&[f64]>,
+    density: bool,
+) -> Result<(Vec<f64>, Vec<f64>), StatsError> {
     if let Some(w) = weights {
         if w.len() != x.len() {
-            return Err(StatsError::invalid(format!("{} weights for {} samples", w.len(), x.len())));
+            return Err(StatsError::invalid(format!(
+                "{} weights for {} samples",
+                w.len(),
+                x.len()
+            )));
         }
     }
     let edges = histogram_bin_edges(x, bins, range)?;
@@ -147,7 +186,10 @@ pub fn histogram<T: Float>(x: &[T], bins: &Bins, range: Option<(f64, f64)>, weig
             b
         } else {
             // the last edge at or below v, the right edge closing the last bin
-            edges.partition_point(|&e| e <= v).saturating_sub(1).min(count - 1)
+            edges
+                .partition_point(|&e| e <= v)
+                .saturating_sub(1)
+                .min(count - 1)
         };
         hist[bin] += weights.map_or(1.0, |w| w[i]);
     }
@@ -174,7 +216,14 @@ mod tests {
         // explicit edges: the last bin includes 4; 0.5 is left out
         let (h, _) = histogram(&x, &Bins::Edges(vec![1.0, 2.0, 4.0]), None, None, false).unwrap();
         assert_eq!(h, [2.0, 5.0]);
-        let (h, _) = histogram(&x, &Bins::Count(2), Some((0.0, 4.0)), Some(&[1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]), true).unwrap();
+        let (h, _) = histogram(
+            &x,
+            &Bins::Count(2),
+            Some((0.0, 4.0)),
+            Some(&[1.0, 2.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]),
+            true,
+        )
+        .unwrap();
         assert_eq!(h, [0.375, 0.125]);
         // a constant sample: one unit-wide bin around it
         let (h, e) = histogram(&[2.0, 2.0], &Bins::Count(1), None, None, false).unwrap();

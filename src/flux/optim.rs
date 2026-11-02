@@ -49,7 +49,11 @@ pub struct Sgd {
 impl Sgd {
     /// Plain gradient descent at learning rate `lr`.
     pub fn new(lr: f64) -> Self {
-        Sgd { lr, momentum: 0.0, velocity: Vec::new() }
+        Sgd {
+            lr,
+            momentum: 0.0,
+            velocity: Vec::new(),
+        }
     }
     /// Momentum `μ`, typically 0.9.
     pub fn with_momentum(mut self, momentum: f64) -> Self {
@@ -65,7 +69,12 @@ impl Optimizer for Sgd {
             self.velocity = zeros_like(params);
         }
         for ((p, g), v) in params.iter_mut().zip(grads).zip(&mut self.velocity) {
-            for ((p, &g), v) in p.as_mut_slice().iter_mut().zip(g.as_slice()).zip(v.iter_mut()) {
+            for ((p, &g), v) in p
+                .as_mut_slice()
+                .iter_mut()
+                .zip(g.as_slice())
+                .zip(v.iter_mut())
+            {
                 *v = self.momentum * *v + wide(g);
                 *p = T::_lit(wide(*p) - self.lr * *v);
             }
@@ -93,7 +102,15 @@ pub struct Adam {
 impl Adam {
     /// Adam at learning rate `lr`, with the default betas and epsilon.
     pub fn new(lr: f64) -> Self {
-        Adam { lr, beta1: 0.9, beta2: 0.999, eps: 1e-8, t: 0, m: Vec::new(), v: Vec::new() }
+        Adam {
+            lr,
+            beta1: 0.9,
+            beta2: 0.999,
+            eps: 1e-8,
+            t: 0,
+            m: Vec::new(),
+            v: Vec::new(),
+        }
     }
     /// The moment decays β₁ and β₂.
     pub fn with_betas(mut self, beta1: f64, beta2: f64) -> Self {
@@ -114,8 +131,19 @@ impl Optimizer for Adam {
         }
         self.t += 1;
         let (c1, c2) = (1.0 - self.beta1.powi(self.t), 1.0 - self.beta2.powi(self.t));
-        for (((p, g), m), v) in params.iter_mut().zip(grads).zip(&mut self.m).zip(&mut self.v) {
-            for (((p, &g), m), v) in p.as_mut_slice().iter_mut().zip(g.as_slice()).zip(m.iter_mut()).zip(v.iter_mut()) {
+        for (((p, g), m), v) in params
+            .iter_mut()
+            .zip(grads)
+            .zip(&mut self.m)
+            .zip(&mut self.v)
+        {
+            for (((p, &g), m), v) in p
+                .as_mut_slice()
+                .iter_mut()
+                .zip(g.as_slice())
+                .zip(m.iter_mut())
+                .zip(v.iter_mut())
+            {
                 let g = wide(g);
                 *m = self.beta1 * *m + (1.0 - self.beta1) * g;
                 *v = self.beta2 * *v + (1.0 - self.beta2) * g * g;
@@ -128,11 +156,18 @@ impl Optimizer for Adam {
 /// Scales `grads` in place so their combined L2 norm is at most `max_norm`; returns the norm before
 /// clipping.
 pub fn clip_grad_norm<T: FluxFloat>(grads: &mut [NdArray<T>], max_norm: f64) -> f64 {
-    let norm = grads.iter().flat_map(|g| g.as_slice()).map(|&x| wide(x) * wide(x)).sum::<f64>().sqrt();
+    let norm = grads
+        .iter()
+        .flat_map(|g| g.as_slice())
+        .map(|&x| wide(x) * wide(x))
+        .sum::<f64>()
+        .sqrt();
     if norm > max_norm && norm > 0.0 {
         let s = max_norm / norm;
         for g in grads.iter_mut() {
-            g.as_mut_slice().iter_mut().for_each(|x| *x = T::_lit(wide(*x) * s));
+            g.as_mut_slice()
+                .iter_mut()
+                .for_each(|x| *x = T::_lit(wide(*x) * s));
         }
     }
     norm

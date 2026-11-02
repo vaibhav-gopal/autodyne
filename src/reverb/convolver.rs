@@ -2,8 +2,8 @@
 //! convolution reverb, cabinets and rooms, long FIR filters.
 
 use crate::alloc_prelude::*;
-use crate::gain::SmoothedValue;
 use crate::fft::RealFft;
+use crate::gain::SmoothedValue;
 use crate::units::*;
 
 /// Convolution with a long impulse response (convolution reverb, cabinet or room simulation, long
@@ -41,7 +41,10 @@ impl<T: Float> Convolver<T> {
     /// `block` (a power of two) trades latency for efficiency: 64-256 for live use, larger offline.
     /// Starts fully wet. Panics unless `block` is a power of two.
     pub fn new(ir: &[T], block: usize, sample_rate: T) -> Self {
-        assert!(block.is_power_of_two(), "block must be a power of two, got {block}");
+        assert!(
+            block.is_power_of_two(),
+            "block must be a power of two, got {block}"
+        );
         let n = 2 * block;
         let mut fft = RealFft::new(n);
         let bins = fft.spectrum_len();
@@ -49,7 +52,9 @@ impl<T: Float> Convolver<T> {
         let mut ir_spectra = vec![Complex::zero(); partitions * bins];
         let mut padded = vec![T::_ZERO; n];
         for (k, spectrum) in ir_spectra.chunks_exact_mut(bins).enumerate() {
-            let part = ir.get(k * block..).map_or(&[][..], |rest| &rest[..rest.len().min(block)]);
+            let part = ir
+                .get(k * block..)
+                .map_or(&[][..], |rest| &rest[..rest.len().min(block)]);
             padded.iter_mut().for_each(|s| *s = T::_ZERO);
             padded[..part.len()].copy_from_slice(part);
             fft.forward(&padded, spectrum);
@@ -86,7 +91,12 @@ impl<T: Float> Convolver<T> {
     }
     /// Clears the convolution and the dry delay.
     pub fn reset(&mut self) {
-        for buf in [&mut self.frame, &mut self.input, &mut self.wet, &mut self.dry] {
+        for buf in [
+            &mut self.frame,
+            &mut self.input,
+            &mut self.wet,
+            &mut self.dry,
+        ] {
             buf.iter_mut().for_each(|s| *s = T::_ZERO);
         }
         self.history.iter_mut().for_each(|z| *z = Complex::zero());
@@ -100,7 +110,8 @@ impl<T: Float> Convolver<T> {
         // overlap-save frame: the previous block followed by the new one
         self.frame.copy_within(b.., 0);
         self.frame[b..].copy_from_slice(&self.input);
-        self.fft.forward(&self.frame, &mut self.history[self.head * bins..][..bins]);
+        self.fft
+            .forward(&self.frame, &mut self.history[self.head * bins..][..bins]);
 
         self.acc.iter_mut().for_each(|z| *z = Complex::zero());
         for k in 0..self.partitions {
@@ -139,8 +150,8 @@ crate::processor::forward_processor!(Convolver);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal::Signal;
     use crate::osc::Noise;
+    use crate::signal::Signal;
 
     #[test]
     fn equals_direct_convolution_delayed_by_one_block() {
@@ -162,7 +173,10 @@ mod tests {
             }
             for (n, &y) in out.iter().enumerate() {
                 let expected = if n < block { 0.0 } else { reference[n - block] };
-                assert!((y - expected).abs() < 1e-9, "ir {ir_len}, block {block}, sample {n}: {y} vs {expected}");
+                assert!(
+                    (y - expected).abs() < 1e-9,
+                    "ir {ir_len}, block {block}, sample {n}: {y} vs {expected}"
+                );
             }
         }
     }

@@ -83,18 +83,36 @@ pub fn coverage(distance: f32, width: f32) -> f32 {
 /// Fills a row of RGBA8 pixels with a rounded rectangle in `color` (premultiplied, each channel
 /// 0..=1), antialiased over `aa_width` pixels, blended over what's there (premultiplied source
 /// over). Pixel `i`'s centre is at `(x + i, y)`. Picks the widest instruction set the CPU runs.
-pub fn fill_rounded_rect(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
+pub fn fill_rounded_rect(
+    dst: &mut [[u8; 4]],
+    x: f32,
+    y: f32,
+    rect: &RoundedRect,
+    color: [f32; 4],
+    aa_width: f32,
+) {
     fill_rounded_rect_at(Level::detect(), dst, x, y, rect, color, aa_width);
 }
 
 /// [`fill_rounded_rect`] compiled for `level` (for comparing them). Every level computes the same
 /// bytes. Panics if this CPU can't run `level`.
-pub fn fill_rounded_rect_at(level: Level, dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
+pub fn fill_rounded_rect_at(
+    level: Level,
+    dst: &mut [[u8; 4]],
+    x: f32,
+    y: f32,
+    rect: &RoundedRect,
+    color: [f32; 4],
+    aa_width: f32,
+) {
     match level {
         Level::Baseline => fill_row(dst, x, y, rect, color, aa_width),
         #[cfg(target_arch = "x86_64")]
         Level::Avx2 => {
-            assert!(crate::simd::avx2_fma_available(), "this CPU has no AVX2 and FMA");
+            assert!(
+                crate::simd::avx2_fma_available(),
+                "this CPU has no AVX2 and FMA"
+            );
             // SAFETY: the CPU was just checked for both features `fill_avx2` is compiled with.
             unsafe { fill_avx2(dst, x, y, rect, color, aa_width) }
         }
@@ -111,13 +129,27 @@ pub fn fill_rounded_rect_at(level: Level, dst: &mut [[u8; 4]], x: f32, y: f32, r
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,fma")]
-unsafe fn fill_avx2(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
+unsafe fn fill_avx2(
+    dst: &mut [[u8; 4]],
+    x: f32,
+    y: f32,
+    rect: &RoundedRect,
+    color: [f32; 4],
+    aa_width: f32,
+) {
     fill_row(dst, x, y, rect, color, aa_width)
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f")]
-unsafe fn fill_avx512(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
+unsafe fn fill_avx512(
+    dst: &mut [[u8; 4]],
+    x: f32,
+    y: f32,
+    rect: &RoundedRect,
+    color: [f32; 4],
+    aa_width: f32,
+) {
     fill_row(dst, x, y, rect, color, aa_width)
 }
 
@@ -131,18 +163,35 @@ unsafe fn fill_avx512(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, c
 /// without it the lanes use each target's square-root instruction where a per-pixel call would be
 /// libm's, one pixel at a time. The same arithmetic as the plain loop, so the same bytes.
 #[inline(always)]
-fn fill_row(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
+fn fill_row(
+    dst: &mut [[u8; 4]],
+    x: f32,
+    y: f32,
+    rect: &RoundedRect,
+    color: [f32; 4],
+    aa_width: f32,
+) {
     let (c, h, r) = rect.shape();
     let qy = (y - c.y).abs() - h.y + r;
     let oy = qy.max(0.0);
     let inv_width = 1.0 / aa_width;
-    let scaled = [color[0] * 255.0, color[1] * 255.0, color[2] * 255.0, color[3] * 255.0];
+    let scaled = [
+        color[0] * 255.0,
+        color[1] * 255.0,
+        color[2] * 255.0,
+        color[3] * 255.0,
+    ];
     for (b, block) in dst.chunks_mut(BLOCK).enumerate() {
         let first = b * BLOCK;
         // the rounded box's (`sdf`'s) arithmetic, its square roots for the whole block at once
         let mut qx = [0.0f32; BLOCK];
         let mut squares = F32s::<BLOCK>::splat(0.0);
-        for (j, (q, s)) in qx.iter_mut().zip(squares.0.iter_mut()).enumerate().take(block.len()) {
+        for (j, (q, s)) in qx
+            .iter_mut()
+            .zip(squares.0.iter_mut())
+            .enumerate()
+            .take(block.len())
+        {
             let px = x + ((first + j) as u32 as i32) as f32;
             *q = (px - c.x).abs() - h.x + r;
             let ox = q.max(0.0);
@@ -181,7 +230,14 @@ fn blend_pixel(p: &mut [u8; 4], d: f32, inv_width: f32, alpha: f32, scaled: [f32
 
 /// [`fill_rounded_rect`] one pixel at a time, as a plain loop writes it: the reference the lanes
 /// are tested against (byte for byte) and measured against.
-pub fn fill_rounded_rect_scalar(dst: &mut [[u8; 4]], x: f32, y: f32, rect: &RoundedRect, color: [f32; 4], aa_width: f32) {
+pub fn fill_rounded_rect_scalar(
+    dst: &mut [[u8; 4]],
+    x: f32,
+    y: f32,
+    rect: &RoundedRect,
+    color: [f32; 4],
+    aa_width: f32,
+) {
     let inv_width = 1.0 / aa_width;
     for (i, p) in dst.iter_mut().enumerate() {
         let d = rect.distance(x + i as f32, y);
@@ -198,7 +254,11 @@ mod tests {
     use super::*;
 
     fn rect() -> RoundedRect {
-        RoundedRect { min: Vec2::new(10.3, 4.0), max: Vec2::new(70.6, 40.2), radius: 9.5 }
+        RoundedRect {
+            min: Vec2::new(10.3, 4.0),
+            max: Vec2::new(70.6, 40.2),
+            radius: 9.5,
+        }
     }
 
     #[test]
@@ -223,7 +283,16 @@ mod tests {
 
     /// A background with every byte different, so blending errors show.
     fn background(n: usize) -> Vec<[u8; 4]> {
-        (0..n).map(|i| [(i * 7 % 256) as u8, (i * 13 % 256) as u8, (i * 29 % 256) as u8, 255 - (i % 200) as u8]).collect()
+        (0..n)
+            .map(|i| {
+                [
+                    (i * 7 % 256) as u8,
+                    (i * 13 % 256) as u8,
+                    (i * 29 % 256) as u8,
+                    255 - (i % 200) as u8,
+                ]
+            })
+            .collect()
     }
 
     #[test]
@@ -238,7 +307,14 @@ mod tests {
             levels.push(Level::Avx512);
         }
         // spans of every remainder, across edges and corners, rows inside and outside
-        for (len, x, y) in [(83, 0.5, 20.5), (83, 0.5, 4.5), (17, 60.5, 38.7), (5, 68.5, 40.5), (100, -3.5, 50.5), (1, 40.5, 22.5)] {
+        for (len, x, y) in [
+            (83, 0.5, 20.5),
+            (83, 0.5, 4.5),
+            (17, 60.5, 38.7),
+            (5, 68.5, 40.5),
+            (100, -3.5, 50.5),
+            (1, 40.5, 22.5),
+        ] {
             let mut want = background(len);
             fill_rounded_rect_scalar(&mut want, x, y, &r, color, 1.0);
             for &level in &levels {
@@ -252,7 +328,11 @@ mod tests {
     #[test]
     fn coverage_shapes_the_fill() {
         // opaque white over black: inside 255, outside untouched, the edge pixel half way
-        let r = RoundedRect { min: Vec2::new(2.0, 0.0), max: Vec2::new(6.0, 10.0), radius: 0.0 };
+        let r = RoundedRect {
+            min: Vec2::new(2.0, 0.0),
+            max: Vec2::new(6.0, 10.0),
+            radius: 0.0,
+        };
         let mut row = vec![[0, 0, 0, 255]; 8];
         fill_rounded_rect(&mut row, 0.5, 5.0, &r, [1.0; 4], 1.0);
         let red: Vec<u8> = row.iter().map(|p| p[0]).collect();

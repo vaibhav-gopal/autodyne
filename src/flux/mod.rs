@@ -65,12 +65,14 @@ mod scan;
 mod xla;
 
 pub use ad::{jvp, vjp};
-pub use graph::{scalar, trace, vector, Cmp, FluxFloat, Graph, Kind, Mask, Node, Op, Reduction, Tracer};
+pub use graph::{
+    scalar, trace, vector, Cmp, FluxFloat, Graph, Kind, Mask, Node, Op, Reduction, Tracer,
+};
 pub use hlo::{Emit, Program};
 pub use iree::{Iree, IreeTarget};
+pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
 pub use pjrt::{Pjrt, PjrtOption};
 pub use runtime::{Backend, DeviceArray, Executable, ExecutableExt, HostArray, HostRef};
-pub use loss::{multi_resolution_stft, stft_magnitude, Loss, StftResolution};
 pub use scan::{LossGrad, Scan, ScanVjp};
 pub use xla::Xla;
 

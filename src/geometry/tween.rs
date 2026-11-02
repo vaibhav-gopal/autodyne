@@ -48,7 +48,12 @@ pub enum Ease<T> {
 impl<T: Float> Ease<T> {
     /// CSS's `ease`: `cubic-bezier(0.25, 0.1, 0.25, 1)`.
     pub fn css_ease() -> Self {
-        Ease::CubicBezier { x1: T::_lit(0.25), y1: T::_lit(0.1), x2: T::_lit(0.25), y2: T::_ONE }
+        Ease::CubicBezier {
+            x1: T::_lit(0.25),
+            y1: T::_lit(0.1),
+            x2: T::_lit(0.25),
+            y2: T::_ONE,
+        }
     }
 
     /// The eased progress at `t` (clamped to 0..=1).
@@ -81,10 +86,18 @@ impl<T: Float> Ease<T> {
                 }
             }
             Ease::InExpo => {
-                if t == T::_ZERO { t } else { (T::_lit(10.0) * t - T::_lit(10.0))._exp2() }
+                if t == T::_ZERO {
+                    t
+                } else {
+                    (T::_lit(10.0) * t - T::_lit(10.0))._exp2()
+                }
             }
             Ease::OutExpo => {
-                if t == one { t } else { one - (T::_lit(-10.0) * t)._exp2() }
+                if t == one {
+                    t
+                } else {
+                    one - (T::_lit(-10.0) * t)._exp2()
+                }
             }
             Ease::InOutExpo => {
                 if t == T::_ZERO || t == one {
@@ -95,7 +108,13 @@ impl<T: Float> Ease<T> {
                     (two - (T::_lit(-20.0) * t + T::_lit(10.0))._exp2()) * half
                 }
             }
-            Ease::CubicBezier { x1, y1, x2, y2 } => bezier(x1._clamp(T::_ZERO, one), y1, x2._clamp(T::_ZERO, one), y2, t),
+            Ease::CubicBezier { x1, y1, x2, y2 } => bezier(
+                x1._clamp(T::_ZERO, one),
+                y1,
+                x2._clamp(T::_ZERO, one),
+                y2,
+                t,
+            ),
         }
     }
 }
@@ -172,7 +191,16 @@ impl<T: Float> Default for Tweens<T> {
 impl<T: Float> Tweens<T> {
     /// No lanes.
     pub fn new() -> Self {
-        Tweens { from: Vec::new(), to: Vec::new(), start: Vec::new(), rate: Vec::new(), ease: Vec::new(), value: Vec::new(), running: Vec::new(), finished: Vec::new() }
+        Tweens {
+            from: Vec::new(),
+            to: Vec::new(),
+            start: Vec::new(),
+            rate: Vec::new(),
+            ease: Vec::new(),
+            value: Vec::new(),
+            running: Vec::new(),
+            finished: Vec::new(),
+        }
     }
 
     /// Adds a lane from `from` to `to`, starting at time `start` and lasting `duration` seconds
@@ -191,7 +219,13 @@ impl<T: Float> Tweens<T> {
 
     /// Removes lane `i`; the last lane takes its index (as `Vec::swap_remove`).
     pub fn remove(&mut self, i: usize) {
-        for column in [&mut self.from, &mut self.to, &mut self.start, &mut self.rate, &mut self.value] {
+        for column in [
+            &mut self.from,
+            &mut self.to,
+            &mut self.start,
+            &mut self.rate,
+            &mut self.value,
+        ] {
             column.swap_remove(i);
         }
         self.ease.swap_remove(i);
@@ -210,7 +244,11 @@ impl<T: Float> Tweens<T> {
     /// A duration's reciprocal, the largest finite value for zero (or less): any time past the start
     /// is then the end.
     fn rate(duration: T) -> T {
-        if duration > T::_ZERO { (T::_ONE / duration)._min(T::_MAX) } else { T::_MAX }
+        if duration > T::_ZERO {
+            (T::_ONE / duration)._min(T::_MAX)
+        } else {
+            T::_MAX
+        }
     }
 
     /// Lanes.
@@ -231,8 +269,17 @@ impl<T: Float> Tweens<T> {
     pub fn sample(&mut self, now: T) -> usize {
         self.finished.clear();
         // zipped, not indexed: the columns' lengths are then known equal (no bounds checks)
-        let lanes = self.from.iter().zip(&self.to).zip(&self.start).zip(&self.rate).zip(&self.ease);
-        for (i, (((((&from, &to), &start), &rate), ease), (value, running))) in lanes.zip(self.value.iter_mut().zip(self.running.iter_mut())).enumerate() {
+        let lanes = self
+            .from
+            .iter()
+            .zip(&self.to)
+            .zip(&self.start)
+            .zip(&self.rate)
+            .zip(&self.ease);
+        for (i, (((((&from, &to), &start), &rate), ease), (value, running))) in lanes
+            .zip(self.value.iter_mut().zip(self.running.iter_mut()))
+            .enumerate()
+        {
             let t = (now - start) * rate;
             if *running && t >= T::_ONE {
                 *value = to;
@@ -287,11 +334,19 @@ mod tests {
             (Ease::InOutExpo, 2f64.powf(-4.0) / 2.0),
         ];
         for (e, want) in cases {
-            assert!((e.apply(t) - want).abs() < 1e-15, "{e:?}({t}) = {}, want {want}", e.apply(t));
+            assert!(
+                (e.apply(t) - want).abs() < 1e-15,
+                "{e:?}({t}) = {}, want {want}",
+                e.apply(t)
+            );
         }
         // in-out curves are point-symmetric about (0.5, 0.5)
         for e in [Ease::InOutQuad, Ease::InOutCubic, Ease::InOutExpo] {
-            assert!((e.apply(0.5f64) - 0.5).abs() < 1e-15 && (e.apply(0.8) + e.apply(0.2) - 1.0).abs() < 1e-15, "{e:?}");
+            assert!(
+                (e.apply(0.5f64) - 0.5).abs() < 1e-15
+                    && (e.apply(0.8) + e.apply(0.2) - 1.0).abs() < 1e-15,
+                "{e:?}"
+            );
         }
     }
 
@@ -299,16 +354,44 @@ mod tests {
     fn cubic_beziers_match_high_precision_references() {
         // (curve, x, y) from mpmath at 50 digits
         let ease = Ease::css_ease();
-        let back = Ease::CubicBezier { x1: 0.68, y1: -0.55, x2: 0.265, y2: 1.55 };
-        for (e, x, y) in [(ease, 0.1, 0.09479630571604325), (ease, 0.5, 0.802403387584857), (ease, 0.9, 0.9943164774845563), (back, 0.2, -0.09270169482331352), (back, 0.7, 1.0692605606108994)] {
-            assert!((e.apply(x) - y).abs() < 1e-13, "{e:?}({x}) = {}, want {y}", e.apply(x));
+        let back = Ease::CubicBezier {
+            x1: 0.68,
+            y1: -0.55,
+            x2: 0.265,
+            y2: 1.55,
+        };
+        for (e, x, y) in [
+            (ease, 0.1, 0.09479630571604325),
+            (ease, 0.5, 0.802403387584857),
+            (ease, 0.9, 0.9943164774845563),
+            (back, 0.2, -0.09270169482331352),
+            (back, 0.7, 1.0692605606108994),
+        ] {
+            assert!(
+                (e.apply(x) - y).abs() < 1e-13,
+                "{e:?}({x}) = {}, want {y}",
+                e.apply(x)
+            );
         }
         // the diagonal is the identity; a curve with flat ends (slope 0 at both) still solves
-        let diagonal = Ease::CubicBezier { x1: 0.0, y1: 0.0, x2: 1.0, y2: 1.0 };
-        let flat = Ease::CubicBezier { x1: 1.0, y1: 0.0, x2: 0.0, y2: 1.0 };
+        let diagonal = Ease::CubicBezier {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 1.0,
+            y2: 1.0,
+        };
+        let flat = Ease::CubicBezier {
+            x1: 1.0,
+            y1: 0.0,
+            x2: 0.0,
+            y2: 1.0,
+        };
         for x in [0.001, 0.25, 0.5, 0.75, 0.999] {
             assert!((diagonal.apply(x) - x).abs() < 1e-14);
-            assert!((flat.apply(x) + flat.apply(1.0 - x) - 1.0).abs() < 1e-12, "flat at {x}");
+            assert!(
+                (flat.apply(x) + flat.apply(1.0 - x) - 1.0).abs() < 1e-12,
+                "flat at {x}"
+            );
         }
         let f = Ease::<f32>::css_ease();
         assert!((f.apply(0.5) - 0.802_403_4).abs() < 1e-6);

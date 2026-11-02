@@ -1,12 +1,22 @@
 //! [`Unit`]: the arithmetic every number type shares ([`UnitOps`], [`Zero`], [`One`], [`Inv`]) and its
 //! bit-level representation ([`PhysicalRepr`]).
 
-use core::ops::{Add, Div, Mul, Rem, Sub};
-use core::fmt::Debug;
 use super::*;
+use core::fmt::Debug;
+use core::ops::{Add, Div, Mul, Rem, Sub};
 
 /// Elementary operations
-pub trait UnitOps: Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Rem<Output = Self> + PartialEq + Copy + Sized {}
+pub trait UnitOps:
+    Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + Rem<Output = Self>
+    + PartialEq
+    + Copy
+    + Sized
+{
+}
 
 /// Units are:
 /// 1. In memory (Copy, implies Sized)

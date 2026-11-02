@@ -195,12 +195,20 @@ pub fn to_dl_dtype(dtype: DType) -> Option<DLDataType> {
         DType::ComplexF64 => (DL_COMPLEX, 128),
         DType::I24 => return None,
     };
-    Some(DLDataType { code, bits, lanes: 1 })
+    Some(DLDataType {
+        code,
+        bits,
+        lanes: 1,
+    })
 }
 
 /// The `DType` of a DLPack element type.
 pub fn from_dl_dtype(t: DLDataType) -> Result<DType, DlpackError> {
-    let unsupported = DlpackError::DataType { code: t.code, bits: t.bits, lanes: t.lanes };
+    let unsupported = DlpackError::DataType {
+        code: t.code,
+        bits: t.bits,
+        lanes: t.lanes,
+    };
     if t.lanes != 1 {
         return Err(unsupported);
     }
@@ -250,7 +258,10 @@ unsafe extern "C" fn delete_legacy<S>(m: *mut DLManagedTensor) {
 
 /// The tensor header for `array` seen through `axes` (exported axis k is the array's axis
 /// `axes[k]`; `None` keeps the order).
-fn tensor_for<T: DynElement, S: Storage<Elem = T>>(array: &NdArray<T, S>, axes: Option<&[usize]>) -> (DLTensor, [i64; MAX_DIMS], [i64; MAX_DIMS]) {
+fn tensor_for<T: DynElement, S: Storage<Elem = T>>(
+    array: &NdArray<T, S>,
+    axes: Option<&[usize]>,
+) -> (DLTensor, [i64; MAX_DIMS], [i64; MAX_DIMS]) {
     let mut own_shape = [0i64; MAX_DIMS];
     let mut own_strides = [0i64; MAX_DIMS];
     let n = array.ndim();
@@ -270,7 +281,10 @@ fn tensor_for<T: DynElement, S: Storage<Elem = T>>(array: &NdArray<T, S>, axes: 
     let tensor = DLTensor {
         // set once the storage has reached its final place (see into_dlpack)
         data: core::ptr::null_mut(),
-        device: DLDevice { device_type: DL_CPU, device_id: 0 },
+        device: DLDevice {
+            device_type: DL_CPU,
+            device_id: 0,
+        },
         ndim: n as i32,
         dtype: to_dl_dtype(T::DTYPE).expect("array element types all have a DLPack type"),
         shape: core::ptr::null_mut(),
@@ -286,9 +300,24 @@ impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
     /// written in place (shared `Arc` arrays) is flagged read-only. Axis labels are not carried.
     pub fn into_dlpack(self) -> *mut DLManagedTensorVersioned {
         let (tensor, shape, strides) = tensor_for(&self, None);
-        let flags = if S::WRITABLE { 0 } else { DLPACK_FLAG_READ_ONLY };
-        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: core::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
-        let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
+        let flags = if S::WRITABLE {
+            0
+        } else {
+            DLPACK_FLAG_READ_ONLY
+        };
+        let managed = DLManagedTensorVersioned {
+            version: DLPACK_VERSION,
+            manager_ctx: core::ptr::null_mut(),
+            deleter: Some(delete_versioned::<S>),
+            flags,
+            dl_tensor: tensor,
+        };
+        let block = Box::into_raw(Box::new(Exported {
+            managed,
+            shape,
+            strides,
+            storage: self.into_storage(),
+        }));
         // SAFETY: `block` is a live allocation; point the tensor at its own shape and strides, and at
         // the elements through the storage in its final place (so the pointer stays valid and, for
         // writable storage, carries write permission)
@@ -310,11 +339,32 @@ impl<T: DynElement, S: Storage<Elem = T> + 'static> NdArray<T, S> {
     pub fn into_dlpack_permuted(self, axes: &[usize]) -> *mut DLManagedTensorVersioned {
         let n = self.ndim();
         let mut seen = [false; MAX_DIMS];
-        assert!(axes.len() == n && axes.iter().all(|&a| a < n && !core::mem::replace(&mut seen[a], true)), "axes must be a permutation");
+        assert!(
+            axes.len() == n
+                && axes
+                    .iter()
+                    .all(|&a| a < n && !core::mem::replace(&mut seen[a], true)),
+            "axes must be a permutation"
+        );
         let (tensor, shape, strides) = tensor_for(&self, Some(axes));
-        let flags = if S::WRITABLE { 0 } else { DLPACK_FLAG_READ_ONLY };
-        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: core::ptr::null_mut(), deleter: Some(delete_versioned::<S>), flags, dl_tensor: tensor };
-        let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
+        let flags = if S::WRITABLE {
+            0
+        } else {
+            DLPACK_FLAG_READ_ONLY
+        };
+        let managed = DLManagedTensorVersioned {
+            version: DLPACK_VERSION,
+            manager_ctx: core::ptr::null_mut(),
+            deleter: Some(delete_versioned::<S>),
+            flags,
+            dl_tensor: tensor,
+        };
+        let block = Box::into_raw(Box::new(Exported {
+            managed,
+            shape,
+            strides,
+            storage: self.into_storage(),
+        }));
         // SAFETY: as in `into_dlpack`
         unsafe {
             (*block).managed.dl_tensor.data = (*block).storage.as_raw_ptr().cast();
@@ -331,8 +381,17 @@ impl<T: DynElement, S: StorageMut<Elem = T> + 'static> NdArray<T, S> {
     /// flag, so only writable storage can be exported this way.
     pub fn into_dlpack_legacy(self) -> *mut DLManagedTensor {
         let (tensor, shape, strides) = tensor_for(&self, None);
-        let managed = DLManagedTensor { dl_tensor: tensor, manager_ctx: core::ptr::null_mut(), deleter: Some(delete_legacy::<S>) };
-        let block = Box::into_raw(Box::new(Exported { managed, shape, strides, storage: self.into_storage() }));
+        let managed = DLManagedTensor {
+            dl_tensor: tensor,
+            manager_ctx: core::ptr::null_mut(),
+            deleter: Some(delete_legacy::<S>),
+        };
+        let block = Box::into_raw(Box::new(Exported {
+            managed,
+            shape,
+            strides,
+            storage: self.into_storage(),
+        }));
         // SAFETY: as in `into_dlpack`
         unsafe {
             (*block).managed.dl_tensor.data = (*block).storage.as_raw_ptr().cast();
@@ -440,7 +499,15 @@ impl DlpackTensor {
 
     /// Ownership first, so an error from here on still runs the deleter (through `Drop`).
     fn owning(managed: Managed, read_only: bool) -> Self {
-        Self { managed, dtype: DType::U8, ndim: 0, shape: [0; MAX_DIMS], strides: [0; MAX_DIMS], origin: core::ptr::null_mut(), read_only }
+        Self {
+            managed,
+            dtype: DType::U8,
+            ndim: 0,
+            shape: [0; MAX_DIMS],
+            strides: [0; MAX_DIMS],
+            origin: core::ptr::null_mut(),
+            read_only,
+        }
     }
 
     /// # Safety
@@ -464,7 +531,9 @@ impl DlpackTensor {
             let mut acc = 1isize;
             for i in (0..n).rev() {
                 self.strides[i] = acc;
-                acc = acc.checked_mul(self.shape[i] as isize).ok_or(DlpackError::Layout)?;
+                acc = acc
+                    .checked_mul(self.shape[i] as isize)
+                    .ok_or(DlpackError::Layout)?;
             }
         } else {
             for i in 0..n {
@@ -542,7 +611,13 @@ impl DlpackTensor {
         // SAFETY: the producer guarantees the described elements are readable memory for as long
         // as the tensor lives; the slice covers exactly the bytes they span and borrows `self`
         let bytes = unsafe { core::slice::from_raw_parts(start, bytes) };
-        Ok(DynView::with_strides(bytes, self.dtype, self.shape(), Some(self.strides()), offset)?)
+        Ok(DynView::with_strides(
+            bytes,
+            self.dtype,
+            self.shape(),
+            Some(self.strides()),
+            offset,
+        )?)
     }
     /// A mutable runtime-typed view; errors on read-only tensors.
     pub fn view_mut(&mut self) -> Result<DynViewMut<'_>, DlpackError> {
@@ -552,7 +627,13 @@ impl DlpackTensor {
         let (start, bytes, offset) = self.span()?;
         // SAFETY: as in `view`, writable (not flagged read-only) and exclusively borrowed
         let bytes = unsafe { core::slice::from_raw_parts_mut(start, bytes) };
-        Ok(DynViewMut::with_strides(bytes, self.dtype, self.shape(), Some(self.strides()), offset)?)
+        Ok(DynViewMut::with_strides(
+            bytes,
+            self.dtype,
+            self.shape(),
+            Some(self.strides()),
+            offset,
+        )?)
     }
     /// The typed view, if the element type is `T` and the memory is aligned for it.
     pub fn typed<T: DynElement>(&self) -> Result<NdView<'_, T>, DlpackError> {
@@ -567,7 +648,11 @@ impl DlpackTensor {
             return Err(DlpackError::ReadOnly);
         }
         if T::DTYPE != self.dtype {
-            return Err(DynError::DTypeMismatch { expected: self.dtype, found: T::DTYPE }.into());
+            return Err(DynError::DTypeMismatch {
+                expected: self.dtype,
+                found: T::DTYPE,
+            }
+            .into());
         }
         let (start, bytes, offset) = self.span()?;
         if !(start as usize).is_multiple_of(align_of::<T>()) {
@@ -575,8 +660,12 @@ impl DlpackTensor {
         }
         // SAFETY: aligned (checked), sized and valid elements of type T (dtype checked) for the
         // tensor's lifetime, writable and exclusively borrowed
-        let elements = unsafe { core::slice::from_raw_parts_mut(start.cast::<T>(), bytes / size_of::<T>()) };
-        Ok(NdViewMut::from_parts(elements, self.shape(), self.strides(), offset).map_err(DynError::from)?)
+        let elements =
+            unsafe { core::slice::from_raw_parts_mut(start.cast::<T>(), bytes / size_of::<T>()) };
+        Ok(
+            NdViewMut::from_parts(elements, self.shape(), self.strides(), offset)
+                .map_err(DynError::from)?,
+        )
     }
 
     /// The tensor as an `NdArray` over its own (foreign) memory, without copying: it must be
@@ -584,7 +673,11 @@ impl DlpackTensor {
     /// released; check [`is_contiguous`](Self::is_contiguous) and friends first to keep it.
     pub fn into_array<T: DynElement>(self) -> Result<NdArray<T, ForeignBuffer<T>>, DlpackError> {
         if T::DTYPE != self.dtype {
-            return Err(DynError::DTypeMismatch { expected: self.dtype, found: T::DTYPE }.into());
+            return Err(DynError::DTypeMismatch {
+                expected: self.dtype,
+                found: T::DTYPE,
+            }
+            .into());
         }
         if self.read_only {
             return Err(DlpackError::ReadOnly);
@@ -593,13 +686,22 @@ impl DlpackTensor {
             return Err(DlpackError::NotContiguous);
         }
         let len = self.len();
-        let ptr = if len == 0 { core::ptr::NonNull::<T>::dangling().as_ptr() } else { self.origin.cast::<T>() };
+        let ptr = if len == 0 {
+            core::ptr::NonNull::<T>::dangling().as_ptr()
+        } else {
+            self.origin.cast::<T>()
+        };
         if !(ptr as usize).is_multiple_of(align_of::<T>()) {
             return Err(DynError::Unaligned(self.dtype).into());
         }
         let shape = self.shape;
         let ndim = self.ndim;
-        let buffer = ForeignBuffer { ptr, len, _tensor: self, _elem: PhantomData };
+        let buffer = ForeignBuffer {
+            ptr,
+            len,
+            _tensor: self,
+            _elem: PhantomData,
+        };
         Ok(NdArray::from_storage(buffer, &shape[..ndim]).map_err(DynError::from)?)
     }
 }
@@ -647,7 +749,10 @@ mod tests {
         assert_eq!(size_of::<DLTensor>(), 48);
         assert_eq!(size_of::<DLManagedTensor>(), 64);
         assert_eq!(size_of::<DLManagedTensorVersioned>(), 80);
-        assert_eq!(std::mem::offset_of!(DLManagedTensorVersioned, dl_tensor), 32);
+        assert_eq!(
+            std::mem::offset_of!(DLManagedTensorVersioned, dl_tensor),
+            32
+        );
     }
 
     /// Storage that counts its drops, to check the deleter runs exactly once.
@@ -681,17 +786,31 @@ mod tests {
         let array = NdArray::from_storage(Counted(data, drops.clone()), &[2, 3]).unwrap();
         let raw = array.into_dlpack();
         let tensor = unsafe { DlpackTensor::from_raw(raw) }.unwrap();
-        assert_eq!((tensor.dtype(), tensor.shape(), tensor.strides()), (DType::F32, &[2, 3][..], &[3, 1][..]));
+        assert_eq!(
+            (tensor.dtype(), tensor.shape(), tensor.strides()),
+            (DType::F32, &[2, 3][..], &[3, 1][..])
+        );
         assert!(!tensor.is_read_only() && tensor.is_contiguous());
-        assert_eq!(tensor.typed::<f32>().unwrap().transpose().to_vec(), [0.0, 3.0, 1.0, 4.0, 2.0, 5.0]);
+        assert_eq!(
+            tensor.typed::<f32>().unwrap().transpose().to_vec(),
+            [0.0, 3.0, 1.0, 4.0, 2.0, 5.0]
+        );
         assert!(tensor.typed::<f64>().is_err());
         let mut back = tensor.into_array::<f32>().unwrap();
-        assert_eq!(back.as_slice().as_ptr(), address, "the same memory, not a copy");
+        assert_eq!(
+            back.as_slice().as_ptr(),
+            address,
+            "the same memory, not a copy"
+        );
         back.as_mut_slice()[0] = 10.0;
         assert_eq!(back.view().sum(), 25.0);
         assert_eq!(drops.load(Ordering::SeqCst), 0);
         drop(back);
-        assert_eq!(drops.load(Ordering::SeqCst), 1, "the deleter freed the storage once");
+        assert_eq!(
+            drops.load(Ordering::SeqCst),
+            1,
+            "the deleter freed the storage once"
+        );
     }
 
     #[test]
@@ -699,12 +818,23 @@ mod tests {
         let a = DynArray::from_array(NdArray::from_vec(vec![1i16, -2, 3, -4], &[4]).unwrap());
         let tensor = unsafe { DlpackTensor::from_raw(a.into_dlpack()) }.unwrap();
         assert_eq!(tensor.dtype(), DType::I16);
-        assert_eq!(tensor.view().unwrap().to_array().unwrap(), DynArray::from_array(NdArray::from_vec(vec![1i16, -2, 3, -4], &[4]).unwrap()));
-        let legacy = NdArray::from_vec(vec![Complex::new(1.0f64, 2.0); 3], &[3]).unwrap().into_dlpack_legacy();
+        assert_eq!(
+            tensor.view().unwrap().to_array().unwrap(),
+            DynArray::from_array(NdArray::from_vec(vec![1i16, -2, 3, -4], &[4]).unwrap())
+        );
+        let legacy = NdArray::from_vec(vec![Complex::new(1.0f64, 2.0); 3], &[3])
+            .unwrap()
+            .into_dlpack_legacy();
         let mut tensor = unsafe { DlpackTensor::from_raw_legacy(legacy) }.unwrap();
         assert_eq!(tensor.dtype(), DType::ComplexF64);
-        tensor.typed_mut::<Complex<f64>>().unwrap().fill(Complex::new(0.0, 1.0));
-        assert_eq!(tensor.typed::<Complex<f64>>().unwrap().to_vec(), [Complex::new(0.0, 1.0); 3]);
+        tensor
+            .typed_mut::<Complex<f64>>()
+            .unwrap()
+            .fill(Complex::new(0.0, 1.0));
+        assert_eq!(
+            tensor.typed::<Complex<f64>>().unwrap().to_vec(),
+            [Complex::new(0.0, 1.0); 3]
+        );
     }
 
     #[test]
@@ -713,7 +843,10 @@ mod tests {
         let a = NdArray::from_vec(vec![0.0f64, 1.0, 2.0, 3.0, 4.0, 5.0], &[2, 3]).unwrap();
         let address = a.as_slice().as_ptr();
         let tensor = unsafe { DlpackTensor::from_raw(a.into_dlpack_permuted(&[1, 0])) }.unwrap();
-        assert_eq!((tensor.shape(), tensor.strides()), (&[3, 2][..], &[1, 3][..]));
+        assert_eq!(
+            (tensor.shape(), tensor.strides()),
+            (&[3, 2][..], &[1, 3][..])
+        );
         let view = tensor.typed::<f64>().unwrap();
         assert_eq!(view.to_vec(), [0.0, 3.0, 1.0, 4.0, 2.0, 5.0]);
         assert_eq!(view.as_ptr(), address);
@@ -721,13 +854,21 @@ mod tests {
 
     #[test]
     fn shared_arrays_export_read_only() {
-        let shared = NdArray::from_vec(vec![1.0f64, 2.0], &[2]).unwrap().into_shared();
+        let shared = NdArray::from_vec(vec![1.0f64, 2.0], &[2])
+            .unwrap()
+            .into_shared();
         let keep = shared.clone();
         let mut tensor = unsafe { DlpackTensor::from_raw(shared.into_dlpack()) }.unwrap();
         assert!(tensor.is_read_only());
         assert_eq!(tensor.view_mut().err(), Some(DlpackError::ReadOnly));
-        assert_eq!(tensor.typed::<f64>().unwrap().as_slice().unwrap().as_ptr(), keep.as_slice().as_ptr());
-        assert_eq!(tensor.into_array::<f64>().err(), Some(DlpackError::ReadOnly));
+        assert_eq!(
+            tensor.typed::<f64>().unwrap().as_slice().unwrap().as_ptr(),
+            keep.as_slice().as_ptr()
+        );
+        assert_eq!(
+            tensor.into_array::<f64>().err(),
+            Some(DlpackError::ReadOnly)
+        );
     }
 
     static FOREIGN_DELETES: AtomicUsize = AtomicUsize::new(0);
@@ -745,10 +886,38 @@ mod tests {
         drop(unsafe { Box::from_raw((*m).manager_ctx.cast::<Foreign>()) });
     }
 
-    fn foreign(shape: [i64; 2], strides: [i64; 2], byte_offset: u64, device: i32, dtype: DLDataType) -> *mut DLManagedTensorVersioned {
-        let tensor = DLTensor { data: std::ptr::null_mut(), device: DLDevice { device_type: device, device_id: 0 }, ndim: 2, dtype, shape: std::ptr::null_mut(), strides: std::ptr::null_mut(), byte_offset };
-        let managed = DLManagedTensorVersioned { version: DLPACK_VERSION, manager_ctx: std::ptr::null_mut(), deleter: Some(delete_foreign), flags: 0, dl_tensor: tensor };
-        let block = Box::into_raw(Box::new(Foreign { managed, shape, strides, data: (0..6).map(f64::from).collect() }));
+    fn foreign(
+        shape: [i64; 2],
+        strides: [i64; 2],
+        byte_offset: u64,
+        device: i32,
+        dtype: DLDataType,
+    ) -> *mut DLManagedTensorVersioned {
+        let tensor = DLTensor {
+            data: std::ptr::null_mut(),
+            device: DLDevice {
+                device_type: device,
+                device_id: 0,
+            },
+            ndim: 2,
+            dtype,
+            shape: std::ptr::null_mut(),
+            strides: std::ptr::null_mut(),
+            byte_offset,
+        };
+        let managed = DLManagedTensorVersioned {
+            version: DLPACK_VERSION,
+            manager_ctx: std::ptr::null_mut(),
+            deleter: Some(delete_foreign),
+            flags: 0,
+            dl_tensor: tensor,
+        };
+        let block = Box::into_raw(Box::new(Foreign {
+            managed,
+            shape,
+            strides,
+            data: (0..6).map(f64::from).collect(),
+        }));
         unsafe {
             (*block).managed.dl_tensor.data = (*block).data.as_mut_ptr().cast();
             (*block).managed.dl_tensor.shape = (*block).shape.as_mut_ptr();
@@ -760,24 +929,63 @@ mod tests {
 
     #[test]
     fn imports_strided_and_reversed_foreign_tensors() {
-        let f64_type = DLDataType { code: DL_FLOAT, bits: 64, lanes: 1 };
+        let f64_type = DLDataType {
+            code: DL_FLOAT,
+            bits: 64,
+            lanes: 1,
+        };
         let before = FOREIGN_DELETES.load(Ordering::SeqCst);
         // column-major [3, 2] over 0..6 (what a transposed NumPy array exports)
-        let tensor = unsafe { DlpackTensor::from_raw(foreign([3, 2], [1, 3], 0, DL_CPU, f64_type)) }.unwrap();
+        let tensor =
+            unsafe { DlpackTensor::from_raw(foreign([3, 2], [1, 3], 0, DL_CPU, f64_type)) }
+                .unwrap();
         assert!(!tensor.is_contiguous());
-        assert_eq!(tensor.typed::<f64>().unwrap().to_vec(), [0.0, 3.0, 1.0, 4.0, 2.0, 5.0]);
-        assert_eq!(tensor.into_array::<f64>().err(), Some(DlpackError::NotContiguous));
+        assert_eq!(
+            tensor.typed::<f64>().unwrap().to_vec(),
+            [0.0, 3.0, 1.0, 4.0, 2.0, 5.0]
+        );
+        assert_eq!(
+            tensor.into_array::<f64>().err(),
+            Some(DlpackError::NotContiguous)
+        );
         // rows reversed: the origin is the last row, reached through byte_offset
-        let tensor = unsafe { DlpackTensor::from_raw(foreign([2, 3], [-3, 1], 24, DL_CPU, f64_type)) }.unwrap();
-        assert_eq!(tensor.typed::<f64>().unwrap().to_vec(), [3.0, 4.0, 5.0, 0.0, 1.0, 2.0]);
+        let tensor =
+            unsafe { DlpackTensor::from_raw(foreign([2, 3], [-3, 1], 24, DL_CPU, f64_type)) }
+                .unwrap();
+        assert_eq!(
+            tensor.typed::<f64>().unwrap().to_vec(),
+            [3.0, 4.0, 5.0, 0.0, 1.0, 2.0]
+        );
         drop(tensor);
         // rejected tensors are still released
         let gpu = unsafe { DlpackTensor::from_raw(foreign([2, 3], [3, 1], 0, DL_CUDA, f64_type)) };
         assert_eq!(gpu.err(), Some(DlpackError::Device(DL_CUDA)));
-        let vector = unsafe { DlpackTensor::from_raw(foreign([2, 3], [3, 1], 0, DL_CPU, DLDataType { code: DL_FLOAT, bits: 32, lanes: 4 })) };
-        assert!(matches!(vector.err(), Some(DlpackError::DataType { lanes: 4, .. })));
-        assert_eq!(FOREIGN_DELETES.load(Ordering::SeqCst) - before, 4, "every tensor deleted exactly once");
-        assert_eq!(unsafe { DlpackTensor::from_raw(std::ptr::null_mut()) }.err(), Some(DlpackError::Null));
+        let vector = unsafe {
+            DlpackTensor::from_raw(foreign(
+                [2, 3],
+                [3, 1],
+                0,
+                DL_CPU,
+                DLDataType {
+                    code: DL_FLOAT,
+                    bits: 32,
+                    lanes: 4,
+                },
+            ))
+        };
+        assert!(matches!(
+            vector.err(),
+            Some(DlpackError::DataType { lanes: 4, .. })
+        ));
+        assert_eq!(
+            FOREIGN_DELETES.load(Ordering::SeqCst) - before,
+            4,
+            "every tensor deleted exactly once"
+        );
+        assert_eq!(
+            unsafe { DlpackTensor::from_raw(std::ptr::null_mut()) }.err(),
+            Some(DlpackError::Null)
+        );
     }
 
     #[test]
@@ -788,7 +996,17 @@ mod tests {
                 None => assert_eq!(d, DType::I24),
             }
         }
-        assert!(from_dl_dtype(DLDataType { code: DL_BOOL, bits: 8, lanes: 1 }).is_err());
-        assert!(from_dl_dtype(DLDataType { code: DL_BFLOAT, bits: 16, lanes: 1 }).is_err());
+        assert!(from_dl_dtype(DLDataType {
+            code: DL_BOOL,
+            bits: 8,
+            lanes: 1
+        })
+        .is_err());
+        assert!(from_dl_dtype(DLDataType {
+            code: DL_BFLOAT,
+            bits: 16,
+            lanes: 1
+        })
+        .is_err());
     }
 }

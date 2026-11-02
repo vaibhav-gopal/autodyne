@@ -102,15 +102,30 @@ pub struct Segments {
 impl Segments {
     /// `welch`'s defaults: Hann, 256 samples, half overlap, mean removed, density.
     pub fn welch() -> Self {
-        Segments { window: WindowSpec::Hann, nperseg: None, noverlap: None, nfft: None, detrend: Detrend::Constant, onesided: true, scaling: Scaling::Density }
+        Segments {
+            window: WindowSpec::Hann,
+            nperseg: None,
+            noverlap: None,
+            nfft: None,
+            detrend: Detrend::Constant,
+            onesided: true,
+            scaling: Scaling::Density,
+        }
     }
     /// `spectrogram`'s defaults: Tukey 0.25, 256 samples, 1/8 overlap, mean removed, density.
     pub fn spectrogram() -> Self {
-        Segments { window: WindowSpec::Tukey { alpha: 0.25 }, ..Self::welch() }
+        Segments {
+            window: WindowSpec::Tukey { alpha: 0.25 },
+            ..Self::welch()
+        }
     }
     /// `stft`'s defaults: Hann, 256 samples, half overlap, no detrending, spectrum scaling.
     pub fn stft() -> Self {
-        Segments { detrend: Detrend::None, scaling: Scaling::Spectrum, ..Self::welch() }
+        Segments {
+            detrend: Detrend::None,
+            scaling: Scaling::Spectrum,
+            ..Self::welch()
+        }
     }
     /// Samples per segment.
     pub fn nperseg(mut self, n: usize) -> Self {
@@ -161,7 +176,13 @@ struct Plan {
 }
 
 impl Plan {
-    fn new(seg: &Segments, len: usize, default_overlap: impl Fn(usize) -> usize, fs: f64, stft: bool) -> Result<Plan, SpectralError> {
+    fn new(
+        seg: &Segments,
+        len: usize,
+        default_overlap: impl Fn(usize) -> usize,
+        fs: f64,
+        stft: bool,
+    ) -> Result<Plan, SpectralError> {
         let nperseg = seg.nperseg.unwrap_or(256).min(len);
         if nperseg < 1 {
             return Err(SpectralError::invalid("nperseg must be at least 1"));
@@ -182,11 +203,23 @@ impl Plan {
         if stft {
             scale = scale.sqrt();
         }
-        Ok(Plan { win, nperseg, noverlap, nfft, detrend: seg.detrend, onesided: seg.onesided, scale })
+        Ok(Plan {
+            win,
+            nperseg,
+            noverlap,
+            nfft,
+            detrend: seg.detrend,
+            onesided: seg.onesided,
+            scale,
+        })
     }
 
     fn nfreq(&self) -> usize {
-        if self.onesided { self.nfft / 2 + 1 } else { self.nfft }
+        if self.onesided {
+            self.nfft / 2 + 1
+        } else {
+            self.nfft
+        }
     }
 
     fn freqs(&self, fs: f64) -> Vec<f64> {
@@ -194,7 +227,11 @@ impl Plan {
         (0..self.nfreq())
             .map(|k| {
                 // two-sided: the second half are negative frequencies, as numpy.fft.fftfreq
-                let k = if !self.onesided && k >= self.nfft.div_ceil(2) { k as f64 - n } else { k as f64 };
+                let k = if !self.onesided && k >= self.nfft.div_ceil(2) {
+                    k as f64 - n
+                } else {
+                    k as f64
+                };
                 k * fs / n
             })
             .collect()
@@ -203,7 +240,11 @@ impl Plan {
     /// The windowed transforms of every segment of `x`: `[segment][frequency]`.
     fn transforms(&self, x: &[f64], fwd: &mut Transform) -> Vec<Vec<Complex<f64>>> {
         let step = self.nperseg - self.noverlap;
-        let count = if x.len() < self.noverlap { 0 } else { (x.len() - self.noverlap) / step };
+        let count = if x.len() < self.noverlap {
+            0
+        } else {
+            (x.len() - self.noverlap) / step
+        };
         (0..count)
             .map(|s| {
                 let mut seg = x[s * step..s * step + self.nperseg].to_vec();
@@ -226,7 +267,11 @@ enum Transform {
 
 impl Transform {
     fn new(nfft: usize, onesided: bool) -> Self {
-        if onesided { Transform::Real(RealFft::new(nfft)) } else { Transform::Full(Fft::new(nfft)) }
+        if onesided {
+            Transform::Real(RealFft::new(nfft))
+        } else {
+            Transform::Full(Fft::new(nfft))
+        }
     }
     fn run(&mut self, x: &[f64]) -> Vec<Complex<f64>> {
         match self {
@@ -277,14 +322,25 @@ fn lanes<T: Float>(x: NdView<'_, T>, axis: usize) -> Result<Vec<Vec<f64>>, Spect
 
 /// Assembles per-lane results (`[nfreq * extra]`, frequency-major) into the shape of `x` with
 /// `axis` replaced by `nfreq`, plus a trailing axis of `extra` when `extra` is `Some`.
-fn assemble<E: Copy + Default>(shape: &[usize], axis: usize, nfreq: usize, extra: Option<usize>, per_lane: Vec<Vec<E>>) -> NdArray<E> {
+fn assemble<E: Copy + Default>(
+    shape: &[usize],
+    axis: usize,
+    nfreq: usize,
+    extra: Option<usize>,
+    per_lane: Vec<Vec<E>>,
+) -> NdArray<E> {
     let mut out_shape = shape.to_vec();
     out_shape[axis] = nfreq;
     let m = extra.unwrap_or(1);
     if let Some(e) = extra {
         out_shape.push(e);
     }
-    let other: Vec<usize> = shape.iter().enumerate().filter(|&(i, _)| i != axis).map(|(_, &n)| n).collect();
+    let other: Vec<usize> = shape
+        .iter()
+        .enumerate()
+        .filter(|&(i, _)| i != axis)
+        .map(|(_, &n)| n)
+        .collect();
     let strides = {
         let mut s = vec![1usize; out_shape.len()];
         for i in (0..out_shape.len().saturating_sub(1)).rev() {
@@ -323,25 +379,42 @@ fn fold_onesided(p: &mut [f64], plan: &Plan) {
     if !plan.onesided {
         return;
     }
-    let end = if plan.nfft.is_multiple_of(2) { p.len() - 1 } else { p.len() };
+    let end = if plan.nfft.is_multiple_of(2) {
+        p.len() - 1
+    } else {
+        p.len()
+    };
     for v in &mut p[1..end] {
         *v *= 2.0;
     }
 }
 
 fn median_bias(n: usize) -> f64 {
-    1.0 + (1..=(n - 1) / 2).map(|i| 1.0 / (2 * i + 1) as f64 - 1.0 / (2 * i) as f64).sum::<f64>()
+    1.0 + (1..=(n - 1) / 2)
+        .map(|i| 1.0 / (2 * i + 1) as f64 - 1.0 / (2 * i) as f64)
+        .sum::<f64>()
 }
 
 fn median(v: &mut [f64]) -> f64 {
     v.sort_by(f64::total_cmp);
     let n = v.len();
-    if n % 2 == 1 { v[n / 2] } else { 0.5 * (v[n / 2 - 1] + v[n / 2]) }
+    if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        0.5 * (v[n / 2 - 1] + v[n / 2])
+    }
 }
 
 /// The cross spectral density of `x` and `y` along `axis` (`scipy.signal.csd`): returns the
 /// frequencies and `conj(X) Y` averaged over segments.
-pub fn csd<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments, average: Average) -> Result<(Vec<f64>, NdArray<Complex<T>>), SpectralError> {
+pub fn csd<T: Float + Default>(
+    x: NdView<'_, T>,
+    y: NdView<'_, T>,
+    fs: f64,
+    axis: usize,
+    seg: &Segments,
+    average: Average,
+) -> Result<(Vec<f64>, NdArray<Complex<T>>), SpectralError> {
     if x.shape() != y.shape() {
         return Err(SpectralError::invalid("x and y must have the same shape"));
     }
@@ -355,7 +428,16 @@ pub fn csd<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64, axis
         .zip(&yl)
         .map(|(a, b)| {
             let (xa, xb) = (plan.transforms(a, &mut fwd), plan.transforms(b, &mut fwd));
-            let segs: Vec<Vec<Complex<f64>>> = xa.iter().zip(&xb).map(|(p, q)| p.iter().zip(q).map(|(u, v)| u.conj() * *v * plan.scale).collect()).collect();
+            let segs: Vec<Vec<Complex<f64>>> = xa
+                .iter()
+                .zip(&xb)
+                .map(|(p, q)| {
+                    p.iter()
+                        .zip(q)
+                        .map(|(u, v)| u.conj() * *v * plan.scale)
+                        .collect()
+                })
+                .collect();
             let mut re: Vec<f64> = vec![0.0; nfreq];
             let mut im: Vec<f64> = vec![0.0; nfreq];
             for f in 0..nfreq {
@@ -366,20 +448,35 @@ pub fn csd<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64, axis
                         let bias = median_bias(segs.len());
                         (median(&mut rs) / bias, median(&mut is) / bias)
                     }
-                    _ => (rs.iter().sum::<f64>() / segs.len().max(1) as f64, is.iter().sum::<f64>() / segs.len().max(1) as f64),
+                    _ => (
+                        rs.iter().sum::<f64>() / segs.len().max(1) as f64,
+                        is.iter().sum::<f64>() / segs.len().max(1) as f64,
+                    ),
                 };
             }
             fold_onesided(&mut re, &plan);
             fold_onesided(&mut im, &plan);
-            re.iter().zip(&im).map(|(&r, &i)| Complex::new(T::_lit(r), T::_lit(i))).collect()
+            re.iter()
+                .zip(&im)
+                .map(|(&r, &i)| Complex::new(T::_lit(r), T::_lit(i)))
+                .collect()
         })
         .collect();
-    Ok((plan.freqs(fs), assemble(x.shape(), axis, nfreq, None, per_lane)))
+    Ok((
+        plan.freqs(fs),
+        assemble(x.shape(), axis, nfreq, None, per_lane),
+    ))
 }
 
 /// The power spectral density by Welch's method (`scipy.signal.welch`): the average of modified
 /// periodograms of overlapping windowed segments.
-pub fn welch<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments, average: Average) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
+pub fn welch<T: Float + Default>(
+    x: NdView<'_, T>,
+    fs: f64,
+    axis: usize,
+    seg: &Segments,
+    average: Average,
+) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
     // one transform per segment: |X|², not conj(X) X through csd
     let xl = lanes(x, axis)?;
     let len = x.shape()[axis];
@@ -393,7 +490,16 @@ pub fn welch<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &S
             let mut p: Vec<f64> = match average {
                 Average::Median if segs.len() > 1 => {
                     let bias = median_bias(segs.len());
-                    (0..nfreq).map(|f| median(&mut segs.iter().map(|s| s[f].norm_sqr() * plan.scale).collect::<Vec<_>>()) / bias).collect()
+                    (0..nfreq)
+                        .map(|f| {
+                            median(
+                                &mut segs
+                                    .iter()
+                                    .map(|s| s[f].norm_sqr() * plan.scale)
+                                    .collect::<Vec<_>>(),
+                            ) / bias
+                        })
+                        .collect()
                 }
                 _ => {
                     let mut acc = vec![0.0; nfreq];
@@ -402,21 +508,37 @@ pub fn welch<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &S
                             *a += z.norm_sqr();
                         }
                     }
-                    acc.iter().map(|a| a * plan.scale / segs.len().max(1) as f64).collect()
+                    acc.iter()
+                        .map(|a| a * plan.scale / segs.len().max(1) as f64)
+                        .collect()
                 }
             };
             fold_onesided(&mut p, &plan);
             p.into_iter().map(T::_lit).collect()
         })
         .collect();
-    Ok((plan.freqs(fs), assemble(x.shape(), axis, nfreq, None, per_lane)))
+    Ok((
+        plan.freqs(fs),
+        assemble(x.shape(), axis, nfreq, None, per_lane),
+    ))
 }
 
 /// The periodogram: one segment covering the signal (`scipy.signal.periodogram`; window default
 /// boxcar). `nfft` shorter than the signal truncates it, longer zero-pads.
-pub fn periodogram<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, window: WindowSpec, nfft: Option<usize>, detrend: Detrend, scaling: Scaling) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
+pub fn periodogram<T: Float + Default>(
+    x: NdView<'_, T>,
+    fs: f64,
+    axis: usize,
+    window: WindowSpec,
+    nfft: Option<usize>,
+    detrend: Detrend,
+    scaling: Scaling,
+) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
     if axis >= x.ndim() {
-        return Err(SpectralError::invalid(format!("axis {axis} is out of range for shape {:?}", x.shape())));
+        return Err(SpectralError::invalid(format!(
+            "axis {axis} is out of range for shape {:?}",
+            x.shape()
+        )));
     }
     let len = x.shape()[axis];
     let (view, nperseg, nfft) = match nfft {
@@ -424,16 +546,35 @@ pub fn periodogram<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, w
         Some(n) => (x, len, n),
         None => (x, len, len),
     };
-    let seg = Segments { window, nperseg: Some(nperseg), noverlap: Some(0), nfft: Some(nfft), detrend, onesided: true, scaling };
+    let seg = Segments {
+        window,
+        nperseg: Some(nperseg),
+        noverlap: Some(0),
+        nfft: Some(nfft),
+        detrend,
+        onesided: true,
+        scaling,
+    };
     welch(view, fs, axis, &seg, Average::Mean)
 }
 
 /// The magnitude-squared coherence `|Pxy|² / (Pxx Pyy)` (`scipy.signal.coherence`).
-pub fn coherence<T: Float + Default>(x: NdView<'_, T>, y: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
+pub fn coherence<T: Float + Default>(
+    x: NdView<'_, T>,
+    y: NdView<'_, T>,
+    fs: f64,
+    axis: usize,
+    seg: &Segments,
+) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
     let (f, pxx) = welch(x, fs, axis, seg, Average::Mean)?;
     let (_, pyy) = welch(y, fs, axis, seg, Average::Mean)?;
     let (_, pxy) = csd(x, y, fs, axis, seg, Average::Mean)?;
-    let data: Vec<T> = pxy.as_slice().iter().zip(pxx.as_slice().iter().zip(pyy.as_slice())).map(|(z, (&a, &b))| z.norm_sqr() / a / b).collect();
+    let data: Vec<T> = pxy
+        .as_slice()
+        .iter()
+        .zip(pxx.as_slice().iter().zip(pyy.as_slice()))
+        .map(|(z, (&a, &b))| z.norm_sqr() / a / b)
+        .collect();
     Ok((f, NdArray::from_vec(data, pxx.shape()).expect("same shape")))
 }
 
@@ -452,7 +593,13 @@ pub enum SpectrogramMode {
 
 /// A spectrogram (`scipy.signal.spectrogram`): frequencies, segment center times, and values with
 /// frequency on `axis` and time last. Overlap defaults to 1/8 of a segment.
-pub fn spectrogram<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments, mode: SpectrogramMode) -> Result<TimeFrequency<T>, SpectralError> {
+pub fn spectrogram<T: Float + Default>(
+    x: NdView<'_, T>,
+    fs: f64,
+    axis: usize,
+    seg: &Segments,
+    mode: SpectrogramMode,
+) -> Result<TimeFrequency<T>, SpectralError> {
     let xl = lanes(x, axis)?;
     let len = x.shape()[axis];
     let plan = Plan::new(seg, len, |n| n / 8, fs, mode != SpectrogramMode::Psd)?;
@@ -474,7 +621,9 @@ pub fn spectrogram<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, s
                         p
                     }
                     SpectrogramMode::Magnitude => s.iter().map(|z| z.norm() * plan.scale).collect(),
-                    SpectrogramMode::Angle | SpectrogramMode::Phase => s.iter().map(|z| (*z * plan.scale).arg()).collect(),
+                    SpectrogramMode::Angle | SpectrogramMode::Phase => {
+                        s.iter().map(|z| (*z * plan.scale).arg()).collect()
+                    }
                 })
                 .collect();
             if mode == SpectrogramMode::Phase {
@@ -489,7 +638,11 @@ pub fn spectrogram<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, s
         })
         .collect();
     let times = segment_times(len, &plan, fs, false);
-    Ok((plan.freqs(fs), times, assemble(x.shape(), axis, nfreq, Some(nseg), per_lane)))
+    Ok((
+        plan.freqs(fs),
+        times,
+        assemble(x.shape(), axis, nfreq, Some(nseg), per_lane),
+    ))
 }
 
 /// Unwraps phase jumps larger than π (`numpy.unwrap`).
@@ -536,13 +689,22 @@ pub struct StftOptions {
 
 impl Default for StftOptions {
     fn default() -> Self {
-        StftOptions { boundary: Boundary::Zeros, padded: true }
+        StftOptions {
+            boundary: Boundary::Zeros,
+            padded: true,
+        }
     }
 }
 
 /// The short-time Fourier transform (`scipy.signal.stft`): frequencies, segment times, and the
 /// complex spectra with frequency on `axis` and time last.
-pub fn stft<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Segments, options: StftOptions) -> Result<TimeFrequency<Complex<T>>, SpectralError> {
+pub fn stft<T: Float + Default>(
+    x: NdView<'_, T>,
+    fs: f64,
+    axis: usize,
+    seg: &Segments,
+    options: StftOptions,
+) -> Result<TimeFrequency<Complex<T>>, SpectralError> {
     let xl = lanes(x, axis)?;
     let len = x.shape()[axis];
     let plan = Plan::new(seg, len, |n| n / 2, fs, true)?;
@@ -551,13 +713,13 @@ pub fn stft<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Se
     let step = plan.nperseg - plan.noverlap;
     let prepare = |lane: &[f64]| -> Vec<f64> {
         let edge = match options.boundary {
-                Boundary::Odd => Some(Edge::Odd),
-                Boundary::Even => Some(Edge::Even),
-                Boundary::Constant => Some(Edge::Constant),
-                Boundary::Zeros => Some(Edge::Zeros),
-                Boundary::None => None,
-            };
-            let mut v = edge.map_or_else(|| lane.to_vec(), |e| extended(lane, plan.nperseg / 2, e));
+            Boundary::Odd => Some(Edge::Odd),
+            Boundary::Even => Some(Edge::Even),
+            Boundary::Constant => Some(Edge::Constant),
+            Boundary::Zeros => Some(Edge::Zeros),
+            Boundary::None => None,
+        };
+        let mut v = edge.map_or_else(|| lane.to_vec(), |e| extended(lane, plan.nperseg / 2, e));
         if options.padded {
             let rem = (v.len() as isize - plan.nperseg as isize).rem_euclid(step as isize) as usize;
             let nadd = ((step - rem) % step) % plan.nperseg;
@@ -575,14 +737,19 @@ pub fn stft<T: Float + Default>(x: NdView<'_, T>, fs: f64, axis: usize, seg: &Se
             let mut out = vec![Complex::zero(); nfreq * nseg];
             for (si, s) in segs.iter().enumerate() {
                 for (f, z) in s.iter().enumerate() {
-                    out[f * nseg + si] = Complex::new(T::_lit(z.re * plan.scale), T::_lit(z.im * plan.scale));
+                    out[f * nseg + si] =
+                        Complex::new(T::_lit(z.re * plan.scale), T::_lit(z.im * plan.scale));
                 }
             }
             out
         })
         .collect();
     let times = segment_times(ext_len, &plan, fs, options.boundary != Boundary::None);
-    Ok((plan.freqs(fs), times, assemble(x.shape(), axis, nfreq, Some(nseg), per_lane)))
+    Ok((
+        plan.freqs(fs),
+        times,
+        assemble(x.shape(), axis, nfreq, Some(nseg), per_lane),
+    ))
 }
 
 /// Options of [`istft`] (SciPy's defaults when `None`).
@@ -606,23 +773,43 @@ pub struct IstftOptions {
 
 impl Default for IstftOptions {
     fn default() -> Self {
-        IstftOptions { window: WindowSpec::Hann, nperseg: None, noverlap: None, nfft: None, onesided: true, boundary: true, scaling: Scaling::Spectrum }
+        IstftOptions {
+            window: WindowSpec::Hann,
+            nperseg: None,
+            noverlap: None,
+            nfft: None,
+            onesided: true,
+            boundary: true,
+            scaling: Scaling::Spectrum,
+        }
     }
 }
 
 /// The inverse STFT by weighted overlap-add (`scipy.signal.istft`): `z` holds spectra with
 /// frequency on axis `ndim - 2` and time last; returns sample times and the signal (its last axis
 /// time). Errors if the window does not satisfy the nonzero overlap-add condition.
-pub fn istft<T: Float + Default>(z: NdView<'_, Complex<T>>, fs: f64, options: IstftOptions) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
+pub fn istft<T: Float + Default>(
+    z: NdView<'_, Complex<T>>,
+    fs: f64,
+    options: IstftOptions,
+) -> Result<(Vec<f64>, NdArray<T>), SpectralError> {
     let nd = z.ndim();
     if nd < 2 {
-        return Err(SpectralError::invalid("istft needs at least two axes (frequency, time)"));
+        return Err(SpectralError::invalid(
+            "istft needs at least two axes (frequency, time)",
+        ));
     }
     let (nfreq, nseg) = (z.shape()[nd - 2], z.shape()[nd - 1]);
-    let n_default = if options.onesided { 2 * (nfreq - 1) } else { nfreq };
+    let n_default = if options.onesided {
+        2 * (nfreq - 1)
+    } else {
+        nfreq
+    };
     let nperseg = options.nperseg.unwrap_or(n_default);
     let nfft = match options.nfft {
-        Some(n) if n < nperseg => return Err(SpectralError::invalid("nfft must be at least nperseg")),
+        Some(n) if n < nperseg => {
+            return Err(SpectralError::invalid("nfft must be at least nperseg"))
+        }
         Some(n) => n,
         None if options.onesided && nperseg == n_default + 1 => nperseg,
         None => n_default,
@@ -644,15 +831,29 @@ pub fn istft<T: Float + Default>(z: NdView<'_, Complex<T>>, fs: f64, options: Is
             norm[s * step + k] += w * w;
         }
     }
-    let (lo, hi) = if options.boundary { (nperseg / 2, outlen - nperseg / 2) } else { (0, outlen) };
+    let (lo, hi) = if options.boundary {
+        (nperseg / 2, outlen - nperseg / 2)
+    } else {
+        (0, outlen)
+    };
     if norm[lo..hi].iter().any(|&v| v <= 1e-10) {
-        return Err(SpectralError::invalid("the window fails the nonzero overlap-add condition: the STFT is not invertible"));
+        return Err(SpectralError::invalid(
+            "the window fails the nonzero overlap-add condition: the STFT is not invertible",
+        ));
     }
     let batches: usize = z.shape()[..nd - 2].iter().product();
     let contiguous = z.to_owned();
     let data = contiguous.as_slice();
-    let mut inv_real = if options.onesided { Some(RealFft::<f64>::new(nfft)) } else { None };
-    let mut inv_full = if options.onesided { None } else { Some(Fft::<f64>::new(nfft)) };
+    let mut inv_real = if options.onesided {
+        Some(RealFft::<f64>::new(nfft))
+    } else {
+        None
+    };
+    let mut inv_full = if options.onesided {
+        None
+    } else {
+        Some(Fft::<f64>::new(nfft))
+    };
     let mut out = Vec::with_capacity(batches * (hi - lo));
     for b in 0..batches {
         let mut x = vec![0.0; outlen];
@@ -660,7 +861,10 @@ pub fn istft<T: Float + Default>(z: NdView<'_, Complex<T>>, fs: f64, options: Is
             let column: Vec<Complex<f64>> = (0..nfreq)
                 .map(|f| {
                     let v = data[b * nfreq * nseg + f * nseg + s];
-                    Complex::new(v.re.to_f64().unwrap_or(f64::NAN), v.im.to_f64().unwrap_or(f64::NAN))
+                    Complex::new(
+                        v.re.to_f64().unwrap_or(f64::NAN),
+                        v.im.to_f64().unwrap_or(f64::NAN),
+                    )
                 })
                 .collect();
             let segment: Vec<f64> = if let Some(fft) = &mut inv_real {
@@ -684,7 +888,12 @@ pub fn istft<T: Float + Default>(z: NdView<'_, Complex<T>>, fs: f64, options: Is
                 x[s * step + k] += segment[k] * gain * win[k];
             }
         }
-        out.extend(x[lo..hi].iter().zip(&norm[lo..hi]).map(|(v, n)| T::_lit(v / if *n > 1e-10 { *n } else { 1.0 })));
+        out.extend(
+            x[lo..hi]
+                .iter()
+                .zip(&norm[lo..hi])
+                .map(|(v, n)| T::_lit(v / if *n > 1e-10 { *n } else { 1.0 })),
+        );
     }
     let mut shape = z.shape()[..nd - 2].to_vec();
     shape.push(hi - lo);

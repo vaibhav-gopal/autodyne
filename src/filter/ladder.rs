@@ -39,8 +39,8 @@ impl<T: Real> LadderCoeffs<T> {
         let k = T::lit(4.0) * self.resonance;
         let gg = self.g / (one + self.g); // one stage's gain on its input
         let carry = one / (one + self.g); // and on its state
-        // the 4th stage's output is gg^4 * u + sigma, where sigma collects the stored states;
-        // feedback u = x - k * y4 then solves in closed form (the zero-delay feedback loop)
+                                          // the 4th stage's output is gg^4 * u + sigma, where sigma collects the stored states;
+                                          // feedback u = x - k * y4 then solves in closed form (the zero-delay feedback loop)
         let s = &stages;
         let sigma = carry * (gg * gg * gg * s[0] + gg * gg * s[1] + gg * s[2] + s[3]);
         let gain_in = if self.compensate { one + k } else { one };
@@ -143,7 +143,12 @@ impl<T: Float> Ladder<T> {
 
     /// The step's settings (for driving the same filter from generic or traced code).
     pub fn coeffs(&self) -> LadderCoeffs<T> {
-        LadderCoeffs { g: self.g, resonance: self.resonance, drive: self.drive, compensate: self.compensate }
+        LadderCoeffs {
+            g: self.g,
+            resonance: self.resonance,
+            drive: self.drive,
+            compensate: self.compensate,
+        }
     }
 
     /// Filters one sample.
@@ -160,7 +165,9 @@ impl<T: Float> Ladder<T> {
             *s = self.process_sample(*s);
         }
         // once per block: a decaying state reaches zero instead of slow subnormal numbers
-        self.stages.iter_mut().for_each(|s| *s = s._flush_denormal());
+        self.stages
+            .iter_mut()
+            .for_each(|s| *s = s._flush_denormal());
     }
 
     /// |H| at `frequency` for small signals with drive 1 (the analog ladder at the prewarped
@@ -171,7 +178,11 @@ impl<T: Float> Ladder<T> {
         // (1 + jw)^2 = (1 - w^2) + 2jw, squared again
         let (a, b) = (T::_ONE - w * w, T::_lit(2.0) * w);
         let (re, im) = (a * a - b * b, T::_lit(2.0) * a * b);
-        let gain_in = if self.compensate { T::_ONE + k } else { T::_ONE };
+        let gain_in = if self.compensate {
+            T::_ONE + k
+        } else {
+            T::_ONE
+        };
         gain_in / (re + k)._hypot(im)
     }
 }
@@ -185,7 +196,9 @@ mod tests {
     const FS: f64 = 48_000.0;
 
     fn sine(freq: f64, amplitude: f64, n: usize) -> Vec<f64> {
-        (0..n).map(|i| amplitude * (std::f64::consts::TAU * freq * i as f64 / FS).sin()).collect()
+        (0..n)
+            .map(|i| amplitude * (std::f64::consts::TAU * freq * i as f64 / FS).sin())
+            .collect()
     }
 
     fn rms(v: &[f64]) -> f64 {
@@ -202,8 +215,14 @@ mod tests {
                     let mut f = base;
                     let x = sine(freq, 1e-3, 48_000);
                     let y: Vec<f64> = x.iter().map(|&s| f.process_sample(s)).collect();
-                    let (measured, analytic) = (rms(&y[24_000..]) / rms(&x[24_000..]), base.magnitude_at(freq));
-                    assert!((measured / analytic - 1.0).abs() < 0.01, "r={resonance} comp={compensate} {freq} Hz: {measured} vs {analytic}");
+                    let (measured, analytic) = (
+                        rms(&y[24_000..]) / rms(&x[24_000..]),
+                        base.magnitude_at(freq),
+                    );
+                    assert!(
+                        (measured / analytic - 1.0).abs() < 0.01,
+                        "r={resonance} comp={compensate} {freq} Hz: {measured} vs {analytic}"
+                    );
                 }
             }
         }
@@ -215,12 +234,24 @@ mod tests {
         // four poles: about -24 dB per octave well above the cutoff
         let octave = 20.0 * (f.magnitude_at(8_000.0) / f.magnitude_at(4_000.0)).log10();
         assert!((octave + 24.0).abs() < 2.0, "{octave} dB/octave");
-        assert!((f.magnitude_at(1.0) - 1.0).abs() < 1e-4, "unity in the passband");
+        assert!(
+            (f.magnitude_at(1.0) - 1.0).abs() < 1e-4,
+            "unity in the passband"
+        );
         let mut resonant = Ladder::new(1_000.0, 0.8, FS);
-        assert!((resonant.magnitude_at(1.0) - 1.0).abs() < 1e-4, "compensated: still unity");
+        assert!(
+            (resonant.magnitude_at(1.0) - 1.0).abs() < 1e-4,
+            "compensated: still unity"
+        );
         resonant.set_compensation(false);
-        assert!((resonant.magnitude_at(1.0) - 1.0 / 4.2).abs() < 1e-4, "uncompensated: 1 / (1 + k)");
-        assert!(resonant.magnitude_at(1_000.0) > 2.0 * resonant.magnitude_at(1.0), "a resonant peak at the cutoff");
+        assert!(
+            (resonant.magnitude_at(1.0) - 1.0 / 4.2).abs() < 1e-4,
+            "uncompensated: 1 / (1 + k)"
+        );
+        assert!(
+            resonant.magnitude_at(1_000.0) > 2.0 * resonant.magnitude_at(1.0),
+            "a resonant peak at the cutoff"
+        );
     }
 
     #[test]
@@ -229,11 +260,17 @@ mod tests {
         f.process_sample(0.5); // a kick, then silence
         let ring: Vec<f64> = (0..48_000).map(|_| f.process_sample(0.0)).collect();
         let tail = &ring[38_400..];
-        let crossings = tail.windows(2).filter(|w| (w[0] < 0.0) != (w[1] < 0.0)).count();
+        let crossings = tail
+            .windows(2)
+            .filter(|w| (w[0] < 0.0) != (w[1] < 0.0))
+            .count();
         let freq = crossings as f64 / 2.0 / (tail.len() as f64 / FS);
         assert!((freq / 1_000.0 - 1.0).abs() < 0.02, "rings at {freq} Hz");
         let (early, late) = (rms(&ring[4_800..9_600]), rms(tail));
-        assert!(late > 0.5 * early && late < 2.0, "sustained and bounded: {early} -> {late}");
+        assert!(
+            late > 0.5 * early && late < 2.0,
+            "sustained and bounded: {early} -> {late}"
+        );
     }
 
     #[test]
@@ -242,22 +279,39 @@ mod tests {
         let mut driven = clean;
         driven.set_drive(10.0);
         let x = sine(200.0, 1.0, 9_600);
-        let peak = |f: &mut Ladder<f64>| x.iter().map(|&s| f.process_sample(s).abs()).fold(0.0, f64::max);
-        assert!(peak(&mut driven) <= 2.0 / 10.0, "saturation bounds the loop at headroom / drive");
-        assert!(peak(&mut clean) > 0.9, "drive 1: full scale only gently compressed");
+        let peak = |f: &mut Ladder<f64>| {
+            x.iter()
+                .map(|&s| f.process_sample(s).abs())
+                .fold(0.0, f64::max)
+        };
+        assert!(
+            peak(&mut driven) <= 2.0 / 10.0,
+            "saturation bounds the loop at headroom / drive"
+        );
+        assert!(
+            peak(&mut clean) > 0.9,
+            "drive 1: full scale only gently compressed"
+        );
         // small signals pass unchanged at any drive (no level jump when automating it)
         let mut small = Ladder::new(5_000.0, 0.0, FS);
         small.set_drive(10.0);
         let x = sine(200.0, 1e-3, 9_600);
         let y: Vec<f64> = x.iter().map(|&s| small.process_sample(s)).collect();
-        assert!((rms(&y[4_800..]) / rms(&x[4_800..]) / small.magnitude_at(200.0) - 1.0).abs() < 0.01);
+        assert!(
+            (rms(&y[4_800..]) / rms(&x[4_800..]) / small.magnitude_at(200.0) - 1.0).abs() < 0.01
+        );
         // cutoff swept at audio rate with high resonance
         let mut f = Ladder::new(1_000.0, 0.95, FS);
         let mut worst = 0.0f64;
         for i in 0..48_000 {
             let t = i as f64 / FS;
-            f.set_cutoff(30.0 * 600.0f64.powf(0.5 + 0.5 * (std::f64::consts::TAU * 200.0 * t).sin()));
-            worst = worst.max(f.process_sample((std::f64::consts::TAU * 110.0 * t).sin()).abs());
+            f.set_cutoff(
+                30.0 * 600.0f64.powf(0.5 + 0.5 * (std::f64::consts::TAU * 200.0 * t).sin()),
+            );
+            worst = worst.max(
+                f.process_sample((std::f64::consts::TAU * 110.0 * t).sin())
+                    .abs(),
+            );
         }
         assert!(worst.is_finite() && worst < 10.0, "bounded: {worst}");
     }

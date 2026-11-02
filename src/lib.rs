@@ -58,6 +58,9 @@ extern crate alloc;
 /// without `std` (modules that use these glob-import it). Without `std` it also brings the float
 /// methods `core` lacks (`x.sqrt()` ...), from `libm`.
 pub(crate) mod alloc_prelude {
+    #[cfg(not(feature = "std"))]
+    #[allow(unused_imports)]
+    pub(crate) use crate::units::float_math::FloatMath;
     #[allow(unused_imports)]
     pub(crate) use alloc::{
         borrow::ToOwned,
@@ -67,9 +70,6 @@ pub(crate) mod alloc_prelude {
         vec,
         vec::Vec,
     };
-    #[cfg(not(feature = "std"))]
-    #[allow(unused_imports)]
-    pub(crate) use crate::units::float_math::FloatMath;
 }
 
 /// With the `mimalloc` feature, mimalloc allocates for the whole program (see the feature's note in
@@ -80,80 +80,80 @@ static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 // Always built: the number traits, the SIMD kernels and the small geometry types. Everything else is
 // the `dsp` feature (on by default), so `default-features = false` compiles only these three.
-pub mod units;
-pub mod simd;
 pub mod geometry;
+pub mod simd;
+pub mod units;
 
 // (one attribute per module: declared through a macro, their #[macro_export] macros couldn't be
 // named by path)
 #[cfg(feature = "dsp")]
-pub mod signal;
-#[cfg(feature = "dsp")]
-pub mod processor;
+pub mod analysis;
 #[cfg(feature = "dsp")]
 pub mod channels;
 #[cfg(feature = "dsp")]
-pub mod fft;
-#[cfg(feature = "dsp")]
-pub mod special;
-#[cfg(feature = "dsp")]
-pub mod osc;
-#[cfg(feature = "dsp")]
-pub mod random;
-#[cfg(feature = "dsp")]
-pub mod stats;
-#[cfg(feature = "dsp")]
-pub mod ode;
-#[cfg(feature = "dsp")]
-pub mod filter;
-#[cfg(feature = "dsp")]
-pub mod spectral;
-#[cfg(feature = "dsp")]
-pub mod iq;
-#[cfg(feature = "dsp")]
-pub mod gain;
+pub mod control;
 #[cfg(feature = "dsp")]
 pub mod delay;
+#[cfg(feature = "dsp")]
+pub mod distortion;
+#[cfg(feature = "dsp")]
+pub mod dlpack;
+#[cfg(feature = "dsp")]
+pub mod dynamic;
 #[cfg(feature = "dsp")]
 pub mod dynamics;
 #[cfg(feature = "dsp")]
 pub mod envelope;
 #[cfg(feature = "dsp")]
-pub mod distortion;
+pub mod fft;
 #[cfg(feature = "dsp")]
-pub mod synth;
+pub mod filter;
+#[cfg(feature = "flux")]
+pub mod flux;
 #[cfg(feature = "dsp")]
-pub mod sampler;
-#[cfg(feature = "dsp")]
-pub mod reverb;
-#[cfg(feature = "dsp")]
-pub mod modulation;
-#[cfg(feature = "dsp")]
-pub mod analysis;
-#[cfg(feature = "dsp")]
-pub mod control;
-#[cfg(feature = "dsp")]
-pub mod resample;
-#[cfg(feature = "dsp")]
-pub mod params;
-#[cfg(feature = "dsp")]
-pub mod dynamic;
-#[cfg(feature = "dsp")]
-pub mod dlpack;
+pub mod gain;
+#[cfg(feature = "faer")]
+mod gemm;
+#[cfg(feature = "gpu")]
+pub mod gpu;
 #[cfg(feature = "dsp")]
 pub mod interop;
 #[cfg(feature = "dsp")]
-pub mod wav;
-#[cfg(feature = "faer")]
-mod gemm;
+pub mod iq;
 #[cfg(feature = "faer")]
 pub mod linalg;
+#[cfg(feature = "dsp")]
+pub mod modulation;
+#[cfg(feature = "dsp")]
+pub mod ode;
+#[cfg(feature = "dsp")]
+pub mod osc;
+#[cfg(feature = "dsp")]
+pub mod params;
+pub mod prelude;
+#[cfg(feature = "dsp")]
+pub mod processor;
+#[cfg(feature = "dsp")]
+pub mod random;
+#[cfg(feature = "dsp")]
+pub mod resample;
+#[cfg(feature = "dsp")]
+pub mod reverb;
+#[cfg(feature = "dsp")]
+pub mod sampler;
+#[cfg(feature = "dsp")]
+pub mod signal;
+#[cfg(feature = "dsp")]
+pub mod special;
+#[cfg(feature = "dsp")]
+pub mod spectral;
+#[cfg(feature = "dsp")]
+pub mod stats;
+#[cfg(feature = "dsp")]
+pub mod synth;
 #[cfg(feature = "faer")]
 pub mod systems;
-#[cfg(feature = "gpu")]
-pub mod gpu;
-#[cfg(feature = "flux")]
-pub mod flux;
-pub mod prelude;
 #[cfg(all(test, feature = "dsp"))]
 mod testing;
+#[cfg(feature = "dsp")]
+pub mod wav;

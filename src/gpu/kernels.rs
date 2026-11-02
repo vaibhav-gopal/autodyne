@@ -25,7 +25,12 @@ fn apply<F: Float, N: Size>(a: Vector<F, N>, b: Vector<F, N>, #[comptime] op: u3
 }
 
 #[cube(launch_unchecked)]
-pub(super) fn axpb_kernel<F: Float + CubeElement, N: Size>(x: &[Vector<F, N>], out: &mut [Vector<F, N>], a: InputScalar, b: InputScalar) {
+pub(super) fn axpb_kernel<F: Float + CubeElement, N: Size>(
+    x: &[Vector<F, N>],
+    out: &mut [Vector<F, N>],
+    a: InputScalar,
+    b: InputScalar,
+) {
     let (a, b) = (a.get::<F>(), b.get::<F>());
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = x[ABSOLUTE_POS] * Vector::new(a) + Vector::new(b);
@@ -34,7 +39,13 @@ pub(super) fn axpb_kernel<F: Float + CubeElement, N: Size>(x: &[Vector<F, N>], o
 
 /// `x op s`, or `s op x` when `scalar_first`.
 #[cube(launch_unchecked)]
-pub(super) fn scalar_kernel<F: Float + CubeElement, N: Size>(x: &[Vector<F, N>], out: &mut [Vector<F, N>], s: InputScalar, #[comptime] op: u32, #[comptime] scalar_first: bool) {
+pub(super) fn scalar_kernel<F: Float + CubeElement, N: Size>(
+    x: &[Vector<F, N>],
+    out: &mut [Vector<F, N>],
+    s: InputScalar,
+    #[comptime] op: u32,
+    #[comptime] scalar_first: bool,
+) {
     let s = s.get::<F>();
     if ABSOLUTE_POS < x.len() {
         let v = x[ABSOLUTE_POS];
@@ -48,7 +59,12 @@ pub(super) fn scalar_kernel<F: Float + CubeElement, N: Size>(x: &[Vector<F, N>],
 }
 
 #[cube(launch_unchecked)]
-pub(super) fn binary_kernel<F: Float, N: Size>(x: &[Vector<F, N>], y: &[Vector<F, N>], out: &mut [Vector<F, N>], #[comptime] op: u32) {
+pub(super) fn binary_kernel<F: Float, N: Size>(
+    x: &[Vector<F, N>],
+    y: &[Vector<F, N>],
+    out: &mut [Vector<F, N>],
+    #[comptime] op: u32,
+) {
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = apply::<F, N>(x[ABSOLUTE_POS], y[ABSOLUTE_POS], op);
     }
@@ -56,7 +72,13 @@ pub(super) fn binary_kernel<F: Float, N: Size>(x: &[Vector<F, N>], y: &[Vector<F
 
 /// `x` (rows x cols in memory, cols in vectors) with a vector along its rows (cols, in vectors).
 #[cube(launch_unchecked)]
-pub(super) fn row_kernel<F: Float, N: Size>(x: &[Vector<F, N>], row: &[Vector<F, N>], out: &mut [Vector<F, N>], cols: usize, #[comptime] op: u32) {
+pub(super) fn row_kernel<F: Float, N: Size>(
+    x: &[Vector<F, N>],
+    row: &[Vector<F, N>],
+    out: &mut [Vector<F, N>],
+    cols: usize,
+    #[comptime] op: u32,
+) {
     if ABSOLUTE_POS < x.len() {
         out[ABSOLUTE_POS] = apply::<F, N>(x[ABSOLUTE_POS], row[ABSOLUTE_POS % cols], op);
     }
@@ -64,9 +86,19 @@ pub(super) fn row_kernel<F: Float, N: Size>(x: &[Vector<F, N>], row: &[Vector<F,
 
 /// `x` (rows x cols in memory, cols in vectors) with a vector down its columns (rows).
 #[cube(launch_unchecked)]
-pub(super) fn column_kernel<F: Float, N: Size>(x: &[Vector<F, N>], column: &[F], out: &mut [Vector<F, N>], cols: usize, #[comptime] op: u32) {
+pub(super) fn column_kernel<F: Float, N: Size>(
+    x: &[Vector<F, N>],
+    column: &[F],
+    out: &mut [Vector<F, N>],
+    cols: usize,
+    #[comptime] op: u32,
+) {
     if ABSOLUTE_POS < x.len() {
-        out[ABSOLUTE_POS] = apply::<F, N>(x[ABSOLUTE_POS], Vector::new(column[ABSOLUTE_POS / cols]), op);
+        out[ABSOLUTE_POS] = apply::<F, N>(
+            x[ABSOLUTE_POS],
+            Vector::new(column[ABSOLUTE_POS / cols]),
+            op,
+        );
     }
 }
 
@@ -81,7 +113,11 @@ pub(super) const ABS: u32 = 6;
 pub(super) const NEG: u32 = 7;
 
 #[cube(launch_unchecked)]
-pub(super) fn unary_kernel<F: Float, N: Size>(x: &[Vector<F, N>], out: &mut [Vector<F, N>], #[comptime] op: u32) {
+pub(super) fn unary_kernel<F: Float, N: Size>(
+    x: &[Vector<F, N>],
+    out: &mut [Vector<F, N>],
+    #[comptime] op: u32,
+) {
     if ABSOLUTE_POS < x.len() {
         let v = x[ABSOLUTE_POS];
         let mut r = v;
@@ -105,7 +141,6 @@ pub(super) fn unary_kernel<F: Float, N: Size>(x: &[Vector<F, N>], out: &mut [Vec
         out[ABSOLUTE_POS] = r;
     }
 }
-
 
 /// Row-major `out` of `shape`, element `i` read from `x` at the `strides`-weighted index: any
 /// permutation of a layout.
@@ -160,7 +195,12 @@ pub(super) fn sum_partial_kernel<F: Float>(x: &[F], partial: &mut [F], #[comptim
 
 /// One cube per row of `x` (rows x cols): the row's sum.
 #[cube(launch_unchecked)]
-pub(super) fn row_sum_kernel<F: Float>(x: &[F], out: &mut [F], cols: usize, #[comptime] threads: u32) {
+pub(super) fn row_sum_kernel<F: Float>(
+    x: &[F],
+    out: &mut [F],
+    cols: usize,
+    #[comptime] threads: u32,
+) {
     let row = CUBE_POS;
     let mut s = F::from_int(0);
     let mut j = UNIT_POS as usize;
@@ -180,7 +220,13 @@ pub(super) fn row_sum_kernel<F: Float>(x: &[F], out: &mut [F], cols: usize, #[co
 /// Column sums of `x` (rows x cols, cols in vectors) over a chunk of rows per cube row:
 /// `partial[chunk * cols + c]`.
 #[cube(launch_unchecked)]
-pub(super) fn column_partial_kernel<F: Float, N: Size>(x: &[Vector<F, N>], partial: &mut [Vector<F, N>], rows: usize, cols: usize, chunk: usize) {
+pub(super) fn column_partial_kernel<F: Float, N: Size>(
+    x: &[Vector<F, N>],
+    partial: &mut [Vector<F, N>],
+    rows: usize,
+    cols: usize,
+    chunk: usize,
+) {
     let c = ABSOLUTE_POS_X as usize;
     let part = CUBE_POS_Y as usize;
     if c < cols {
@@ -199,7 +245,12 @@ pub(super) fn column_partial_kernel<F: Float, N: Size>(x: &[Vector<F, N>], parti
 
 /// The sums down `parts` rows of `partial` (parts x cols, cols in vectors).
 #[cube(launch_unchecked)]
-pub(super) fn column_total_kernel<F: Float, N: Size>(partial: &[Vector<F, N>], out: &mut [Vector<F, N>], parts: usize, cols: usize) {
+pub(super) fn column_total_kernel<F: Float, N: Size>(
+    partial: &[Vector<F, N>],
+    out: &mut [Vector<F, N>],
+    parts: usize,
+    cols: usize,
+) {
     if ABSOLUTE_POS < cols {
         let mut acc = Vector::<F, N>::new(F::from_int(0));
         for p in 0..parts {
@@ -297,7 +348,14 @@ pub(super) fn real_to_complex_kernel<F: Float>(x: &[F], z: &mut [F]) {
 /// and writes `y[2i - k]` and `y[2i - k + ns]`; `ns` doubles each pass, and the output comes out
 /// in natural order (no bit reversal). `sign` -1 conjugates the twiddles (the inverse).
 #[cube(launch_unchecked)]
-pub(super) fn stockham_kernel<F: Float + CubeElement>(x: &[F], y: &mut [F], tw: &[F], n: usize, ns: usize, sign: InputScalar) {
+pub(super) fn stockham_kernel<F: Float + CubeElement>(
+    x: &[F],
+    y: &mut [F],
+    tw: &[F],
+    n: usize,
+    ns: usize,
+    sign: InputScalar,
+) {
     let sign = sign.get::<F>();
     let i = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
@@ -395,7 +453,14 @@ pub(super) fn fft_shared_kernel<F: Float + CubeElement>(
 /// `out[l, k] = z[l, k] w[k]` for `k < n` and zero up to `m` (complex, interleaved; `z` lanes of
 /// `zn`, `out` lanes of `m`): the chirp products of Bluestein's algorithm.
 #[cube(launch_unchecked)]
-pub(super) fn chirp_kernel<F: Float>(z: &[F], w: &[F], out: &mut [F], zn: usize, n: usize, m: usize) {
+pub(super) fn chirp_kernel<F: Float>(
+    z: &[F],
+    w: &[F],
+    out: &mut [F],
+    zn: usize,
+    n: usize,
+    m: usize,
+) {
     let k = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;
     if k < m {
@@ -417,7 +482,12 @@ pub(super) fn chirp_kernel<F: Float>(z: &[F], w: &[F], out: &mut [F], zn: usize,
 pub(super) fn complex_mul_kernel<F: Float>(z: &mut [F], h: &[F], m: usize) {
     if ABSOLUTE_POS < z.len() / 2 {
         let k = ABSOLUTE_POS % m;
-        let (a, b, c, d) = (z[2 * ABSOLUTE_POS], z[2 * ABSOLUTE_POS + 1], h[2 * k], h[2 * k + 1]);
+        let (a, b, c, d) = (
+            z[2 * ABSOLUTE_POS],
+            z[2 * ABSOLUTE_POS + 1],
+            h[2 * k],
+            h[2 * k + 1],
+        );
         z[2 * ABSOLUTE_POS] = a * c - b * d;
         z[2 * ABSOLUTE_POS + 1] = a * d + b * c;
     }
@@ -425,7 +495,13 @@ pub(super) fn complex_mul_kernel<F: Float>(z: &mut [F], h: &[F], m: usize) {
 
 /// The first `bins` complex values of each lane of `z` (lanes of `n`), times `scale`.
 #[cube(launch_unchecked)]
-pub(super) fn bins_kernel<F: Float + CubeElement>(z: &[F], out: &mut [F], n: usize, bins: usize, scale: InputScalar) {
+pub(super) fn bins_kernel<F: Float + CubeElement>(
+    z: &[F],
+    out: &mut [F],
+    n: usize,
+    bins: usize,
+    scale: InputScalar,
+) {
     let scale = scale.get::<F>();
     let k = ABSOLUTE_POS_X as usize;
     let lane = CUBE_POS_Y as usize;

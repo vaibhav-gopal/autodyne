@@ -1,8 +1,8 @@
 //! [`Signal`]: read-only analysis of real-valued signals (levels, norms, statistics, comparisons,
 //! convolution and correlation), for slices, `Vec`s and arrays.
 
-use crate::alloc_prelude::*;
 use super::{convolve_with, correlate_with, ConvMethod, ConvMode, SignalError};
+use crate::alloc_prelude::*;
 use crate::units::*;
 
 /// Read-only analysis of a real-valued signal. Implemented for `[T]`, so it works on anything that
@@ -47,7 +47,9 @@ pub trait Signal {
     }
     /// Largest absolute sample (0 for an empty signal).
     fn peak(&self) -> Self::Sample {
-        self.samples().iter().fold(Self::Sample::_ZERO, |m, &x| m._max(x._abs()))
+        self.samples()
+            .iter()
+            .fold(Self::Sample::_ZERO, |m, &x| m._max(x._abs()))
     }
     /// Peak level in dB relative to 1.0 (dBFS); negative infinity for silence.
     fn peak_db(&self) -> Self::Sample {
@@ -60,7 +62,9 @@ pub trait Signal {
     }
     /// Sum of absolute values.
     fn norm_l1(&self) -> Self::Sample {
-        self.samples().iter().fold(Self::Sample::_ZERO, |s, &x| s + x._abs())
+        self.samples()
+            .iter()
+            .fold(Self::Sample::_ZERO, |s, &x| s + x._abs())
     }
     /// Euclidean norm: the square root of the energy.
     fn norm_l2(&self) -> Self::Sample {
@@ -74,7 +78,10 @@ pub trait Signal {
     fn variance(&self) -> Option<Self::Sample> {
         let mean = self.mean()?;
         let n = Self::Sample::_lit(self.samples().len() as f64);
-        let squares = self.samples().iter().fold(Self::Sample::_ZERO, |s, &x| s + (x - mean) * (x - mean));
+        let squares = self
+            .samples()
+            .iter()
+            .fold(Self::Sample::_ZERO, |s, &x| s + (x - mean) * (x - mean));
         Some(squares / n)
     }
     /// Population standard deviation.
@@ -135,12 +142,18 @@ pub trait Signal {
         if norms == Self::Sample::_ZERO {
             return Err(SignalError::ZeroNorm);
         }
-        Ok((dot / norms)._clamp(-Self::Sample::_ONE, Self::Sample::_ONE)._acos())
+        Ok((dot / norms)
+            ._clamp(-Self::Sample::_ONE, Self::Sample::_ONE)
+            ._acos())
     }
     /// Euclidean distance: the L2 norm of the difference.
     fn distance(&self, other: &[Self::Sample]) -> Result<Self::Sample, SignalError> {
         same_len(self.samples(), other)?;
-        let squares = self.samples().iter().zip(other).fold(Self::Sample::_ZERO, |s, (&a, &b)| s + (a - b) * (a - b));
+        let squares = self
+            .samples()
+            .iter()
+            .zip(other)
+            .fold(Self::Sample::_ZERO, |s, (&a, &b)| s + (a - b) * (a - b));
         Ok(squares._sqrt())
     }
 
@@ -182,7 +195,11 @@ impl<T: Float, const N: usize> Signal for [T; N] {
 }
 
 fn same_len<T>(a: &[T], b: &[T]) -> Result<(), SignalError> {
-    if a.len() == b.len() { Ok(()) } else { Err(SignalError::LengthMismatch(a.len(), b.len())) }
+    if a.len() == b.len() {
+        Ok(())
+    } else {
+        Err(SignalError::LengthMismatch(a.len(), b.len()))
+    }
 }
 
 /// Index of the sample that wins `better(candidate, best)` against all others, skipping NaNs.
@@ -226,7 +243,10 @@ mod tests {
     fn sine_levels() {
         // phase offset so no sample lands exactly on a zero crossing
         let mut tone = vec![0.0; 48_000];
-        Sine::new(1_000.0, 48_000.0).with_amplitude(0.5).with_phase(0.1).fill(&mut tone);
+        Sine::new(1_000.0, 48_000.0)
+            .with_amplitude(0.5)
+            .with_phase(0.1)
+            .fill(&mut tone);
         assert!(close(tone.rms().unwrap(), 0.5 / 2f64.sqrt(), 1e-9));
         // the sample grid misses the true peak slightly (by < 0.05%)
         assert!(close(tone.crest_factor().unwrap(), 2f64.sqrt(), 1e-3));
@@ -238,7 +258,10 @@ mod tests {
     fn empty_signals() {
         let e: [f64; 0] = [];
         assert_eq!((e.sum(), e.energy(), e.peak()), (0.0, 0.0, 0.0));
-        assert_eq!((e.mean(), e.rms(), e.argmax(), e.min()), (None, None, None, None));
+        assert_eq!(
+            (e.mean(), e.rms(), e.argmax(), e.min()),
+            (None, None, None, None)
+        );
         assert_eq!(e.peak_db(), f64::NEG_INFINITY);
     }
 
@@ -254,8 +277,16 @@ mod tests {
         let a = [1.0, 0.0];
         let b = [0.0, 2.0];
         assert_eq!(a.inner(&b), Ok(0.0));
-        assert!(close(a.angle(&b).unwrap(), std::f64::consts::FRAC_PI_2, 1e-12));
-        assert!(close(a.angle(&[-3.0, 0.0]).unwrap(), std::f64::consts::PI, 1e-12));
+        assert!(close(
+            a.angle(&b).unwrap(),
+            std::f64::consts::FRAC_PI_2,
+            1e-12
+        ));
+        assert!(close(
+            a.angle(&[-3.0, 0.0]).unwrap(),
+            std::f64::consts::PI,
+            1e-12
+        ));
         assert!(close(a.distance(&b).unwrap(), 5f64.sqrt(), 1e-12));
         assert_eq!(a.inner(&[1.0]), Err(SignalError::LengthMismatch(2, 1)));
         assert_eq!(a.angle(&[0.0, 0.0]), Err(SignalError::ZeroNorm));

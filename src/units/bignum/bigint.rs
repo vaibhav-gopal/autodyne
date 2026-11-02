@@ -34,7 +34,9 @@ fn trim(v: &mut Vec<u64>) {
 }
 
 fn cmp_mag(a: &[u64], b: &[u64]) -> Ordering {
-    a.len().cmp(&b.len()).then_with(|| a.iter().rev().cmp(b.iter().rev()))
+    a.len()
+        .cmp(&b.len())
+        .then_with(|| a.iter().rev().cmp(b.iter().rev()))
 }
 
 fn add_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
@@ -113,7 +115,15 @@ fn mul_mag(a: &[u64], b: &[u64]) -> Vec<u64> {
     let z1 = mul_mag(&add_mag(&a0, &a1), &add_mag(&b0, &b1));
     let middle = sub_mag(&sub_mag(&z1, &z2), &z0);
     let mut out = z0;
-    let shifted = |v: &[u64], limbs: usize| -> Vec<u64> { if v.is_empty() { Vec::new() } else { core::iter::repeat_n(0, limbs).chain(v.iter().copied()).collect() } };
+    let shifted = |v: &[u64], limbs: usize| -> Vec<u64> {
+        if v.is_empty() {
+            Vec::new()
+        } else {
+            core::iter::repeat_n(0, limbs)
+                .chain(v.iter().copied())
+                .collect()
+        }
+    };
     out = add_mag(&out, &shifted(&middle, half));
     out = add_mag(&out, &shifted(&z2, 2 * half));
     trim(&mut out);
@@ -150,7 +160,9 @@ fn shr_mag(a: &[u64], bits: usize) -> Vec<u64> {
     let mut out: Vec<u64> = if bits == 0 {
         a.to_vec()
     } else {
-        (0..a.len()).map(|i| (a[i] >> bits) | a.get(i + 1).map_or(0, |&h| h << (64 - bits))).collect()
+        (0..a.len())
+            .map(|i| (a[i] >> bits) | a.get(i + 1).map_or(0, |&h| h << (64 - bits)))
+            .collect()
     };
     trim(&mut out);
     out
@@ -236,7 +248,10 @@ fn divrem_mag(a: &[u64], b: &[u64]) -> (Vec<u64>, Vec<u64>) {
 impl BigInt {
     fn from_parts(neg: bool, mut mag: Vec<u64>) -> Self {
         trim(&mut mag);
-        BigInt { neg: neg && !mag.is_empty(), mag }
+        BigInt {
+            neg: neg && !mag.is_empty(),
+            mag,
+        }
     }
     /// Zero.
     pub fn zero() -> Self {
@@ -256,15 +271,26 @@ impl BigInt {
     }
     /// -1, 0 or 1.
     pub fn signum(&self) -> i32 {
-        if self.is_zero() { 0 } else if self.neg { -1 } else { 1 }
+        if self.is_zero() {
+            0
+        } else if self.neg {
+            -1
+        } else {
+            1
+        }
     }
     /// The magnitude.
     pub fn abs(&self) -> BigInt {
-        BigInt { neg: false, mag: self.mag.clone() }
+        BigInt {
+            neg: false,
+            mag: self.mag.clone(),
+        }
     }
     /// The number of significant bits of the magnitude (0 for zero).
     pub fn bits(&self) -> u64 {
-        self.mag.last().map_or(0, |&top| 64 * (self.mag.len() as u64 - 1) + (64 - top.leading_zeros() as u64))
+        self.mag.last().map_or(0, |&top| {
+            64 * (self.mag.len() as u64 - 1) + (64 - top.leading_zeros() as u64)
+        })
     }
     /// Whether bit `i` of the magnitude is set.
     pub fn bit(&self, i: u64) -> bool {
@@ -275,7 +301,10 @@ impl BigInt {
     /// Panics on division by zero.
     pub fn div_rem(&self, d: &BigInt) -> (BigInt, BigInt) {
         let (q, r) = divrem_mag(&self.mag, &d.mag);
-        (BigInt::from_parts(self.neg != d.neg, q), BigInt::from_parts(self.neg, r))
+        (
+            BigInt::from_parts(self.neg != d.neg, q),
+            BigInt::from_parts(self.neg, r),
+        )
     }
     /// `self^e`.
     pub fn pow(&self, mut e: u32) -> BigInt {
@@ -330,11 +359,17 @@ impl BigInt {
             // the top 64 bits, with any lower bit set folded in as a sticky bit for correct rounding
             let shift = bits - 64;
             let top = shr_mag(&self.mag, shift as usize)[0];
-            let sticky = self.mag.iter().take((shift / 64) as usize).any(|&l| l != 0) || (!shift.is_multiple_of(64) && self.mag[(shift / 64) as usize] << (64 - shift % 64) != 0);
+            let sticky = self.mag.iter().take((shift / 64) as usize).any(|&l| l != 0)
+                || (!shift.is_multiple_of(64)
+                    && self.mag[(shift / 64) as usize] << (64 - shift % 64) != 0);
             let top = if sticky { top | 1 } else { top };
             top as f64 * 2f64.powi(shift as i32)
         };
-        if self.neg { -v } else { v }
+        if self.neg {
+            -v
+        } else {
+            v
+        }
     }
     /// The integer part of `v` (truncated toward zero); `None` for NaN or infinities.
     pub fn from_f64(v: f64) -> Option<BigInt> {
@@ -349,7 +384,11 @@ impl BigInt {
         let exp = ((bits >> 52) & 0x7ff) as i64 - 1075;
         let mant = (bits & ((1 << 52) - 1)) | (1 << 52);
         let m = BigInt::from(mant);
-        let mag = if exp >= 0 { m << exp as usize } else { m >> (-exp) as usize };
+        let mag = if exp >= 0 {
+            m << exp as usize
+        } else {
+            m >> (-exp) as usize
+        };
         Some(if v < 0.0 { -mag } else { mag })
     }
     /// The value as `i64`, if it fits.
@@ -359,7 +398,11 @@ impl BigInt {
             1 if !self.neg => i64::try_from(self.mag[0]).ok(),
             1 => {
                 let m = self.mag[0];
-                if m <= 1 << 63 { Some((m as i64).wrapping_neg()) } else { None }
+                if m <= 1 << 63 {
+                    Some((m as i64).wrapping_neg())
+                } else {
+                    None
+                }
             }
             _ => None,
         }
@@ -614,7 +657,17 @@ mod tests {
 
     #[test]
     fn arithmetic_matches_i128() {
-        let samples: [i128; 9] = [0, 1, -1, 12345, -987654321, i64::MAX as i128, i64::MIN as i128, 1 << 100, -(3 << 90) + 7];
+        let samples: [i128; 9] = [
+            0,
+            1,
+            -1,
+            12345,
+            -987654321,
+            i64::MAX as i128,
+            i64::MIN as i128,
+            1 << 100,
+            -(3 << 90) + 7,
+        ];
         for &x in &samples {
             for &y in &samples {
                 let (bx, by) = (BigInt::from(x), BigInt::from(y));
@@ -643,17 +696,32 @@ mod tests {
         let (q, r) = a.div_rem(&c);
         assert_eq!(&q * &c + &r, a);
         assert!(r.abs() < c.abs());
-        assert_eq!(a.to_string(), "123456789012345678901234567890123456789012345678901234567890");
+        assert_eq!(
+            a.to_string(),
+            "123456789012345678901234567890123456789012345678901234567890"
+        );
         assert_eq!(format!("{:x}", BigInt::from(255u32)), "ff");
-        assert_eq!(BigInt::from_str_radix("-ff", 16).unwrap(), BigInt::from(-255));
+        assert_eq!(
+            BigInt::from_str_radix("-ff", 16).unwrap(),
+            BigInt::from(-255)
+        );
         // Karatsuba against schoolbook on large operands
         let x = BigInt::from(3u64).pow(4000);
         let y = BigInt::from(7u64).pow(3000);
-        assert_eq!(BigInt::from_parts(false, mul_mag(&x.mag, &y.mag)), BigInt::from_parts(false, mul_school(&x.mag, &y.mag)));
+        assert_eq!(
+            BigInt::from_parts(false, mul_mag(&x.mag, &y.mag)),
+            BigInt::from_parts(false, mul_school(&x.mag, &y.mag))
+        );
         assert_eq!((&x * &y) / &y, x);
-        assert_eq!(BigInt::from(10u64).pow(40).isqrt(), BigInt::from(10u64).pow(20));
+        assert_eq!(
+            BigInt::from(10u64).pow(40).isqrt(),
+            BigInt::from(10u64).pow(20)
+        );
         assert_eq!(b("99999999999999999999").isqrt(), b("9999999999"));
-        assert_eq!(BigInt::from(462u64).gcd(&BigInt::from(1071u64)), BigInt::from(21u64));
+        assert_eq!(
+            BigInt::from(462u64).gcd(&BigInt::from(1071u64)),
+            BigInt::from(21u64)
+        );
         assert_eq!(BigInt::from(1u64) << 200 >> 199, BigInt::from(2u64));
     }
 

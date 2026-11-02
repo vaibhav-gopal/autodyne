@@ -17,10 +17,11 @@ use std::path::Path;
 use autodyne::dynamic::{DynArray, DynView};
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::osc::{Noise, Sine};
-use autodyne::units::DType;
 use autodyne::signal::{
-    Axis, NdArray, SampleEncoding, SampleReader, SampleWriter, Signal, SignalRead, SignalWrite, Source,
+    Axis, NdArray, SampleEncoding, SampleReader, SampleWriter, Signal, SignalRead, SignalWrite,
+    Source,
 };
+use autodyne::units::DType;
 
 const FS: f32 = 16_000.0;
 const BATCH: usize = 3;
@@ -28,27 +29,53 @@ const CHANNELS: usize = 2;
 const TIME: usize = 16_000; // one second per lane
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = std::env::args().nth(1).unwrap_or_else(|| "target/examples-out".into());
+    let out_dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "target/examples-out".into());
     std::fs::create_dir_all(&out_dir)?;
 
     // 1. A batch of noisy tones: clip b has a (500 * (b + 1)) Hz tone, channel c at 0.35 * (c + 1),
     //    keeping peaks under full scale so the 16-bit round trip in step 3 doesn't clip.
-    let mut tensor = NdArray::<f32>::zeros(&[BATCH, CHANNELS, TIME])?.with_labels(&[Axis::Batch, Axis::Channel, Axis::Time])?;
+    let mut tensor = NdArray::<f32>::zeros(&[BATCH, CHANNELS, TIME])?.with_labels(&[
+        Axis::Batch,
+        Axis::Channel,
+        Axis::Time,
+    ])?;
     let time = tensor.axis_of(Axis::Time).unwrap();
     let mut lane_index = 0;
     tensor.for_each_lane(time, |lane| {
         let (b, c) = (lane_index / CHANNELS, lane_index % CHANNELS);
-        Sine::new(500.0 * (b + 1) as f32, FS).with_amplitude(0.35 * (c + 1) as f32).mix(Noise::new(lane_index as u64).scaled(0.2)).fill(lane);
+        Sine::new(500.0 * (b + 1) as f32, FS)
+            .with_amplitude(0.35 * (c + 1) as f32)
+            .mix(Noise::new(lane_index as u64).scaled(0.2))
+            .fill(lane);
         lane_index += 1;
     })?;
-    let noisy_rms: Vec<f32> = tensor.lanes(time)?.map(|l| l.as_slice().unwrap().rms().unwrap()).collect();
+    let noisy_rms: Vec<f32> = tensor
+        .lanes(time)?
+        .map(|l| l.as_slice().unwrap().rms().unwrap())
+        .collect();
 
     // every lane is an independent clip: filter each with a fresh 2 kHz low-pass
-    tensor.for_each_lane(time, |lane| Biquad::lowpass(2_000.0, BUTTERWORTH_Q as f32, FS).process(lane))?;
-    println!("filtered {} lanes of a {:?} tensor along its {:?} axis", noisy_rms.len(), tensor.shape(), Axis::Time);
+    tensor.for_each_lane(time, |lane| {
+        Biquad::lowpass(2_000.0, BUTTERWORTH_Q as f32, FS).process(lane)
+    })?;
+    println!(
+        "filtered {} lanes of a {:?} tensor along its {:?} axis",
+        noisy_rms.len(),
+        tensor.shape(),
+        Axis::Time
+    );
     for (i, lane) in tensor.lanes(time)?.enumerate() {
         let x = lane.as_slice().unwrap();
-        println!("  batch {} channel {}: rms {:.3} -> {:.3}, peak {:.3}", i / CHANNELS, i % CHANNELS, noisy_rms[i], x.rms().unwrap(), x.peak());
+        println!(
+            "  batch {} channel {}: rms {:.3} -> {:.3}, peak {:.3}",
+            i / CHANNELS,
+            i % CHANNELS,
+            noisy_rms[i],
+            x.rms().unwrap(),
+            x.peak()
+        );
     }
 
     // 2. Hand the memory to "another runtime" and take it back, both without copying.
@@ -57,8 +84,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let view = DynView::new(bytes, DType::F32, &[BATCH, CHANNELS, TIME])?;
     let typed = view.typed::<f32>()?;
     let original = shared.as_array::<f32>()?;
-    assert_eq!(typed.as_slice().unwrap().as_ptr(), original.as_slice().as_ptr(), "zero-copy round trip");
-    println!("\nshared {} bytes as a {} {:?} view: same memory, no copy", bytes.len(), view.dtype(), view.shape());
+    assert_eq!(
+        typed.as_slice().unwrap().as_ptr(),
+        original.as_slice().as_ptr(),
+        "zero-copy round trip"
+    );
+    println!(
+        "\nshared {} bytes as a {} {:?} view: same memory, no copy",
+        bytes.len(),
+        view.dtype(),
+        view.shape()
+    );
 
     // 3. Stream batch 2 / channel 1 to 16-bit PCM and back.
     let lane = typed.index_axis(0, 2)?.index_axis(0, 1)?; // [time]

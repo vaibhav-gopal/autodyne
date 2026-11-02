@@ -21,9 +21,23 @@ pub enum SvfMode {
 
 impl SvfMode {
     /// Every mode, in parameter order.
-    pub const ALL: [SvfMode; 6] = [SvfMode::Lowpass, SvfMode::Bandpass, SvfMode::Highpass, SvfMode::Notch, SvfMode::Peak, SvfMode::Allpass];
+    pub const ALL: [SvfMode; 6] = [
+        SvfMode::Lowpass,
+        SvfMode::Bandpass,
+        SvfMode::Highpass,
+        SvfMode::Notch,
+        SvfMode::Peak,
+        SvfMode::Allpass,
+    ];
     /// Display names, in the order of [`ALL`](Self::ALL).
-    pub const NAMES: [&'static str; 6] = ["Low-pass", "Band-pass", "High-pass", "Notch", "Peak", "All-pass"];
+    pub const NAMES: [&'static str; 6] = [
+        "Low-pass",
+        "Band-pass",
+        "High-pass",
+        "Notch",
+        "Peak",
+        "All-pass",
+    ];
 }
 
 /// The three core outputs of one [`Svf`] step.
@@ -61,7 +75,12 @@ impl<T: Real> SvfCoeffs<T> {
         let k = one / q;
         let a1 = one / (one + g * (g + k));
         let a2 = g * a1;
-        Self { k, a1, a2, a3: g * a2 }
+        Self {
+            k,
+            a1,
+            a2,
+            a3: g * a2,
+        }
     }
     /// One step from the two integrator states: `(next states, outputs)`.
     #[inline(always)]
@@ -71,7 +90,14 @@ impl<T: Real> SvfCoeffs<T> {
         let v1 = self.a1 * ic1 + self.a2 * v3;
         let v2 = ic2 + self.a2 * ic1 + self.a3 * v3;
         let two = T::lit(2.0);
-        ([two * v1 - ic1, two * v2 - ic2], SvfOutputs { low: v2, band: v1, high: x - self.k * v1 - v2 })
+        (
+            [two * v1 - ic1, two * v2 - ic2],
+            SvfOutputs {
+                low: v2,
+                band: v1,
+                high: x - self.k * v1 - v2,
+            },
+        )
     }
 }
 
@@ -116,7 +142,12 @@ impl<T: Float> Svf<T> {
             cutoff,
             q,
             sample_rate,
-            coeffs: SvfCoeffs { k: T::_ONE, a1: T::_ZERO, a2: T::_ZERO, a3: T::_ZERO },
+            coeffs: SvfCoeffs {
+                k: T::_ONE,
+                a1: T::_ZERO,
+                a2: T::_ZERO,
+                a3: T::_ZERO,
+            },
             ic1: T::_ZERO,
             ic2: T::_ZERO,
         };
@@ -208,7 +239,8 @@ impl<T: Float> Svf<T> {
     /// |H| of the selected mode at `frequency` (exact: the analog prototype at the prewarped
     /// frequency).
     pub fn magnitude_at(&self, frequency: T) -> T {
-        let w = (T::_PI * frequency / self.sample_rate)._tan() / (T::_PI * self.cutoff / self.sample_rate)._tan();
+        let w = (T::_PI * frequency / self.sample_rate)._tan()
+            / (T::_PI * self.cutoff / self.sample_rate)._tan();
         let k = self.coeffs.k;
         let (re, im) = (T::_ONE - w * w, k * w); // denominator s^2 + k s + 1 at s = jw
         let den = re._hypot(im);
@@ -235,7 +267,9 @@ mod tests {
     /// Steady-state gain of `filter` for a sine at `freq` (RMS out / RMS in after settling).
     fn measured_gain(mut filter: Svf<f64>, freq: f64) -> f64 {
         let n = 48_000;
-        let x: Vec<f64> = (0..n).map(|i| (std::f64::consts::TAU * freq * i as f64 / FS).sin()).collect();
+        let x: Vec<f64> = (0..n)
+            .map(|i| (std::f64::consts::TAU * freq * i as f64 / FS).sin())
+            .collect();
         let y: Vec<f64> = x.iter().map(|&s| filter.process_sample(s)).collect();
         let rms = |v: &[f64]| (v.iter().map(|s| s * s).sum::<f64>() / v.len() as f64).sqrt();
         rms(&y[n / 2..]) / rms(&x[n / 2..])
@@ -247,7 +281,8 @@ mod tests {
             for (cutoff, q) in [(1_000.0, std::f64::consts::FRAC_1_SQRT_2), (3_000.0, 4.0)] {
                 let filter = Svf::new(mode, cutoff, q, FS);
                 for freq in [100.0, 700.0, 1_000.0, 2_500.0, 9_000.0] {
-                    let (measured, analytic) = (measured_gain(filter, freq), filter.magnitude_at(freq));
+                    let (measured, analytic) =
+                        (measured_gain(filter, freq), filter.magnitude_at(freq));
                     assert!(
                         (measured - analytic).abs() < 2e-3 * analytic.max(1e-2),
                         "{mode:?} fc={cutoff} q={q} at {freq} Hz: {measured} vs {analytic}"
@@ -256,8 +291,14 @@ mod tests {
             }
         }
         let lp = Svf::lowpass(1_000.0, std::f64::consts::FRAC_1_SQRT_2, FS);
-        assert!((20.0 * lp.magnitude_at(1_000.0).log10() + 3.0103).abs() < 1e-3, "-3 dB at the cutoff");
-        assert!((Svf::bandpass(1_000.0, 5.0, FS).magnitude_at(1_000.0) - 1.0).abs() < 1e-12, "unity band-pass peak");
+        assert!(
+            (20.0 * lp.magnitude_at(1_000.0).log10() + 3.0103).abs() < 1e-3,
+            "-3 dB at the cutoff"
+        );
+        assert!(
+            (Svf::bandpass(1_000.0, 5.0, FS).magnitude_at(1_000.0) - 1.0).abs() < 1e-12,
+            "unity band-pass peak"
+        );
     }
 
     #[test]

@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the pitch shifter.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 use crate::params::ParamUnit::Semitones;
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 
 parameterized!(PitchShifter, "Pitch shifter",
     infos: |_s| [ParamInfo::new("semitones", "Shift", Semitones, -24.0, 24.0, 0.0)],

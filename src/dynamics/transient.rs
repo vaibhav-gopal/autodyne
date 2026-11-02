@@ -33,7 +33,12 @@ const LIMIT_DB: f64 = 24.0;
 impl<T: Float> TransientShaper<T> {
     /// Neutral: both amounts 0, so the signal passes unchanged.
     pub fn new(sample_rate: T) -> Self {
-        let coeffs = FOLLOWERS.map(|(a, r)| (time_coeff(T::_lit(a), sample_rate), time_coeff(T::_lit(r), sample_rate)));
+        let coeffs = FOLLOWERS.map(|(a, r)| {
+            (
+                time_coeff(T::_lit(a), sample_rate),
+                time_coeff(T::_lit(r), sample_rate),
+            )
+        });
         Self {
             sample_rate,
             attack_amount: T::_ZERO,
@@ -90,7 +95,8 @@ impl<T: Float> TransientShaper<T> {
         let attack_db = ratio_db(self.env[0], self.env[1]);
         let sustain_db = ratio_db(self.env[3], self.env[2]);
         let limit = T::_lit(LIMIT_DB);
-        let db = (self.attack_amount * attack_db + self.sustain_amount * sustain_db)._clamp(-limit, limit);
+        let db = (self.attack_amount * attack_db + self.sustain_amount * sustain_db)
+            ._clamp(-limit, limit);
         self.output.next_value() * db_to_gain(db)
     }
     /// Processes one sample.
@@ -140,7 +146,12 @@ mod tests {
 
     /// (attack portion, tail portion) of each hit, in dB.
     fn shape(x: &[f64]) -> [(f64, f64); 2] {
-        [2_400, 98_400].map(|s| (energy_db(&x[s..s + 240]), energy_db(&x[s + 9_600..s + 14_400])))
+        [2_400, 98_400].map(|s| {
+            (
+                energy_db(&x[s..s + 240]),
+                energy_db(&x[s + 9_600..s + 14_400]),
+            )
+        })
     }
 
     #[test]
@@ -166,9 +177,15 @@ mod tests {
                 // the attack-to-tail balance moves the requested way, by the same amount for both hits
                 let change = (a1 - t1) - (a0 - t0);
                 let wanted = if attack != 0.0 { attack } else { -sustain };
-                assert!(change * wanted > 3.0, "attack {attack} sustain {sustain} hit {hit}: balance moved {change} dB");
+                assert!(
+                    change * wanted > 3.0,
+                    "attack {attack} sustain {sustain} hit {hit}: balance moved {change} dB"
+                );
             }
-            let (c0, c1) = ((after[0].0 - after[0].1) - (before[0].0 - before[0].1), (after[1].0 - after[1].1) - (before[1].0 - before[1].1));
+            let (c0, c1) = (
+                (after[0].0 - after[0].1) - (before[0].0 - before[0].1),
+                (after[1].0 - after[1].1) - (before[1].0 - before[1].1),
+            );
             assert!((c0 - c1).abs() < 1.0, "level independent: {c0} vs {c1}");
         }
     }

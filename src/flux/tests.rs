@@ -1,10 +1,10 @@
 //! Tests for flux: tracing, both differentiation modes and the interpreter, against finite differences and eager evaluation.
 
 use super::*;
-use crate::testing::{noise_f32 as noise, random_f32 as random};
-use crate::signal::frames;
 use crate::filter::OnePole;
+use crate::signal::frames;
 use crate::signal::{ArrayMath, ComplexArrayMath, NdArray, RealArrayMath};
+use crate::testing::{noise_f32 as noise, random_f32 as random};
 use crate::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
@@ -15,13 +15,20 @@ fn arr(data: &[f32], shape: &[usize]) -> NdArray<f32> {
 
 /// Deterministic values in [-1, 1).
 fn close(a: &[f32], b: &[f32], tol: f32) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| (x - y).abs() <= tol * (1.0 + y.abs()))
+    a.len() == b.len()
+        && a.iter()
+            .zip(b)
+            .all(|(x, y)| (x - y).abs() <= tol * (1.0 + y.abs()))
 }
 
 /// Checks `vjp` of `f` against central differences of `Σ f(inputs) · w` (w fixed, random), for every
 /// element of every input.
 fn check_gradient(shapes: &[&[usize]], h: f32, tol: f32, f: impl Fn(&[Tracer]) -> Tracer) {
-    let inputs: Vec<NdArray<f32>> = shapes.iter().enumerate().map(|(k, s)| random(s, 11 + k as u32)).collect();
+    let inputs: Vec<NdArray<f32>> = shapes
+        .iter()
+        .enumerate()
+        .map(|(k, s)| random(s, 11 + k as u32))
+        .collect();
     let forward = trace(shapes, |v| vec![f(v)]);
     let w = random(&forward.output_shapes()[0], 99);
     let loss_graph = trace(shapes, |v| vec![(f(v) * Tracer::constant(&w)).sum_all()]);
@@ -41,7 +48,10 @@ fn check_gradient(shapes: &[&[usize]], h: f32, tol: f32, f: impl Fn(&[Tracer]) -
             let down = loss(&moved);
             let fd = ((up - down) / (2.0 * h as f64)) as f32;
             let got = grads[k].as_slice()[i];
-            assert!((got - fd).abs() <= tol * (1.0 + fd.abs()), "input {k} element {i}: vjp {got} vs finite difference {fd}");
+            assert!(
+                (got - fd).abs() <= tol * (1.0 + fd.abs()),
+                "input {k} element {i}: vjp {got} vs finite difference {fd}"
+            );
         }
     }
 }
@@ -61,13 +71,25 @@ fn derivatives_of_each_function() {
         (|x| x.sqrt(), |x| 0.5 / x.sqrt(), 2.0),
         (|x| x.abs(), |_| -1.0, -1.5),
         (|x| x.powf(Tracer::lit(3.0)), |x| 3.0 * x * x, 1.2),
-        (|x| Tracer::lit(2.0).powf(x), |x| 2f32.powf(x) * 2f32.ln(), 1.2),
-        (|x| Tracer::lit(1.0) / x - x * x, |x| -1.0 / (x * x) - 2.0 * x, 0.8),
+        (
+            |x| Tracer::lit(2.0).powf(x),
+            |x| 2f32.powf(x) * 2f32.ln(),
+            1.2,
+        ),
+        (
+            |x| Tracer::lit(1.0) / x - x * x,
+            |x| -1.0 / (x * x) - 2.0 * x,
+            0.8,
+        ),
     ];
     for (k, (f, df, x)) in cases.into_iter().enumerate() {
         let g = trace(&[&[]], |v| vjp(&[f(v[0])], &[Tracer::lit(1.0)], &[v[0]]));
         let got = g.eval(&[scalar(x)])[0].as_slice()[0];
-        assert!((got - df(x)).abs() < 1e-5 * df(x).abs().max(1.0), "case {k}: {got} vs {}", df(x));
+        assert!(
+            (got - df(x)).abs() < 1e-5 * df(x).abs().max(1.0),
+            "case {k}: {got} vs {}",
+            df(x)
+        );
     }
 }
 
@@ -75,10 +97,16 @@ fn derivatives_of_each_function() {
 fn min_max_select_route_the_gradient() {
     let g = trace(&[&[], &[]], |v| {
         let (a, b) = (v[0], v[1]);
-        let y = a.minimum(b) + Tracer::lit(2.0) * a.maximum(b) + Tracer::select(a.less(b), a * a, b);
+        let y =
+            a.minimum(b) + Tracer::lit(2.0) * a.maximum(b) + Tracer::select(a.less(b), a * a, b);
         vjp(&[y], &[Tracer::lit(1.0)], &[a, b])
     });
-    let at = |a: f32, b: f32| g.eval(&[scalar(a), scalar(b)]).iter().map(|x| x.as_slice()[0]).collect::<Vec<_>>();
+    let at = |a: f32, b: f32| {
+        g.eval(&[scalar(a), scalar(b)])
+            .iter()
+            .map(|x| x.as_slice()[0])
+            .collect::<Vec<_>>()
+    };
     // a < b: min = a, max = b, select = a²  ->  d/da = 1 + 2a, d/db = 2
     assert_eq!(at(1.0, 3.0), vec![3.0, 2.0]);
     // a > b: min = b, max = a, select = b  ->  d/da = 2, d/db = 1 + 1
@@ -96,7 +124,9 @@ fn element_wise_on_arrays_with_broadcasting() {
 
 #[test]
 fn unused_inputs_get_zero_gradient() {
-    let g = trace(&[&[], &[2]], |v| vjp(&[v[0] * v[0]], &[Tracer::lit(1.0)], &[v[0], v[1]]));
+    let g = trace(&[&[], &[2]], |v| {
+        vjp(&[v[0] * v[0]], &[Tracer::lit(1.0)], &[v[0], v[1]])
+    });
     let out = g.eval(&[scalar(3.0), vector(&[1.0, 2.0])]);
     assert_eq!(out[0].as_slice(), &[6.0]);
     assert_eq!(out[1].shape(), &[2]);
@@ -124,18 +154,38 @@ fn forward_mode_is_the_transpose_of_reverse_mode() {
         let (a, b) = (v[0], v[1]);
         let y = (a * b).tanh().maximum(a.abs().sqrt() * Tracer::lit(0.3));
         let (re, im) = y.rfft();
-        vec![(re * re + im * im).max_axes(&[1]), crate::signal::convolve(y, b.slice_axis(0, 0, 3)).take(Tracer::lit(4.0)).reverse(&[0])]
+        vec![
+            (re * re + im * im).max_axes(&[1]),
+            crate::signal::convolve(y, b.slice_axis(0, 0, 3))
+                .take(Tracer::lit(4.0))
+                .reverse(&[0]),
+        ]
     };
     let inputs = [random(shapes[0], 1), random(shapes[1], 2)];
     let (v0, v1) = (random(shapes[0], 3), random(shapes[1], 4));
     let out_shapes = trace(shapes, |v| f(v)).output_shapes();
     let (w0, w1) = (random(&out_shapes[0], 5), random(&out_shapes[1], 6));
-    let jv = trace(shapes, |v| jvp(&f(v), v, &[Tracer::constant(&v0), Tracer::constant(&v1)])).eval(&inputs);
-    let jtw = trace(shapes, |v| vjp(&f(v), &[Tracer::constant(&w0), Tracer::constant(&w1)], v)).eval(&inputs);
-    let dot = |a: &NdArray<f32>, b: &NdArray<f32>| a.as_slice().iter().zip(b.as_slice()).map(|(x, y)| *x as f64 * *y as f64).sum::<f64>();
+    let jv = trace(shapes, |v| {
+        jvp(&f(v), v, &[Tracer::constant(&v0), Tracer::constant(&v1)])
+    })
+    .eval(&inputs);
+    let jtw = trace(shapes, |v| {
+        vjp(&f(v), &[Tracer::constant(&w0), Tracer::constant(&w1)], v)
+    })
+    .eval(&inputs);
+    let dot = |a: &NdArray<f32>, b: &NdArray<f32>| {
+        a.as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .map(|(x, y)| *x as f64 * *y as f64)
+            .sum::<f64>()
+    };
     let left = dot(&jv[0], &w0) + dot(&jv[1], &w1);
     let right = dot(&v0, &jtw[0]) + dot(&v1, &jtw[1]);
-    assert!((left - right).abs() < 1e-4 * (1.0 + left.abs()), "{left} vs {right}");
+    assert!(
+        (left - right).abs() < 1e-4 * (1.0 + left.abs()),
+        "{left} vs {right}"
+    );
     // and against a finite difference along v
     let h = 1e-3f32;
     let at = |s: f32| {
@@ -145,7 +195,11 @@ fn forward_mode_is_the_transpose_of_reverse_mode() {
     let (up, down) = (at(h), at(-h));
     for i in 0..jv[0].len() {
         let fd = (up[0].as_slice()[i] - down[0].as_slice()[i]) / (2.0 * h);
-        assert!((jv[0].as_slice()[i] - fd).abs() < 2e-2 * (1.0 + fd.abs()), "element {i}: {} vs {fd}", jv[0].as_slice()[i]);
+        assert!(
+            (jv[0].as_slice()[i] - fd).abs() < 2e-2 * (1.0 + fd.abs()),
+            "element {i}: {} vs {fd}",
+            jv[0].as_slice()[i]
+        );
     }
 }
 
@@ -189,13 +243,23 @@ fn shape_operation_gradients() {
 fn dot_forward() {
     let m = arr(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
     let x = vector(&[1.0, 0.0, -1.0]);
-    let g = trace(&[&[2, 3], &[3]], |v| vec![v[0].dot(v[1]), v[1].dot(v[1]), v[0].dot(v[0].transpose(&[1, 0])), v[0].dot_general(v[0], &[0], &[0])]);
+    let g = trace(&[&[2, 3], &[3]], |v| {
+        vec![
+            v[0].dot(v[1]),
+            v[1].dot(v[1]),
+            v[0].dot(v[0].transpose(&[1, 0])),
+            v[0].dot_general(v[0], &[0], &[0]),
+        ]
+    });
     let out = g.eval(&[m, x]);
     assert_eq!(out[0].as_slice(), &[-2.0, -2.0]);
     assert_eq!(out[1].as_slice(), &[2.0]);
     assert_eq!(out[2].as_slice(), &[14.0, 32.0, 32.0, 77.0]);
     assert_eq!(out[3].shape(), &[3, 3]);
-    assert_eq!(out[3].as_slice(), &[17.0, 22.0, 27.0, 22.0, 29.0, 36.0, 27.0, 36.0, 45.0]);
+    assert_eq!(
+        out[3].as_slice(),
+        &[17.0, 22.0, 27.0, 22.0, 29.0, 36.0, 27.0, 36.0, 45.0]
+    );
 }
 
 #[test]
@@ -203,11 +267,17 @@ fn dot_gradients() {
     check_gradient(&[&[3, 4], &[4]], 0.1, 1e-4, |v| v[0].dot(v[1]));
     check_gradient(&[&[4], &[4]], 0.1, 1e-4, |v| v[0].dot(v[1]));
     check_gradient(&[&[2, 3], &[3, 5]], 0.1, 1e-4, |v| v[0].dot(v[1]));
-    check_gradient(&[&[3, 2], &[4, 3]], 0.1, 1e-4, |v| v[0].dot_general(v[1], &[0], &[1]));
+    check_gradient(&[&[3, 2], &[4, 3]], 0.1, 1e-4, |v| {
+        v[0].dot_general(v[1], &[0], &[1])
+    });
     // two contracted axes, paired out of order
-    check_gradient(&[&[2, 3, 4], &[4, 5, 3]], 0.1, 1e-4, |v| v[0].dot_general(v[1], &[1, 2], &[2, 0]));
+    check_gradient(&[&[2, 3, 4], &[4, 5, 3]], 0.1, 1e-4, |v| {
+        v[0].dot_general(v[1], &[1, 2], &[2, 0])
+    });
     // outer product
-    check_gradient(&[&[2], &[3]], 0.1, 1e-4, |v| v[0].dot_general(v[1], &[], &[]));
+    check_gradient(&[&[2], &[3]], 0.1, 1e-4, |v| {
+        v[0].dot_general(v[1], &[], &[])
+    });
 }
 
 /// The DFT of a real signal by definition, in f64.
@@ -215,10 +285,12 @@ fn naive_rfft(x: &[f32]) -> (Vec<f32>, Vec<f32>) {
     let n = x.len();
     (0..n / 2 + 1)
         .map(|k| {
-            x.iter().enumerate().fold((0.0f64, 0.0f64), |(re, im), (t, &v)| {
-                let phase = -std::f64::consts::TAU * (k * t) as f64 / n as f64;
-                (re + v as f64 * phase.cos(), im + v as f64 * phase.sin())
-            })
+            x.iter()
+                .enumerate()
+                .fold((0.0f64, 0.0f64), |(re, im), (t, &v)| {
+                    let phase = -std::f64::consts::TAU * (k * t) as f64 / n as f64;
+                    (re + v as f64 * phase.cos(), im + v as f64 * phase.sin())
+                })
         })
         .map(|(re, im)| (re as f32, im as f32))
         .unzip()
@@ -236,10 +308,19 @@ fn fft_forward_and_round_trip() {
         let m = n / 2 + 1;
         for row in 0..3 {
             let (re, im) = naive_rfft(&x.as_slice()[row * n..(row + 1) * n]);
-            assert!(close(&out[0].as_slice()[row * m..(row + 1) * m], &re, 1e-5), "n = {n}");
-            assert!(close(&out[1].as_slice()[row * m..(row + 1) * m], &im, 1e-5), "n = {n}");
+            assert!(
+                close(&out[0].as_slice()[row * m..(row + 1) * m], &re, 1e-5),
+                "n = {n}"
+            );
+            assert!(
+                close(&out[1].as_slice()[row * m..(row + 1) * m], &im, 1e-5),
+                "n = {n}"
+            );
         }
-        assert!(close(out[2].as_slice(), x.as_slice(), 1e-5), "irfft(rfft(x)) == x for n = {n}");
+        assert!(
+            close(out[2].as_slice(), x.as_slice(), 1e-5),
+            "irfft(rfft(x)) == x for n = {n}"
+        );
     }
 }
 
@@ -257,18 +338,32 @@ fn complex_fft_forward_round_trip_and_gradients() {
             for k in 0..n {
                 let (mut sr, mut si) = (0.0f64, 0.0f64);
                 for t in 0..n {
-                    let (xr, xi) = (re.as_slice()[row * n + t] as f64, im.as_slice()[row * n + t] as f64);
+                    let (xr, xi) = (
+                        re.as_slice()[row * n + t] as f64,
+                        im.as_slice()[row * n + t] as f64,
+                    );
                     let phase = -std::f64::consts::TAU * (k * t) as f64 / n as f64;
                     sr += xr * phase.cos() - xi * phase.sin();
                     si += xr * phase.sin() + xi * phase.cos();
                 }
-                assert!((out[0].as_slice()[row * n + k] as f64 - sr).abs() < 1e-5 && (out[1].as_slice()[row * n + k] as f64 - si).abs() < 1e-5);
+                assert!(
+                    (out[0].as_slice()[row * n + k] as f64 - sr).abs() < 1e-5
+                        && (out[1].as_slice()[row * n + k] as f64 - si).abs() < 1e-5
+                );
             }
         }
-        assert!(close(out[2].as_slice(), re.as_slice(), 1e-5) && close(out[3].as_slice(), im.as_slice(), 1e-5), "round trip");
+        assert!(
+            close(out[2].as_slice(), re.as_slice(), 1e-5)
+                && close(out[3].as_slice(), im.as_slice(), 1e-5),
+            "round trip"
+        );
         for inverse in [false, true] {
             check_gradient(&[&[2, n], &[2, n]], 0.1, 1e-3, |v| {
-                let (a, b) = if inverse { Tracer::ifft_parts(v[0], v[1]) } else { Tracer::fft_parts(v[0], v[1]) };
+                let (a, b) = if inverse {
+                    Tracer::ifft_parts(v[0], v[1])
+                } else {
+                    Tracer::fft_parts(v[0], v[1])
+                };
                 Tracer::concatenate(&[a, b * Tracer::lit(0.7)], 1)
             });
         }
@@ -292,7 +387,9 @@ fn complex_values_differentiate() {
         (p.fft() * p.conj().ifft()).re() + p.abs()
     });
     // a spectral gain through complex spectra, as XLA keeps them
-    check_gradient(&[&[2, 8], &[5]], 1e-2, 2e-3, |v| Tracer::irfft_complex(v[0].rfft_complex() * v[1], 8));
+    check_gradient(&[&[2, 8], &[5]], 1e-2, 2e-3, |v| {
+        Tracer::irfft_complex(v[0].rfft_complex() * v[1], 8)
+    });
 }
 
 #[test]
@@ -300,18 +397,38 @@ fn complex_spectra_match_the_pair_form_and_forward_mode_crosses_them() {
     let (x, g) = (random(&[3, 16], 7), random(&[9], 8));
     let both = trace(&[&[3, 16], &[9]], |v| {
         let (re, im) = v[0].rfft();
-        vec![Tracer::irfft(re * v[1], im * v[1], 16), Tracer::irfft_complex(v[0].rfft_complex() * v[1], 16)]
+        vec![
+            Tracer::irfft(re * v[1], im * v[1], 16),
+            Tracer::irfft_complex(v[0].rfft_complex() * v[1], 16),
+        ]
     })
     .eval(&[x.clone(), g.clone()]);
     assert!(close(both[0].as_slice(), both[1].as_slice(), 1e-6));
     // ⟨J v, w⟩ = ⟨v, Jᵀ w⟩ through complex nodes
-    let f = |v: &[Tracer]| vec![(Tracer::irfft_complex(v[0].rfft_complex() * v[1].to_complex().exp(), 16)).tanh()];
+    let f = |v: &[Tracer]| {
+        vec![(Tracer::irfft_complex(v[0].rfft_complex() * v[1].to_complex().exp(), 16)).tanh()]
+    };
     let (v0, v1, w0) = (random(&[3, 16], 9), random(&[9], 10), random(&[3, 16], 11));
-    let jv = trace(&[&[3, 16], &[9]], |v| jvp(&f(v), v, &[Tracer::constant(&v0), Tracer::constant(&v1)])).eval(&[x.clone(), g.clone()]);
-    let jtw = trace(&[&[3, 16], &[9]], |v| vjp(&f(v), &[Tracer::constant(&w0)], v)).eval(&[x, g]);
-    let dot = |a: &NdArray<f32>, b: &NdArray<f32>| a.as_slice().iter().zip(b.as_slice()).map(|(p, q)| *p as f64 * *q as f64).sum::<f64>();
+    let jv = trace(&[&[3, 16], &[9]], |v| {
+        jvp(&f(v), v, &[Tracer::constant(&v0), Tracer::constant(&v1)])
+    })
+    .eval(&[x.clone(), g.clone()]);
+    let jtw = trace(&[&[3, 16], &[9]], |v| {
+        vjp(&f(v), &[Tracer::constant(&w0)], v)
+    })
+    .eval(&[x, g]);
+    let dot = |a: &NdArray<f32>, b: &NdArray<f32>| {
+        a.as_slice()
+            .iter()
+            .zip(b.as_slice())
+            .map(|(p, q)| *p as f64 * *q as f64)
+            .sum::<f64>()
+    };
     let (left, right) = (dot(&jv[0], &w0), dot(&v0, &jtw[0]) + dot(&v1, &jtw[1]));
-    assert!((left - right).abs() < 1e-4 * (1.0 + left.abs()), "{left} vs {right}");
+    assert!(
+        (left - right).abs() < 1e-4 * (1.0 + left.abs()),
+        "{left} vs {right}"
+    );
 }
 
 #[test]
@@ -326,7 +443,9 @@ fn fft_gradients() {
         check_gradient(&[&[2, n]], 0.1, 1e-3, |v| v[0].rfft().0);
         check_gradient(&[&[2, n]], 0.1, 1e-3, |v| v[0].rfft().1);
         let m = n / 2 + 1;
-        check_gradient(&[&[2, m], &[2, m]], 0.1, 1e-3, |v| Tracer::irfft(v[0], v[1], n));
+        check_gradient(&[&[2, m], &[2, m]], 0.1, 1e-3, |v| {
+            Tracer::irfft(v[0], v[1], n)
+        });
         // a spectral gain: irfft(rfft(x) * g)
         check_gradient(&[&[n], &[m]], 1e-2, 2e-3, |v| {
             let (re, im) = v[0].rfft();
@@ -376,9 +495,13 @@ fn scan_gradient_matches_finite_differences() {
     for cutoff in [300.0f32, 1_000.0, 4_000.0] {
         let g = one_pole().loss_grad(&[scalar(cutoff)], &vector(&xs), &targets, &[scalar(0.0)]);
         let h = cutoff as f64 * 1e-4;
-        let fd = (loss_f64(cutoff as f64 + h, &xs, t) - loss_f64(cutoff as f64 - h, &xs, t)) / (2.0 * h);
+        let fd =
+            (loss_f64(cutoff as f64 + h, &xs, t) - loss_f64(cutoff as f64 - h, &xs, t)) / (2.0 * h);
         let got = g.params[0].as_slice()[0] as f64;
-        assert!(((got - fd) / fd).abs() < 1e-3, "cutoff {cutoff}: {got} vs {fd}");
+        assert!(
+            ((got - fd) / fd).abs() < 1e-3,
+            "cutoff {cutoff}: {got} vs {fd}"
+        );
         assert!(((g.loss as f64 - loss_f64(cutoff as f64, &xs, t)) / g.loss as f64).abs() < 1e-4);
     }
 }
@@ -414,12 +537,18 @@ fn state_space() -> Scan {
 #[test]
 fn state_space_gradient_matches_finite_differences() {
     let scan = state_space();
-    let params = [arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]), vector(&[1.0, 0.5]), vector(&[0.3, -0.7])];
+    let params = [
+        arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]),
+        vector(&[1.0, 0.5]),
+        vector(&[0.3, -0.7]),
+    ];
     let xs = random(&[64], 6);
     let targets = random(&[64], 7);
     let s0 = [vector(&[0.1, -0.2])];
     let g = scan.loss_grad(&params, &xs, &targets, &s0);
-    let loss = |params: &[NdArray<f32>], s0: &[NdArray<f32>]| scan.loss_grad(params, &xs, &targets, s0).loss as f64;
+    let loss = |params: &[NdArray<f32>], s0: &[NdArray<f32>]| {
+        scan.loss_grad(params, &xs, &targets, s0).loss as f64
+    };
     let h = 1e-2f32;
     for k in 0..3 {
         for i in 0..params[k].len() {
@@ -429,7 +558,10 @@ fn state_space_gradient_matches_finite_differences() {
             p[k].as_mut_slice()[i] -= 2.0 * h;
             let fd = ((up - loss(&p, &s0)) / (2.0 * h as f64)) as f32;
             let got = g.params[k].as_slice()[i];
-            assert!((got - fd).abs() < 2e-3 * (1.0 + fd.abs()), "param {k}[{i}]: {got} vs {fd}");
+            assert!(
+                (got - fd).abs() < 2e-3 * (1.0 + fd.abs()),
+                "param {k}[{i}]: {got} vs {fd}"
+            );
         }
     }
     for i in 0..2 {
@@ -439,7 +571,10 @@ fn state_space_gradient_matches_finite_differences() {
         s[0].as_mut_slice()[i] -= 2.0 * h;
         let fd = ((up - loss(&params, &s)) / (2.0 * h as f64)) as f32;
         let got = g.state[0].as_slice()[i];
-        assert!((got - fd).abs() < 2e-3 * (1.0 + fd.abs()), "state[{i}]: {got} vs {fd}");
+        assert!(
+            (got - fd).abs() < 2e-3 * (1.0 + fd.abs()),
+            "state[{i}]: {got} vs {fd}"
+        );
     }
 }
 
@@ -449,18 +584,50 @@ fn saved_residuals_and_checkpointing_give_the_same_gradients() {
     let chain = Scan::trace(&[&[], &[]], &[&[]], &[], |p, s, x| {
         let (s, y) = OnePole::lowpass(p[0], Elementwise::lit(FS)).tick(s[0], x);
         let driven = y * p[1];
-        (vec![s], Tracer::select(driven.abs().less(Tracer::lit(1.0)), driven - driven * driven * driven / Tracer::lit(3.0), driven.tanh()))
+        (
+            vec![s],
+            Tracer::select(
+                driven.abs().less(Tracer::lit(1.0)),
+                driven - driven * driven * driven / Tracer::lit(3.0),
+                driven.tanh(),
+            ),
+        )
     });
     let xs = vector(&noise(256, 31).iter().map(|v| 2.0 * v).collect::<Vec<_>>());
     let targets = random(&[256], 32);
     let saved = chain.loss_grad(&[scalar(900.0), scalar(1.7)], &xs, &targets, &[scalar(0.0)]);
-    let recomputed = chain.clone().checkpointed(true).loss_grad(&[scalar(900.0), scalar(1.7)], &xs, &targets, &[scalar(0.0)]);
-    assert!(!chain.residual_shapes().is_empty() && chain.clone().checkpointed(true).residual_shapes().is_empty());
+    let recomputed = chain.clone().checkpointed(true).loss_grad(
+        &[scalar(900.0), scalar(1.7)],
+        &xs,
+        &targets,
+        &[scalar(0.0)],
+    );
+    assert!(
+        !chain.residual_shapes().is_empty()
+            && chain
+                .clone()
+                .checkpointed(true)
+                .residual_shapes()
+                .is_empty()
+    );
     assert_eq!(saved, recomputed);
     let ss = state_space();
-    let params = [arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]), arr(&[1.0, 0.5], &[2]), arr(&[0.3, -0.7], &[2])];
-    let (xs, targets, s0) = (random(&[64], 33), random(&[64], 34), [arr(&[0.1, -0.2], &[2])]);
-    assert_eq!(ss.loss_grad(&params, &xs, &targets, &s0), ss.clone().checkpointed(true).loss_grad(&params, &xs, &targets, &s0));
+    let params = [
+        arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]),
+        arr(&[1.0, 0.5], &[2]),
+        arr(&[0.3, -0.7], &[2]),
+    ];
+    let (xs, targets, s0) = (
+        random(&[64], 33),
+        random(&[64], 34),
+        [arr(&[0.1, -0.2], &[2])],
+    );
+    assert_eq!(
+        ss.loss_grad(&params, &xs, &targets, &s0),
+        ss.clone()
+            .checkpointed(true)
+            .loss_grad(&params, &xs, &targets, &s0)
+    );
 }
 
 #[test]
@@ -471,8 +638,14 @@ fn programs_have_the_expected_signatures() {
     assert_eq!(forward.inputs, vec![vec![], vec![512], vec![]]);
     let grad = state_space().loss_grad_program(64);
     assert_eq!(grad.text.matches("stablehlo.while").count(), 2);
-    assert_eq!(grad.inputs, vec![vec![2, 2], vec![2], vec![2], vec![64], vec![64], vec![2]]);
-    assert_eq!(grad.outputs, vec![vec![], vec![2, 2], vec![2], vec![2], vec![2], vec![64]]);
+    assert_eq!(
+        grad.inputs,
+        vec![vec![2, 2], vec![2], vec![2], vec![64], vec![64], vec![2]]
+    );
+    assert_eq!(
+        grad.outputs,
+        vec![vec![], vec![2, 2], vec![2], vec![2], vec![2], vec![64]]
+    );
     let g = trace(&[&[4, 8]], |v| vec![v[0].rfft().0.sum_axes(&[1])]).program();
     assert!(g.text.contains("stablehlo.fft") && g.text.contains("stablehlo.reduce"));
 }
@@ -503,15 +676,24 @@ fn slice_pad_concatenate_forward() {
     assert_eq!(&out[2].as_slice()[12..], &[1.0, 2.0, 3.0, 4.0]);
     // the eager implementation agrees
     assert_eq!(x.clone().slice(&[0, 1], &[3, 4], &[2, 2]), out[0]);
-    assert_eq!(NdArray::concatenate(&[x.clone(), x.clone().slice_axis(0, 0, 1)], 0), out[2]);
+    assert_eq!(
+        NdArray::concatenate(&[x.clone(), x.clone().slice_axis(0, 0, 1)], 0),
+        out[2]
+    );
 }
 
 #[test]
 fn slice_pad_concatenate_gradients() {
-    check_gradient(&[&[3, 4]], 0.1, 1e-4, |v| v[0].slice(&[0, 1], &[3, 4], &[2, 2]));
+    check_gradient(&[&[3, 4]], 0.1, 1e-4, |v| {
+        v[0].slice(&[0, 1], &[3, 4], &[2, 2])
+    });
     check_gradient(&[&[7]], 0.1, 1e-4, |v| v[0].slice(&[1], &[6], &[2]));
-    check_gradient(&[&[2, 3]], 0.1, 1e-4, |v| v[0].pad(&[1, 0], &[2, 1], &[0, 2]));
-    check_gradient(&[&[2, 3], &[2, 1], &[2, 2]], 0.1, 1e-4, |v| Tracer::concatenate(&[v[0], v[1], v[2]], 1));
+    check_gradient(&[&[2, 3]], 0.1, 1e-4, |v| {
+        v[0].pad(&[1, 0], &[2, 1], &[0, 2])
+    });
+    check_gradient(&[&[2, 3], &[2, 1], &[2, 2]], 0.1, 1e-4, |v| {
+        Tracer::concatenate(&[v[0], v[1], v[2]], 1)
+    });
     check_gradient(&[&[2, 19]], 0.1, 1e-4, |v| frames(v[0], 6, 4));
 }
 
@@ -522,7 +704,14 @@ fn reductions_reverse_and_take_forward() {
     let x = arr(&[3.0, -1.0, 4.0, 1.0, -5.0, 9.0], &[2, 3]);
     let idx = arr(&[2.7, 0.0, -3.0, 1.0], &[2, 2]);
     let g = trace(&[&[2, 3], &[2, 2]], |v| {
-        vec![v[0].max_axes(&[1]), v[0].min_axes(&[0]), v[0].prod_axes(&[0, 1]), v[0].reverse(&[1]), v[0].take(v[1]), v[0].reverse(&[0]).take(Tracer::lit(7.0))]
+        vec![
+            v[0].max_axes(&[1]),
+            v[0].min_axes(&[0]),
+            v[0].prod_axes(&[0, 1]),
+            v[0].reverse(&[1]),
+            v[0].take(v[1]),
+            v[0].reverse(&[0]).take(Tracer::lit(7.0)),
+        ]
     });
     let out = g.eval(&[x.clone(), idx.clone()]);
     assert_eq!(out[0].as_slice(), &[4.0, 9.0]);
@@ -531,7 +720,10 @@ fn reductions_reverse_and_take_forward() {
     assert_eq!(out[3].as_slice(), &[4.0, -1.0, 3.0, 9.0, -5.0, 1.0]);
     // rows 1 (2.7 clamped), 0, 0 (clamped), 1
     assert_eq!(out[4].shape(), [2, 2, 3]);
-    assert_eq!(out[4].as_slice(), &[1.0, -5.0, 9.0, 3.0, -1.0, 4.0, 3.0, -1.0, 4.0, 1.0, -5.0, 9.0]);
+    assert_eq!(
+        out[4].as_slice(),
+        &[1.0, -5.0, 9.0, 3.0, -1.0, 4.0, 3.0, -1.0, 4.0, 1.0, -5.0, 9.0]
+    );
     assert_eq!(out[5].as_slice(), &[3.0, -1.0, 4.0]);
     // the eager implementation agrees
     assert_eq!(x.clone().take(idx), out[4]);
@@ -547,12 +739,21 @@ fn reduction_reverse_and_take_gradients() {
     // repeated and clamped indices accumulate into the table
     let idx = arr(&[0.5, 2.2, 2.9, 7.0, -1.0], &[5]);
     check_gradient(&[&[3, 2]], 0.1, 1e-4, |v| v[0].take(Tracer::constant(&idx)));
-    check_gradient(&[&[5, 2]], 0.1, 1e-4, |v| Tracer::scatter_add(&[3, 2], Tracer::constant(&idx), v[0]));
+    check_gradient(&[&[5, 2]], 0.1, 1e-4, |v| {
+        Tracer::scatter_add(&[3, 2], Tracer::constant(&idx), v[0])
+    });
     // convolution, direct and by FFT (signal and kernel both get gradients)
-    check_gradient(&[&[2, 12], &[5]], 0.1, 1e-3, |v| crate::signal::convolve(v[0], v[1]));
-    check_gradient(&[&[20], &[40]], 0.05, 2e-3, |v| crate::signal::convolve(v[0], v[1]));
+    check_gradient(&[&[2, 12], &[5]], 0.1, 1e-3, |v| {
+        crate::signal::convolve(v[0], v[1])
+    });
+    check_gradient(&[&[20], &[40]], 0.05, 2e-3, |v| {
+        crate::signal::convolve(v[0], v[1])
+    });
     // ties share the gradient
-    let g = trace(&[&[3]], |v| vjp(&[v[0].max_axes(&[0])], &[Tracer::lit(1.0)], v)).eval(&[arr(&[1.0, 3.0, 3.0], &[3])]);
+    let g = trace(&[&[3]], |v| {
+        vjp(&[v[0].max_axes(&[0])], &[Tracer::lit(1.0)], v)
+    })
+    .eval(&[arr(&[1.0, 3.0, 3.0], &[3])]);
     assert_eq!(g[0].as_slice(), &[0.0, 0.5, 0.5]);
 }
 
@@ -560,7 +761,9 @@ fn reduction_reverse_and_take_gradients() {
 fn a_wavetable_oscillator_and_a_modulated_delay_trace_and_differentiate() {
     // wavetable: phase in table positions, linear interpolation between neighbouring entries
     let n = 64usize;
-    let table: Vec<f32> = (0..=n).map(|i| (std::f32::consts::TAU * i as f32 / n as f32).sin()).collect(); // guard point
+    let table: Vec<f32> = (0..=n)
+        .map(|i| (std::f32::consts::TAU * i as f32 / n as f32).sin())
+        .collect(); // guard point
     let osc = |table: Tracer, phase: Tracer| {
         let i = phase.floor();
         let frac = phase - i;
@@ -570,9 +773,16 @@ fn a_wavetable_oscillator_and_a_modulated_delay_trace_and_differentiate() {
     let scan = Scan::trace(&[&[n + 1], &[]], &[&[]], &[], |p, s, _| {
         let y = osc(p[0], s[0]);
         let next = s[0] + p[1];
-        (vec![next - (next / Tracer::lit(n as f64)).floor() * Tracer::lit(n as f64)], y)
+        (
+            vec![next - (next / Tracer::lit(n as f64)).floor() * Tracer::lit(n as f64)],
+            y,
+        )
     });
-    let (ys, _) = scan.run(&[vector(&table), scalar(3.3)], &NdArray::zeros(&[200]).unwrap(), &[scalar(0.0)]);
+    let (ys, _) = scan.run(
+        &[vector(&table), scalar(3.3)],
+        &NdArray::zeros(&[200]).unwrap(),
+        &[scalar(0.0)],
+    );
     let mut phase = 0.0f32;
     for (k, &y) in ys.as_slice().iter().enumerate() {
         let i = phase.floor() as usize;
@@ -597,14 +807,23 @@ fn a_wavetable_oscillator_and_a_modulated_delay_trace_and_differentiate() {
     for d in [2.3f32, 7.6, 11.1] {
         let g = delay.loss_grad(&[scalar(d)], &xs, &targets, &s0).params[0].as_slice()[0];
         let fd = ((loss(d + 1e-3) - loss(d - 1e-3)) / 2e-3) as f32;
-        assert!((g - fd).abs() < 1e-3 * (1.0 + fd.abs()), "delay {d}: {g} vs {fd}");
+        assert!(
+            (g - fd).abs() < 1e-3 * (1.0 + fd.abs()),
+            "delay {d}: {g} vs {fd}"
+        );
     }
 }
 // LOSSES ==========================================================================================
 
 #[test]
 fn frames_match_their_definition() {
-    for (n, length, hop) in [(19usize, 6usize, 4usize), (20, 8, 8), (17, 5, 3), (9, 9, 2), (30, 12, 5)] {
+    for (n, length, hop) in [
+        (19usize, 6usize, 4usize),
+        (20, 8, 8),
+        (17, 5, 3),
+        (9, 9, 2),
+        (30, 12, 5),
+    ] {
         let x = random(&[2, n], n as u32);
         let f = frames(x.clone(), length, hop);
         let count = 1 + (n - length) / hop;
@@ -612,7 +831,11 @@ fn frames_match_their_definition() {
         for c in 0..2 {
             for k in 0..count {
                 for j in 0..length {
-                    assert_eq!(f.as_slice()[(c * count + k) * length + j], x.as_slice()[c * n + k * hop + j], "n {n} length {length} hop {hop}");
+                    assert_eq!(
+                        f.as_slice()[(c * count + k) * length + j],
+                        x.as_slice()[c * n + k * hop + j],
+                        "n {n} length {length} hop {hop}"
+                    );
                 }
             }
         }
@@ -627,35 +850,72 @@ fn stft_magnitudes_match_a_direct_dft() {
     let x = random(&[n], 3);
     let mag = stft_magnitude(x.clone(), r);
     // frames of the padded signal: half a window of zeros before, enough after
-    let padded: Vec<f32> = std::iter::repeat_n(0.0, 6).chain(x.as_slice().iter().copied()).chain(std::iter::repeat_n(0.0, 6)).collect();
+    let padded: Vec<f32> = std::iter::repeat_n(0.0, 6)
+        .chain(x.as_slice().iter().copied())
+        .chain(std::iter::repeat_n(0.0, 6))
+        .collect();
     assert_eq!((padded.len() - 12) % 5, 0);
     let count = 1 + (padded.len() - 12) / 5;
     assert_eq!(mag.shape(), [count, 9]);
     for k in 0..count {
         let frame: Vec<f32> = (0..16)
-            .map(|j| if j < 12 { padded[k * 5 + j] * (0.5 - 0.5 * (std::f64::consts::TAU * j as f64 / 12.0).cos()) as f32 } else { 0.0 })
+            .map(|j| {
+                if j < 12 {
+                    padded[k * 5 + j]
+                        * (0.5 - 0.5 * (std::f64::consts::TAU * j as f64 / 12.0).cos()) as f32
+                } else {
+                    0.0
+                }
+            })
             .collect();
         let (re, im) = naive_rfft(&frame);
-        let want: Vec<f32> = re.iter().zip(&im).map(|(a, b)| (a * a + b * b).max(1e-8).sqrt()).collect();
-        assert!(close(&mag.as_slice()[k * 9..(k + 1) * 9], &want, 1e-5), "frame {k}");
+        let want: Vec<f32> = re
+            .iter()
+            .zip(&im)
+            .map(|(a, b)| (a * a + b * b).max(1e-8).sqrt())
+            .collect();
+        assert!(
+            close(&mag.as_slice()[k * 9..(k + 1) * 9], &want, 1e-5),
+            "frame {k}"
+        );
     }
 }
 
 #[test]
 fn stft_loss_traces_like_the_eager_loss_and_has_its_gradient() {
-    let resolutions = [StftResolution::overlapping(16), StftResolution::new(32, 8, 24)];
+    let resolutions = [
+        StftResolution::overlapping(16),
+        StftResolution::new(32, 8, 24),
+    ];
     let (y, t) = (random(&[2, 64], 4), random(&[2, 64], 5));
     let eager = multi_resolution_stft(y.clone(), t.clone(), &resolutions).as_slice()[0];
-    let g = trace(&[&[2, 64], &[2, 64]], |v| vec![multi_resolution_stft(v[0], v[1], &resolutions)]);
+    let g = trace(&[&[2, 64], &[2, 64]], |v| {
+        vec![multi_resolution_stft(v[0], v[1], &resolutions)]
+    });
     assert!((g.eval(&[y.clone(), t.clone()])[0].as_slice()[0] - eager).abs() < 1e-5);
     // identical signals score zero
     assert!(multi_resolution_stft(t.clone(), t.clone(), &resolutions).as_slice()[0].abs() < 1e-6);
     // the traced gradient against central differences of the same loss run eagerly in f64 (the log
     // magnitudes of quiet bins curve too sharply for f32 differences)
-    let r = [StftResolution::overlapping(8), StftResolution::new(16, 4, 12)];
+    let r = [
+        StftResolution::overlapping(8),
+        StftResolution::new(16, 4, 12),
+    ];
     let (y, t) = (random(&[40], 11), random(&[40], 12));
-    let grad = trace(&[&[40], &[40]], |v| vjp(&[multi_resolution_stft(v[0], v[1], &r)], &[Tracer::lit(1.0)], v)).eval(&[y.clone(), t.clone()]);
-    let wide = |a: &NdArray<f32>| NdArray::<f64>::array(&a.as_slice().iter().map(|&v| v as f64).collect::<Vec<_>>(), &[40]);
+    let grad = trace(&[&[40], &[40]], |v| {
+        vjp(
+            &[multi_resolution_stft(v[0], v[1], &r)],
+            &[Tracer::lit(1.0)],
+            v,
+        )
+    })
+    .eval(&[y.clone(), t.clone()]);
+    let wide = |a: &NdArray<f32>| {
+        NdArray::<f64>::array(
+            &a.as_slice().iter().map(|&v| v as f64).collect::<Vec<_>>(),
+            &[40],
+        )
+    };
     let loss = |a: NdArray<f64>, b: NdArray<f64>| multi_resolution_stft(a, b, &r).as_slice()[0];
     let h = 1e-6;
     for (k, x) in [&y, &t].into_iter().enumerate() {
@@ -663,9 +923,16 @@ fn stft_loss_traces_like_the_eager_loss_and_has_its_gradient() {
             let (mut up, mut down) = (wide(x), wide(x));
             up.as_mut_slice()[i] += h;
             down.as_mut_slice()[i] -= h;
-            let fd = if k == 0 { loss(up, wide(&t)) - loss(down, wide(&t)) } else { loss(wide(&y), up) - loss(wide(&y), down) } / (2.0 * h);
+            let fd = if k == 0 {
+                loss(up, wide(&t)) - loss(down, wide(&t))
+            } else {
+                loss(wide(&y), up) - loss(wide(&y), down)
+            } / (2.0 * h);
             let got = grad[k].as_slice()[i] as f64;
-            assert!((got - fd).abs() < 1e-3 * (1.0 + fd.abs()), "input {k} element {i}: {got} vs {fd}");
+            assert!(
+                (got - fd).abs() < 1e-3 * (1.0 + fd.abs()),
+                "input {k} element {i}: {got} vs {fd}"
+            );
         }
     }
 }
@@ -675,15 +942,27 @@ fn scan_gradient_reaches_the_input_signal() {
     // a pluggable loss: MSE plus a spectral term; check d params and d xs by central differences
     let scan = state_space();
     let len = 48;
-    let params = vec![arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]), arr(&[1.0, 0.5], &[2]), arr(&[0.3, -0.7], &[2])];
-    let (xs, targets, s0) = (random(&[len], 6), random(&[len], 7), vec![arr(&[0.1, -0.2], &[2])]);
+    let params = vec![
+        arr(&[0.6, -0.3, 0.2, 0.5], &[2, 2]),
+        arr(&[1.0, 0.5], &[2]),
+        arr(&[0.3, -0.7], &[2]),
+    ];
+    let (xs, targets, s0) = (
+        random(&[len], 6),
+        random(&[len], 7),
+        vec![arr(&[0.1, -0.2], &[2])],
+    );
     let loss = Loss::trace(&[len], &[&[len]], |y, aux| {
         let d = y - aux[0];
-        (d * d).mean_all() + multi_resolution_stft(y, aux[0], &[StftResolution::overlapping(16)]) * Tracer::lit(0.1)
+        (d * d).mean_all()
+            + multi_resolution_stft(y, aux[0], &[StftResolution::overlapping(16)])
+                * Tracer::lit(0.1)
     });
     let aux = [targets];
     let g = scan.grad(&params, &xs, &s0, &loss, &aux);
-    let value = |params: &[NdArray<f32>], xs: &NdArray<f32>| loss.eval(&scan.run(params, xs, &s0).0, &aux) as f64;
+    let value = |params: &[NdArray<f32>], xs: &NdArray<f32>| {
+        loss.eval(&scan.run(params, xs, &s0).0, &aux) as f64
+    };
     assert!((g.loss as f64 - value(&params, &xs)).abs() < 1e-6);
     let h = 1e-2f32;
     for i in [0, 5, 23, 47] {
@@ -693,7 +972,10 @@ fn scan_gradient_reaches_the_input_signal() {
         x.as_mut_slice()[i] -= 2.0 * h;
         let fd = ((up - value(&params, &x)) / (2.0 * h as f64)) as f32;
         let got = g.input.as_slice()[i];
-        assert!((got - fd).abs() < 2e-2 * (1.0 + fd.abs()) + 1e-4, "d xs[{i}]: {got} vs {fd}");
+        assert!(
+            (got - fd).abs() < 2e-2 * (1.0 + fd.abs()) + 1e-4,
+            "d xs[{i}]: {got} vs {fd}"
+        );
     }
     for i in 0..4 {
         let mut p = params.clone();
@@ -702,7 +984,10 @@ fn scan_gradient_reaches_the_input_signal() {
         p[0].as_mut_slice()[i] -= 2.0 * h;
         let fd = ((up - value(&p, &xs)) / (2.0 * h as f64)) as f32;
         let got = g.params[0].as_slice()[i];
-        assert!((got - fd).abs() < 2e-2 * (1.0 + fd.abs()), "d A[{i}]: {got} vs {fd}");
+        assert!(
+            (got - fd).abs() < 2e-2 * (1.0 + fd.abs()),
+            "d A[{i}]: {got} vs {fd}"
+        );
     }
     // the vector-Jacobian product alone, with the loss's cotangent, gives the same
     let (ys, _) = scan.run(&params, &xs, &s0);
@@ -715,30 +1000,55 @@ fn scan_gradient_reaches_the_input_signal() {
 #[test]
 fn graphs_run_in_double_precision() {
     // one trace, evaluated in f64: constants keep their f64 value
-    let g = trace(&[&[3]], |v| vec![(v[0] * Tracer::lit(0.1)).exp().sum_all() + Tracer::lit(1e-12)]);
+    let g = trace(&[&[3]], |v| {
+        vec![(v[0] * Tracer::lit(0.1)).exp().sum_all() + Tracer::lit(1e-12)]
+    });
     let x = NdArray::<f64>::array(&[1.0, 2.0, 3.0], &[3]);
-    let want: f64 = [1.0f64, 2.0, 3.0].iter().map(|v| (v * 0.1).exp()).sum::<f64>() + 1e-12;
+    let want: f64 = [1.0f64, 2.0, 3.0]
+        .iter()
+        .map(|v| (v * 0.1).exp())
+        .sum::<f64>()
+        + 1e-12;
     assert!((g.eval(std::slice::from_ref(&x))[0].as_slice()[0] - want).abs() < 1e-14);
     // its gradient against central differences at f64 resolution
-    let d = trace(&[&[3]], |v| vjp(&[(v[0] * v[0]).sin().prod_axes(&[0])], &[Tracer::lit(1.0)], v)).eval(std::slice::from_ref(&x));
+    let d = trace(&[&[3]], |v| {
+        vjp(
+            &[(v[0] * v[0]).sin().prod_axes(&[0])],
+            &[Tracer::lit(1.0)],
+            v,
+        )
+    })
+    .eval(std::slice::from_ref(&x));
     let f = |x: &[f64]| x.iter().map(|v| (v * v).sin()).product::<f64>();
     for i in 0..3 {
         let (mut up, mut down) = (x.as_slice().to_vec(), x.as_slice().to_vec());
         up[i] += 1e-6;
         down[i] -= 1e-6;
         let fd = (f(&up) - f(&down)) / 2e-6;
-        assert!((d[0].as_slice()[i] - fd).abs() < 1e-8 * (1.0 + fd.abs()), "{} vs {fd}", d[0].as_slice()[i]);
+        assert!(
+            (d[0].as_slice()[i] - fd).abs() < 1e-8 * (1.0 + fd.abs()),
+            "{} vs {fd}",
+            d[0].as_slice()[i]
+        );
     }
     // a scan in f64 is the f64 filter, exactly
     let xs: Vec<f64> = noise(256, 3).iter().map(|&v| v as f64).collect();
-    let (ys, _) = one_pole().run(&[NdArray::<f64>::array(&[700.0], &[])], &NdArray::array(&xs, &[256]), &[NdArray::<f64>::array(&[0.0], &[])]);
+    let (ys, _) = one_pole().run(
+        &[NdArray::<f64>::array(&[700.0], &[])],
+        &NdArray::array(&xs, &[256]),
+        &[NdArray::<f64>::array(&[0.0], &[])],
+    );
     let mut lp = OnePole::lowpass(700.0f64, FS);
     let mut block = xs.clone();
     lp.process(&mut block);
     assert_eq!(ys.as_slice(), block.as_slice());
     // programs are emitted in either precision
     let p = one_pole().forward_program_as::<f64>(16);
-    assert!(p.text.contains("tensor<16xf64>") && !p.text.contains("f32") && p.dtype == crate::units::DType::F64);
+    assert!(
+        p.text.contains("tensor<16xf64>")
+            && !p.text.contains("f32")
+            && p.dtype == crate::units::DType::F64
+    );
 }
 
 // TRACING RULES ===================================================================================
@@ -780,7 +1090,13 @@ fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
         (vec![s], y)
     });
     let eq = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
-        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(1.0), p[1] * Tracer::lit(10.0), Tracer::lit(48_000.0));
+        let c = BiquadCoeffs::design(
+            BiquadKind::Peaking,
+            p[0].exp(),
+            Tracer::lit(1.0),
+            p[1] * Tracer::lit(10.0),
+            Tracer::lit(48_000.0),
+        );
         let ([a, b], y) = c.tick([s[0], s[1]], x);
         // a mask and a select in the step too
         let y = Tracer::select(y.greater(Tracer::lit(0.9)), Tracer::lit(0.9), y);
@@ -788,69 +1104,164 @@ fn scalar_scans_compile_and_match_the_interpreter_bit_for_bit() {
     });
     assert!(one_pole.scalar.is_some() && eq.scalar.is_some());
     #[cfg(feature = "jit")]
-    assert!(eq.scalar.as_ref().unwrap().native::<f32>(false).is_some() && eq.scalar.as_ref().unwrap().native::<f64>(true).is_some());
+    assert!(
+        eq.scalar.as_ref().unwrap().native::<f32>(false).is_some()
+            && eq.scalar.as_ref().unwrap().native::<f64>(true).is_some()
+    );
     // a scan over vectors stays interpreted
-    assert!(Scan::trace(&[&[2]], &[&[2]], &[2], |p, s, x| (vec![s[0] * p[0] + x], s[0])).scalar.is_none());
+    assert!(Scan::trace(&[&[2]], &[&[2]], &[2], |p, s, x| (
+        vec![s[0] * p[0] + x],
+        s[0]
+    ))
+    .scalar
+    .is_none());
 
     let n = 300;
     let xs = vector(&noise(n, 3).iter().map(|v| 0.5 * v).collect::<Vec<_>>());
     for (scan, params, s0) in [
         (&one_pole, vec![scalar(1_000.0)], vec![scalar(0.1)]),
-        (&eq, vec![scalar(1_000f32.ln()), scalar(0.3), scalar(1.5)], vec![scalar(0.0), scalar(0.05)]),
+        (
+            &eq,
+            vec![scalar(1_000f32.ln()), scalar(0.3), scalar(1.5)],
+            vec![scalar(0.0), scalar(0.05)],
+        ),
     ] {
         let mut interpreted = scan.clone();
         interpreted.scalar = None;
-        assert_eq!(scan.run(&params, &xs, &s0), interpreted.run(&params, &xs, &s0));
-        let (target, _) = interpreted.run(&params.iter().map(|p| p.clone() * scalar(1.1)).collect::<Vec<_>>(), &xs, &s0);
-        let stft = Loss::stft(&[n], &[StftResolution::overlapping(64), StftResolution::overlapping(16)]);
+        assert_eq!(
+            scan.run(&params, &xs, &s0),
+            interpreted.run(&params, &xs, &s0)
+        );
+        let (target, _) = interpreted.run(
+            &params
+                .iter()
+                .map(|p| p.clone() * scalar(1.1))
+                .collect::<Vec<_>>(),
+            &xs,
+            &s0,
+        );
+        let stft = Loss::stft(
+            &[n],
+            &[
+                StftResolution::overlapping(64),
+                StftResolution::overlapping(16),
+            ],
+        );
         for checkpointed in [false, true] {
-            let (a, b) = (scan.clone().checkpointed(checkpointed), interpreted.clone().checkpointed(checkpointed));
-            assert_eq!(a.loss_grad(&params, &xs, &target, &s0), b.loss_grad(&params, &xs, &target, &s0));
+            let (a, b) = (
+                scan.clone().checkpointed(checkpointed),
+                interpreted.clone().checkpointed(checkpointed),
+            );
+            assert_eq!(
+                a.loss_grad(&params, &xs, &target, &s0),
+                b.loss_grad(&params, &xs, &target, &s0)
+            );
             let ga = a.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target));
-            assert_eq!(ga, b.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target)));
-            assert!(ga.params.iter().all(|g| g.as_slice()[0].is_finite() && g.as_slice()[0] != 0.0));
+            assert_eq!(
+                ga,
+                b.grad(&params, &xs, &s0, &stft, std::slice::from_ref(&target))
+            );
+            assert!(ga
+                .params
+                .iter()
+                .all(|g| g.as_slice()[0].is_finite() && g.as_slice()[0] != 0.0));
         }
         // fused multiply-adds: the last bits differ, nothing more
-        let near = |a: &[f32], b: &[f32]| a.iter().zip(b).all(|(x, y)| (x - y).abs() <= 1e-4 * (1.0 + y.abs()));
+        let near = |a: &[f32], b: &[f32]| {
+            a.iter()
+                .zip(b)
+                .all(|(x, y)| (x - y).abs() <= 1e-4 * (1.0 + y.abs()))
+        };
         for checkpointed in [false, true] {
-            let (exact, fused) = (scan.clone().checkpointed(checkpointed), scan.clone().checkpointed(checkpointed).contracted(true));
-            assert!(near(fused.run(&params, &xs, &s0).0.as_slice(), exact.run(&params, &xs, &s0).0.as_slice()));
-            let (gf, ge) = (fused.loss_grad(&params, &xs, &target, &s0), exact.loss_grad(&params, &xs, &target, &s0));
+            let (exact, fused) = (
+                scan.clone().checkpointed(checkpointed),
+                scan.clone().checkpointed(checkpointed).contracted(true),
+            );
+            assert!(near(
+                fused.run(&params, &xs, &s0).0.as_slice(),
+                exact.run(&params, &xs, &s0).0.as_slice()
+            ));
+            let (gf, ge) = (
+                fused.loss_grad(&params, &xs, &target, &s0),
+                exact.loss_grad(&params, &xs, &target, &s0),
+            );
             assert!(near(&[gf.loss], &[ge.loss]) && near(gf.input.as_slice(), ge.input.as_slice()));
             for (a, b) in gf.params.iter().zip(&ge.params) {
-                assert!((a.as_slice()[0] - b.as_slice()[0]).abs() <= 1e-3 * (1.0 + b.as_slice()[0].abs()), "{a:?} vs {b:?}");
+                assert!(
+                    (a.as_slice()[0] - b.as_slice()[0]).abs()
+                        <= 1e-3 * (1.0 + b.as_slice()[0].abs()),
+                    "{a:?} vs {b:?}"
+                );
             }
         }
         // f64 too
         let p64: Vec<NdArray<f64>> = params.iter().map(|p| p.map(|&v| v as f64)).collect();
         let s64: Vec<NdArray<f64>> = s0.iter().map(|p| p.map(|&v| v as f64)).collect();
         let x64 = xs.map(|&v| v as f64);
-        assert_eq!(scan.run(&p64, &x64, &s64), interpreted.run(&p64, &x64, &s64));
+        assert_eq!(
+            scan.run(&p64, &x64, &s64),
+            interpreted.run(&p64, &x64, &s64)
+        );
     }
 }
 #[test]
 fn framing_and_overlap_add_agree_with_their_constructions() {
     use crate::signal::generic::{frames_by_slices, overlap_add_by_pads};
-    for &(lanes, n, length, hop) in &[(1usize, 20usize, 4usize, 2usize), (3, 50, 8, 3), (2, 64, 16, 16), (1, 33, 33, 1), (2, 41, 6, 4)] {
+    for &(lanes, n, length, hop) in &[
+        (1usize, 20usize, 4usize, 2usize),
+        (3, 50, 8, 3),
+        (2, 64, 16, 16),
+        (1, 33, 33, 1),
+        (2, 41, 6, 4),
+    ] {
         let x = random(&[lanes, n], 7);
         let direct = x.clone().frames(length, hop);
-        assert_eq!(direct, frames_by_slices(x.clone(), length, hop), "frames {length} / {hop}");
+        assert_eq!(
+            direct,
+            frames_by_slices(x.clone(), length, hop),
+            "frames {length} / {hop}"
+        );
         let y = random(direct.shape(), 8);
         let total = n + 3;
         let summed = y.clone().overlap_add(total, hop);
-        assert!(close(summed.as_slice(), overlap_add_by_pads(y.clone(), total, hop).as_slice(), 1e-6), "overlap-add {length} / {hop}");
+        assert!(
+            close(
+                summed.as_slice(),
+                overlap_add_by_pads(y.clone(), total, hop).as_slice(),
+                1e-6
+            ),
+            "overlap-add {length} / {hop}"
+        );
         // transposes: <frames(x), y> = <x, overlap_add(y)>
-        let lhs: f32 = direct.as_slice().iter().zip(y.as_slice()).map(|(a, b)| a * b).sum();
-        let rhs: f32 = x.as_slice().iter().zip(y.clone().overlap_add(n, hop).as_slice()).map(|(a, b)| a * b).sum();
-        assert!((lhs - rhs).abs() <= 1e-4 * (1.0 + lhs.abs()), "{lhs} vs {rhs}");
+        let lhs: f32 = direct
+            .as_slice()
+            .iter()
+            .zip(y.as_slice())
+            .map(|(a, b)| a * b)
+            .sum();
+        let rhs: f32 = x
+            .as_slice()
+            .iter()
+            .zip(y.clone().overlap_add(n, hop).as_slice())
+            .map(|(a, b)| a * b)
+            .sum();
+        assert!(
+            (lhs - rhs).abs() <= 1e-4 * (1.0 + lhs.abs()),
+            "{lhs} vs {rhs}"
+        );
         // complex values too
         let z = NdArray::complex(x.clone(), random(&[lanes, n], 9));
-        assert_eq!(z.clone().frames(length, hop), frames_by_slices(z, length, hop));
+        assert_eq!(
+            z.clone().frames(length, hop),
+            frames_by_slices(z, length, hop)
+        );
         // traced: one node each, evaluated and differentiated
         let g = trace(&[&[lanes, n]], |v| vec![v[0].frames(length, hop)]);
         assert_eq!(g.eval(std::slice::from_ref(&x))[0], direct);
     }
-    check_gradient(&[&[2, 30]], 0.1, 1e-4, |v| (v[0].frames(8, 3) * v[0].frames(8, 3)).sum_all());
+    check_gradient(&[&[2, 30]], 0.1, 1e-4, |v| {
+        (v[0].frames(8, 3) * v[0].frames(8, 3)).sum_all()
+    });
     check_gradient(&[&[2, 7, 8]], 0.1, 1e-4, |v| {
         let s = v[0].overlap_add(30, 3);
         (s * s).sum_all()

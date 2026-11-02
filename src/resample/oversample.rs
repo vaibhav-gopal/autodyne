@@ -1,8 +1,8 @@
 //! [`Oversampled`]: runs any processor at a multiple of the sample rate, so the harmonics a nonlinear one
 //! creates above Nyquist are filtered out instead of aliasing back.
 
-use crate::alloc_prelude::*;
 use super::Resampler;
+use crate::alloc_prelude::*;
 use crate::processor::Processor;
 use crate::units::*;
 
@@ -27,14 +27,25 @@ impl<P, T: Float> Oversampled<P, T> {
     /// `factor` is typically 2, 4 or 8; blocks longer than `max_block` are processed in pieces.
     /// Panics if `factor` or `max_block` is 0.
     pub fn new(inner: P, factor: usize, max_block: usize) -> Self {
-        assert!(factor > 0 && max_block > 0, "factor and max_block must be positive");
+        assert!(
+            factor > 0 && max_block > 0,
+            "factor and max_block must be positive"
+        );
         // only the ratio matters to the resamplers, so the rates can be given as 1 and factor
         let f = u32::try_from(factor).expect("oversampling factor fits in u32");
         let up = Resampler::new(1, f);
         let down = Resampler::new(f, 1);
         let high = vec![T::_ZERO; up.max_output_len(max_block)];
         let low = vec![T::_ZERO; down.max_output_len(high.len())];
-        Self { inner, factor, up, down, max_block, high, low }
+        Self {
+            inner,
+            factor,
+            up,
+            down,
+            max_block,
+            high,
+            low,
+        }
     }
     /// The oversampling factor.
     pub fn factor(&self) -> usize {
@@ -88,9 +99,9 @@ impl<T: Float, P: Processor<T>> Processor<T> for Oversampled<P, T> {
 mod tests {
     use super::*;
     use crate::distortion::{Shape, Waveshaper};
+    use crate::fft::Fft;
     use crate::gain::Gain;
     use crate::osc::Sine;
-    use crate::fft::Fft;
 
     const FS: f64 = 48_000.0;
     const N: usize = 8_192;
@@ -106,7 +117,11 @@ mod tests {
         for (k, z) in spectrum.iter().enumerate().take(N / 2).skip(1) {
             // tanh is odd-symmetric: only odd harmonics below Nyquist are genuine
             let is_harmonic = k % BIN == 0 && (k / BIN) % 2 == 1;
-            if is_harmonic { harmonic += z.norm_sqr() } else { alias += z.norm_sqr() }
+            if is_harmonic {
+                harmonic += z.norm_sqr()
+            } else {
+                alias += z.norm_sqr()
+            }
         }
         10.0 * (alias / harmonic).log10()
     }
@@ -134,7 +149,10 @@ mod tests {
 
         let (a_plain, a_over) = (alias_db(&plain[settle..]), alias_db(&over[settle..]));
         println!("aliasing relative to the harmonics: {a_plain:.1} dB plain, {a_over:.1} dB with 4x oversampling");
-        assert!(a_over < a_plain - 20.0, "aliasing {a_plain:.1} dB without vs {a_over:.1} dB with 4x oversampling");
+        assert!(
+            a_over < a_plain - 20.0,
+            "aliasing {a_plain:.1} dB without vs {a_over:.1} dB with 4x oversampling"
+        );
     }
 
     #[test]

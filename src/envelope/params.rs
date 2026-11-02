@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the ADSR envelope.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 use crate::params::ParamUnit::{Fraction, Seconds};
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 
 parameterized!(Adsr, "ADSR",
     infos: |_s| [

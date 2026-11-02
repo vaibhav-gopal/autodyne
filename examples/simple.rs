@@ -18,9 +18,15 @@ fn main() {
 
     // the same mix, low-passed as it is generated
     let mut wet = vec![0.0f32; 4_800];
-    mix().through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, fs)).fill(&mut wet);
+    mix()
+        .through(Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, fs))
+        .fill(&mut wet);
 
     let db = |x: &[f32]| x.rms_db().unwrap_or(f32::NEG_INFINITY);
     println!("mix:        {:6.2} dBFS rms", db(&dry));
-    println!("low-passed: {:6.2} dBFS rms (the 440 Hz sine alone is {:.2})", db(&wet[480..]), 20.0 * (0.5f32).sqrt().log10());
+    println!(
+        "low-passed: {:6.2} dBFS rms (the 440 Hz sine alone is {:.2})",
+        db(&wet[480..]),
+        20.0 * (0.5f32).sqrt().log10()
+    );
 }

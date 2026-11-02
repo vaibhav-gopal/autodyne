@@ -64,7 +64,12 @@ pub use svf::*;
 fn magnitude_response<T: Float>(b: &[T], a: &[T], frequency: T, sample_rate: T) -> T {
     let w = T::_TAU * frequency / sample_rate;
     let poly = |coeffs: &[T]| {
-        coeffs.iter().enumerate().fold(Complex::zero(), |acc, (k, &c)| acc + Complex::cis(-w * T::_lit(k as f64)) * c)
+        coeffs
+            .iter()
+            .enumerate()
+            .fold(Complex::zero(), |acc, (k, &c)| {
+                acc + Complex::cis(-w * T::_lit(k as f64)) * c
+            })
     };
     (poly(b) / poly(a)).norm()
 }
@@ -100,7 +105,11 @@ impl<T: Float> Fir<T> {
         assert!(!taps.is_empty(), "a FIR filter needs at least one tap");
         let n = taps.len();
         let reversed = taps.iter().rev().copied().collect();
-        Self { taps, reversed, buf: vec![T::_ZERO; n - 1 + FIR_CHUNK] }
+        Self {
+            taps,
+            reversed,
+            buf: vec![T::_ZERO; n - 1 + FIR_CHUNK],
+        }
     }
     /// Linear-phase low-pass (windowed sinc, Blackman window). See `design_lowpass`.
     pub fn lowpass(cutoff: T, num_taps: usize, sample_rate: T) -> Self {
@@ -147,11 +156,18 @@ impl<T: Float> Fir<T> {
             // Tiles of FIR_TILE outputs: each tap times FIR_TILE consecutive inputs, accumulated
             // per output (vector registers, no horizontal sums)
             let tiles = m / FIR_TILE * FIR_TILE;
-            for (t, out) in chunk[..tiles].as_chunks_mut::<FIR_TILE>().0.iter_mut().enumerate() {
+            for (t, out) in chunk[..tiles]
+                .as_chunks_mut::<FIR_TILE>()
+                .0
+                .iter_mut()
+                .enumerate()
+            {
                 let start = t * FIR_TILE;
                 let mut acc = [T::_ZERO; FIR_TILE];
                 for (k, &h) in self.reversed.iter().enumerate() {
-                    let x: &[T; FIR_TILE] = self.buf[start + k..start + k + FIR_TILE].try_into().expect("a tile");
+                    let x: &[T; FIR_TILE] = self.buf[start + k..start + k + FIR_TILE]
+                        .try_into()
+                        .expect("a tile");
                     for (a, &x) in acc.iter_mut().zip(x) {
                         *a = *a + h * x;
                     }
@@ -181,7 +197,10 @@ impl<T: Float> Fir<T> {
 /// Panics unless 0 < cutoff < sample_rate / 2 and num_taps >= 2.
 pub fn design_lowpass<T: Float>(cutoff: T, num_taps: usize, sample_rate: T) -> Vec<T> {
     let two = T::_lit(2.0);
-    assert!(cutoff > T::_ZERO && cutoff < sample_rate / two, "cutoff must be between 0 and Nyquist");
+    assert!(
+        cutoff > T::_ZERO && cutoff < sample_rate / two,
+        "cutoff must be between 0 and Nyquist"
+    );
     assert!(num_taps >= 2, "need at least 2 taps");
     let fc = cutoff / sample_rate; // normalized, cycles/sample
     let m = T::_lit((num_taps - 1) as f64);
@@ -189,8 +208,13 @@ pub fn design_lowpass<T: Float>(cutoff: T, num_taps: usize, sample_rate: T) -> V
         .map(|i| {
             let n = T::_lit(i as f64);
             let x = n - m / two; // centered index
-            let sinc = if x == T::_ZERO { two * fc } else { (T::_TAU * fc * x)._sin() / (T::_PI * x) };
-            let window = T::_lit(0.42) - T::_lit(0.5) * (T::_TAU * n / m)._cos() + T::_lit(0.08) * (two * T::_TAU * n / m)._cos();
+            let sinc = if x == T::_ZERO {
+                two * fc
+            } else {
+                (T::_TAU * fc * x)._sin() / (T::_PI * x)
+            };
+            let window = T::_lit(0.42) - T::_lit(0.5) * (T::_TAU * n / m)._cos()
+                + T::_lit(0.08) * (two * T::_TAU * n / m)._cos();
             sinc * window
         })
         .collect();
@@ -229,7 +253,13 @@ impl<T: Real> BiquadCoeffs<T> {
         (w.cos(), w.sin() / (T::lit(2.0) * q))
     }
     fn normalized(b0: T, b1: T, b2: T, a0: T, a1: T, a2: T) -> Self {
-        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 }
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
     }
     /// The cookbook response `kind` (no range checks: see the checked constructors).
     pub fn design(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
@@ -244,9 +274,23 @@ impl<T: Real> BiquadCoeffs<T> {
             }
             BiquadKind::Highpass => {
                 let b = (one + cos_w) / two;
-                Self::normalized(b, -(one + cos_w), b, one + alpha, -(two * cos_w), one - alpha)
+                Self::normalized(
+                    b,
+                    -(one + cos_w),
+                    b,
+                    one + alpha,
+                    -(two * cos_w),
+                    one - alpha,
+                )
             }
-            BiquadKind::Bandpass => Self::normalized(alpha, T::lit(0.0), -alpha, one + alpha, -(two * cos_w), one - alpha),
+            BiquadKind::Bandpass => Self::normalized(
+                alpha,
+                T::lit(0.0),
+                -alpha,
+                one + alpha,
+                -(two * cos_w),
+                one - alpha,
+            ),
             BiquadKind::Notch => {
                 let b1 = -(two * cos_w);
                 Self::normalized(one, b1, one, one + alpha, b1, one - alpha)
@@ -258,7 +302,14 @@ impl<T: Real> BiquadCoeffs<T> {
             BiquadKind::Peaking => {
                 let a = shelf_amplitude(gain_db);
                 let a1 = -(two * cos_w);
-                Self::normalized(one + alpha * a, a1, one - alpha * a, one + alpha / a, a1, one - alpha / a)
+                Self::normalized(
+                    one + alpha * a,
+                    a1,
+                    one - alpha * a,
+                    one + alpha / a,
+                    a1,
+                    one - alpha / a,
+                )
             }
             BiquadKind::LowShelf => {
                 let a = shelf_amplitude(gain_db);
@@ -292,7 +343,13 @@ impl<T: Real> BiquadCoeffs<T> {
     #[inline(always)]
     pub fn tick(&self, state: [T; 2], x: T) -> ([T; 2], T) {
         let y = self.b0 * x + state[0];
-        ([self.b1 * x - self.a1 * y + state[1], self.b2 * x - self.a2 * y], y)
+        (
+            [
+                self.b1 * x - self.a1 * y + state[1],
+                self.b2 * x - self.a2 * y,
+            ],
+            y,
+        )
     }
 }
 
@@ -300,7 +357,10 @@ impl<T: Float> BiquadCoeffs<T> {
     /// The cookbook response `kind`, checking that the frequency is between 0 and Nyquist and Q is
     /// positive.
     fn checked(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
-        assert!(frequency > T::_ZERO && frequency < sample_rate / T::_lit(2.0), "frequency must be between 0 and Nyquist");
+        assert!(
+            frequency > T::_ZERO && frequency < sample_rate / T::_lit(2.0),
+            "frequency must be between 0 and Nyquist"
+        );
         assert!(q > T::_ZERO, "Q must be positive");
         Self::design(kind, frequency, q, gain_db, sample_rate)
     }
@@ -340,7 +400,12 @@ impl<T: Float> BiquadCoeffs<T> {
     }
     /// Gain at `frequency` (1.0 = unchanged).
     pub fn magnitude_at(&self, frequency: T, sample_rate: T) -> T {
-        magnitude_response(&[self.b0, self.b1, self.b2], &[T::_ONE, self.a1, self.a2], frequency, sample_rate)
+        magnitude_response(
+            &[self.b0, self.b1, self.b2],
+            &[T::_ONE, self.a1, self.a2],
+            frequency,
+            sample_rate,
+        )
     }
 }
 
@@ -368,7 +433,10 @@ pub enum BiquadKind {
 impl BiquadKind {
     /// Whether `gain_db` affects this response (peaking and shelves).
     pub fn uses_gain(self) -> bool {
-        matches!(self, BiquadKind::Peaking | BiquadKind::LowShelf | BiquadKind::HighShelf)
+        matches!(
+            self,
+            BiquadKind::Peaking | BiquadKind::LowShelf | BiquadKind::HighShelf
+        )
     }
 }
 
@@ -418,14 +486,30 @@ pub struct Biquad<T: Float> {
 impl<T: Float> Biquad<T> {
     /// From raw coefficients (no design settings to inspect or change).
     pub fn new(coeffs: BiquadCoeffs<T>) -> Self {
-        Self { coeffs, design: None, s1: T::_ZERO, s2: T::_ZERO }
+        Self {
+            coeffs,
+            design: None,
+            s1: T::_ZERO,
+            s2: T::_ZERO,
+        }
     }
     /// A filter designed from `design`, which it keeps for inspection and re-design.
     pub fn from_design(design: BiquadDesign<T>) -> Self {
-        Self { coeffs: design.coeffs(), design: Some(design), s1: T::_ZERO, s2: T::_ZERO }
+        Self {
+            coeffs: design.coeffs(),
+            design: Some(design),
+            s1: T::_ZERO,
+            s2: T::_ZERO,
+        }
     }
     fn designed(kind: BiquadKind, frequency: T, q: T, gain_db: T, sample_rate: T) -> Self {
-        Self::from_design(BiquadDesign { kind, frequency, q, gain_db, sample_rate })
+        Self::from_design(BiquadDesign {
+            kind,
+            frequency,
+            q,
+            gain_db,
+            sample_rate,
+        })
     }
     /// A low-pass (see [`BiquadCoeffs::lowpass`]); like every constructor below, the filter keeps its
     /// design.
@@ -529,7 +613,9 @@ pub struct MultiBiquad<T: Float> {
 impl<T: Float> MultiBiquad<T> {
     /// `make(channel)` builds each channel's filter (they may differ).
     pub fn new(channels: usize, make: impl FnMut(usize) -> Biquad<T>) -> Self {
-        Self { filters: (0..channels).map(make).collect() }
+        Self {
+            filters: (0..channels).map(make).collect(),
+        }
     }
     /// The per-channel filters.
     pub fn channels(&self) -> &[Biquad<T>] {
@@ -550,7 +636,11 @@ impl<T: Float> MultiBiquad<T> {
 
     /// Filters every channel of `buffer` in place. Panics if the channel count differs.
     pub fn process_buffer(&mut self, buffer: &mut AudioBuffer<T>) {
-        assert_eq!(buffer.channels(), self.filters.len(), "channel count mismatch");
+        assert_eq!(
+            buffer.channels(),
+            self.filters.len(),
+            "channel count mismatch"
+        );
         #[cfg(target_arch = "x86_64")]
         {
             if crate::simd::avx2_available() {
@@ -581,9 +671,21 @@ impl<T: Float> MultiBiquad<T> {
             };
             let (group, rest) = filters.split_at_mut(lanes);
             match lanes {
-                4 => run_lanes::<T, 4>(group, core::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
-                2 => run_lanes::<T, 2>(group, core::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
-                _ => run_lanes::<T, 1>(group, core::array::from_fn(|_| channels.next().expect("a channel per lane")), frames),
+                4 => run_lanes::<T, 4>(
+                    group,
+                    core::array::from_fn(|_| channels.next().expect("a channel per lane")),
+                    frames,
+                ),
+                2 => run_lanes::<T, 2>(
+                    group,
+                    core::array::from_fn(|_| channels.next().expect("a channel per lane")),
+                    frames,
+                ),
+                _ => run_lanes::<T, 1>(
+                    group,
+                    core::array::from_fn(|_| channels.next().expect("a channel per lane")),
+                    frames,
+                ),
             }
             filters = rest;
         }
@@ -594,9 +696,17 @@ impl<T: Float> MultiBiquad<T> {
 #[inline(always)]
 // indexing by frame is the point: every lane handles frame f before any moves on to f + 1
 #[allow(clippy::needless_range_loop)]
-fn run_lanes<T: Float, const L: usize>(filters: &mut [Biquad<T>], channels: [&mut [T]; L], frames: usize) {
+fn run_lanes<T: Float, const L: usize>(
+    filters: &mut [Biquad<T>],
+    channels: [&mut [T]; L],
+    frames: usize,
+) {
     let lane = |f: fn(&Biquad<T>) -> T| -> [T; L] { core::array::from_fn(|l| f(&filters[l])) };
-    let (b0, b1, b2) = (lane(|q| q.coeffs.b0), lane(|q| q.coeffs.b1), lane(|q| q.coeffs.b2));
+    let (b0, b1, b2) = (
+        lane(|q| q.coeffs.b0),
+        lane(|q| q.coeffs.b1),
+        lane(|q| q.coeffs.b2),
+    );
     let (a1, a2) = (lane(|q| q.coeffs.a1), lane(|q| q.coeffs.a2));
     let (mut s1, mut s2) = (lane(|q| q.s1), lane(|q| q.s2));
     let channels = channels.map(|c| &mut c[..frames]);
@@ -630,9 +740,9 @@ crate::processor::forward_processor!(Biquad, Fir);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::assert_close;
     use crate::osc::{Impulse, Noise, Sine};
     use crate::signal::Signal;
+    use crate::testing::assert_close;
 
     const FS: f64 = 48_000.0;
 
@@ -649,7 +759,10 @@ mod tests {
 
     #[test]
     fn convolve_known_answer() {
-        assert_eq!([1.0, 2.0, 3.0].convolved(&[0.0, 1.0, 0.5]), [0.0, 1.0, 2.5, 4.0, 1.5]);
+        assert_eq!(
+            [1.0, 2.0, 3.0].convolved(&[0.0, 1.0, 0.5]),
+            [0.0, 1.0, 2.5, 4.0, 1.5]
+        );
         assert!(Vec::<f64>::new().convolved(&[1.0]).is_empty());
     }
 
@@ -675,7 +788,14 @@ mod tests {
     fn multi_biquad_is_bit_identical_to_per_channel_processing() {
         for channels in 1..=9 {
             // different filters per channel
-            let make = |ch: usize| Biquad::peaking(300.0 * (ch + 1) as f64, 0.7 + ch as f64 * 0.1, ch as f64 - 3.0, FS);
+            let make = |ch: usize| {
+                Biquad::peaking(
+                    300.0 * (ch + 1) as f64,
+                    0.7 + ch as f64 * 0.1,
+                    ch as f64 - 3.0,
+                    FS,
+                )
+            };
             let mut buf = AudioBuffer::new(channels, 700);
             for ch in 0..channels {
                 Noise::new(ch as u64).fill(buf.channel_mut(ch));
@@ -693,12 +813,21 @@ mod tests {
             buf.set_frames(700);
             let mut tail = AudioBuffer::new(channels, 400);
             for ch in 0..channels {
-                tail.channel_mut(ch).copy_from_slice(&buf.channel(ch)[300..]);
+                tail.channel_mut(ch)
+                    .copy_from_slice(&buf.channel(ch)[300..]);
             }
             multi.process_buffer(&mut tail);
             for (ch, first) in first.iter().enumerate() {
-                assert_eq!(&first[..], &reference.channel(ch)[..300], "{channels} channels, ch {ch}, first block");
-                assert_eq!(tail.channel(ch), &reference.channel(ch)[300..], "{channels} channels, ch {ch}, second block");
+                assert_eq!(
+                    &first[..],
+                    &reference.channel(ch)[..300],
+                    "{channels} channels, ch {ch}, first block"
+                );
+                assert_eq!(
+                    tail.channel(ch),
+                    &reference.channel(ch)[300..],
+                    "{channels} channels, ch {ch}, second block"
+                );
             }
         }
     }
@@ -765,7 +894,12 @@ mod tests {
         // time domain agrees with the analytic response
         for f in [200.0, 5000.0] {
             let mut fir = fir.clone();
-            assert_close(measured_gain(|b| fir.process(b), f), fir.magnitude_at(f, FS), 1e-3, "fir measured gain");
+            assert_close(
+                measured_gain(|b| fir.process(b), f),
+                fir.magnitude_at(f, FS),
+                1e-3,
+                "fir measured gain",
+            );
         }
     }
 
@@ -774,11 +908,21 @@ mod tests {
         let q = BUTTERWORTH_Q;
         let lp = BiquadCoeffs::lowpass(1000.0, q, FS);
         assert_close(lp.magnitude_at(1e-3, FS), 1.0, 1e-9, "lowpass DC");
-        assert_close(lp.magnitude_at(1000.0, FS), BUTTERWORTH_Q, 1e-9, "lowpass -3 dB point");
+        assert_close(
+            lp.magnitude_at(1000.0, FS),
+            BUTTERWORTH_Q,
+            1e-9,
+            "lowpass -3 dB point",
+        );
         assert!(lp.magnitude_at(23_999.0, FS) < 1e-6, "lowpass Nyquist");
 
         let hp = BiquadCoeffs::highpass(1000.0, q, FS);
-        assert_close(hp.magnitude_at(1000.0, FS), BUTTERWORTH_Q, 1e-9, "highpass -3 dB point");
+        assert_close(
+            hp.magnitude_at(1000.0, FS),
+            BUTTERWORTH_Q,
+            1e-9,
+            "highpass -3 dB point",
+        );
         assert!(hp.magnitude_at(1e-3, FS) < 1e-6, "highpass DC");
 
         let bp = BiquadCoeffs::bandpass(2000.0, 5.0, FS);
@@ -796,22 +940,62 @@ mod tests {
         let q = BUTTERWORTH_Q;
         for gain_db in [-12.0, -3.0, 6.0, 12.0] {
             let bell = BiquadCoeffs::peaking(2000.0, 1.0, gain_db, FS);
-            assert_close(db(bell.magnitude_at(2000.0, FS)), gain_db, 1e-9, "peaking center");
-            assert_close(db(bell.magnitude_at(20.0, FS)), 0.0, 0.01, "peaking far below");
+            assert_close(
+                db(bell.magnitude_at(2000.0, FS)),
+                gain_db,
+                1e-9,
+                "peaking center",
+            );
+            assert_close(
+                db(bell.magnitude_at(20.0, FS)),
+                0.0,
+                0.01,
+                "peaking far below",
+            );
 
             let low = BiquadCoeffs::low_shelf(500.0, q, gain_db, FS);
-            assert_close(db(low.magnitude_at(1e-3, FS)), gain_db, 1e-6, "low shelf DC");
-            assert_close(db(low.magnitude_at(20_000.0, FS)), 0.0, 0.01, "low shelf top");
+            assert_close(
+                db(low.magnitude_at(1e-3, FS)),
+                gain_db,
+                1e-6,
+                "low shelf DC",
+            );
+            assert_close(
+                db(low.magnitude_at(20_000.0, FS)),
+                0.0,
+                0.01,
+                "low shelf top",
+            );
             // a shelf is half-way (in dB) at its corner frequency
-            assert_close(db(low.magnitude_at(500.0, FS)), gain_db / 2.0, 1e-9, "low shelf corner");
+            assert_close(
+                db(low.magnitude_at(500.0, FS)),
+                gain_db / 2.0,
+                1e-9,
+                "low shelf corner",
+            );
 
             let high = BiquadCoeffs::high_shelf(5000.0, q, gain_db, FS);
-            assert_close(db(high.magnitude_at(23_999.0, FS)), gain_db, 0.01, "high shelf top");
+            assert_close(
+                db(high.magnitude_at(23_999.0, FS)),
+                gain_db,
+                0.01,
+                "high shelf top",
+            );
             assert_close(db(high.magnitude_at(1e-3, FS)), 0.0, 1e-6, "high shelf DC");
-            assert_close(db(high.magnitude_at(5000.0, FS)), gain_db / 2.0, 1e-9, "high shelf corner");
+            assert_close(
+                db(high.magnitude_at(5000.0, FS)),
+                gain_db / 2.0,
+                1e-9,
+                "high shelf corner",
+            );
         }
         let flat = BiquadCoeffs::peaking(2000.0, 1.0, 0.0, FS);
-        assert_close(flat.magnitude_at(777.0, FS), 1.0, 1e-12, "0 dB peaking is transparent");
+        assert_close(
+            flat.magnitude_at(777.0, FS),
+            1.0,
+            1e-12,
+            "0 dB peaking is transparent",
+        );
     }
 
     #[test]
@@ -841,7 +1025,12 @@ mod tests {
         ] {
             for f in [100.0, 1000.0, 2000.0, 8000.0] {
                 let mut bq = Biquad::new(coeffs);
-                assert_close(measured_gain(|b| bq.process(b), f), coeffs.magnitude_at(f, FS), 2e-3, &format!("{coeffs:?} at {f} Hz"));
+                assert_close(
+                    measured_gain(|b| bq.process(b), f),
+                    coeffs.magnitude_at(f, FS),
+                    2e-3,
+                    &format!("{coeffs:?} at {f} Hz"),
+                );
             }
         }
     }
@@ -851,7 +1040,9 @@ mod tests {
         // without the per-block flush the state would decay through subnormal numbers (slow on
         // many CPUs) for a long time before underflowing
         let mut single = Biquad::<f32>::lowpass(100.0, BUTTERWORTH_Q as f32, 48_000.0);
-        let mut multi = MultiBiquad::new(4, |_| Biquad::<f32>::lowpass(100.0, BUTTERWORTH_Q as f32, 48_000.0));
+        let mut multi = MultiBiquad::new(4, |_| {
+            Biquad::<f32>::lowpass(100.0, BUTTERWORTH_Q as f32, 48_000.0)
+        });
         let mut block = [0.0f32; 512];
         let mut buffer = AudioBuffer::new(4, 512);
         block[0] = 1.0;
@@ -859,7 +1050,10 @@ mod tests {
         for _ in 0..200 {
             single.process(&mut block);
             multi.process_buffer(&mut buffer);
-            assert!(block.iter().chain((0..4).flat_map(|ch| buffer.channel(ch))).all(|s| !s.is_subnormal()));
+            assert!(block
+                .iter()
+                .chain((0..4).flat_map(|ch| buffer.channel(ch)))
+                .all(|s| !s.is_subnormal()));
             block.fill(0.0);
             (0..4).for_each(|ch| buffer.channel_mut(ch).fill(0.0));
         }
@@ -872,7 +1066,11 @@ mod tests {
         let mut bq = Biquad::<f32>::lowpass(50.0, 0.707, 48_000.0);
         let mut buf = [1.0f32; 48_000];
         bq.process(&mut buf);
-        assert!((buf[47_999] - 1.0).abs() < 1e-3, "DC step settles to 1: {}", buf[47_999]);
+        assert!(
+            (buf[47_999] - 1.0).abs() < 1e-3,
+            "DC step settles to 1: {}",
+            buf[47_999]
+        );
         bq.reset();
         assert_eq!(bq.process_sample(0.0), 0.0);
     }

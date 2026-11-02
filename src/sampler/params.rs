@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the sampler voice.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 use crate::params::ParamUnit::{Fraction, Seconds, Semitones};
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 
 parameterized!(SamplerVoice, "Sampler voice",
     infos: |_s| [

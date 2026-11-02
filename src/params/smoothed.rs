@@ -57,11 +57,23 @@ impl<P: Parameterized> Smoothed<P> {
                 let info = inner.param_info(index).expect("index below param_count");
                 let value = inner.get_param(index).unwrap_or(info.default);
                 let n = info.to_normalized(value);
-                Ramp { info, current: n, target: n, target_value: value, step: 0.0, remaining: 0 }
+                Ramp {
+                    info,
+                    current: n,
+                    target: n,
+                    target_value: value,
+                    step: 0.0,
+                    remaining: 0,
+                }
             })
             .collect();
         let ramp_samples = (ramp_seconds * sample_rate).round().max(0.0) as usize;
-        Self { inner, ramps, ramp_samples, active: 0 }
+        Self {
+            inner,
+            ramps,
+            ramp_samples,
+            active: 0,
+        }
     }
     /// The wrapped processor.
     pub fn inner(&self) -> &P {
@@ -207,7 +219,9 @@ impl<T: Float, P: Processor<T> + Parameterized> Processor<T> for Smoothed<P> {
 
 impl<T: Float, P: MultiProcessor<T> + Parameterized> MultiProcessor<T> for Smoothed<P> {
     fn process(&mut self, buffer: &mut AudioBuffer<T>) {
-        self.run(buffer.frames(), |p, range| buffer.with_window(range.start, range.len(), |b| p.process(b)));
+        self.run(buffer.frames(), |p, range| {
+            buffer.with_window(range.start, range.len(), |b| p.process(b))
+        });
     }
     fn reset(&mut self) {
         self.settle();
@@ -297,14 +311,29 @@ mod tests {
         let mut lp = Smoothed::new(Biquad::<f64>::lowpass(100.0, BUTTERWORTH_Q, FS), 0.01, FS); // 480 samples
         let cutoff = lp.param_index("frequency_hz").unwrap();
         assert_eq!(lp.set_param(cutoff, 10_000.0), Ok(10_000.0));
-        assert_eq!(lp.get_param(cutoff), Some(10_000.0), "reads back the target at once");
-        assert_eq!(lp.inner().design().unwrap().frequency, 100.0, "but nothing has moved yet");
+        assert_eq!(
+            lp.get_param(cutoff),
+            Some(10_000.0),
+            "reads back the target at once"
+        );
+        assert_eq!(
+            lp.inner().design().unwrap().frequency,
+            100.0,
+            "but nothing has moved yet"
+        );
         let mut block = vec![0.0; 240];
         lp.process(&mut block);
         let halfway = lp.inner().design().unwrap().frequency;
-        assert!((halfway / 1_000.0 - 1.0).abs() < 1e-9, "halfway is the geometric mean: {halfway}");
+        assert!(
+            (halfway / 1_000.0 - 1.0).abs() < 1e-9,
+            "halfway is the geometric mean: {halfway}"
+        );
         lp.process(&mut block);
-        assert_eq!(lp.inner().design().unwrap().frequency, 10_000.0, "lands exactly");
+        assert_eq!(
+            lp.inner().design().unwrap().frequency,
+            10_000.0,
+            "lands exactly"
+        );
         assert!(!lp.is_ramping());
     }
 
@@ -317,7 +346,10 @@ mod tests {
         lp.set_param(cutoff, 100.0).unwrap(); // reverse halfway
         lp.process(&mut [0.0; 32]);
         let f = lp.inner().design().unwrap().frequency;
-        assert!(f < 1_000.0 && f > 800.0, "continues smoothly back down from ~1 kHz: {f}");
+        assert!(
+            f < 1_000.0 && f > 800.0,
+            "continues smoothly back down from ~1 kHz: {f}"
+        );
     }
 
     #[test]
@@ -339,7 +371,11 @@ mod tests {
         let mut chain = Smoothed::new(vec![Gain::<f64>::new(1.0, 0.0, FS)], 0.02, FS);
         chain.inner_mut().push(Gain::new(1.0, 0.0, FS));
         assert_eq!(chain.param_count(), 2);
-        assert_eq!(chain.set_param(1, -6.0), Ok(-6.0), "no ramp state for it, so it applies directly");
+        assert_eq!(
+            chain.set_param(1, -6.0),
+            Ok(-6.0),
+            "no ramp state for it, so it applies directly"
+        );
         assert_eq!(chain.get_param(1).map(f64::round), Some(-6.0));
         assert_eq!(chain.set_param(2, 0.0), Err(ParamError::UnknownIndex(2)));
     }
@@ -348,50 +384,104 @@ mod tests {
     fn discrete_and_internally_smoothed_parameters_pass_through() {
         let mut voice = Smoothed::new(SynthVoice::<f32>::new(48_000.0), 0.02, FS);
         voice.set_param_by_id("waveform", 2.0).unwrap();
-        assert!(matches!(voice.inner().waveform(), Waveform::Pulse { .. }), "a choice switches at once");
+        assert!(
+            matches!(voice.inner().waveform(), Waveform::Pulse { .. }),
+            "a choice switches at once"
+        );
         let mut gain = Smoothed::new(Gain::<f32>::new(1.0, 0.02, 48_000.0), 0.02, FS);
         gain.set_param(0, -6.0).unwrap();
-        assert!(!gain.is_ramping(), "Gain smooths itself: no second ramp on top");
+        assert!(
+            !gain.is_ramping(),
+            "Gain smooths itself: no second ramp on top"
+        );
         assert_eq!(gain.inner().get_param(0).map(|v| v.round()), Some(-6.0));
     }
 
     /// Largest jump between consecutive samples: where a parameter step clicks.
     fn max_step(x: &[f32]) -> f32 {
-        x.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f32::max)
+        x.windows(2)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f32::max)
     }
 
     #[test]
     fn ramps_remove_zipper_steps() {
         // a 200 Hz sine through a high-pass whose cutoff jumps from 5 kHz (almost silent) to 20 Hz
         // (wide open) mid-stream: unsmoothed, the output steps straight to full level
-        let sine: Vec<f32> = (0..4_800).map(|n| (std::f32::consts::TAU * 200.0 * n as f32 / 48_000.0).sin()).collect();
+        let sine: Vec<f32> = (0..4_800)
+            .map(|n| (std::f32::consts::TAU * 200.0 * n as f32 / 48_000.0).sin())
+            .collect();
         let render = |ramp_seconds: f64| {
-            let mut hp = Smoothed::new(Biquad::<f32>::highpass(5_000.0, BUTTERWORTH_Q as f32, 48_000.0), ramp_seconds, FS);
+            let mut hp = Smoothed::new(
+                Biquad::<f32>::highpass(5_000.0, BUTTERWORTH_Q as f32, 48_000.0),
+                ramp_seconds,
+                FS,
+            );
             let cutoff = hp.param_index("frequency_hz").unwrap();
             let mut out = sine.clone();
-            process_events(&mut hp, &mut out, &[ParamEvent { offset: 1_000, index: cutoff, value: 20.0 }]).unwrap();
+            process_events(
+                &mut hp,
+                &mut out,
+                &[ParamEvent {
+                    offset: 1_000,
+                    index: cutoff,
+                    value: 20.0,
+                }],
+            )
+            .unwrap();
             out
         };
         let (jumpy, smooth) = (max_step(&render(0.0)), max_step(&render(0.05)));
         // the sine's own largest step is 2 pi f / fs: smoothed, the cutoff change adds nothing to it
         let natural = std::f32::consts::TAU * 200.0 / 48_000.0;
-        assert!(smooth < 1.05 * natural, "max sample step {smooth} smoothed (sine alone: {natural})");
-        assert!(jumpy > 10.0 * natural, "unsmoothed, the jump shows: {jumpy}");
+        assert!(
+            smooth < 1.05 * natural,
+            "max sample step {smooth} smoothed (sine alone: {natural})"
+        );
+        assert!(
+            jumpy > 10.0 * natural,
+            "unsmoothed, the jump shows: {jumpy}"
+        );
     }
     #[test]
     fn events_land_on_their_sample() {
         let mut gain = Gain::<f32>::new(1.0, 0.0, 48_000.0); // no ramp: changes are immediate
         let mut block = [1.0f32; 8];
         let half = -20.0 * 2f64.log10();
-        let events = [ParamEvent { offset: 3, index: 0, value: half }, ParamEvent { offset: 99, index: 0, value: 0.0 }];
+        let events = [
+            ParamEvent {
+                offset: 3,
+                index: 0,
+                value: half,
+            },
+            ParamEvent {
+                offset: 99,
+                index: 0,
+                value: 0.0,
+            },
+        ];
         process_events(&mut gain, &mut block, &events).unwrap();
         assert_eq!(&block[..3], &[1.0; 3]);
-        assert!(block[3..].iter().all(|&s| (s - 0.5).abs() < 1e-6), "{block:?}");
-        assert_eq!(gain.get_param(0), Some(0.0), "an offset past the end applies at the end");
+        assert!(
+            block[3..].iter().all(|&s| (s - 0.5).abs() < 1e-6),
+            "{block:?}"
+        );
+        assert_eq!(
+            gain.get_param(0),
+            Some(0.0),
+            "an offset past the end applies at the end"
+        );
 
         let mut block = [1.0f32; 4];
-        let bad = [ParamEvent { offset: 1, index: 7, value: 0.0 }];
-        assert_eq!(process_events(&mut gain, &mut block, &bad), Err(ParamError::UnknownIndex(7)));
+        let bad = [ParamEvent {
+            offset: 1,
+            index: 7,
+            value: 0.0,
+        }];
+        assert_eq!(
+            process_events(&mut gain, &mut block, &bad),
+            Err(ParamError::UnknownIndex(7))
+        );
         assert_eq!(block, [1.0; 4], "the block is still processed");
     }
 
@@ -400,11 +490,17 @@ mod tests {
         let mut stereo = PerChannel::new(2, |_| Gain::<f32>::new(1.0, 0.0, 48_000.0));
         let mut buffer = AudioBuffer::new(2, 6);
         buffer.fill(1.0);
-        let events = [ParamEvent { offset: 2, index: 0, value: -20.0 * 2f64.log10() }];
+        let events = [ParamEvent {
+            offset: 2,
+            index: 0,
+            value: -20.0 * 2f64.log10(),
+        }];
         process_buffer_events(&mut stereo, &mut buffer, &events).unwrap();
         for ch in 0..2 {
             assert_eq!(&buffer.channel(ch)[..2], &[1.0, 1.0]);
-            assert!(buffer.channel(ch)[2..].iter().all(|&s| (s - 0.5).abs() < 1e-6));
+            assert!(buffer.channel(ch)[2..]
+                .iter()
+                .all(|&s| (s - 0.5).abs() < 1e-6));
         }
     }
 }

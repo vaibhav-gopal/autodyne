@@ -1,9 +1,9 @@
 //! Onset (note attack) detection.
 
-use crate::alloc_prelude::*;
 use super::Window;
-use crate::processor::Processor;
+use crate::alloc_prelude::*;
 use crate::fft::RealFft;
+use crate::processor::Processor;
 use crate::units::*;
 
 /// A detected onset.
@@ -117,11 +117,19 @@ impl<T: Float> OnsetDetector<T> {
     }
     /// The detection function's latest value (for display).
     pub fn detection(&self) -> T {
-        if self.frames == 0 { T::_ZERO } else { self.odf_at(self.frames - 1) }
+        if self.frames == 0 {
+            T::_ZERO
+        } else {
+            self.odf_at(self.frames - 1)
+        }
     }
     /// Clears the history and the detection function.
     pub fn reset(&mut self) {
-        self.history.iter_mut().chain(self.past.iter_mut()).chain(self.odf.iter_mut()).for_each(|s| *s = T::_ZERO);
+        self.history
+            .iter_mut()
+            .chain(self.past.iter_mut())
+            .chain(self.odf.iter_mut())
+            .for_each(|s| *s = T::_ZERO);
         self.write = 0;
         self.since = 0;
         self.frames = 0;
@@ -183,7 +191,11 @@ impl<T: Float> OnsetDetector<T> {
         let latest = self.frames - 1;
         let candidate = latest.checked_sub(POST as u64)?;
         let value = self.odf_at(candidate);
-        if value <= T::_ZERO || self.last_onset.is_some_and(|l| candidate - l < self.min_gap) {
+        if value <= T::_ZERO
+            || self
+                .last_onset
+                .is_some_and(|l| candidate - l < self.min_gap)
+        {
             return None;
         }
         let since = |back: usize| candidate.saturating_sub(back as u64)..=latest;
@@ -201,7 +213,10 @@ impl<T: Float> OnsetDetector<T> {
         // end by a fixed fraction of the frame
         let end = (candidate + 1) * self.hop as u64;
         let position = end.saturating_sub(self.frame.len() as u64 * 11 / 32);
-        Some(Onset { position, strength: value })
+        Some(Onset {
+            position,
+            strength: value,
+        })
     }
 }
 
@@ -237,15 +252,32 @@ mod tests {
         for (i, s) in x[start..].iter_mut().enumerate() {
             let t = i as f64 / FS;
             let env = amplitude * (-t / 0.15).exp();
-            *s += env * (1..=8).map(|h| (std::f64::consts::TAU * freq * h as f64 * t).sin() / h as f64).sum::<f64>();
+            *s += env
+                * (1..=8)
+                    .map(|h| (std::f64::consts::TAU * freq * h as f64 * t).sin() / h as f64)
+                    .sum::<f64>();
         }
     }
 
     #[test]
     fn finds_every_pluck_and_nothing_else() {
-        let starts = [4_800, 20_000, 31_000, 52_000, 60_500, 79_000, 97_000, 110_000];
-        let notes = [(196.0, 0.5), (262.0, 0.1), (330.0, 0.3), (220.0, 0.05), (440.0, 0.4), (147.0, 0.2), (523.0, 0.02), (392.0, 0.3)];
-        let mut x: Vec<f64> = Noise::<f64>::new(9).take(130_000).map(|n| 3e-4 * n).collect();
+        let starts = [
+            4_800, 20_000, 31_000, 52_000, 60_500, 79_000, 97_000, 110_000,
+        ];
+        let notes = [
+            (196.0, 0.5),
+            (262.0, 0.1),
+            (330.0, 0.3),
+            (220.0, 0.05),
+            (440.0, 0.4),
+            (147.0, 0.2),
+            (523.0, 0.02),
+            (392.0, 0.3),
+        ];
+        let mut x: Vec<f64> = Noise::<f64>::new(9)
+            .take(130_000)
+            .map(|n| 3e-4 * n)
+            .collect();
         for (&start, &(f, a)) in starts.iter().zip(&notes) {
             pluck(&mut x, start, f, a);
         }
@@ -254,7 +286,11 @@ mod tests {
         assert_eq!(found.len(), starts.len(), "found {positions:?}");
         for (o, &start) in found.iter().zip(&starts) {
             let error_ms = (o.position as f64 - start as f64) / FS * 1_000.0;
-            assert!(error_ms.abs() < 10.0, "onset at {start}: found {} ({error_ms:.1} ms)", o.position);
+            assert!(
+                error_ms.abs() < 10.0,
+                "onset at {start}: found {} ({error_ms:.1} ms)",
+                o.position
+            );
         }
     }
 
@@ -268,15 +304,29 @@ mod tests {
             let f = 330.0 * 2f64.powf(0.4 / 12.0 * (std::f64::consts::TAU * 6.0 * t).sin());
             phase += f / FS;
             let amp = 0.3 * (1.0 + 0.3 * (std::f64::consts::TAU * 4.0 * t).sin());
-            x.push(amp * (1..=6).map(|h| (std::f64::consts::TAU * phase * h as f64).sin() / h as f64).sum::<f64>());
+            x.push(
+                amp * (1..=6)
+                    .map(|h| (std::f64::consts::TAU * phase * h as f64).sin() / h as f64)
+                    .sum::<f64>(),
+            );
         }
         let found = detect(&x);
-        assert_eq!(found.len(), 1, "{:?}", found.iter().map(|o| o.position).collect::<Vec<_>>());
+        assert_eq!(
+            found.len(),
+            1,
+            "{:?}",
+            found.iter().map(|o| o.position).collect::<Vec<_>>()
+        );
         // stationary noise: one onset where it starts, nothing after
         let mut x = vec![0.0; 4_800];
         x.extend(Noise::<f64>::new(4).take(240_000).map(|n| 0.2 * n));
         let found = detect(&x);
-        assert_eq!(found.len(), 1, "{:?}", found.iter().map(|o| o.position).collect::<Vec<_>>());
+        assert_eq!(
+            found.len(),
+            1,
+            "{:?}",
+            found.iter().map(|o| o.position).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -292,9 +342,18 @@ mod tests {
             }
         }
         let found = detect(&x);
-        assert_eq!(found.len(), hits.len(), "{:?}", found.iter().map(|o| o.position).collect::<Vec<_>>());
+        assert_eq!(
+            found.len(),
+            hits.len(),
+            "{:?}",
+            found.iter().map(|o| o.position).collect::<Vec<_>>()
+        );
         for (o, &h) in found.iter().zip(&hits) {
-            assert!((o.position as f64 - h as f64).abs() / FS < 0.01, "hit at {h}: found {}", o.position);
+            assert!(
+                (o.position as f64 - h as f64).abs() / FS < 0.01,
+                "hit at {h}: found {}",
+                o.position
+            );
         }
     }
 }

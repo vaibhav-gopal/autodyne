@@ -17,12 +17,22 @@ use autodyne::synth::{MidiMessage, Poly, SynthVoice, TimedEvent};
 
 const FS: u32 = 48_000;
 /// (start in seconds, MIDI note): a rising figure, then a chord
-const PHRASE: [(f64, u8); 7] = [(0.0, 60), (0.25, 64), (0.5, 67), (0.75, 72), (1.0, 60), (1.0, 64), (1.0, 67)];
+const PHRASE: [(f64, u8); 7] = [
+    (0.0, 60),
+    (0.25, 64),
+    (0.5, 67),
+    (0.75, 72),
+    (1.0, 60),
+    (1.0, 64),
+    (1.0, 67),
+];
 const NOTE_LENGTH: f64 = 0.2;
 const TOTAL_SECONDS: f64 = 4.5;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = std::env::args().nth(1).unwrap_or_else(|| "target/examples-out".into());
+    let out_dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "target/examples-out".into());
     std::fs::create_dir_all(&out_dir)?;
     let fs = FS as f32;
     let frames = (TOTAL_SECONDS * FS as f64) as usize;
@@ -34,8 +44,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let on = (start * FS as f64) as usize;
             let off = ((start + NOTE_LENGTH) * FS as f64) as usize;
             [
-                TimedEvent { offset: on, message: MidiMessage::NoteOn { channel: 0, note, velocity: 100 } },
-                TimedEvent { offset: off, message: MidiMessage::NoteOff { channel: 0, note, velocity: 0 } },
+                TimedEvent {
+                    offset: on,
+                    message: MidiMessage::NoteOn {
+                        channel: 0,
+                        note,
+                        velocity: 100,
+                    },
+                },
+                TimedEvent {
+                    offset: off,
+                    message: MidiMessage::NoteOff {
+                        channel: 0,
+                        note,
+                        velocity: 0,
+                    },
+                },
             ]
         })
         .collect();
@@ -72,18 +96,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let last_note_end = PHRASE.iter().map(|&(s, _)| s).fold(0.0, f64::max) + NOTE_LENGTH;
     let tail = |buf: &AudioBuffer<f32>| {
         let start = ((last_note_end + 1.0) * FS as f64) as usize;
-        buf.channel(0)[start..start + FS as usize / 10].rms_db().unwrap_or(f32::NEG_INFINITY)
+        buf.channel(0)[start..start + FS as usize / 10]
+            .rms_db()
+            .unwrap_or(f32::NEG_INFINITY)
     };
-    for (name, buf) in [("reverb_dry", &dry), ("reverb_fdn", &fdn), ("reverb_convolution", &convolution)] {
-        println!("{name:<20} level 1 s after the last note: {:>7.1} dB", tail(buf));
+    for (name, buf) in [
+        ("reverb_dry", &dry),
+        ("reverb_fdn", &fdn),
+        ("reverb_convolution", &convolution),
+    ] {
+        println!(
+            "{name:<20} level 1 s after the last note: {:>7.1} dB",
+            tail(buf)
+        );
         write_stereo_wav(Path::new(&out_dir).join(format!("{name}.wav")), buf)?;
     }
     println!("wrote reverb_dry.wav, reverb_fdn.wav and reverb_convolution.wav to {out_dir}");
     Ok(())
 }
 
-fn write_stereo_wav(path: impl AsRef<Path>, buf: &AudioBuffer<f32>) -> Result<(), Box<dyn std::error::Error>> {
-    let spec = hound::WavSpec { channels: 2, sample_rate: FS, bits_per_sample: 32, sample_format: hound::SampleFormat::Float };
+fn write_stereo_wav(
+    path: impl AsRef<Path>,
+    buf: &AudioBuffer<f32>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let spec = hound::WavSpec {
+        channels: 2,
+        sample_rate: FS,
+        bits_per_sample: 32,
+        sample_format: hound::SampleFormat::Float,
+    };
     let mut interleaved = vec![0.0f32; buf.frames() * 2];
     buf.copy_to_interleaved(&mut interleaved);
     let mut writer = hound::WavWriter::create(path, spec)?;

@@ -1,7 +1,7 @@
 //! Covariance and correlation matrices (`numpy.cov`, `numpy.corrcoef`).
 
-use crate::alloc_prelude::*;
 use super::StatsError;
+use crate::alloc_prelude::*;
 use crate::signal::{NdArray, NdView};
 use crate::units::*;
 
@@ -15,7 +15,11 @@ fn centred_rows<T: Float>(x: NdView<'_, T>, rowvar: bool) -> Result<Vec<Vec<f64>
             let v = if rowvar { x } else { x.transpose() };
             v.lanes(1)?.map(|l| l.iter().map(f).collect()).collect()
         }
-        d => return Err(StatsError::invalid(format!("cov needs a 1-D or 2-D array, got {d} dimensions"))),
+        d => {
+            return Err(StatsError::invalid(format!(
+                "cov needs a 1-D or 2-D array, got {d} dimensions"
+            )))
+        }
     };
     Ok(rows
         .into_iter()
@@ -31,11 +35,17 @@ fn centred_rows<T: Float>(x: NdView<'_, T>, rowvar: bool) -> Result<Vec<Vec<f64>
 /// observations when `rowvar` (else the other way round); a 1-D input is one variable. Entry
 /// `(i, j)` is `sum (x_i - mean_i)(x_j - mean_j) / (n - ddof)` (`ddof` 1: the unbiased estimate).
 /// Errors unless there are more than `ddof` observations.
-pub fn cov<T: Float + Default>(x: NdView<'_, T>, rowvar: bool, ddof: usize) -> Result<NdArray<T>, StatsError> {
+pub fn cov<T: Float + Default>(
+    x: NdView<'_, T>,
+    rowvar: bool,
+    ddof: usize,
+) -> Result<NdArray<T>, StatsError> {
     let rows = centred_rows(x, rowvar)?;
     let n = rows[0].len();
     if n <= ddof {
-        return Err(StatsError::invalid(format!("cov needs more than ddof ({ddof}) observations, got {n}")));
+        return Err(StatsError::invalid(format!(
+            "cov needs more than ddof ({ddof}) observations, got {n}"
+        )));
     }
     let k = rows.len();
     let scale = 1.0 / (n - ddof) as f64;
@@ -57,15 +67,25 @@ pub fn cov<T: Float + Default>(x: NdView<'_, T>, rowvar: bool, ddof: usize) -> R
         }
         c
     };
-    Ok(NdArray::from_vec(c.into_iter().map(|v| T::_lit(v * scale)).collect(), &[k, k])?)
+    Ok(NdArray::from_vec(
+        c.into_iter().map(|v| T::_lit(v * scale)).collect(),
+        &[k, k],
+    )?)
 }
 
 /// The Pearson correlation matrix of the variables of `x` (`numpy.corrcoef`): the covariance
 /// normalized by the standard deviations, clipped to [-1, 1]. A constant variable gives NaN.
-pub fn corrcoef<T: Float + Default>(x: NdView<'_, T>, rowvar: bool) -> Result<NdArray<T>, StatsError> {
+pub fn corrcoef<T: Float + Default>(
+    x: NdView<'_, T>,
+    rowvar: bool,
+) -> Result<NdArray<T>, StatsError> {
     let c = cov(x, rowvar, 1)?;
     let k = c.shape()[0];
-    let c: Vec<f64> = c.as_slice().iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect();
+    let c: Vec<f64> = c
+        .as_slice()
+        .iter()
+        .map(|v| v.to_f64().unwrap_or(f64::NAN))
+        .collect();
     let d: Vec<f64> = (0..k).map(|i| c[i * k + i].sqrt()).collect();
     let r = (0..k * k).map(|ij| T::_lit((c[ij] / d[ij / k] / d[ij % k]).clamp(-1.0, 1.0)));
     Ok(NdArray::from_vec(r.collect(), &[k, k])?)
@@ -81,7 +101,14 @@ mod tests {
         let x = NdArray::from_vec(vec![0.0, 1.0, 2.0, 2.0, 1.0, 0.5], &[2, 3]).unwrap();
         let c = cov(x.view(), true, 1).unwrap();
         let want = [1.0, -0.75, -0.75, 0.5833333333333334];
-        assert!(c.as_slice().iter().zip(want).all(|(a, b)| (a - b).abs() < 1e-12), "{:?}", c.as_slice());
+        assert!(
+            c.as_slice()
+                .iter()
+                .zip(want)
+                .all(|(a, b)| (a - b).abs() < 1e-12),
+            "{:?}",
+            c.as_slice()
+        );
         // the same data with variables in columns
         let t = x.view().transpose().to_owned();
         assert_eq!(cov(t.view(), false, 1).unwrap().as_slice(), c.as_slice());

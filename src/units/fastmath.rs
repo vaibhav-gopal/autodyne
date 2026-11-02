@@ -72,14 +72,26 @@ pub fn exp(x: f32) -> f32 {
     let k = round(xc * LOG2E);
     let r = (xc - k * C1) - k * C2;
     let z = r * r;
-    let p = (((((1.987_569_15e-4 * r + 1.398_199_950_7e-3) * r + 8.333_451_907_3e-3) * r + 4.166_579_589_4e-2) * r + 1.666_666_545_9e-1) * r + 5.000_000_120_1e-1) * z + r + 1.0;
+    let p = (((((1.987_569_15e-4 * r + 1.398_199_950_7e-3) * r + 8.333_451_907_3e-3) * r
+        + 4.166_579_589_4e-2)
+        * r
+        + 1.666_666_545_9e-1)
+        * r
+        + 5.000_000_120_1e-1)
+        * z
+        + r
+        + 1.0;
     // 2^k in two factors, each a normal number, so subnormal results come out right
     let k = k as i32;
     let half = k >> 1;
     let y = p * pow2(half) * pow2(k - half);
     let y = if x > MAX { f32::INFINITY } else { y };
     let y = if x < MIN { 0.0 } else { y };
-    if x.is_nan() { x } else { y }
+    if x.is_nan() {
+        x
+    } else {
+        y
+    }
 }
 
 /// The natural logarithm.
@@ -97,7 +109,16 @@ pub fn ln(x: f32) -> f32 {
     let e = (if low { e - 1 } else { e }) as f32;
     let f = if low { m + m - 1.0 } else { m - 1.0 };
     let z = f * f;
-    let p = ((((((((7.037_683_629_2e-2 * f - 1.151_461_031_0e-1) * f + 1.167_699_874_0e-1) * f - 1.242_014_084_6e-1) * f + 1.424_932_278_7e-1) * f - 1.666_805_766_5e-1) * f + 2.000_071_476_5e-1) * f
+    let p = ((((((((7.037_683_629_2e-2 * f - 1.151_461_031_0e-1) * f + 1.167_699_874_0e-1)
+        * f
+        - 1.242_014_084_6e-1)
+        * f
+        + 1.424_932_278_7e-1)
+        * f
+        - 1.666_805_766_5e-1)
+        * f
+        + 2.000_071_476_5e-1)
+        * f
         - 2.499_999_399_3e-1)
         * f
         + 3.333_333_117_4e-1)
@@ -108,7 +129,11 @@ pub fn ln(x: f32) -> f32 {
     let r = if x == 0.0 { f32::NEG_INFINITY } else { r };
     let r = if x < 0.0 { f32::NAN } else { r };
     let r = if x == f32::INFINITY { x } else { r };
-    if x.is_nan() { x } else { r }
+    if x.is_nan() {
+        x
+    } else {
+        r
+    }
 }
 
 /// The hyperbolic tangent.
@@ -117,12 +142,22 @@ pub fn tanh(x: f32) -> f32 {
     let a = x.abs();
     let z = x * x;
     // near zero, an odd polynomial (no cancellation)
-    let near = ((((-5.704_988_727_45e-3 * z + 2.063_908_879_54e-2) * z - 5.373_971_555_31e-2) * z + 1.333_144_220_36e-1) * z - 3.333_328_194_22e-1) * z * x + x;
+    let near = ((((-5.704_988_727_45e-3 * z + 2.063_908_879_54e-2) * z - 5.373_971_555_31e-2) * z
+        + 1.333_144_220_36e-1)
+        * z
+        - 3.333_328_194_22e-1)
+        * z
+        * x
+        + x;
     // elsewhere 1 - 2 / (e^2|x| + 1), with the sign of x; past 9, 1 (tanh 9 rounds to it)
     let e = exp(2.0 * a.min(9.0));
     let far = (if a > 9.0 { 1.0 } else { 1.0 - 2.0 / (e + 1.0) }).copysign(x);
     let y = if a < 0.625 { near.copysign(x) } else { far };
-    if x.is_nan() { x } else { y }
+    if x.is_nan() {
+        x
+    } else {
+        y
+    }
 }
 
 #[cfg(test)]
@@ -144,7 +179,9 @@ mod tests {
 
     /// Values spread over `[lo, hi]`, densely and log-spaced through small magnitudes.
     fn samples(lo: f32, hi: f32) -> Vec<f32> {
-        let mut v: Vec<f32> = (0..200_000).map(|i| lo + (hi - lo) * i as f32 / 199_999.0).collect();
+        let mut v: Vec<f32> = (0..200_000)
+            .map(|i| lo + (hi - lo) * i as f32 / 199_999.0)
+            .collect();
         for e in -40..=38 {
             for k in 1..20 {
                 let x = k as f32 * 10f32.powi(e);
@@ -202,7 +239,10 @@ mod tests {
 
     #[test]
     fn exp_within_two_ulp() {
-        let worst = samples(-103.0, 88.7).into_iter().map(|x| ulps(exp(x), (x as f64).exp())).fold(0.0, f64::max);
+        let worst = samples(-103.0, 88.7)
+            .into_iter()
+            .map(|x| ulps(exp(x), (x as f64).exp()))
+            .fold(0.0, f64::max);
         assert!(worst <= 2.0, "exp: {worst} ulp");
         assert_eq!(exp(0.0), 1.0);
         assert_eq!(exp(100.0), f32::INFINITY);
@@ -216,8 +256,19 @@ mod tests {
     fn ln_within_two_ulp() {
         let mut xs = samples(0.0, 1e6);
         xs.extend((0..100_000).map(|i| f32::from_bits(1 + i * 83))); // subnormals
-        xs.extend([f32::MIN_POSITIVE, f32::MAX, 1.0, 2.0, 0.5, std::f32::consts::E]);
-        let worst = xs.into_iter().filter(|&x| x > 0.0).map(|x| ulps(ln(x), (x as f64).ln())).fold(0.0, f64::max);
+        xs.extend([
+            f32::MIN_POSITIVE,
+            f32::MAX,
+            1.0,
+            2.0,
+            0.5,
+            std::f32::consts::E,
+        ]);
+        let worst = xs
+            .into_iter()
+            .filter(|&x| x > 0.0)
+            .map(|x| ulps(ln(x), (x as f64).ln()))
+            .fold(0.0, f64::max);
         assert!(worst <= 2.0, "ln: {worst} ulp");
         assert_eq!(ln(1.0), 0.0);
         assert_eq!(ln(0.0), f32::NEG_INFINITY);
@@ -227,7 +278,10 @@ mod tests {
 
     #[test]
     fn tanh_within_two_ulp() {
-        let worst = samples(-20.0, 20.0).into_iter().map(|x| ulps(tanh(x), (x as f64).tanh())).fold(0.0, f64::max);
+        let worst = samples(-20.0, 20.0)
+            .into_iter()
+            .map(|x| ulps(tanh(x), (x as f64).tanh()))
+            .fold(0.0, f64::max);
         assert!(worst <= 2.0, "tanh: {worst} ulp");
         assert_eq!(tanh(0.0), 0.0);
         assert_eq!(tanh(f32::INFINITY), 1.0);

@@ -101,7 +101,11 @@ impl<T: Float> Bitcrusher<T> {
 
     #[inline]
     fn quantize(&mut self, x: T) -> T {
-        let dither = if self.dither { self.uniform() + self.uniform() } else { T::_ZERO };
+        let dither = if self.dither {
+            self.uniform() + self.uniform()
+        } else {
+            T::_ZERO
+        };
         ((x / self.step + dither)._round() * self.step)._clamp(-T::_ONE, T::_ONE)
     }
 
@@ -142,7 +146,11 @@ mod tests {
         let mut y = ramp(1_000);
         b.process(&mut y);
         let step = 1.0 / 8.0;
-        assert!(y.iter().all(|v| ((v / step) - (v / step).round()).abs() < 1e-12), "multiples of 1/8");
+        assert!(
+            y.iter()
+                .all(|v| ((v / step) - (v / step).round()).abs() < 1e-12),
+            "multiples of 1/8"
+        );
         let mut distinct: Vec<i64> = y.iter().map(|v| (v / step).round() as i64).collect();
         distinct.dedup();
         assert_eq!(distinct.len(), 15, "-7/8 .. 7/8");
@@ -157,16 +165,24 @@ mod tests {
         let mut y = x.clone();
         b.process(&mut y);
         for chunk in y.chunks(4) {
-            assert!(chunk.iter().all(|&v| v == chunk[0]), "held for 4 samples: {chunk:?}");
+            assert!(
+                chunk.iter().all(|&v| v == chunk[0]),
+                "held for 4 samples: {chunk:?}"
+            );
         }
-        assert!((y[0] - x[0]).abs() < 1e-6 && (y[4] - x[4]).abs() < 1e-6, "each hold starts on a fresh sample");
+        assert!(
+            (y[0] - x[0]).abs() < 1e-6 && (y[4] - x[4]).abs() < 1e-6,
+            "each hold starts on a fresh sample"
+        );
     }
 
     #[test]
     fn dither_decorrelates_the_error_and_mix_blends() {
         // a slow ramp spanning 3 steps at 3 bits: without dither the error is a sawtooth that
         // follows the signal; with dither its average over each step is near zero
-        let x: Vec<f64> = (0..30_000).map(|i| 0.1 + 0.6 * i as f64 / 30_000.0).collect();
+        let x: Vec<f64> = (0..30_000)
+            .map(|i| 0.1 + 0.6 * i as f64 / 30_000.0)
+            .collect();
         let mean_error = |dither: bool| {
             let mut b = Bitcrusher::new(FS);
             b.set_rate(FS);
@@ -175,7 +191,10 @@ mod tests {
             let mut y = x.clone();
             b.process(&mut y);
             // error averaged over windows of 1000 samples: the worst window
-            y.chunks(1_000).zip(x.chunks(1_000)).map(|(a, b)| (a.iter().zip(b).map(|(p, q)| p - q).sum::<f64>() / 1_000.0).abs()).fold(0.0, f64::max)
+            y.chunks(1_000)
+                .zip(x.chunks(1_000))
+                .map(|(a, b)| (a.iter().zip(b).map(|(p, q)| p - q).sum::<f64>() / 1_000.0).abs())
+                .fold(0.0, f64::max)
         };
         assert!(mean_error(false) > 0.05);
         assert!(mean_error(true) < 0.02, "{}", mean_error(true));

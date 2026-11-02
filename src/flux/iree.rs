@@ -21,7 +21,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_outputs, find_tool, npy, Backend, Executable, HostArray, HostRef, Scratch, TempDir};
+use super::runtime::{
+    check_inputs, check_outputs, find_tool, npy, Backend, Executable, HostArray, HostRef, Scratch,
+    TempDir,
+};
 use super::FluxError;
 
 /// The hardware IREE compiles for and runs on.
@@ -69,20 +72,32 @@ impl IreeTarget {
     }
     /// CUDA for `sm_80` (Ampere) PTX, which every later NVIDIA GPU also runs.
     pub fn cuda() -> Self {
-        IreeTarget::Cuda { target: "sm_80".into() }
+        IreeTarget::Cuda {
+            target: "sm_80".into(),
+        }
     }
 
     fn flags(&self) -> Vec<String> {
         let s = |v: &[&str]| v.iter().map(|x| x.to_string()).collect::<Vec<_>>();
         match self {
-            IreeTarget::Cpu => s(&["--iree-hal-target-device=local", "--iree-hal-local-target-device-backends=llvm-cpu", "--iree-llvmcpu-target-cpu=host"]),
+            IreeTarget::Cpu => s(&[
+                "--iree-hal-target-device=local",
+                "--iree-hal-local-target-device-backends=llvm-cpu",
+                "--iree-llvmcpu-target-cpu=host",
+            ]),
             IreeTarget::Vulkan { target } => {
                 let mut f = s(&["--iree-hal-target-device=vulkan"]);
                 f.extend(target.iter().map(|t| format!("--iree-vulkan-target={t}")));
                 f
             }
-            IreeTarget::Cuda { target } => vec!["--iree-hal-target-device=cuda".into(), format!("--iree-cuda-target={target}")],
-            IreeTarget::Rocm { target } => vec!["--iree-hal-target-device=hip".into(), format!("--iree-rocm-target={target}")],
+            IreeTarget::Cuda { target } => vec![
+                "--iree-hal-target-device=cuda".into(),
+                format!("--iree-cuda-target={target}"),
+            ],
+            IreeTarget::Rocm { target } => vec![
+                "--iree-hal-target-device=hip".into(),
+                format!("--iree-rocm-target={target}"),
+            ],
             IreeTarget::Metal => s(&["--iree-hal-target-device=metal"]),
             IreeTarget::Custom { flags, .. } => flags.clone(),
         }
@@ -124,7 +139,11 @@ impl Iree {
     /// the host CPU.
     pub fn find() -> Option<Iree> {
         let dir = std::env::var_os("AUTODYNE_IREE_DIR").map(PathBuf::from);
-        Some(Iree { compiler: find_tool(dir.clone(), "iree-compile")?, runner: find_tool(dir, "iree-run-module")?, target: IreeTarget::Cpu })
+        Some(Iree {
+            compiler: find_tool(dir.clone(), "iree-compile")?,
+            runner: find_tool(dir, "iree-run-module")?,
+            target: IreeTarget::Cpu,
+        })
     }
 
     /// The same tools for another target.
@@ -144,7 +163,9 @@ impl Iree {
         let source = dir.path.join("module.mlir");
         std::fs::write(&source, &program.text)?;
         let mut cmd = Command::new(&self.compiler);
-        cmd.arg(&source).arg("--iree-input-type=stablehlo").args(self.target.flags());
+        cmd.arg(&source)
+            .arg("--iree-input-type=stablehlo")
+            .args(self.target.flags());
         if program.dtype == crate::units::DType::F64 {
             // IREE narrows f64 to f32 unless told not to
             cmd.arg("--iree-input-demote-f64-to-f32=false");
@@ -157,10 +178,22 @@ impl Iree {
     /// gives its input and output shapes and element type (the text is not used, and may be empty).
     pub fn load(&self, vmfb: &Path, signature: &Program) -> Result<Box<dyn Executable>, FluxError> {
         if !vmfb.is_file() {
-            return Err(FluxError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, format!("no module at {}", vmfb.display()))));
+            return Err(FluxError::Io(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no module at {}", vmfb.display()),
+            )));
         }
-        let program = Program { text: String::new(), ..signature.clone() };
-        Ok(Box::new(Module { runner: self.runner.clone(), target: self.target.clone(), vmfb: vmfb.to_path_buf(), dir: TempDir::new()?, program }))
+        let program = Program {
+            text: String::new(),
+            ..signature.clone()
+        };
+        Ok(Box::new(Module {
+            runner: self.runner.clone(),
+            target: self.target.clone(),
+            vmfb: vmfb.to_path_buf(),
+            dir: TempDir::new()?,
+            program,
+        }))
     }
 }
 
@@ -199,7 +232,13 @@ impl Backend for Iree {
         let dir = TempDir::new()?;
         let vmfb = dir.path.join("module.vmfb");
         self.compile_to(program, &vmfb)?;
-        Ok(Box::new(Module { runner: self.runner.clone(), target: self.target.clone(), vmfb, dir, program: program.clone() }))
+        Ok(Box::new(Module {
+            runner: self.runner.clone(),
+            target: self.target.clone(),
+            vmfb,
+            dir,
+            program: program.clone(),
+        }))
     }
 }
 
@@ -222,10 +261,18 @@ impl Executable for Module {
     fn run_host(&self, inputs: &[HostRef<'_>]) -> Result<Vec<HostArray>, FluxError> {
         check_inputs(&self.program, inputs)?;
         let ins: Vec<PathBuf> = inputs.iter().map(|_| self.dir.file("in", "npy")).collect();
-        let outs: Vec<PathBuf> = self.program.outputs.iter().map(|_| self.dir.file("out", "npy")).collect();
+        let outs: Vec<PathBuf> = self
+            .program
+            .outputs
+            .iter()
+            .map(|_| self.dir.file("out", "npy"))
+            .collect();
         let _cleanup = Scratch(ins.iter().chain(&outs).cloned().collect());
         let mut cmd = Command::new(&self.runner);
-        cmd.arg(format!("--device={}", self.target.device())).args(self.target.run_flags()).arg(flag("--module=", &self.vmfb)).arg("--function=main");
+        cmd.arg(format!("--device={}", self.target.device()))
+            .args(self.target.run_flags())
+            .arg(flag("--module=", &self.vmfb))
+            .arg("--function=main");
         for (x, path) in inputs.iter().zip(&ins) {
             npy::save(path, *x)?;
             cmd.arg(flag("--input=@", path));
@@ -234,7 +281,10 @@ impl Executable for Module {
             cmd.arg(flag("--output=@", path));
         }
         run(cmd, "iree-run-module")?;
-        let results = outs.iter().map(|p| npy::load(p)).collect::<Result<Vec<_>, _>>()?;
+        let results = outs
+            .iter()
+            .map(|p| npy::load(p))
+            .collect::<Result<Vec<_>, _>>()?;
         check_outputs(&self.program, &results)?;
         Ok(results)
     }
@@ -252,7 +302,15 @@ fn run(mut cmd: Command, tool: &'static str) -> Result<(), FluxError> {
         Ok(())
     } else {
         // some failures are reported on stdout only
-        let message = [&out.stderr, &out.stdout].map(|b| String::from_utf8_lossy(b).trim().to_string()).into_iter().filter(|m| !m.is_empty()).collect::<Vec<_>>().join("\n");
-        Err(FluxError::Tool { tool, message: format!("{message} ({})", out.status) })
+        let message = [&out.stderr, &out.stdout]
+            .map(|b| String::from_utf8_lossy(b).trim().to_string())
+            .into_iter()
+            .filter(|m| !m.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        Err(FluxError::Tool {
+            tool,
+            message: format!("{message} ({})", out.status),
+        })
     }
 }

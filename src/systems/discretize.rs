@@ -58,8 +58,10 @@ impl StateSpace {
                 })
                 .expect("shape");
                 let e = expm(block.view())?;
-                let ad = NdArray::from_fn(&[n, n], |i| e.as_slice()[i[0] * (n + m) + i[1]]).expect("shape");
-                let bd = NdArray::from_fn(&[n, m], |i| e.as_slice()[i[0] * (n + m) + n + i[1]]).expect("shape");
+                let ad = NdArray::from_fn(&[n, n], |i| e.as_slice()[i[0] * (n + m) + i[1]])
+                    .expect("shape");
+                let bd = NdArray::from_fn(&[n, m], |i| e.as_slice()[i[0] * (n + m) + n + i[1]])
+                    .expect("shape");
                 return StateSpace::new(ad, bd, self.c.clone(), self.d.clone(), domain);
             }
             Method::Bilinear => 0.5,
@@ -82,11 +84,16 @@ impl StateSpace {
     /// The generalized bilinear transform with period `dt` and weight `alpha`.
     fn gbt(&self, dt: f64, alpha: f64) -> Result<StateSpace, SystemError> {
         if !(0.0..=1.0).contains(&alpha) {
-            return Err(SystemError::invalid(format!("gbt alpha must be in [0, 1], got {alpha}")));
+            return Err(SystemError::invalid(format!(
+                "gbt alpha must be in [0, 1], got {alpha}"
+            )));
         }
         let n = self.order();
         let ima = add(&eye(n), &scaled(&self.a, -alpha * dt));
-        let ad = solve(ima.view(), add(&eye(n), &scaled(&self.a, (1.0 - alpha) * dt)).view())?;
+        let ad = solve(
+            ima.view(),
+            add(&eye(n), &scaled(&self.a, (1.0 - alpha) * dt)).view(),
+        )?;
         let bd = solve(ima.view(), scaled(&self.b, dt).view())?;
         // cd = (ima⁻ᵀ cᵀ)ᵀ
         let cd = solve(ima.view().transpose(), self.c.view().transpose())?;
@@ -105,7 +112,11 @@ impl TransferFunction {
         }
         let ss = self.to_ss()?.discretize(dt, method)?;
         let (mut num, den) = ss.to_tf(0)?;
-        Ok(TransferFunction { num: num.remove(0), den, domain: ss.domain })
+        Ok(TransferFunction {
+            num: num.remove(0),
+            den,
+            domain: ss.domain,
+        })
     }
 }
 
@@ -116,7 +127,12 @@ impl Zpk {
             return Err(SystemError::invalid("the system is already discrete"));
         }
         let (zeros, poles, gain) = bilinear_zpk(&self.zeros, &self.poles, self.gain, fs);
-        Ok(Zpk { zeros, poles, gain, domain: Domain::sampled(fs) })
+        Ok(Zpk {
+            zeros,
+            poles,
+            gain,
+            domain: Domain::sampled(fs),
+        })
     }
 }
 
@@ -150,7 +166,11 @@ pub fn bilinear(b: &[f64], a: &[f64], fs: f64) -> Result<(Vec<f64>, Vec<f64>), S
                     for k in 0..=i {
                         if j >= k && j - k <= m - i {
                             let sign = if k % 2 == 0 { 1.0 } else { -1.0 };
-                            val += binomial(i, k) * binomial(m - i, j - k) * c[degree - i] * (2.0 * fs).powi(i as i32) * sign;
+                            val += binomial(i, k)
+                                * binomial(m - i, j - k)
+                                * c[degree - i]
+                                * (2.0 * fs).powi(i as i32)
+                                * sign;
                         }
                     }
                 }

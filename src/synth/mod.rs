@@ -19,9 +19,9 @@
 //! tend: Audio / synth
 
 use crate::alloc_prelude::*;
-mod params;
 mod fm;
 mod midi;
+mod params;
 mod voice;
 
 pub use fm::*;
@@ -113,7 +113,13 @@ struct Slot<T> {
 
 impl<T: Float> Default for Slot<T> {
     fn default() -> Self {
-        Self { note: None, channel: 0, sustained: false, started: 0, note_bend: T::_ZERO }
+        Self {
+            note: None,
+            channel: 0,
+            sustained: false,
+            started: 0,
+            note_bend: T::_ZERO,
+        }
     }
 }
 
@@ -159,7 +165,10 @@ impl<V: Voice> Poly<V> {
     /// `count` voices built by `make(index)`; blocks longer than `max_block` are rendered in pieces.
     /// Panics if `count` or `max_block` is 0.
     pub fn new(count: usize, max_block: usize, make: impl FnMut(usize) -> V) -> Self {
-        assert!(count > 0 && max_block > 0, "need at least one voice and a positive block size");
+        assert!(
+            count > 0 && max_block > 0,
+            "need at least one voice and a positive block size"
+        );
         let zero = V::Sample::_ZERO;
         let neutral = V::Sample::_lit(0.5);
         Self {
@@ -238,14 +247,22 @@ impl<V: Voice> Poly<V> {
     }
     /// Total bend of a voice: master + its member channel + its own tuning.
     fn bend_of(&self, slot: &Slot<V::Sample>) -> V::Sample {
-        let member = if self.is_member(slot.channel) { self.channel_bend[slot.channel as usize & 15] } else { V::Sample::_ZERO };
+        let member = if self.is_member(slot.channel) {
+            self.channel_bend[slot.channel as usize & 15]
+        } else {
+            V::Sample::_ZERO
+        };
         self.master_bend + member + slot.note_bend
     }
     /// Gives voice `i` its current bend, pressure and timbre.
     fn refresh(&mut self, i: usize) {
         let slot = self.slots[i];
         let ch = slot.channel as usize & 15;
-        let (pressure, timbre) = if self.is_member(slot.channel) { (self.channel_pressure[ch], self.channel_timbre[ch]) } else { (self.pressure, self.timbre) };
+        let (pressure, timbre) = if self.is_member(slot.channel) {
+            (self.channel_pressure[ch], self.channel_timbre[ch])
+        } else {
+            (self.pressure, self.timbre)
+        };
         let bend = self.bend_of(&slot);
         let voice = &mut self.voices[i];
         voice.set_pitch_bend(bend);
@@ -266,9 +283,12 @@ impl<V: Voice> Poly<V> {
             return;
         }
         let mpe = self.mpe;
-        let same_note = |s: &Slot<V::Sample>| s.note == Some(note) && (!mpe || s.channel == channel);
+        let same_note =
+            |s: &Slot<V::Sample>| s.note == Some(note) && (!mpe || s.channel == channel);
         let oldest = |slots: &[Slot<V::Sample>], pick: &dyn Fn(usize) -> bool| {
-            (0..slots.len()).filter(|&i| pick(i)).min_by_key(|&i| slots[i].started)
+            (0..slots.len())
+                .filter(|&i| pick(i))
+                .min_by_key(|&i| slots[i].started)
         };
         let index = self
             .slots
@@ -278,7 +298,13 @@ impl<V: Voice> Poly<V> {
             .or_else(|| oldest(&self.slots, &|i| self.slots[i].note.is_none()))
             .or_else(|| oldest(&self.slots, &|_| true))
             .expect("the pool has at least one voice");
-        self.slots[index] = Slot { note: Some(note), channel, sustained: false, started: self.clock, note_bend: V::Sample::_ZERO };
+        self.slots[index] = Slot {
+            note: Some(note),
+            channel,
+            sustained: false,
+            started: self.clock,
+            note_bend: V::Sample::_ZERO,
+        };
         self.refresh(index); // the note starts with its channel's current bend, pressure, timbre
         self.voices[index].note_on(note, velocity);
     }
@@ -309,14 +335,21 @@ impl<V: Voice> Poly<V> {
 
     fn mono_note_on(&mut self, channel: u8, note: u8, velocity: V::Sample) {
         self.forget_key(note);
-        let legato = self.mode == VoiceMode::Legato && self.held_len > 0 && self.voices[0].is_active();
+        let legato =
+            self.mode == VoiceMode::Legato && self.held_len > 0 && self.voices[0].is_active();
         if self.held_len == HELD_KEYS {
             self.held.copy_within(1.., 0); // full: forget the oldest key
             self.held_len -= 1;
         }
         self.held[self.held_len] = (note, velocity);
         self.held_len += 1;
-        self.slots[0] = Slot { note: Some(note), channel, sustained: false, started: self.clock, note_bend: V::Sample::_ZERO };
+        self.slots[0] = Slot {
+            note: Some(note),
+            channel,
+            sustained: false,
+            started: self.clock,
+            note_bend: V::Sample::_ZERO,
+        };
         self.refresh(0);
         if legato {
             self.voices[0].legato(note, velocity);
@@ -349,7 +382,10 @@ impl<V: Voice> Poly<V> {
     }
 
     fn forget_key(&mut self, note: u8) {
-        if let Some(i) = self.held[..self.held_len].iter().position(|&(n, _)| n == note) {
+        if let Some(i) = self.held[..self.held_len]
+            .iter()
+            .position(|&(n, _)| n == note)
+        {
             self.held.copy_within(i + 1..self.held_len, i);
             self.held_len -= 1;
         }
@@ -464,7 +500,10 @@ impl<V: Voice> Poly<V> {
             if voice.is_active() {
                 voice.note_off();
             }
-            *slot = Slot { started: slot.started, ..Slot::default() };
+            *slot = Slot {
+                started: slot.started,
+                ..Slot::default()
+            };
         }
     }
 
@@ -480,16 +519,40 @@ impl<V: Voice> Poly<V> {
     pub fn handle(&mut self, message: MidiMessage) {
         let seven_bit = |v: u8| V::Sample::_lit(v as f64 / 127.0);
         match message {
-            MidiMessage::NoteOn { channel, note, velocity } => self.note_on_channel(channel, note, seven_bit(velocity)),
+            MidiMessage::NoteOn {
+                channel,
+                note,
+                velocity,
+            } => self.note_on_channel(channel, note, seven_bit(velocity)),
             MidiMessage::NoteOff { channel, note, .. } => self.note_off_channel(channel, note),
-            MidiMessage::ControlChange { controller: cc::SUSTAIN, value, .. } => self.set_sustain(value >= 64),
-            MidiMessage::ControlChange { controller: cc::ALL_NOTES_OFF, .. } => self.all_notes_off(),
-            MidiMessage::ControlChange { controller: cc::ALL_SOUND_OFF, .. } => self.reset(),
-            MidiMessage::ControlChange { channel, controller: cc::TIMBRE, value } => self.set_channel_timbre(channel, seven_bit(value)),
+            MidiMessage::ControlChange {
+                controller: cc::SUSTAIN,
+                value,
+                ..
+            } => self.set_sustain(value >= 64),
+            MidiMessage::ControlChange {
+                controller: cc::ALL_NOTES_OFF,
+                ..
+            } => self.all_notes_off(),
+            MidiMessage::ControlChange {
+                controller: cc::ALL_SOUND_OFF,
+                ..
+            } => self.reset(),
+            MidiMessage::ControlChange {
+                channel,
+                controller: cc::TIMBRE,
+                value,
+            } => self.set_channel_timbre(channel, seven_bit(value)),
             MidiMessage::ControlChange { .. } => {}
-            MidiMessage::PitchBend { channel, value } => self.set_channel_bend(channel, V::Sample::_lit(value as f64 / 8192.0)),
-            MidiMessage::ChannelPressure { channel, value } => self.set_channel_pressure(channel, seven_bit(value)),
-            MidiMessage::PolyPressure { note, value, .. } => self.set_note_pressure(note, seven_bit(value)),
+            MidiMessage::PitchBend { channel, value } => {
+                self.set_channel_bend(channel, V::Sample::_lit(value as f64 / 8192.0))
+            }
+            MidiMessage::ChannelPressure { channel, value } => {
+                self.set_channel_pressure(channel, seven_bit(value))
+            }
+            MidiMessage::PolyPressure { note, value, .. } => {
+                self.set_note_pressure(note, seven_bit(value))
+            }
         }
     }
 
@@ -523,13 +586,30 @@ impl<V: Voice> Poly<V> {
     /// Overwrites `left` and `right` with the stereo sum of all active voices
     /// ([`Voice::render_stereo`]). Panics if their lengths differ.
     pub fn render_stereo(&mut self, left: &mut [V::Sample], right: &mut [V::Sample]) {
-        assert_eq!(left.len(), right.len(), "left and right must be the same length");
-        for (l_chunk, r_chunk) in left.chunks_mut(self.max_block).zip(right.chunks_mut(self.max_block)) {
-            l_chunk.iter_mut().chain(r_chunk.iter_mut()).for_each(|s| *s = V::Sample::_ZERO);
-            let (sl, sr) = (&mut self.scratch[..l_chunk.len()], &mut self.scratch_right[..l_chunk.len()]);
+        assert_eq!(
+            left.len(),
+            right.len(),
+            "left and right must be the same length"
+        );
+        for (l_chunk, r_chunk) in left
+            .chunks_mut(self.max_block)
+            .zip(right.chunks_mut(self.max_block))
+        {
+            l_chunk
+                .iter_mut()
+                .chain(r_chunk.iter_mut())
+                .for_each(|s| *s = V::Sample::_ZERO);
+            let (sl, sr) = (
+                &mut self.scratch[..l_chunk.len()],
+                &mut self.scratch_right[..l_chunk.len()],
+            );
             for voice in self.voices.iter_mut().filter(|v| v.is_active()) {
                 voice.render_stereo(sl, sr);
-                for ((l, r), (&a, &b)) in l_chunk.iter_mut().zip(r_chunk.iter_mut()).zip(sl.iter().zip(sr.iter())) {
+                for ((l, r), (&a, &b)) in l_chunk
+                    .iter_mut()
+                    .zip(r_chunk.iter_mut())
+                    .zip(sl.iter().zip(sr.iter()))
+                {
                     *l = *l + a;
                     *r = *r + b;
                 }
@@ -539,7 +619,12 @@ impl<V: Voice> Poly<V> {
 
     /// [`render_stereo`](Self::render_stereo) with events at their sample offsets, as in
     /// [`render_events`](Self::render_events).
-    pub fn render_stereo_events(&mut self, left: &mut [V::Sample], right: &mut [V::Sample], events: &[TimedEvent]) {
+    pub fn render_stereo_events(
+        &mut self,
+        left: &mut [V::Sample],
+        right: &mut [V::Sample],
+        events: &[TimedEvent],
+    ) {
         let mut pos = 0;
         for event in events {
             let at = event.offset.clamp(pos, left.len());
@@ -640,25 +725,62 @@ mod tests {
     #[test]
     fn sustain_pedal_holds_releases() {
         let mut p = Poly::new(4, 64, |_| Dc::default());
-        p.handle(MidiMessage::NoteOn { channel: 0, note: 60, velocity: 127 });
-        p.handle(MidiMessage::ControlChange { channel: 0, controller: cc::SUSTAIN, value: 127 });
-        p.handle(MidiMessage::NoteOff { channel: 0, note: 60, velocity: 0 });
+        p.handle(MidiMessage::NoteOn {
+            channel: 0,
+            note: 60,
+            velocity: 127,
+        });
+        p.handle(MidiMessage::ControlChange {
+            channel: 0,
+            controller: cc::SUSTAIN,
+            value: 127,
+        });
+        p.handle(MidiMessage::NoteOff {
+            channel: 0,
+            note: 60,
+            velocity: 0,
+        });
         assert_eq!(p.active_voices(), 1, "held by the pedal");
-        p.handle(MidiMessage::ControlChange { channel: 0, controller: cc::SUSTAIN, value: 0 });
+        p.handle(MidiMessage::ControlChange {
+            channel: 0,
+            controller: cc::SUSTAIN,
+            value: 0,
+        });
         assert_eq!(p.active_voices(), 0, "released when the pedal comes up");
     }
 
     #[test]
     fn mixing_bend_and_all_notes_off() {
         let mut p = Poly::new(4, 3, |_| Dc::default());
-        p.handle(MidiMessage::NoteOn { channel: 0, note: 60, velocity: 127 });
-        p.handle(MidiMessage::NoteOn { channel: 5, note: 67, velocity: 127 }); // omni
+        p.handle(MidiMessage::NoteOn {
+            channel: 0,
+            note: 60,
+            velocity: 127,
+        });
+        p.handle(MidiMessage::NoteOn {
+            channel: 5,
+            note: 67,
+            velocity: 127,
+        }); // omni
         let mut out = [0.0; 8]; // longer than max_block: rendered in pieces
         p.render(&mut out);
-        assert!(out.iter().all(|&s| (s - 2.0).abs() < 1e-12), "two voices summed: {out:?}");
-        p.handle(MidiMessage::PitchBend { channel: 0, value: 8191 });
-        assert!((p.voices()[0].bend - 2.0).abs() < 1e-3, "full bend = 2 semitones");
-        p.handle(MidiMessage::ControlChange { channel: 0, controller: cc::ALL_NOTES_OFF, value: 0 });
+        assert!(
+            out.iter().all(|&s| (s - 2.0).abs() < 1e-12),
+            "two voices summed: {out:?}"
+        );
+        p.handle(MidiMessage::PitchBend {
+            channel: 0,
+            value: 8191,
+        });
+        assert!(
+            (p.voices()[0].bend - 2.0).abs() < 1e-3,
+            "full bend = 2 semitones"
+        );
+        p.handle(MidiMessage::ControlChange {
+            channel: 0,
+            controller: cc::ALL_NOTES_OFF,
+            value: 0,
+        });
         assert_eq!(p.active_voices(), 0);
     }
 
@@ -672,7 +794,14 @@ mod tests {
         poly.render_stereo(&mut l, &mut r);
         poly.render(&mut m);
         assert_eq!((l.clone(), r.clone()), (m.clone(), m));
-        let events = [TimedEvent { offset: 2, message: MidiMessage::NoteOff { channel: 0, note: 64, velocity: 0 } }];
+        let events = [TimedEvent {
+            offset: 2,
+            message: MidiMessage::NoteOff {
+                channel: 0,
+                note: 64,
+                velocity: 0,
+            },
+        }];
         poly.render_stereo_events(&mut l, &mut r, &events);
         assert_eq!((l[1], l[2], r[6]), (0.75, 0.25, 0.25));
     }
@@ -680,21 +809,45 @@ mod tests {
     fn events_land_on_their_sample() {
         let mut p = Poly::new(2, 16, |_| Dc::default());
         let mut out = [0.0; 10];
-        let on = |offset, note| TimedEvent { offset, message: MidiMessage::NoteOn { channel: 0, note, velocity: 127 } };
-        let off = |offset| TimedEvent { offset, message: MidiMessage::NoteOff { channel: 0, note: 60, velocity: 0 } };
+        let on = |offset, note| TimedEvent {
+            offset,
+            message: MidiMessage::NoteOn {
+                channel: 0,
+                note,
+                velocity: 127,
+            },
+        };
+        let off = |offset| TimedEvent {
+            offset,
+            message: MidiMessage::NoteOff {
+                channel: 0,
+                note: 60,
+                velocity: 0,
+            },
+        };
         p.render_events(&mut out, &[on(3, 60), on(5, 62), off(8)]);
         assert_eq!(out, [0.0, 0.0, 0.0, 1.0, 1.0, 2.0, 2.0, 2.0, 1.0, 1.0]);
     }
 
     fn on(channel: u8, note: u8) -> MidiMessage {
-        MidiMessage::NoteOn { channel, note, velocity: 127 }
+        MidiMessage::NoteOn {
+            channel,
+            note,
+            velocity: 127,
+        }
     }
     fn off(channel: u8, note: u8) -> MidiMessage {
-        MidiMessage::NoteOff { channel, note, velocity: 0 }
+        MidiMessage::NoteOff {
+            channel,
+            note,
+            velocity: 0,
+        }
     }
     /// The voice playing `note` (on `channel`).
     fn voice_of(p: &Poly<Dc>, channel: u8, note: u8) -> &Dc {
-        let i = (0..p.voices().len()).find(|&i| p.slots[i].note == Some(note) && p.slots[i].channel == channel).unwrap();
+        let i = (0..p.voices().len())
+            .find(|&i| p.slots[i].note == Some(note) && p.slots[i].channel == channel)
+            .unwrap();
         &p.voices()[i]
     }
 
@@ -705,16 +858,38 @@ mod tests {
         p.handle(on(1, 60));
         p.handle(on(2, 64));
         p.handle(on(3, 60)); // the same key twice, on two member channels
-        p.handle(MidiMessage::PitchBend { channel: 1, value: 8191 });
-        p.handle(MidiMessage::ChannelPressure { channel: 2, value: 127 });
-        p.handle(MidiMessage::ControlChange { channel: 3, controller: cc::TIMBRE, value: 0 });
+        p.handle(MidiMessage::PitchBend {
+            channel: 1,
+            value: 8191,
+        });
+        p.handle(MidiMessage::ChannelPressure {
+            channel: 2,
+            value: 127,
+        });
+        p.handle(MidiMessage::ControlChange {
+            channel: 3,
+            controller: cc::TIMBRE,
+            value: 0,
+        });
         let near = |a: f64, b: f64| (a - b).abs() < 1e-2;
-        assert!(near(voice_of(&p, 1, 60).bend, 48.0), "a member bends its note over the member range");
+        assert!(
+            near(voice_of(&p, 1, 60).bend, 48.0),
+            "a member bends its note over the member range"
+        );
         assert_eq!(voice_of(&p, 2, 64).bend, 0.0);
-        assert_eq!((voice_of(&p, 2, 64).pressure, voice_of(&p, 1, 60).pressure), (1.0, 0.0));
-        assert_eq!((voice_of(&p, 3, 60).timbre, voice_of(&p, 1, 60).timbre), (0.0, 0.5));
+        assert_eq!(
+            (voice_of(&p, 2, 64).pressure, voice_of(&p, 1, 60).pressure),
+            (1.0, 0.0)
+        );
+        assert_eq!(
+            (voice_of(&p, 3, 60).timbre, voice_of(&p, 1, 60).timbre),
+            (0.0, 0.5)
+        );
         // the master channel bends everything, on top of the member bends
-        p.handle(MidiMessage::PitchBend { channel: MPE_MASTER_CHANNEL, value: 4096 });
+        p.handle(MidiMessage::PitchBend {
+            channel: MPE_MASTER_CHANNEL,
+            value: 4096,
+        });
         assert!(near(voice_of(&p, 1, 60).bend, 49.0) && near(voice_of(&p, 2, 64).bend, 1.0));
         // a note-off releases only the note on its own channel
         p.handle(off(3, 60));
@@ -730,13 +905,33 @@ mod tests {
         let mut p = Poly::new(4, 64, |_| Dc::default());
         p.handle(on(1, 60));
         p.handle(on(2, 64));
-        p.handle(MidiMessage::ChannelPressure { channel: 5, value: 127 });
-        assert!(p.voices().iter().filter(|v| v.is_active()).all(|v| v.pressure == 1.0), "omni");
-        p.handle(MidiMessage::PolyPressure { channel: 0, note: 64, value: 0 });
-        assert_eq!((voice_of(&p, 1, 60).pressure, voice_of(&p, 2, 64).pressure), (1.0, 0.0), "per key");
+        p.handle(MidiMessage::ChannelPressure {
+            channel: 5,
+            value: 127,
+        });
+        assert!(
+            p.voices()
+                .iter()
+                .filter(|v| v.is_active())
+                .all(|v| v.pressure == 1.0),
+            "omni"
+        );
+        p.handle(MidiMessage::PolyPressure {
+            channel: 0,
+            note: 64,
+            value: 0,
+        });
+        assert_eq!(
+            (voice_of(&p, 1, 60).pressure, voice_of(&p, 2, 64).pressure),
+            (1.0, 0.0),
+            "per key"
+        );
         p.set_note_tuning(60, 0.25); // a CLAP per-note tuning expression
         p.set_pitch_bend(0.5);
-        assert!((voice_of(&p, 1, 60).bend - 1.25).abs() < 1e-12 && (voice_of(&p, 2, 64).bend - 1.0).abs() < 1e-12);
+        assert!(
+            (voice_of(&p, 1, 60).bend - 1.25).abs() < 1e-12
+                && (voice_of(&p, 2, 64).bend - 1.0).abs() < 1e-12
+        );
     }
 
     #[test]
@@ -748,15 +943,27 @@ mod tests {
             assert!(!p.voices()[0].legato, "the first key always triggers");
             p.note_on(64, 1.0);
             p.note_on(67, 1.0);
-            assert_eq!((p.active_voices(), p.voices()[0].note), (1, Some(67)), "{mode:?}: one voice, newest key");
-            assert_eq!(p.voices()[0].legato, mode == VoiceMode::Legato, "{mode:?}: legato only glides over");
+            assert_eq!(
+                (p.active_voices(), p.voices()[0].note),
+                (1, Some(67)),
+                "{mode:?}: one voice, newest key"
+            );
+            assert_eq!(
+                p.voices()[0].legato,
+                mode == VoiceMode::Legato,
+                "{mode:?}: legato only glides over"
+            );
             p.note_off(64); // not sounding: just forgotten
             assert_eq!(p.voices()[0].note, Some(67));
             p.note_off(67); // back to the key still held
             assert_eq!(p.voices()[0].note, Some(60));
             p.set_sustain(true);
             p.note_off(60);
-            assert_eq!(p.active_voices(), 1, "{mode:?}: the pedal holds the last note");
+            assert_eq!(
+                p.active_voices(),
+                1,
+                "{mode:?}: the pedal holds the last note"
+            );
             p.set_sustain(false);
             assert_eq!(p.active_voices(), 0);
         }
@@ -770,7 +977,10 @@ mod tests {
         p.set_param_by_id("voice_mode", 2.0).unwrap();
         p.set_param_by_id("bend_range", 12.0).unwrap();
         p.set_param_by_id("mpe", 1.0).unwrap();
-        assert_eq!((p.mode(), p.bend_range(), p.mpe()), (VoiceMode::Legato, 12.0, true));
+        assert_eq!(
+            (p.mode(), p.bend_range(), p.mpe()),
+            (VoiceMode::Legato, 12.0, true)
+        );
         assert_eq!(p.param_group(voice_params), Some("Polyphony"));
         assert_eq!(p.param_info(voice_params).unwrap().format(2.0), "Legato");
     }

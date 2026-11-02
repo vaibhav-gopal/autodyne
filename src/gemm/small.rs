@@ -11,7 +11,14 @@ const LIMIT: usize = 96 * 96 * 96;
 
 /// `c = a · b` for row-major contiguous `a` (m x k), `b` (k x n) and `c` (m x n), if the shapes
 /// suit the kernel and the CPU has AVX2 and FMA; `false` (nothing written) otherwise.
-pub(crate) fn matmul<T: 'static>(a: *const T, b: *const T, c: *mut T, m: usize, k: usize, n: usize) -> bool {
+pub(crate) fn matmul<T: 'static>(
+    a: *const T,
+    b: *const T,
+    c: *mut T,
+    m: usize,
+    k: usize,
+    n: usize,
+) -> bool {
     #[cfg(target_arch = "x86_64")]
     {
         use std::any::TypeId;

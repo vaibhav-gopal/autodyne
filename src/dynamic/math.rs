@@ -15,9 +15,9 @@ use core::ops::{Add, Div, Mul, Neg, Sub};
 
 use super::{BinaryOp, DynArray, DynElement, Promotion, UnaryOp};
 use crate::signal::{
-    broadcast_in_dim, broadcast_to_any, concatenate_any, pad_any, reduce_axes_with, reshape_any, reverse_any, select_any, slice_any, sum_axes_with, take_any, transpose_any,
-    ArrayMath, ComplexArrayMath,
-    NdArray, RealArrayMath,
+    broadcast_in_dim, broadcast_to_any, concatenate_any, pad_any, reduce_axes_with, reshape_any,
+    reverse_any, select_any, slice_any, sum_axes_with, take_any, transpose_any, ArrayMath,
+    ComplexArrayMath, NdArray, RealArrayMath,
 };
 use crate::units::*;
 
@@ -32,7 +32,9 @@ fn rank(d: DType) -> u8 {
 /// `scalar` (0-d) adopting `other`'s type when it is of the same or a lower kind.
 fn weak(scalar: &DynArray, other: DType) -> DynArray {
     if rank(scalar.dtype()) <= rank(other) {
-        scalar.cast(other).unwrap_or_else(|e| panic!("cannot convert a scalar to {other:?}: {e}"))
+        scalar
+            .cast(other)
+            .unwrap_or_else(|e| panic!("cannot convert a scalar to {other:?}: {e}"))
     } else {
         scalar.clone()
     }
@@ -42,8 +44,15 @@ fn binary(a: DynArray, b: DynArray, op: BinaryOp) -> DynArray {
     let (a, b) = match (a.shape().is_empty(), b.shape().is_empty()) {
         // two scalars of one kind: both weak, the narrower type wins (a literal keeps an f32 sum f32)
         (true, true) if rank(a.dtype()) == rank(b.dtype()) && a.dtype() != b.dtype() => {
-            let target = if a.dtype().size_bytes() <= b.dtype().size_bytes() { a.dtype() } else { b.dtype() };
-            (a.cast(target).expect("converts"), b.cast(target).expect("converts"))
+            let target = if a.dtype().size_bytes() <= b.dtype().size_bytes() {
+                a.dtype()
+            } else {
+                b.dtype()
+            };
+            (
+                a.cast(target).expect("converts"),
+                b.cast(target).expect("converts"),
+            )
         }
         (true, false) => (weak(&a, b.dtype()), b),
         (false, true) => {
@@ -52,7 +61,8 @@ fn binary(a: DynArray, b: DynArray, op: BinaryOp) -> DynArray {
         }
         _ => (a, b),
     };
-    a.binary(&b, op, Promotion::Standard).unwrap_or_else(|e| panic!("{op:?} of {:?} and {:?}: {e}", a.dtype(), b.dtype()))
+    a.binary(&b, op, Promotion::Standard)
+        .unwrap_or_else(|e| panic!("{op:?} of {:?} and {:?}: {e}", a.dtype(), b.dtype()))
 }
 
 macro_rules! operator {
@@ -71,7 +81,8 @@ operator!(Add add Add, Sub sub Sub, Mul mul Mul, Div div Div);
 impl Neg for DynArray {
     type Output = DynArray;
     fn neg(self) -> DynArray {
-        self.unary(UnaryOp::Neg).unwrap_or_else(|e| panic!("negating {:?}: {e}", self.dtype()))
+        self.unary(UnaryOp::Neg)
+            .unwrap_or_else(|e| panic!("negating {:?}: {e}", self.dtype()))
     }
 }
 
@@ -171,7 +182,10 @@ impl Elementwise for DynArray {
         // both in the float type of their promotion
         let probe = binary(self.clone(), e.clone(), BinaryOp::Mul);
         let target = float_type(probe.dtype());
-        let (a, e) = (self.cast(target).expect("converts"), e.cast(target).expect("converts"));
+        let (a, e) = (
+            self.cast(target).expect("converts"),
+            e.cast(target).expect("converts"),
+        );
         match (FloatArray::from(a), FloatArray::from(e)) {
             (FloatArray::F32(a), FloatArray::F32(e)) => DynArray::F32(a.powf(e)),
             (FloatArray::F64(a), FloatArray::F64(e)) => DynArray::F64(a.powf(e)),
@@ -195,7 +209,8 @@ impl RealValued for DynArray {
     type Mask = NdArray<bool>;
     /// Complex arrays give their magnitudes.
     fn abs(self) -> Self {
-        self.unary(UnaryOp::Abs).unwrap_or_else(|e| panic!("abs of {:?}: {e}", self.dtype()))
+        self.unary(UnaryOp::Abs)
+            .unwrap_or_else(|e| panic!("abs of {:?}: {e}", self.dtype()))
     }
     fn minimum(self, other: Self) -> Self {
         binary(self, other, BinaryOp::Min)
@@ -212,7 +227,10 @@ impl RealValued for DynArray {
     fn select(mask: NdArray<bool>, if_true: Self, if_false: Self) -> Self {
         // the promoted type of the two branches
         let target = binary(if_true.clone(), if_false.clone(), BinaryOp::Add).dtype();
-        let (a, b) = (if_true.cast(target).expect("converts"), if_false.cast(target).expect("converts"));
+        let (a, b) = (
+            if_true.cast(target).expect("converts"),
+            if_false.cast(target).expect("converts"),
+        );
         match (a, b) {
             (DynArray::F32(a), DynArray::F32(b)) => DynArray::F32(select_any(&mask, &a, &b)),
             (DynArray::F64(a), DynArray::F64(b)) => DynArray::F64(select_any(&mask, &a, &b)),
@@ -224,8 +242,12 @@ impl RealValued for DynArray {
             (DynArray::U16(a), DynArray::U16(b)) => DynArray::U16(select_any(&mask, &a, &b)),
             (DynArray::U32(a), DynArray::U32(b)) => DynArray::U32(select_any(&mask, &a, &b)),
             (DynArray::U64(a), DynArray::U64(b)) => DynArray::U64(select_any(&mask, &a, &b)),
-            (DynArray::ComplexF32(a), DynArray::ComplexF32(b)) => DynArray::ComplexF32(select_any(&mask, &a, &b)),
-            (DynArray::ComplexF64(a), DynArray::ComplexF64(b)) => DynArray::ComplexF64(select_any(&mask, &a, &b)),
+            (DynArray::ComplexF32(a), DynArray::ComplexF32(b)) => {
+                DynArray::ComplexF32(select_any(&mask, &a, &b))
+            }
+            (DynArray::ComplexF64(a), DynArray::ComplexF64(b)) => {
+                DynArray::ComplexF64(select_any(&mask, &a, &b))
+            }
             _ => unreachable!("both were cast to one type"),
         }
     }
@@ -234,7 +256,9 @@ impl RealValued for DynArray {
         match self {
             DynArray::F32(a) => DynArray::F32(a.floor()),
             DynArray::F64(a) => DynArray::F64(a.floor()),
-            DynArray::ComplexF32(_) | DynArray::ComplexF64(_) => panic!("complex values have no floor"),
+            DynArray::ComplexF32(_) | DynArray::ComplexF64(_) => {
+                panic!("complex values have no floor")
+            }
             ints => ints,
         }
     }
@@ -283,23 +307,45 @@ impl ArrayMath for DynArray {
     }
     fn dot_general(self, rhs: Self, ca: &[usize], cb: &[usize]) -> Self {
         let target = binary(self.clone(), rhs.clone(), BinaryOp::Mul).dtype();
-        let (a, b) = (self.cast(target).expect("converts"), rhs.cast(target).expect("converts"));
+        let (a, b) = (
+            self.cast(target).expect("converts"),
+            rhs.cast(target).expect("converts"),
+        );
         match (a, b) {
             (DynArray::F32(a), DynArray::F32(b)) => DynArray::F32(a.dot_general(b, ca, cb)),
             (DynArray::F64(a), DynArray::F64(b)) => DynArray::F64(a.dot_general(b, ca, cb)),
-            (DynArray::ComplexF32(a), DynArray::ComplexF32(b)) => DynArray::ComplexF32(a.dot_general(b, ca, cb)),
-            (DynArray::ComplexF64(a), DynArray::ComplexF64(b)) => DynArray::ComplexF64(a.dot_general(b, ca, cb)),
+            (DynArray::ComplexF32(a), DynArray::ComplexF32(b)) => {
+                DynArray::ComplexF32(a.dot_general(b, ca, cb))
+            }
+            (DynArray::ComplexF64(a), DynArray::ComplexF64(b)) => {
+                DynArray::ComplexF64(a.dot_general(b, ca, cb))
+            }
             (a, b) => {
                 // integers: wrapping products and sums in i64 / u64, then back to the promoted type
-                let (a, b) = (wide_int(&a), wide_int(&b).cast(wide_int(&a).dtype()).expect("converts"));
+                let (a, b) = (
+                    wide_int(&a),
+                    wide_int(&b).cast(wide_int(&a).dtype()).expect("converts"),
+                );
                 let wide = match (a, b) {
                     (DynArray::I64(a), DynArray::I64(b)) => {
                         let (am, bm, m, k, n, shape) = crate::signal::dot_operands(&a, &b, ca, cb);
-                        DynArray::I64(NdArray::from_vec(int_matmul(&am, &bm, m, k, n, i64::wrapping_add, i64::wrapping_mul), &shape).expect("shape"))
+                        DynArray::I64(
+                            NdArray::from_vec(
+                                int_matmul(&am, &bm, m, k, n, i64::wrapping_add, i64::wrapping_mul),
+                                &shape,
+                            )
+                            .expect("shape"),
+                        )
                     }
                     (DynArray::U64(a), DynArray::U64(b)) => {
                         let (am, bm, m, k, n, shape) = crate::signal::dot_operands(&a, &b, ca, cb);
-                        DynArray::U64(NdArray::from_vec(int_matmul(&am, &bm, m, k, n, u64::wrapping_add, u64::wrapping_mul), &shape).expect("shape"))
+                        DynArray::U64(
+                            NdArray::from_vec(
+                                int_matmul(&am, &bm, m, k, n, u64::wrapping_add, u64::wrapping_mul),
+                                &shape,
+                            )
+                            .expect("shape"),
+                        )
                     }
                     _ => unreachable!("widened to one integer type"),
                 };
@@ -315,11 +361,17 @@ impl ArrayMath for DynArray {
     }
     /// The parts are promoted to a common type first.
     fn concatenate(parts: &[Self], axis: usize) -> Self {
-        let first = parts.first().expect("concatenate: needs at least one array");
+        let first = parts
+            .first()
+            .expect("concatenate: needs at least one array");
         let target = parts[1..].iter().fold(first.dtype(), |t, p| {
-            super::result_type(t, p.dtype(), BinaryOp::Add, Promotion::Standard).unwrap_or_else(|e| panic!("concatenate: {t:?} with {:?}: {e}", p.dtype()))
+            super::result_type(t, p.dtype(), BinaryOp::Add, Promotion::Standard)
+                .unwrap_or_else(|e| panic!("concatenate: {t:?} with {:?}: {e}", p.dtype()))
         });
-        let parts: Vec<DynArray> = parts.iter().map(|p| p.cast(target).expect("converts")).collect();
+        let parts: Vec<DynArray> = parts
+            .iter()
+            .map(|p| p.cast(target).expect("converts"))
+            .collect();
         dyn_match!(&parts[0], a => concatenate_as(a, &parts, axis))
     }
     /// Integer products wrap, in `i64` / `u64` (like their sums).
@@ -358,11 +410,22 @@ fn extreme(a: DynArray, axes: &[usize], max: bool) -> DynArray {
 
 /// Concatenates `parts`, all of `T` (the first argument only names the type).
 fn concatenate_as<T: DynElement>(_: &NdArray<T>, parts: &[DynArray], axis: usize) -> DynArray {
-    let arrays: Vec<NdArray<T>> = parts.iter().map(|p| p.as_array::<T>().expect("one type").clone()).collect();
+    let arrays: Vec<NdArray<T>> = parts
+        .iter()
+        .map(|p| p.as_array::<T>().expect("one type").clone())
+        .collect();
     DynArray::from_array(concatenate_any(&arrays, axis))
 }
 
-fn int_matmul<T: Copy + Default>(a: &[T], b: &[T], m: usize, k: usize, n: usize, add: fn(T, T) -> T, mul: fn(T, T) -> T) -> Vec<T> {
+fn int_matmul<T: Copy + Default>(
+    a: &[T],
+    b: &[T],
+    m: usize,
+    k: usize,
+    n: usize,
+    add: fn(T, T) -> T,
+    mul: fn(T, T) -> T,
+) -> Vec<T> {
     let mut out = Vec::with_capacity(m * n);
     for i in 0..m {
         for j in 0..n {
@@ -382,7 +445,11 @@ impl RealArrayMath for DynArray {
     /// Indices of any real type.
     fn take(self, indices: Self) -> Self {
         let shape = DynArray::shape(&indices).to_vec();
-        let FloatArray::F64(at) = FloatArray::from(indices.cast(DType::F64).unwrap_or_else(|e| panic!("take: indices must be real: {e}"))) else {
+        let FloatArray::F64(at) = FloatArray::from(
+            indices
+                .cast(DType::F64)
+                .unwrap_or_else(|e| panic!("take: indices must be real: {e}")),
+        ) else {
             unreachable!("cast to f64")
         };
         dyn_match!(self, a => DynArray::from_array(take_any(&a, at.as_slice().iter().copied(), &shape)))
@@ -417,9 +484,16 @@ impl RealArrayMath for DynArray {
     /// The parts in their common float type.
     fn complex(re: Self, im: Self) -> Self {
         let target = float_type(binary(re.clone(), im.clone(), BinaryOp::Add).dtype());
-        match (FloatArray::from(re.cast(target).expect("converts")), FloatArray::from(im.cast(target).expect("converts"))) {
-            (FloatArray::F32(r), FloatArray::F32(i)) => DynArray::ComplexF32(NdArray::complex(r, i)),
-            (FloatArray::F64(r), FloatArray::F64(i)) => DynArray::ComplexF64(NdArray::complex(r, i)),
+        match (
+            FloatArray::from(re.cast(target).expect("converts")),
+            FloatArray::from(im.cast(target).expect("converts")),
+        ) {
+            (FloatArray::F32(r), FloatArray::F32(i)) => {
+                DynArray::ComplexF32(NdArray::complex(r, i))
+            }
+            (FloatArray::F64(r), FloatArray::F64(i)) => {
+                DynArray::ComplexF64(NdArray::complex(r, i))
+            }
             _ => panic!("complex needs real parts"),
         }
     }
@@ -435,7 +509,9 @@ impl RealArrayMath for DynArray {
             DynArray::ComplexF32(c) => DynArray::F32(NdArray::imag_part(c)),
             DynArray::ComplexF64(c) => DynArray::F64(NdArray::imag_part(c)),
             real => {
-                let zero = DynArray::from_array(NdArray::<f64>::array(&[0.0], &[])).cast(float_type(real.dtype())).expect("converts");
+                let zero = DynArray::from_array(NdArray::<f64>::array(&[0.0], &[]))
+                    .cast(float_type(real.dtype()))
+                    .expect("converts");
                 let shape = DynArray::shape(&real).to_vec();
                 zero.broadcast_to(&shape)
             }
@@ -471,8 +547,12 @@ fn complex(a: DynArray) -> DynArray {
 impl DynArray {
     fn fft_dyn(self, inverse: bool) -> DynArray {
         match self {
-            DynArray::ComplexF32(a) => DynArray::ComplexF32(if inverse { a.ifft() } else { a.fft() }),
-            DynArray::ComplexF64(a) => DynArray::ComplexF64(if inverse { a.ifft() } else { a.fft() }),
+            DynArray::ComplexF32(a) => {
+                DynArray::ComplexF32(if inverse { a.ifft() } else { a.fft() })
+            }
+            DynArray::ComplexF64(a) => {
+                DynArray::ComplexF64(if inverse { a.ifft() } else { a.fft() })
+            }
             _ => unreachable!("promoted to complex"),
         }
     }
@@ -495,10 +575,18 @@ mod tests {
         assert_eq!(e.as_array::<f32>().unwrap().as_slice(), &[7.0]);
         let i = DynArray::from_array(NdArray::from_vec(vec![1i16, 2, 3], &[3]).unwrap());
         let e = energy(i);
-        assert_eq!(e.dtype(), DType::F64, "an integer sum divided by a float literal is a float");
+        assert_eq!(
+            e.dtype(),
+            DType::F64,
+            "an integer sum divided by a float literal is a float"
+        );
         assert_eq!(e.as_array::<f64>().unwrap().as_slice(), &[7.0]);
-        let z = DynArray::from_array(NdArray::from_vec(vec![Complex::new(0.0f64, 1.0)], &[1]).unwrap());
-        assert_eq!(energy(z).as_array::<Complex<f64>>().unwrap().as_slice(), &[Complex::new(-0.5, 0.0)]);
+        let z =
+            DynArray::from_array(NdArray::from_vec(vec![Complex::new(0.0f64, 1.0)], &[1]).unwrap());
+        assert_eq!(
+            energy(z).as_array::<Complex<f64>>().unwrap().as_slice(),
+            &[Complex::new(-0.5, 0.0)]
+        );
     }
 
     #[test]
@@ -506,22 +594,45 @@ mod tests {
         let a = DynArray::from_array(NdArray::from_vec(vec![1i32, 2, 3, 4], &[2, 2]).unwrap());
         let b = DynArray::from_array(NdArray::from_vec(vec![0.5f32, 0.25], &[2]).unwrap());
         let c = a.clone() * b;
-        assert_eq!(c.dtype(), DType::F64, "int32 with float32 promotes to float64, as NumPy");
-        assert_eq!(c.as_array::<f64>().unwrap().as_slice(), &[0.5, 0.5, 1.5, 1.0]);
+        assert_eq!(
+            c.dtype(),
+            DType::F64,
+            "int32 with float32 promotes to float64, as NumPy"
+        );
+        assert_eq!(
+            c.as_array::<f64>().unwrap().as_slice(),
+            &[0.5, 0.5, 1.5, 1.0]
+        );
         // integer matrix product stays integer
         let p = a.clone().dot(a.clone());
         assert_eq!(p.dtype(), DType::I32);
         assert_eq!(p.as_array::<i32>().unwrap().as_slice(), &[7, 10, 15, 22]);
-        assert_eq!(a.clone().sum_axes(&[0]).as_array::<i64>().unwrap().as_slice(), &[4, 6]);
-        assert_eq!(a.clone().transpose(&[1, 0]).as_array::<i32>().unwrap().as_slice(), &[1, 3, 2, 4]);
+        assert_eq!(
+            a.clone()
+                .sum_axes(&[0])
+                .as_array::<i64>()
+                .unwrap()
+                .as_slice(),
+            &[4, 6]
+        );
+        assert_eq!(
+            a.clone()
+                .transpose(&[1, 0])
+                .as_array::<i32>()
+                .unwrap()
+                .as_slice(),
+            &[1, 3, 2, 4]
+        );
         let s = a.clone().sqrt();
         assert_eq!(s.dtype(), DType::F64);
         let m = DynArray::select(a.clone().greater(DynArray::lit(2.0)), a.clone(), -a.clone());
         assert_eq!(m.as_array::<i32>().unwrap().as_slice(), &[-1, -2, 3, 4]);
-        let (re, _) = DynArray::from_array(NdArray::from_vec(vec![1u8, 0, 0, 0], &[4]).unwrap()).rfft();
+        let (re, _) =
+            DynArray::from_array(NdArray::from_vec(vec![1u8, 0, 0, 0], &[4]).unwrap()).rfft();
         assert_eq!(re.dtype(), DType::F32);
         assert_eq!(re.as_array::<f32>().unwrap().as_slice(), &[1.0, 1.0, 1.0]);
-        let spectrum = DynArray::from_array(NdArray::from_vec(vec![1.0f64, 0.0], &[2]).unwrap()).fft();
+        let spectrum =
+            DynArray::from_array(NdArray::from_vec(vec![1.0f64, 0.0], &[2]).unwrap()).fft();
         assert_eq!(spectrum.dtype(), DType::ComplexF64);
     }
 }

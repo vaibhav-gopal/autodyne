@@ -112,7 +112,11 @@ impl<T: Float> Adsr<T> {
             return;
         }
         let samples = self.release * self.sample_rate;
-        self.release_step = if samples > T::_ONE { self.level / samples } else { self.level };
+        self.release_step = if samples > T::_ONE {
+            self.level / samples
+        } else {
+            self.level
+        };
         self.stage = Stage::Release;
     }
     /// Silences immediately.
@@ -124,7 +128,11 @@ impl<T: Float> Adsr<T> {
     /// Per-sample step to cover `distance` in `seconds` (the whole distance for zero time).
     fn step(&self, distance: T, seconds: T) -> T {
         let samples = seconds * self.sample_rate;
-        if samples > T::_ONE { distance / samples } else { distance }
+        if samples > T::_ONE {
+            distance / samples
+        } else {
+            distance
+        }
     }
 
     /// Advances one sample and returns the new level.
@@ -213,14 +221,20 @@ mod tests {
         run(&mut env, 4); // part way up: 0.4
         env.note_off();
         let r = run(&mut env, 10);
-        assert!((r[0] - 0.36).abs() < 1e-12, "release starts from the current level: {r:?}");
+        assert!(
+            (r[0] - 0.36).abs() < 1e-12,
+            "release starts from the current level: {r:?}"
+        );
         assert_eq!(r[9], 0.0, "and still takes exactly the release time");
 
         env.note_on();
         run(&mut env, 5);
         let before = env.level();
         env.note_on(); // retrigger mid-attack
-        assert!((env.next_value() - before - 0.1).abs() < 1e-12, "continues from where it was");
+        assert!(
+            (env.next_value() - before - 0.1).abs() < 1e-12,
+            "continues from where it was"
+        );
     }
 
     #[test]

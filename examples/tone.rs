@@ -6,19 +6,21 @@
 //!
 //! Samples are produced and filtered block by block, the way an audio callback would request them.
 
-use std::path::Path;
+use autodyne::fft::{bin_frequency, Fft};
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::osc::{Noise, Sine};
 use autodyne::signal::{ComplexSignal, Signal};
-use autodyne::fft::{bin_frequency, Fft};
 use autodyne::units::Complex;
+use std::path::Path;
 
 const SAMPLE_RATE: u32 = 48_000;
 const BLOCK_SIZE: usize = 512;
 const NOISE_SEED: u64 = 1;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = std::env::args().nth(1).unwrap_or_else(|| "target/examples-out".into());
+    let out_dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "target/examples-out".into());
     std::fs::create_dir_all(&out_dir)?;
     let fs = SAMPLE_RATE as f32;
 
@@ -27,8 +29,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut lowpass = Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, fs);
 
     let len = 2 * SAMPLE_RATE as usize;
-    let (mut clean, mut noisy, mut filtered) = (vec![0.0f32; len], vec![0.0f32; len], vec![0.0f32; len]);
-    for ((c, n), f) in clean.chunks_mut(BLOCK_SIZE).zip(noisy.chunks_mut(BLOCK_SIZE)).zip(filtered.chunks_mut(BLOCK_SIZE)) {
+    let (mut clean, mut noisy, mut filtered) =
+        (vec![0.0f32; len], vec![0.0f32; len], vec![0.0f32; len]);
+    for ((c, n), f) in clean
+        .chunks_mut(BLOCK_SIZE)
+        .zip(noisy.chunks_mut(BLOCK_SIZE))
+        .zip(filtered.chunks_mut(BLOCK_SIZE))
+    {
         tone.fill(c);
         n.copy_from_slice(c);
         noise.add_to(n);
@@ -38,7 +45,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // The filter is linear, so the noise left in `filtered` is exactly the filtered noise on its own.
     let mut noise_only = vec![0.0f32; len];
-    Noise::new(NOISE_SEED).with_amplitude(0.05).fill(&mut noise_only);
+    Noise::new(NOISE_SEED)
+        .with_amplitude(0.05)
+        .fill(&mut noise_only);
     let noise_before = noise_only.rms().unwrap();
     Biquad::lowpass(1_000.0, BUTTERWORTH_Q as f32, fs).process(&mut noise_only);
     let noise_after = noise_only.rms().unwrap();
@@ -51,7 +60,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Where is the energy? Transform a 4096-sample window (after the filter settles) and find the peak.
     let mut fft = Fft::new(4096);
     let mut spectrum = vec![Complex::zero(); fft.len()];
-    fft.forward_real(&filtered[SAMPLE_RATE as usize..][..fft.len()], &mut spectrum);
+    fft.forward_real(
+        &filtered[SAMPLE_RATE as usize..][..fft.len()],
+        &mut spectrum,
+    );
     let peak = spectrum[..fft.len() / 2].argmax_magnitude().unwrap(); // positive frequencies only
     println!(
         "FFT peak: {:.1} Hz (bins are {:.1} Hz wide)",
@@ -59,7 +71,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         bin_frequency(1, fft.len(), fs),
     );
 
-    for (name, data) in [("tone_clean", &clean), ("tone_noisy", &noisy), ("tone_filtered", &filtered)] {
+    for (name, data) in [
+        ("tone_clean", &clean),
+        ("tone_noisy", &noisy),
+        ("tone_filtered", &filtered),
+    ] {
         write_wav(Path::new(&out_dir).join(format!("{name}.wav")), data)?;
     }
     println!("wrote tone_clean.wav, tone_noisy.wav and tone_filtered.wav to {out_dir}");

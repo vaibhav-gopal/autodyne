@@ -3,8 +3,8 @@
 //! autocorrelation ([`pacf`]), and autoregressive fits ([`levinson_durbin`], [`yule_walker`],
 //! [`burg`]).
 
-use crate::alloc_prelude::*;
 use super::StatsError;
+use crate::alloc_prelude::*;
 use crate::fft::{next_fast_len, RealFft};
 use crate::units::*;
 
@@ -21,10 +21,17 @@ fn to_f64<T: Float>(x: &[T], demean: bool) -> Vec<f64> {
 /// x[t] x[t + k]` over `n` (or over `n - k` when `adjusted`), after removing the mean when
 /// `demean`. Computed by FFT: one transform of the zero-padded signal gives every lag. Errors if
 /// `nlags >= n`.
-pub fn acovf<T: Float>(x: &[T], nlags: usize, adjusted: bool, demean: bool) -> Result<Vec<f64>, StatsError> {
+pub fn acovf<T: Float>(
+    x: &[T],
+    nlags: usize,
+    adjusted: bool,
+    demean: bool,
+) -> Result<Vec<f64>, StatsError> {
     let n = x.len();
     if nlags >= n {
-        return Err(StatsError::invalid(format!("nlags ({nlags}) must be below the length ({n})")));
+        return Err(StatsError::invalid(format!(
+            "nlags ({nlags}) must be below the length ({n})"
+        )));
     }
     let x = to_f64(x, demean);
     let size = next_fast_len(2 * n - 1);
@@ -34,9 +41,13 @@ pub fn acovf<T: Float>(x: &[T], nlags: usize, adjusted: bool, demean: bool) -> R
     let mut spectrum = vec![Complex::zero(); fft.spectrum_len()];
     fft.forward(&padded, &mut spectrum);
     // |X|² transforms back to the (circular, but padded so linear) autocorrelation
-    spectrum.iter_mut().for_each(|z| *z = Complex::new(z.norm_sqr(), 0.0));
+    spectrum
+        .iter_mut()
+        .for_each(|z| *z = Complex::new(z.norm_sqr(), 0.0));
     fft.inverse(&spectrum, &mut padded);
-    Ok((0..=nlags).map(|k| padded[k] / if adjusted { (n - k) as f64 } else { n as f64 }).collect())
+    Ok((0..=nlags)
+        .map(|k| padded[k] / if adjusted { (n - k) as f64 } else { n as f64 })
+        .collect())
 }
 
 /// The autocorrelations of `x` at lags `0..=nlags` (`statsmodels.tsa.stattools.acf`): [`acovf`]
@@ -65,10 +76,16 @@ pub struct ArFit {
 /// autocovariances or the variance is not positive.
 pub fn levinson_durbin(acov: &[f64], order: usize) -> Result<ArFit, StatsError> {
     if acov.len() <= order {
-        return Err(StatsError::invalid(format!("order {order} needs {} autocovariances, got {}", order + 1, acov.len())));
+        return Err(StatsError::invalid(format!(
+            "order {order} needs {} autocovariances, got {}",
+            order + 1,
+            acov.len()
+        )));
     }
     if acov[0].is_nan() || acov[0] <= 0.0 {
-        return Err(StatsError::invalid("the lag-0 autocovariance (the variance) must be positive"));
+        return Err(StatsError::invalid(
+            "the lag-0 autocovariance (the variance) must be positive",
+        ));
     }
     let mut phi = vec![0.0; order];
     let mut pacf = vec![1.0];
@@ -83,7 +100,11 @@ pub fn levinson_durbin(acov: &[f64], order: usize) -> Result<ArFit, StatsError> 
         sigma *= 1.0 - reflection * reflection;
         pacf.push(reflection);
     }
-    Ok(ArFit { ar: phi, sigma2: sigma, pacf })
+    Ok(ArFit {
+        ar: phi,
+        sigma2: sigma,
+        pacf,
+    })
 }
 
 /// How [`yule_walker`] and [`pacf`] estimate the autocovariances.
@@ -100,11 +121,21 @@ pub enum YuleWalker {
 /// (`statsmodels.regression.linear_model.yule_walker`, demeaned): the autocovariances of `x`
 /// solved by [`levinson_durbin`]. The returned `sigma2` is the innovation variance (statsmodels
 /// returns its square root).
-pub fn yule_walker<T: Float>(x: &[T], order: usize, method: YuleWalker) -> Result<ArFit, StatsError> {
+pub fn yule_walker<T: Float>(
+    x: &[T],
+    order: usize,
+    method: YuleWalker,
+) -> Result<ArFit, StatsError> {
     let acov = acovf(x, order, method == YuleWalker::Adjusted, true)?;
     let mut fit = levinson_durbin(&acov, order)?;
     // statsmodels' sigma² = r0 - sum phi_k r_k (the same in exact arithmetic; this keeps its rounding)
-    fit.sigma2 = acov[0] - fit.ar.iter().zip(&acov[1..]).map(|(p, r)| p * r).sum::<f64>();
+    fit.sigma2 = acov[0]
+        - fit
+            .ar
+            .iter()
+            .zip(&acov[1..])
+            .map(|(p, r)| p * r)
+            .sum::<f64>();
     Ok(fit)
 }
 
@@ -113,7 +144,10 @@ pub fn yule_walker<T: Float>(x: &[T], order: usize, method: YuleWalker) -> Resul
 /// unless `nlags < n / 2`.
 pub fn pacf<T: Float>(x: &[T], nlags: usize, method: YuleWalker) -> Result<Vec<f64>, StatsError> {
     if nlags >= x.len() / 2 {
-        return Err(StatsError::invalid(format!("pacf needs nlags ({nlags}) below half the length ({})", x.len())));
+        return Err(StatsError::invalid(format!(
+            "pacf needs nlags ({nlags}) below half the length ({})",
+            x.len()
+        )));
     }
     let acov = acovf(x, nlags, method == YuleWalker::Adjusted, true)?;
     Ok(levinson_durbin(&acov, nlags)?.pacf)
@@ -126,7 +160,9 @@ pub fn pacf<T: Float>(x: &[T], nlags: usize, method: YuleWalker) -> Result<Vec<f
 pub fn burg<T: Float>(x: &[T], order: usize) -> Result<ArFit, StatsError> {
     let n = x.len();
     if order == 0 || order >= n {
-        return Err(StatsError::invalid(format!("burg needs 1 <= order < n, got order {order} for {n} samples")));
+        return Err(StatsError::invalid(format!(
+            "burg needs 1 <= order < n, got order {order} for {n} samples"
+        )));
     }
     let x = to_f64(x, true);
     let p = order;
@@ -175,7 +211,10 @@ mod tests {
         let mean = x.iter().sum::<f64>() / 300.0;
         let fast = acovf(&x, 20, false, true).unwrap();
         for (k, &c) in fast.iter().enumerate() {
-            let slow: f64 = (0..300 - k).map(|t| (x[t] - mean) * (x[t + k] - mean)).sum::<f64>() / 300.0;
+            let slow: f64 = (0..300 - k)
+                .map(|t| (x[t] - mean) * (x[t + k] - mean))
+                .sum::<f64>()
+                / 300.0;
             assert!((c - slow).abs() < 1e-14, "lag {k}");
         }
         let r = acf(&x, 5, true).unwrap();
@@ -188,12 +227,23 @@ mod tests {
         // x[t] = 0.6 x[t-1] - 0.3 x[t-2] + e, sigma 1
         let mut rng = Rng::new(9);
         let x = process::arma(&mut rng, &[1.0, -0.6, 0.3], &[1.0], 50_000, 1.0, 500).unwrap();
-        for fit in [yule_walker(&x, 2, YuleWalker::Adjusted).unwrap(), yule_walker(&x, 2, YuleWalker::Mle).unwrap(), burg(&x, 2).unwrap()] {
-            assert!((fit.ar[0] - 0.6).abs() < 0.015 && (fit.ar[1] + 0.3).abs() < 0.015, "{:?}", fit.ar);
+        for fit in [
+            yule_walker(&x, 2, YuleWalker::Adjusted).unwrap(),
+            yule_walker(&x, 2, YuleWalker::Mle).unwrap(),
+            burg(&x, 2).unwrap(),
+        ] {
+            assert!(
+                (fit.ar[0] - 0.6).abs() < 0.015 && (fit.ar[1] + 0.3).abs() < 0.015,
+                "{:?}",
+                fit.ar
+            );
             assert!((fit.sigma2 - 1.0).abs() < 0.02, "{}", fit.sigma2);
         }
         // the partial autocorrelation cuts off after lag 2
         let p = pacf(&x, 6, YuleWalker::Adjusted).unwrap();
-        assert!((p[2] + 0.3).abs() < 0.015 && p[3..].iter().all(|v| v.abs() < 0.02), "{p:?}");
+        assert!(
+            (p[2] + 0.3).abs() < 0.015 && p[3..].iter().all(|v| v.abs() < 0.02),
+            "{p:?}"
+        );
     }
 }

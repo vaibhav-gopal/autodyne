@@ -1,9 +1,9 @@
 //! Low-frequency oscillator: a control signal for modulation, free-running in Hz or locked to the
 //! host's beat grid.
 
+use super::transport::{Division, Transport};
 #[cfg(not(any(feature = "std", test)))]
 use crate::alloc_prelude::*;
-use super::transport::{Division, Transport};
 use crate::osc::Noise;
 use crate::params::{ParamError, ParamInfo, ParamUnit, Parameterized};
 
@@ -38,7 +38,15 @@ impl LfoShape {
         LfoShape::SmoothRandom,
     ];
     /// Display names, in the order of [`ALL`](Self::ALL).
-    pub const NAMES: [&'static str; 7] = ["Sine", "Triangle", "Saw up", "Saw down", "Square", "Sample & hold", "Smooth random"];
+    pub const NAMES: [&'static str; 7] = [
+        "Sine",
+        "Triangle",
+        "Saw up",
+        "Saw down",
+        "Square",
+        "Sample & hold",
+        "Smooth random",
+    ];
 }
 
 /// An LFO, advanced in blocks: [`advance`](Lfo::advance) moves it forward and returns its value,
@@ -174,7 +182,11 @@ impl Lfo {
 
     /// Cycles per second right now.
     pub fn frequency(&self, transport: Option<&Transport>) -> f64 {
-        if self.sync { self.division().hz(transport.map_or(120.0, |t| t.tempo)) } else { self.rate_hz }
+        if self.sync {
+            self.division().hz(transport.map_or(120.0, |t| t.tempo))
+        } else {
+            self.rate_hz
+        }
     }
 
     /// Moves `samples` forward and returns the value at the end of that span.
@@ -182,13 +194,15 @@ impl Lfo {
     pub fn advance(&mut self, samples: usize, transport: Option<&Transport>) -> f64 {
         let (phase, cycle) = match transport {
             Some(t) if self.sync && t.playing => {
-                let cycles = t.position_after(samples, self.sample_rate) / self.division().beats + self.phase_offset;
+                let cycles = t.position_after(samples, self.sample_rate) / self.division().beats
+                    + self.phase_offset;
                 // the free-running phase follows too, so stopping the transport doesn't jump
                 self.phase = cycles.rem_euclid(1.0);
                 (self.phase, cycles.floor() as i64)
             }
             _ => {
-                let total = self.phase + self.frequency(transport) * samples as f64 / self.sample_rate;
+                let total =
+                    self.phase + self.frequency(transport) * samples as f64 / self.sample_rate;
                 let wraps = total.floor();
                 self.phase = total - wraps;
                 (self.phase, self.cycle + wraps as i64)
@@ -234,7 +248,10 @@ impl Lfo {
                 }
             }
             LfoShape::SampleHold => self.next,
-            LfoShape::SmoothRandom => self.previous + (self.next - self.previous) * (0.5 - 0.5 * (core::f64::consts::PI * p).cos()),
+            LfoShape::SmoothRandom => {
+                self.previous
+                    + (self.next - self.previous) * (0.5 - 0.5 * (core::f64::consts::PI * p).cos())
+            }
         }
     }
 }
@@ -248,7 +265,12 @@ impl Parameterized for Lfo {
             0 => ParamInfo::choice("shape", "Shape", &LfoShape::NAMES, 0),
             1 => ParamInfo::new("rate_hz", "Rate", ParamUnit::Hertz, 0.01, 50.0, 1.0).log(),
             2 => ParamInfo::toggle("sync", "Tempo sync", false),
-            3 => ParamInfo::choice("division", "Division", &Division::NAMES, Division::QUARTER_INDEX),
+            3 => ParamInfo::choice(
+                "division",
+                "Division",
+                &Division::NAMES,
+                Division::QUARTER_INDEX,
+            ),
             4 => ParamInfo::new("phase", "Phase", ParamUnit::Fraction, 0.0, 1.0, 0.0).instant(),
             5 => ParamInfo::new("fade_s", "Fade in", ParamUnit::Seconds, 0.0, 10.0, 0.0),
             _ => return None,
@@ -259,7 +281,10 @@ impl Parameterized for Lfo {
     }
     fn get_param(&self, index: usize) -> Option<f64> {
         Some(match index {
-            0 => LfoShape::ALL.iter().position(|&s| s == self.shape).unwrap_or(0) as f64,
+            0 => LfoShape::ALL
+                .iter()
+                .position(|&s| s == self.shape)
+                .unwrap_or(0) as f64,
             1 => self.rate_hz,
             2 => f64::from(u8::from(self.sync)),
             3 => self.division as f64,
@@ -269,7 +294,10 @@ impl Parameterized for Lfo {
         })
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let v = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let v = self
+            .param_info(index)
+            .ok_or(ParamError::UnknownIndex(index))?
+            .validate(value)?;
         match index {
             0 => self.shape = LfoShape::ALL[v as usize],
             1 => self.set_rate(v),
@@ -305,7 +333,10 @@ mod tests {
             (LfoShape::Square, 1.0, -1.0),
         ] {
             assert!(close(at_phase(shape, 0.25), quarter), "{shape:?} at 1/4");
-            assert!(close(at_phase(shape, 0.75), three_quarters), "{shape:?} at 3/4");
+            assert!(
+                close(at_phase(shape, 0.75), three_quarters),
+                "{shape:?} at 3/4"
+            );
         }
     }
 
@@ -331,14 +362,21 @@ mod tests {
         let mut lfo = Lfo::new(FS).with_shape(LfoShape::SawUp);
         lfo.set_sync(true);
         lfo.set_division(Division::QUARTER_INDEX);
-        let mut transport = Transport { playing: true, position: 7.25, ..Transport::new(90.0) };
+        let mut transport = Transport {
+            playing: true,
+            position: 7.25,
+            ..Transport::new(90.0)
+        };
         // wherever the host jumps, the value follows the position: a quarter note per cycle
         assert!((lfo.advance(0, Some(&transport)) - (2.0 * 0.25 - 1.0)).abs() < 1e-12);
         transport.position = 12.5;
         assert!((lfo.advance(0, Some(&transport)) - 0.0).abs() < 1e-12);
         // and advancing within a block moves it by the tempo
         let half_beat = (0.5 * 60.0 / 90.0 * FS) as usize;
-        assert!((lfo.advance(half_beat, Some(&transport)) + 1.0).abs() < 1e-3, "back at the cycle start");
+        assert!(
+            (lfo.advance(half_beat, Some(&transport)) + 1.0).abs() < 1e-3,
+            "back at the cycle start"
+        );
         // stopped: it keeps running freely at the synced rate (90 BPM quarter = 1.5 Hz)
         transport.playing = false;
         assert!((lfo.frequency(Some(&transport)) - 1.5).abs() < 1e-12);
@@ -347,7 +385,9 @@ mod tests {
     #[test]
     fn random_shapes_change_once_per_cycle_and_are_deterministic() {
         let run = |seed| {
-            let mut lfo = Lfo::new(FS).with_shape(LfoShape::SampleHold).with_seed(seed);
+            let mut lfo = Lfo::new(FS)
+                .with_shape(LfoShape::SampleHold)
+                .with_seed(seed);
             lfo.set_rate(10.0); // 4,800 samples per cycle
             (0..40).map(|_| lfo.advance(480, None)).collect::<Vec<_>>()
         };
@@ -355,7 +395,10 @@ mod tests {
         assert_eq!(values, run(7), "same seed, same sequence");
         assert_ne!(values, run(8));
         let changes = values.windows(2).filter(|w| w[0] != w[1]).count();
-        assert_eq!(changes, 3, "4 cycles in 40 x 480 samples: a new value at each of 3 wraps");
+        assert_eq!(
+            changes, 3,
+            "4 cycles in 40 x 480 samples: a new value at each of 3 wraps"
+        );
         assert!(values.iter().all(|v| (-1.0..1.0).contains(v)));
     }
 
@@ -369,12 +412,27 @@ mod tests {
             l.set_phase_offset(0.3);
             l
         };
-        let (mut smooth, mut hold, mut saw) = (lfo(LfoShape::SmoothRandom), lfo(LfoShape::SampleHold), lfo(LfoShape::SawUp));
-        let (mut last_smooth, mut last_hold, mut last_saw) = (smooth.advance(0, None), hold.advance(0, None), saw.advance(0, None));
+        let (mut smooth, mut hold, mut saw) = (
+            lfo(LfoShape::SmoothRandom),
+            lfo(LfoShape::SampleHold),
+            lfo(LfoShape::SawUp),
+        );
+        let (mut last_smooth, mut last_hold, mut last_saw) = (
+            smooth.advance(0, None),
+            hold.advance(0, None),
+            saw.advance(0, None),
+        );
         let mut steps = 0;
         for _ in 0..24_000 {
-            let (s, h, w) = (smooth.advance(1, None), hold.advance(1, None), saw.advance(1, None));
-            assert!((s - last_smooth).abs() < 0.01, "smooth random eases: {last_smooth} -> {s}");
+            let (s, h, w) = (
+                smooth.advance(1, None),
+                hold.advance(1, None),
+                saw.advance(1, None),
+            );
+            assert!(
+                (s - last_smooth).abs() < 0.01,
+                "smooth random eases: {last_smooth} -> {s}"
+            );
             if h != last_hold {
                 assert!(w < last_saw, "sample & hold steps where the cycle wraps");
                 steps += 1;
@@ -389,7 +447,10 @@ mod tests {
         let mut lfo = Lfo::new(FS).with_shape(LfoShape::Square);
         lfo.set_fade(1.0);
         lfo.trigger();
-        assert!((lfo.advance((0.25 * FS) as usize, None) - 0.25).abs() < 1e-9, "a quarter of the way in");
+        assert!(
+            (lfo.advance((0.25 * FS) as usize, None) - 0.25).abs() < 1e-9,
+            "a quarter of the way in"
+        );
         lfo.advance(FS as usize, None);
         assert_eq!(lfo.value().abs(), 1.0, "full depth after the fade");
     }
@@ -400,7 +461,10 @@ mod tests {
         lfo.set_param_by_id("shape", 4.0).unwrap();
         lfo.set_param_by_id("sync", 1.0).unwrap();
         lfo.set_param_by_id("division", 5.0).unwrap();
-        assert_eq!((lfo.shape(), lfo.sync(), lfo.division()), (LfoShape::Square, true, Division::EIGHTH));
+        assert_eq!(
+            (lfo.shape(), lfo.sync(), lfo.division()),
+            (LfoShape::Square, true, Division::EIGHTH)
+        );
         let info = lfo.param_info(3).unwrap();
         assert_eq!(info.format(lfo.get_param(3).unwrap()), "1/8");
     }

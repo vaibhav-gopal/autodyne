@@ -1,8 +1,10 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the dynamics processors.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamError, ParamInfo, ParamUnit, Parameterized};
 use crate::params::ParamUnit::{Decibels, Hertz, Seconds, Slope};
+use crate::params::{
+    from_f64, parameterized, to_f64, ParamError, ParamInfo, ParamUnit, Parameterized,
+};
 use crate::units::*;
 
 parameterized!(Compressor, "Compressor",
@@ -111,13 +113,29 @@ impl<T: Float> Parameterized for MultibandCompressor<T> {
                 3 => &[200.0, 2_000.0],
                 _ => &[120.0, 1_000.0, 6_000.0],
             };
-            return Some(ParamInfo::new(CROSSOVER_PARAM_IDS[index], CROSSOVER_PARAM_NAMES[index], Hertz, 20.0, 20_000.0, defaults[index]).log());
+            return Some(
+                ParamInfo::new(
+                    CROSSOVER_PARAM_IDS[index],
+                    CROSSOVER_PARAM_NAMES[index],
+                    Hertz,
+                    20.0,
+                    20_000.0,
+                    defaults[index],
+                )
+                .log(),
+            );
         }
-        let (b, field) = ((index - splits) / MULTIBAND_BAND_PARAMS, (index - splits) % MULTIBAND_BAND_PARAMS);
+        let (b, field) = (
+            (index - splits) / MULTIBAND_BAND_PARAMS,
+            (index - splits) % MULTIBAND_BAND_PARAMS,
+        );
         if b >= self.bands() {
             return None;
         }
-        let (id, name) = (MULTIBAND_PARAM_IDS[b][field], MULTIBAND_PARAM_NAMES[b][field]);
+        let (id, name) = (
+            MULTIBAND_PARAM_IDS[b][field],
+            MULTIBAND_PARAM_NAMES[b][field],
+        );
         Some(match field {
             0 => ParamInfo::new(id, name, Decibels, -60.0, 0.0, -18.0),
             1 => ParamInfo::new(id, name, Slope, 0.0, 1.0, 0.25),
@@ -129,14 +147,23 @@ impl<T: Float> Parameterized for MultibandCompressor<T> {
     }
     fn param_group(&self, index: usize) -> Option<&'static str> {
         let splits = self.bands() - 1;
-        (index < self.param_count()).then(|| if index < splits { MULTIBAND_GROUPS[0] } else { MULTIBAND_GROUPS[1 + (index - splits) / MULTIBAND_BAND_PARAMS] })
+        (index < self.param_count()).then(|| {
+            if index < splits {
+                MULTIBAND_GROUPS[0]
+            } else {
+                MULTIBAND_GROUPS[1 + (index - splits) / MULTIBAND_BAND_PARAMS]
+            }
+        })
     }
     fn get_param(&self, index: usize) -> Option<f64> {
         let splits = self.bands() - 1;
         if index < splits {
             return Some(to_f64(self.crossover_frequency(index)));
         }
-        let (b, field) = ((index - splits) / MULTIBAND_BAND_PARAMS, (index - splits) % MULTIBAND_BAND_PARAMS);
+        let (b, field) = (
+            (index - splits) / MULTIBAND_BAND_PARAMS,
+            (index - splits) % MULTIBAND_BAND_PARAMS,
+        );
         if b >= self.bands() {
             return None;
         }
@@ -151,13 +178,19 @@ impl<T: Float> Parameterized for MultibandCompressor<T> {
         })
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let v = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let v = self
+            .param_info(index)
+            .ok_or(ParamError::UnknownIndex(index))?
+            .validate(value)?;
         let splits = self.bands() - 1;
         if index < splits {
             self.set_crossover_frequency(index, from_f64(v));
             return Ok(to_f64(self.crossover_frequency(index)));
         }
-        let (b, field) = ((index - splits) / MULTIBAND_BAND_PARAMS, (index - splits) % MULTIBAND_BAND_PARAMS);
+        let (b, field) = (
+            (index - splits) / MULTIBAND_BAND_PARAMS,
+            (index - splits) % MULTIBAND_BAND_PARAMS,
+        );
         match field {
             0 => self.band_mut(b).set_threshold_db(from_f64(v)),
             1 => self.band_mut(b).set_slope(from_f64(v)),

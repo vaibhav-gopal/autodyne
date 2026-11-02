@@ -24,7 +24,10 @@ impl<T: Float> DelayLine<T> {
     /// Can read up to `max_delay` samples back (fractional reads up to `max_delay` too).
     pub fn new(max_delay: usize) -> Self {
         // +1 so read(max_delay) exists, +1 more so a fractional read just under max_delay can interpolate
-        Self { buffer: vec![T::_ZERO; max_delay + 2], newest: 0 }
+        Self {
+            buffer: vec![T::_ZERO; max_delay + 2],
+            newest: 0,
+        }
     }
     /// The longest delay a read can reach, in samples.
     pub fn max_delay(&self) -> usize {
@@ -37,13 +40,21 @@ impl<T: Float> DelayLine<T> {
     /// Stores the newest sample (the oldest one falls out).
     #[inline]
     pub fn push(&mut self, x: T) {
-        self.newest = if self.newest + 1 == self.buffer.len() { 0 } else { self.newest + 1 };
+        self.newest = if self.newest + 1 == self.buffer.len() {
+            0
+        } else {
+            self.newest + 1
+        };
         self.buffer[self.newest] = x;
     }
     /// The sample pushed `delay` pushes ago (0 = the most recent). Panics if `delay > max_delay()`.
     #[inline]
     pub fn read(&self, delay: usize) -> T {
-        assert!(delay <= self.max_delay(), "delay {delay} exceeds max {}", self.max_delay());
+        assert!(
+            delay <= self.max_delay(),
+            "delay {delay} exceeds max {}",
+            self.max_delay()
+        );
         let len = self.buffer.len();
         self.buffer[(self.newest + len - delay) % len]
     }
@@ -54,7 +65,10 @@ impl<T: Float> DelayLine<T> {
         let whole = d._floor();
         let frac = d - whole;
         let i = whole.to_usize().unwrap_or(0);
-        let (a, b) = (self.read(i), self.buffer[(self.newest + self.buffer.len() - i - 1) % self.buffer.len()]);
+        let (a, b) = (
+            self.read(i),
+            self.buffer[(self.newest + self.buffer.len() - i - 1) % self.buffer.len()],
+        );
         a + (b - a) * frac
     }
     /// Like `read_frac`, with 4-point cubic (Hermite) interpolation: nearly flat frequency response, so
@@ -62,11 +76,18 @@ impl<T: Float> DelayLine<T> {
     /// does. `delay` is clamped to [1, max_delay - 1], since the curve needs a sample on each side.
     #[inline]
     pub fn read_cubic(&self, delay: T) -> T {
-        let d = delay._max(T::_ONE)._min(T::_lit(self.max_delay() as f64 - 1.0));
+        let d = delay
+            ._max(T::_ONE)
+            ._min(T::_lit(self.max_delay() as f64 - 1.0));
         let whole = d._floor();
         let t = d - whole;
         let i = whole.to_usize().unwrap_or(1);
-        let (y0, y1, y2, y3) = (self.read(i - 1), self.read(i), self.read(i + 1), self.buffer[(self.newest + self.buffer.len() - i - 2) % self.buffer.len()]);
+        let (y0, y1, y2, y3) = (
+            self.read(i - 1),
+            self.read(i),
+            self.read(i + 1),
+            self.buffer[(self.newest + self.buffer.len() - i - 2) % self.buffer.len()],
+        );
         let half = T::_lit(0.5);
         let c1 = half * (y2 - y0);
         let c2 = y0 - T::_lit(2.5) * y1 + T::_lit(2.0) * y2 - half * y3;
@@ -90,7 +111,10 @@ impl<T: Float> Echo<T> {
     /// Allocates room for delays up to `max_delay_seconds`. Starts at half that delay,
     /// feedback 0.5 and mix 0.5.
     pub fn new(max_delay_seconds: T, sample_rate: T) -> Self {
-        let max = (max_delay_seconds * sample_rate)._ceil().to_usize().expect("max delay must be finite and >= 0");
+        let max = (max_delay_seconds * sample_rate)
+            ._ceil()
+            .to_usize()
+            .expect("max delay must be finite and >= 0");
         let ramp = T::_lit(0.05); // 50 ms parameter smoothing
         let smoothed = |v: T| SmoothedValue::new(v).with_ramp_seconds(ramp, sample_rate);
         Self {
@@ -103,12 +127,14 @@ impl<T: Float> Echo<T> {
     }
     /// Clamped to [1 sample, the maximum given to `new`].
     pub fn set_delay_seconds(&mut self, seconds: T) {
-        let samples = (seconds * self.sample_rate)._clamp(T::_ONE, T::_lit(self.line.max_delay() as f64));
+        let samples =
+            (seconds * self.sample_rate)._clamp(T::_ONE, T::_lit(self.line.max_delay() as f64));
         self.delay_samples.set_target(samples);
     }
     /// Level of each repeat relative to the one before; clamped below 1 so the echo always dies out.
     pub fn set_feedback(&mut self, feedback: T) {
-        self.feedback.set_target(feedback._clamp(T::_ZERO, T::_lit(0.99)));
+        self.feedback
+            .set_target(feedback._clamp(T::_ZERO, T::_lit(0.99)));
     }
     /// 0 = dry only, 1 = echoes only.
     pub fn set_mix(&mut self, mix: T) {
@@ -151,7 +177,11 @@ impl<T: Float> Echo<T> {
     /// Processes one sample.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
-        let (delay, feedback, mix) = (self.delay_samples.next_value(), self.feedback.next_value(), self.mix.next_value());
+        let (delay, feedback, mix) = (
+            self.delay_samples.next_value(),
+            self.feedback.next_value(),
+            self.mix.next_value(),
+        );
         // Read before pushing x: the newest stored sample is from the previous step, so one less.
         let delayed = self.line.read_frac(delay - T::_ONE);
         // flushed: repeats die out to exact zero instead of slow subnormal numbers
@@ -205,7 +235,10 @@ mod tests {
             line.push(f(n as f64));
         }
         for d in [1.0, 2.5, 7.25, 12.9] {
-            assert!((line.read_cubic(d) - f(19.0 - d)).abs() < 1e-12, "delay {d}");
+            assert!(
+                (line.read_cubic(d) - f(19.0 - d)).abs() < 1e-12,
+                "delay {d}"
+            );
         }
     }
 
@@ -224,9 +257,9 @@ mod tests {
         Impulse::new().fill(&mut buf);
         echo.process(&mut buf);
         let expected = |n: usize| match n {
-            0 => 0.5,     // dry
-            100 => 0.5,   // first repeat, wet
-            200 => 0.25,  // x feedback
+            0 => 0.5,    // dry
+            100 => 0.5,  // first repeat, wet
+            200 => 0.25, // x feedback
             300 => 0.125,
             _ => 0.0,
         };

@@ -19,7 +19,11 @@ fn blocks(t: &Mat) -> Vec<(usize, usize)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < n {
-        let size = if i + 1 < n && t.at(i + 1, i) != 0.0 { 2 } else { 1 };
+        let size = if i + 1 < n && t.at(i + 1, i) != 0.0 {
+            2
+        } else {
+            1
+        };
         out.push((i, size));
         i += size;
     }
@@ -29,9 +33,14 @@ fn blocks(t: &Mat) -> Vec<(usize, usize)> {
 /// Solves the dense system `m y = rhs` (at most 4 x 4) by Gaussian elimination with partial
 /// pivoting.
 fn solve_small(mut m: Vec<f64>, mut rhs: Vec<f64>, n: usize) -> Result<Vec<f64>, LinalgError> {
-    let scale = m.iter().fold(0.0f64, |a, v| a.max(v.abs())).max(f64::MIN_POSITIVE);
+    let scale = m
+        .iter()
+        .fold(0.0f64, |a, v| a.max(v.abs()))
+        .max(f64::MIN_POSITIVE);
     for col in 0..n {
-        let pivot = (col..n).max_by(|&a, &b| m[a * n + col].abs().total_cmp(&m[b * n + col].abs())).expect("rows remain");
+        let pivot = (col..n)
+            .max_by(|&a, &b| m[a * n + col].abs().total_cmp(&m[b * n + col].abs()))
+            .expect("rows remain");
         if m[pivot * n + col].abs() <= scale * f64::EPSILON * 4.0 {
             return Err(LinalgError::Singular);
         }
@@ -61,7 +70,9 @@ fn solve_small(mut m: Vec<f64>, mut rhs: Vec<f64>, n: usize) -> Result<Vec<f64>,
 fn quasi_triangular_sylvester(s: &Mat, t: &Mat, f: &Mat) -> Result<Mat, LinalgError> {
     let (n, m) = (s.rows, t.rows);
     let (sb, tb) = (blocks(s), blocks(t));
-    let mut cols: Vec<Vec<f64>> = (0..m).map(|j| (0..n).map(|i| f.at(i, j)).collect()).collect();
+    let mut cols: Vec<Vec<f64>> = (0..m)
+        .map(|j| (0..n).map(|i| f.at(i, j)).collect())
+        .collect();
     for &(j0, q) in &tb {
         // less the solved columns: f_c - sum_{l < j0} y_l t[l][c]
         let (done, rest) = cols.split_at_mut(j0);
@@ -80,7 +91,12 @@ fn quasi_triangular_sylvester(s: &Mat, t: &Mat, f: &Mat) -> Result<Mat, LinalgEr
                 let srow = &s.data[(i0 + r) * n + i0 + p..(i0 + r + 1) * n];
                 for c in 0..q {
                     let col = &cols[j0 + c];
-                    rhs[r * q + c] = col[i0 + r] - srow.iter().zip(&col[i0 + p..]).map(|(a, b)| a * b).sum::<f64>();
+                    rhs[r * q + c] = col[i0 + r]
+                        - srow
+                            .iter()
+                            .zip(&col[i0 + p..])
+                            .map(|(a, b)| a * b)
+                            .sum::<f64>();
                 }
             }
             // (I ⊗ S_ii + T_jjᵀ ⊗ I) vec(Y_ij) = vec(rhs), row-major unknowns (r, c)
@@ -117,7 +133,10 @@ fn quasi_triangular_sylvester(s: &Mat, t: &Mat, f: &Mat) -> Result<Mat, LinalgEr
 /// Bartels-Stewart on f64 matrices: `a x + x b = q`.
 pub(crate) fn sylvester(a: &Mat, b: &Mat, q: &Mat) -> Result<Mat, LinalgError> {
     if q.rows != a.rows || q.cols != b.rows {
-        return Err(LinalgError::Mismatch(vec![a.rows, b.rows], vec![q.rows, q.cols]));
+        return Err(LinalgError::Mismatch(
+            vec![a.rows, b.rows],
+            vec![q.rows, q.cols],
+        ));
     }
     let (sa, sb) = (real_schur(a)?, real_schur(b)?);
     let f = sa.z.t().mul(q).mul(&sb.z);
@@ -130,7 +149,10 @@ pub(crate) fn sylvester(a: &Mat, b: &Mat, q: &Mat) -> Result<Mat, LinalgError> {
 /// solver applies: `s (y p) + (y p)(p sᵀ p) = (f p)`.
 pub(crate) fn lyapunov(a: &Mat, q: &Mat) -> Result<Mat, LinalgError> {
     if q.rows != a.rows || q.cols != a.rows {
-        return Err(LinalgError::Mismatch(vec![a.rows, a.cols], vec![q.rows, q.cols]));
+        return Err(LinalgError::Mismatch(
+            vec![a.rows, a.cols],
+            vec![q.rows, q.cols],
+        ));
     }
     let n = a.rows;
     let sa = real_schur(a)?;
@@ -169,14 +191,31 @@ impl Mat {
     /// Symmetrized when `q` is symmetric (so the solution of a symmetric equation is exactly
     /// symmetric), else as is.
     fn symmetrized_if(self, q: &Mat) -> Mat {
-        if q.rows == q.cols && (0..q.rows).all(|i| (0..i).all(|j| q.at(i, j) == q.at(j, i))) { self.symmetrized() } else { self }
+        if q.rows == q.cols && (0..q.rows).all(|i| (0..i).all(|j| q.at(i, j) == q.at(j, i))) {
+            self.symmetrized()
+        } else {
+            self
+        }
     }
 }
 
-fn riccati_inputs<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, q: NdView<'_, T>, r: NdView<'_, T>) -> Result<(Mat, Mat, Mat, Mat), LinalgError> {
-    let (a, b, q, r) = (Mat::square(a)?, Mat::from_view(b)?, Mat::square(q)?, Mat::square(r)?);
+fn riccati_inputs<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+    q: NdView<'_, T>,
+    r: NdView<'_, T>,
+) -> Result<(Mat, Mat, Mat, Mat), LinalgError> {
+    let (a, b, q, r) = (
+        Mat::square(a)?,
+        Mat::from_view(b)?,
+        Mat::square(q)?,
+        Mat::square(r)?,
+    );
     if b.rows != a.rows || q.rows != a.rows || r.rows != b.cols {
-        return Err(LinalgError::Mismatch(vec![a.rows, a.cols, b.rows, b.cols], vec![q.rows, r.rows]));
+        return Err(LinalgError::Mismatch(
+            vec![a.rows, a.cols, b.rows, b.cols],
+            vec![q.rows, r.rows],
+        ));
     }
     Ok((a, b, q, r))
 }
@@ -192,7 +231,12 @@ fn care_residual(a: &Mat, g: &Mat, q: &Mat, x: &Mat) -> Mat {
 /// (Newton's iteration with determinant scaling) gives its stable subspace; Newton-Kleinman steps
 /// (Lyapunov solves) then polish `x` to working precision. Errors when no stabilizing solution
 /// exists (the iteration meets a singular matrix or does not converge).
-pub fn solve_continuous_are<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, q: NdView<'_, T>, r: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn solve_continuous_are<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+    q: NdView<'_, T>,
+    r: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     let (a, b, q, r) = riccati_inputs(a, b, q, r)?;
     let n = a.rows;
     let g = b.mul(&r.inv()?).mul(&b.t()).symmetrized();
@@ -248,11 +292,20 @@ pub fn solve_continuous_are<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, 
 /// (`scipy.linalg.solve_discrete_are`), by the structure-preserving doubling algorithm: with
 /// `g = b r⁻¹ bᵀ`, `w = I + g h`, `a ← a w⁻¹ a`, `g ← g + a w⁻¹ g aᵀ`, `h ← h + aᵀ h w⁻¹ a`, `h`
 /// converging quadratically to `x`. Errors when it does not converge.
-pub fn solve_discrete_are<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, q: NdView<'_, T>, r: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn solve_discrete_are<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+    q: NdView<'_, T>,
+    r: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     let (a0, b, q, r) = riccati_inputs(a, b, q, r)?;
     let n = a0.rows;
     let eye = Mat::identity(n);
-    let (mut ak, mut gk, mut hk) = (a0.clone(), b.mul(&r.inv()?).mul(&b.t()).symmetrized(), q.symmetrized());
+    let (mut ak, mut gk, mut hk) = (
+        a0.clone(),
+        b.mul(&r.inv()?).mul(&b.t()).symmetrized(),
+        q.symmetrized(),
+    );
     for _ in 0..100 {
         let w_inv = eye.add(&gk.mul(&hk)).inv()?;
         let wa = w_inv.mul(&ak);
@@ -274,7 +327,12 @@ pub fn solve_discrete_are<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, q:
 fn dare_residual(a: &Mat, b: &Mat, q: &Mat, r: &Mat, x: &Mat) -> Result<(Mat, Mat), LinalgError> {
     let xa = x.mul(a);
     let k = r.add(&b.t().mul(x).mul(b)).inv()?.mul(&b.t().mul(&xa));
-    let res = a.t().mul(&xa).sub(x).sub(&a.t().mul(x).mul(b).mul(&k)).add(q);
+    let res = a
+        .t()
+        .mul(&xa)
+        .sub(x)
+        .sub(&a.t().mul(x).mul(b).mul(&k))
+        .add(q);
     Ok((res, a.sub(&b.mul(&k))))
 }
 
@@ -283,7 +341,9 @@ fn dare_residual(a: &Mat, b: &Mat, q: &Mat, r: &Mat, x: &Mat) -> Result<(Mat, Ma
 fn dare_newton(a: &Mat, b: &Mat, q: &Mat, r: &Mat, mut x: Mat) -> Result<Mat, LinalgError> {
     let (mut res, mut closed) = dare_residual(a, b, q, r, &x)?;
     for _ in 0..3 {
-        let Ok(dx) = discrete_lyapunov(&closed.t(), &res) else { break };
+        let Ok(dx) = discrete_lyapunov(&closed.t(), &res) else {
+            break;
+        };
         let candidate = x.add(&dx).symmetrized();
         let (next_res, next_closed) = dare_residual(a, b, q, r, &candidate)?;
         if next_res.norm() >= res.norm() {
@@ -297,19 +357,29 @@ fn dare_newton(a: &Mat, b: &Mat, q: &Mat, r: &Mat, mut x: Mat) -> Result<Mat, Li
 /// Solves the Sylvester equation `a x + x b = q` (`scipy.linalg.solve_sylvester`): `a` n x n, `b`
 /// m x m, `q` n x m, by Bartels-Stewart (both matrices to real Schur form, then block
 /// substitution). Errors when `a` and `-b` share an eigenvalue (no unique solution).
-pub fn solve_sylvester<T: LinalgFloat>(a: NdView<'_, T>, b: NdView<'_, T>, q: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn solve_sylvester<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    b: NdView<'_, T>,
+    q: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     Ok(sylvester(&Mat::square(a)?, &Mat::square(b)?, &Mat::from_view(q)?)?.to_array())
 }
 
 /// Solves the continuous Lyapunov equation `a x + x aᵀ = q`
 /// (`scipy.linalg.solve_continuous_lyapunov`). For a stable `a` and `q = -b bᵀ`, `x` is the
 /// controllability Gramian.
-pub fn solve_continuous_lyapunov<T: LinalgFloat>(a: NdView<'_, T>, q: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn solve_continuous_lyapunov<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    q: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     Ok(lyapunov(&Mat::square(a)?, &Mat::square(q)?)?.to_array())
 }
 
 /// Solves the discrete Lyapunov (Stein) equation `a x aᵀ - x + q = 0`
 /// (`scipy.linalg.solve_discrete_lyapunov`). Errors if `a` has the eigenvalue -1.
-pub fn solve_discrete_lyapunov<T: LinalgFloat>(a: NdView<'_, T>, q: NdView<'_, T>) -> Result<NdArray<T>, LinalgError> {
+pub fn solve_discrete_lyapunov<T: LinalgFloat>(
+    a: NdView<'_, T>,
+    q: NdView<'_, T>,
+) -> Result<NdArray<T>, LinalgError> {
     Ok(discrete_lyapunov(&Mat::square(a)?, &Mat::square(q)?)?.to_array())
 }

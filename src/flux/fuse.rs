@@ -19,7 +19,14 @@ const BLOCK: usize = 256;
 
 /// Constant arrays converted to an element type, per node: made on first use.
 #[derive(Default)]
-pub(crate) struct Literals(std::sync::Mutex<std::collections::HashMap<(usize, std::any::TypeId), std::sync::Arc<dyn std::any::Any + Send + Sync>>>);
+pub(crate) struct Literals(
+    std::sync::Mutex<
+        std::collections::HashMap<
+            (usize, std::any::TypeId),
+            std::sync::Arc<dyn std::any::Any + Send + Sync>,
+        >,
+    >,
+);
 
 impl std::fmt::Debug for Literals {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -32,8 +39,13 @@ impl Literals {
     pub fn get<T: FluxFloat>(&self, i: usize, data: &[f64]) -> std::sync::Arc<Vec<T>> {
         let key = (i, std::any::TypeId::of::<T>());
         let mut map = self.0.lock().expect("the literal cache is not poisoned");
-        let entry = map.entry(key).or_insert_with(|| std::sync::Arc::new(data.iter().map(|&v| T::_lit(v)).collect::<Vec<T>>()));
-        entry.clone().downcast::<Vec<T>>().expect("cached under its own type")
+        let entry = map.entry(key).or_insert_with(|| {
+            std::sync::Arc::new(data.iter().map(|&v| T::_lit(v)).collect::<Vec<T>>())
+        });
+        entry
+            .clone()
+            .downcast::<Vec<T>>()
+            .expect("cached under its own type")
     }
 }
 
@@ -109,7 +121,10 @@ impl Fusion {
                 node.kind != Kind::Complex
                     && !single(&node.shape)
                     && elementwise(&node.op)
-                    && node.op.operands().all(|a| nodes[a as usize].shape == node.shape && nodes[a as usize].kind != Kind::Complex)
+                    && node.op.operands().all(|a| {
+                        nodes[a as usize].shape == node.shape
+                            && nodes[a as usize].kind != Kind::Complex
+                    })
             })
             .collect();
         // a broadcast of one real value: folded into element-wise readers
@@ -139,10 +154,18 @@ impl Fusion {
             }
         }
         let mut output = vec![false; n];
-        graph.outputs.iter().for_each(|&o| output[o as usize] = true);
+        graph
+            .outputs
+            .iter()
+            .for_each(|&o| output[o as usize] = true);
         let absorbed: Vec<bool> = (0..n)
             .map(|i| {
-                let all_fusible = |rs: &[Id]| !rs.is_empty() && rs.iter().all(|&r| fusible[r as usize] && nodes[r as usize].shape == nodes[i].shape);
+                let all_fusible = |rs: &[Id]| {
+                    !rs.is_empty()
+                        && rs.iter().all(|&r| {
+                            fusible[r as usize] && nodes[r as usize].shape == nodes[i].shape
+                        })
+                };
                 if output[i] {
                     false
                 } else if leaf[i] {
@@ -152,8 +175,14 @@ impl Fusion {
                 } else {
                     // read several times: recomputed in each reader when it is one cheap operation
                     // on values from outside (cheaper than a pass and an array of its own)
-                    let cheap = matches!(nodes[i].op, Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Neg(_) | Op::Abs(_));
-                    let outside = nodes[i].op.operands().all(|a| !fusible[a as usize] || leaf[a as usize]);
+                    let cheap = matches!(
+                        nodes[i].op,
+                        Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Neg(_) | Op::Abs(_)
+                    );
+                    let outside = nodes[i]
+                        .op
+                        .operands()
+                        .all(|a| !fusible[a as usize] || leaf[a as usize]);
                     fusible[i] && cheap && outside && all_fusible(&readers[i])
                 }
             })
@@ -180,16 +209,32 @@ impl Fusion {
                     && !readers[i].is_empty()
                     && readers[i].iter().all(|&r| {
                         let r = r as usize;
-                        groups[r].is_none() && !absorbed_ok[r] && matches!(nodes[r].op, Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Div(..)) && nodes[r].shape == nodes[i].shape
+                        groups[r].is_none()
+                            && !absorbed_ok[r]
+                            && matches!(
+                                nodes[r].op,
+                                Op::Add(..) | Op::Sub(..) | Op::Mul(..) | Op::Div(..)
+                            )
+                            && nodes[r].shape == nodes[i].shape
                     })
             })
             .collect();
-        let mut plan = Fusion { groups, absorbed: absorbed_ok, lazy, literals: Literals::default(), reads: Vec::new(), uses: vec![0; n] };
+        let mut plan = Fusion {
+            groups,
+            absorbed: absorbed_ok,
+            lazy,
+            literals: Literals::default(),
+            reads: Vec::new(),
+            uses: vec![0; n],
+        };
         plan.reads = (0..n).map(|i| plan.reads_of(i, &nodes[i])).collect();
         for r in &plan.reads {
             r.iter().for_each(|&a| plan.uses[a as usize] += 1);
         }
-        graph.outputs.iter().for_each(|&o| plan.uses[o as usize] += 1);
+        graph
+            .outputs
+            .iter()
+            .for_each(|&o| plan.uses[o as usize] += 1);
         plan
     }
 
@@ -219,7 +264,13 @@ fn mark(nodes: &[Node], i: usize, absorbed: &[bool], leaf: &[bool], out: &mut [b
 }
 
 /// Root `i`'s group: the nodes folded into it, in order, as a program over single elements.
-fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool], part: &[u8]) -> Option<Group> {
+fn group(
+    nodes: &[Node],
+    root: usize,
+    absorbed: &[bool],
+    splat: &[bool],
+    part: &[u8],
+) -> Option<Group> {
     // members (folded nodes and the root), external inputs as (node, part)
     let mut members = Vec::new();
     let mut external: Vec<(Id, u8)> = Vec::new();
@@ -256,7 +307,9 @@ fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool], part: &
     }
     members.sort_unstable();
     type Keys = Vec<(Id, u8)>;
-    let (uniform, arrays): (Keys, Keys) = external.into_iter().partition(|&(a, _)| single(&nodes[a as usize].shape));
+    let (uniform, arrays): (Keys, Keys) = external
+        .into_iter()
+        .partition(|&(a, _)| single(&nodes[a as usize].shape));
     let keys: Vec<(Id, u8)> = uniform.iter().chain(&arrays).copied().collect();
     // the group as a graph over single elements: inputs, then the members
     let mut map: std::collections::HashMap<(Id, u8), Id> = std::collections::HashMap::new();
@@ -264,8 +317,16 @@ fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool], part: &
     for (k, &(a, p)) in keys.iter().enumerate() {
         map.insert((a, p), k as Id);
         sub.inputs.push(Vec::new());
-        let kind = if p == 0 && nodes[a as usize].kind == Kind::Mask { Kind::Mask } else { Kind::Real };
-        sub.nodes.push(Node { op: Op::Input(k as u32), shape: Vec::new(), kind });
+        let kind = if p == 0 && nodes[a as usize].kind == Kind::Mask {
+            Kind::Mask
+        } else {
+            Kind::Real
+        };
+        sub.nodes.push(Node {
+            op: Op::Input(k as u32),
+            shape: Vec::new(),
+            kind,
+        });
     }
     for &m in &members {
         let id = sub.nodes.len() as Id;
@@ -274,7 +335,11 @@ fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool], part: &
             Op::Re(a) | Op::Im(a) if part[m] != 0 => Op::Reshape(map[&(a, part[m])]),
             ref op => op.map(|a| map[&(a, 0)]),
         };
-        sub.nodes.push(Node { op, shape: Vec::new(), kind: nodes[m].kind });
+        sub.nodes.push(Node {
+            op,
+            shape: Vec::new(),
+            kind: nodes[m].kind,
+        });
         map.insert((m as Id, 0), id);
     }
     sub.outputs = vec![map[&(root as Id, 0)]];
@@ -295,7 +360,13 @@ fn group(nodes: &[Node], root: usize, absorbed: &[bool], splat: &[bool], part: &
             (at, p)
         })
         .collect();
-    Some(Group { program, fetch, inputs, uniform: uniform.len(), varying })
+    Some(Group {
+        program,
+        fetch,
+        inputs,
+        uniform: uniform.len(),
+        varying,
+    })
 }
 /// An operand of one block: varying (a slice) or the same for every element.
 #[derive(Clone, Copy)]
@@ -330,7 +401,9 @@ fn unary<T: Copy>(dst: &mut [T], a: Src<T>, f: impl Fn(T) -> T) {
     match a {
         Src::Varying(p) => {
             let m = dst.len();
-            dst.iter_mut().zip(Src::slice(p, m)).for_each(|(d, &x)| *d = f(x))
+            dst.iter_mut()
+                .zip(Src::slice(p, m))
+                .for_each(|(d, &x)| *d = f(x))
         }
         Src::Uniform(x) => dst.fill(f(x)),
     }
@@ -340,9 +413,19 @@ fn unary<T: Copy>(dst: &mut [T], a: Src<T>, f: impl Fn(T) -> T) {
 fn binary<T: Copy>(dst: &mut [T], a: Src<T>, b: Src<T>, f: impl Fn(T, T) -> T) {
     let m = dst.len();
     match (a, b) {
-        (Src::Varying(p), Src::Varying(q)) => dst.iter_mut().zip(Src::slice(p, m)).zip(Src::slice(q, m)).for_each(|((d, &x), &y)| *d = f(x, y)),
-        (Src::Varying(p), Src::Uniform(y)) => dst.iter_mut().zip(Src::slice(p, m)).for_each(|(d, &x)| *d = f(x, y)),
-        (Src::Uniform(x), Src::Varying(q)) => dst.iter_mut().zip(Src::slice(q, m)).for_each(|(d, &y)| *d = f(x, y)),
+        (Src::Varying(p), Src::Varying(q)) => dst
+            .iter_mut()
+            .zip(Src::slice(p, m))
+            .zip(Src::slice(q, m))
+            .for_each(|((d, &x), &y)| *d = f(x, y)),
+        (Src::Varying(p), Src::Uniform(y)) => dst
+            .iter_mut()
+            .zip(Src::slice(p, m))
+            .for_each(|(d, &x)| *d = f(x, y)),
+        (Src::Uniform(x), Src::Varying(q)) => dst
+            .iter_mut()
+            .zip(Src::slice(q, m))
+            .for_each(|(d, &y)| *d = f(x, y)),
         (Src::Uniform(x), Src::Uniform(y)) => dst.fill(f(x, y)),
     }
 }
@@ -363,12 +446,22 @@ impl Group {
     /// Plain IEEE operations only, nothing contracted: the results are the baseline build's.
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "avx2")]
-    unsafe fn run_avx2<T: FluxFloat>(&self, len: usize, uniform: &[T], arrays: &[(&[T], usize)]) -> Vec<T> {
+    unsafe fn run_avx2<T: FluxFloat>(
+        &self,
+        len: usize,
+        uniform: &[T],
+        arrays: &[(&[T], usize)],
+    ) -> Vec<T> {
         self.run_body(len, uniform, arrays)
     }
 
     #[inline(always)]
-    fn run_body<T: FluxFloat>(&self, len: usize, uniform: &[T], arrays: &[(&[T], usize)]) -> Vec<T> {
+    fn run_body<T: FluxFloat>(
+        &self,
+        len: usize,
+        uniform: &[T],
+        arrays: &[(&[T], usize)],
+    ) -> Vec<T> {
         let p = &self.program;
         let mut scalars = vec![T::_ZERO; p.registers];
         scalars[..uniform.len()].copy_from_slice(uniform);
@@ -388,7 +481,10 @@ impl Group {
             for (k, &(a, stride)) in arrays.iter().enumerate() {
                 if stride != 1 {
                     let r = self.uniform + k;
-                    for (slot, &v) in block[r * BLOCK..r * BLOCK + m].iter_mut().zip(a[start * stride..].iter().step_by(stride)) {
+                    for (slot, &v) in block[r * BLOCK..r * BLOCK + m]
+                        .iter_mut()
+                        .zip(a[start * stride..].iter().step_by(stride))
+                    {
                         *slot = v;
                     }
                 }
@@ -445,11 +541,19 @@ impl Group {
                     }
                     Inst::Select { m: c, a, b, .. } => {
                         let (c, a, b) = (src(c), src(a), src(b));
-                        d.iter_mut().enumerate().for_each(|(i, v)| *v = if c.at(i) != T::_ZERO { a.at(i) } else { b.at(i) });
+                        d.iter_mut().enumerate().for_each(|(i, v)| {
+                            *v = if c.at(i) != T::_ZERO {
+                                a.at(i)
+                            } else {
+                                b.at(i)
+                            }
+                        });
                     }
                     Inst::MulAdd { a, b, c, .. } => {
                         let (a, b, c) = (src(a), src(b), src(c));
-                        d.iter_mut().enumerate().for_each(|(i, v)| *v = super::scalar::mul_add(a.at(i), b.at(i), c.at(i)));
+                        d.iter_mut().enumerate().for_each(|(i, v)| {
+                            *v = super::scalar::mul_add(a.at(i), b.at(i), c.at(i))
+                        });
                     }
                 }
             }

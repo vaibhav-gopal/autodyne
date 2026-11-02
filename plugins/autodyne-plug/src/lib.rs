@@ -33,17 +33,26 @@ impl HostParam {
         match info.kind {
             ParamKind::Continuous => HostParam::Float(float_param(info, value)),
             ParamKind::Integer | ParamKind::Choice(_) => {
-                let range = IntRange::Linear { min: info.min as i32, max: info.max as i32 };
+                let range = IntRange::Linear {
+                    min: info.min as i32,
+                    max: info.max as i32,
+                };
                 HostParam::Int(
                     IntParam::new(info.name, info.clamp(value) as i32, range)
                         .with_value_to_string(Arc::new(move |v| display.format(v as f64)))
-                        .with_string_to_value(Arc::new(move |text| display.parse(text).map(|v| display.clamp(v) as i32))),
+                        .with_string_to_value(Arc::new(move |text| {
+                            display.parse(text).map(|v| display.clamp(v) as i32)
+                        })),
                 )
             }
             ParamKind::Toggle => HostParam::Bool(
                 BoolParam::new(info.name, value >= 0.5)
-                    .with_value_to_string(Arc::new(move |on| display.format(if on { 1.0 } else { 0.0 })))
-                    .with_string_to_value(Arc::new(move |text| display.parse(text).map(|v| v >= 0.5))),
+                    .with_value_to_string(Arc::new(move |on| {
+                        display.format(if on { 1.0 } else { 0.0 })
+                    }))
+                    .with_string_to_value(Arc::new(move |text| {
+                        display.parse(text).map(|v| v >= 0.5)
+                    })),
             ),
         }
     }
@@ -86,7 +95,9 @@ impl ParamBridge {
         let mut ids: Vec<String> = Vec::new();
         let mut groups: Vec<String> = Vec::new();
         for index in 0..processor.param_count() {
-            let info = processor.param_info(index).expect("index below param_count");
+            let info = processor
+                .param_info(index)
+                .expect("index below param_count");
             let current = processor.get_param(index).unwrap_or(info.default);
             params.push(HostParam::new(&info, current));
             let mut id = info.id.to_string();
@@ -101,8 +112,15 @@ impl ParamBridge {
         if groups.iter().all(|g| *g == groups[0]) {
             groups.iter_mut().for_each(String::clear);
         }
-        let applied = (0..params.len()).map(|_| AtomicU32::new(f32::NAN.to_bits())).collect();
-        Self { params, ids, groups, applied }
+        let applied = (0..params.len())
+            .map(|_| AtomicU32::new(f32::NAN.to_bits()))
+            .collect();
+        Self {
+            params,
+            ids,
+            groups,
+            applied,
+        }
     }
 
     /// Pushes every host value that changed since the last call into `processor`.
@@ -121,7 +139,9 @@ impl ParamBridge {
 
     /// Forces the next `apply` to push every value (e.g. after rebuilding the processor).
     pub fn invalidate(&self) {
-        self.applied.iter().for_each(|a| a.store(f32::NAN.to_bits(), Relaxed));
+        self.applied
+            .iter()
+            .for_each(|a| a.store(f32::NAN.to_bits(), Relaxed));
     }
 
     /// The host-facing parameter at `index`.
@@ -145,14 +165,20 @@ fn float_param(info: &ParamInfo, value: f64) -> FloatParam {
         ParamScale::Log if info.min > 0.0 && info.max > info.min => {
             // a skew that puts the geometric mean at the middle of the control, like a log scale
             let middle = ((info.min * info.max).sqrt() as f32 - min) / (max - min);
-            FloatRange::Skewed { min, max, factor: 0.5f32.log(middle) }
+            FloatRange::Skewed {
+                min,
+                max,
+                factor: 0.5f32.log(middle),
+            }
         }
         _ => FloatRange::Linear { min, max },
     };
     let display = *info;
     FloatParam::new(info.name, value as f32, range)
         .with_value_to_string(Arc::new(move |v| display.format(v as f64)))
-        .with_string_to_value(Arc::new(move |text| display.parse(text).map(|v| display.clamp(v) as f32)))
+        .with_string_to_value(Arc::new(move |text| {
+            display.parse(text).map(|v| display.clamp(v) as f32)
+        }))
 }
 
 // SAFETY: every `ParamPtr` points into `self.params`, a Vec that is never resized or reallocated
@@ -160,7 +186,12 @@ fn float_param(info: &ParamInfo, value: f64) -> FloatParam {
 // plugin) lives, which is what nice-plug requires.
 unsafe impl Params for ParamBridge {
     fn param_map(&self) -> Vec<(String, ParamPtr, String)> {
-        self.params.iter().zip(&self.ids).zip(&self.groups).map(|((p, id), group)| (id.clone(), p.as_ptr(), group.clone())).collect()
+        self.params
+            .iter()
+            .zip(&self.ids)
+            .zip(&self.groups)
+            .map(|((p, id), group)| (id.clone(), p.as_ptr(), group.clone()))
+            .collect()
     }
 }
 
@@ -201,7 +232,11 @@ mod tests {
         assert_eq!(reverb.decay(), 5.0, "unchanged host values are not re-sent");
         bridge.invalidate();
         bridge.apply(&mut reverb);
-        assert_eq!(reverb.decay(), 1.8, "after invalidate everything is re-sent");
+        assert_eq!(
+            reverb.decay(),
+            1.8,
+            "after invalidate everything is re-sent"
+        );
     }
 
     #[test]
@@ -209,9 +244,15 @@ mod tests {
         let reverb = Reverb::<f32>::new(48_000.0);
         let bridge = ParamBridge::new(&reverb);
         let by_id = |id: &str| float(bridge.param(reverb.param_index(id).unwrap()));
-        assert_eq!(by_id("decay_s").string_to_normalized_value("2.5 s"), Some(by_id("decay_s").preview_normalized(2.5)));
+        assert_eq!(
+            by_id("decay_s").string_to_normalized_value("2.5 s"),
+            Some(by_id("decay_s").preview_normalized(2.5))
+        );
         let mix = by_id("mix");
-        assert_eq!(mix.string_to_normalized_value("50%"), Some(mix.preview_normalized(0.5)));
+        assert_eq!(
+            mix.string_to_normalized_value("50%"),
+            Some(mix.preview_normalized(0.5))
+        );
         assert_eq!(mix.string_to_normalized_value("abc"), None);
         // the host's value -> text -> value -> text round trip is stable
         let text = mix.normalized_value_to_string(0.0101, true);
@@ -224,44 +265,84 @@ mod tests {
         let mut voice = SynthVoice::<f32>::new(48_000.0);
         let bridge = ParamBridge::new(&voice);
         let index = voice.param_index("waveform").unwrap();
-        let HostParam::Int(waveform) = bridge.param(index) else { panic!("a choice is an IntParam") };
-        assert_eq!((waveform.value(), waveform.to_string()), (1, "Saw".to_string()));
+        let HostParam::Int(waveform) = bridge.param(index) else {
+            panic!("a choice is an IntParam")
+        };
+        assert_eq!(
+            (waveform.value(), waveform.to_string()),
+            (1, "Saw".to_string())
+        );
         // the host sees every option by name, and can set one by typing it
-        let names: Vec<String> = (0..4).map(|i| waveform.normalized_value_to_string(waveform.preview_normalized(i), false)).collect();
+        let names: Vec<String> = (0..4)
+            .map(|i| waveform.normalized_value_to_string(waveform.preview_normalized(i), false))
+            .collect();
         assert_eq!(names, ["Sine", "Saw", "Pulse", "Triangle"]);
-        assert_eq!(waveform.string_to_normalized_value("pulse"), Some(waveform.preview_normalized(2)));
+        assert_eq!(
+            waveform.string_to_normalized_value("pulse"),
+            Some(waveform.preview_normalized(2))
+        );
         // and the value reaches the processor as the option's index
         assert_eq!(bridge.param(index).value(), 1.0);
         voice.set_param(index, 3.0).unwrap();
         bridge.invalidate();
         bridge.apply(&mut voice);
-        assert_eq!(voice.get_param(index), Some(1.0), "apply restores the host's choice");
+        assert_eq!(
+            voice.get_param(index),
+            Some(1.0),
+            "apply restores the host's choice"
+        );
     }
 
     #[test]
     fn toggles_become_switches() {
         let info = ParamInfo::toggle("bypass", "Bypass", true);
-        let HostParam::Bool(bypass) = HostParam::new(&info, 1.0) else { panic!("a toggle is a BoolParam") };
-        assert_eq!((bypass.value(), bypass.to_string()), (true, "On".to_string()));
+        let HostParam::Bool(bypass) = HostParam::new(&info, 1.0) else {
+            panic!("a toggle is a BoolParam")
+        };
+        assert_eq!(
+            (bypass.value(), bypass.to_string()),
+            (true, "On".to_string())
+        );
         assert_eq!(bypass.string_to_normalized_value("off"), Some(0.0));
     }
 
     #[test]
     fn duplicate_ids_in_chains_get_suffixes() {
         use autodyne::gain::Gain;
-        let chain = (Gain::<f32>::new(1.0, 0.0, 48_000.0), Gain::<f32>::new(1.0, 0.0, 48_000.0));
+        let chain = (
+            Gain::<f32>::new(1.0, 0.0, 48_000.0),
+            Gain::<f32>::new(1.0, 0.0, 48_000.0),
+        );
         let bridge = ParamBridge::new(&chain);
-        let ids: Vec<String> = bridge.param_map().into_iter().map(|(id, _, _)| id).collect();
+        let ids: Vec<String> = bridge
+            .param_map()
+            .into_iter()
+            .map(|(id, _, _)| id)
+            .collect();
         assert_eq!(ids, ["gain_db", "gain_db_2"]);
     }
 
     #[test]
     fn chains_are_grouped_by_stage() {
         use autodyne::gain::Gain;
-        let groups = |bridge: ParamBridge| bridge.param_map().into_iter().map(|(_, _, g)| g).collect::<Vec<_>>();
+        let groups = |bridge: ParamBridge| {
+            bridge
+                .param_map()
+                .into_iter()
+                .map(|(_, _, g)| g)
+                .collect::<Vec<_>>()
+        };
         let single = Reverb::<f32>::new(48_000.0);
-        assert!(groups(ParamBridge::new(&single)).iter().all(String::is_empty), "one stage: no groups");
-        let chain = (Gain::<f32>::new(1.0, 0.0, 48_000.0), Reverb::<f32>::new(48_000.0));
+        assert!(
+            groups(ParamBridge::new(&single))
+                .iter()
+                .all(String::is_empty),
+            "one stage: no groups"
+        );
+        let chain = (
+            Gain::<f32>::new(1.0, 0.0, 48_000.0),
+            Reverb::<f32>::new(48_000.0),
+        );
         let g = groups(ParamBridge::new(&chain));
         assert_eq!((g[0].as_str(), g[1].as_str()), ("Gain", "Reverb"));
     }

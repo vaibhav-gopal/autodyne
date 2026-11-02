@@ -15,19 +15,63 @@ const LN2_HI: f64 = 6.93147180369123816490e-1;
 const LN2_LO: f64 = 1.90821492927058770002e-10;
 const LOG2E: f64 = 1.4426950408889634;
 /// pi / 2 in three parts (Cody-Waite), for sin and cos
-const PIO2: [f64; 3] = [1.57079632673412561417e0, 6.07710050633881403649e-11, 2.02226624879595063154e-21];
+const PIO2: [f64; 3] = [
+    1.57079632673412561417e0,
+    6.07710050633881403649e-11,
+    2.02226624879595063154e-21,
+];
 const TWO_OVER_PI: f64 = 0.6366197723675814;
 /// 1/14! .. 1/2!: e^r - 1 = r + r² p(r)
 const EXPM1: [f64; 13] = [
-    1.1470745597729725e-11, 1.6059043836821613e-10, 2.08767569878681e-9, 2.505210838544172e-8, 2.755731922398589e-7, 2.7557319223985893e-6, 2.48015873015873e-5,
-    1.984126984126984e-4, 1.3888888888888889e-3, 8.333333333333333e-3, 4.1666666666666664e-2, 0.16666666666666666, 0.5,
+    1.1470745597729725e-11,
+    1.6059043836821613e-10,
+    2.08767569878681e-9,
+    2.505210838544172e-8,
+    2.755731922398589e-7,
+    2.7557319223985893e-6,
+    2.48015873015873e-5,
+    1.984126984126984e-4,
+    1.3888888888888889e-3,
+    8.333333333333333e-3,
+    4.1666666666666664e-2,
+    0.16666666666666666,
+    0.5,
 ];
 /// 1/23 .. 1/3: atanh series for ln
-const ATANH: [f64; 11] =
-    [0.043478260869565216, 0.047619047619047616, 0.05263157894736842, 0.058823529411764705, 0.06666666666666667, 0.07692307692307693, 0.09090909090909091, 0.1111111111111111, 0.14285714285714285, 0.2, 0.3333333333333333];
+const ATANH: [f64; 11] = [
+    0.043478260869565216,
+    0.047619047619047616,
+    0.05263157894736842,
+    0.058823529411764705,
+    0.06666666666666667,
+    0.07692307692307693,
+    0.09090909090909091,
+    0.1111111111111111,
+    0.14285714285714285,
+    0.2,
+    0.3333333333333333,
+];
 /// sin r = r + r z s(z), cos r = 1 + z c(z), z = r², on |r| <= pi/4
-const SIN: [f64; 8] = [2.8114572543455206e-15, -7.647163731819816e-13, 1.6059043836821613e-10, -2.505210838544172e-8, 2.7557319223985893e-6, -1.984126984126984e-4, 8.333333333333333e-3, -0.16666666666666666];
-const COS: [f64; 8] = [4.779477332387385e-14, -1.1470745597729725e-11, 2.08767569878681e-9, -2.755731922398589e-7, 2.48015873015873e-5, -1.3888888888888889e-3, 4.1666666666666664e-2, -0.5];
+const SIN: [f64; 8] = [
+    2.8114572543455206e-15,
+    -7.647163731819816e-13,
+    1.6059043836821613e-10,
+    -2.505210838544172e-8,
+    2.7557319223985893e-6,
+    -1.984126984126984e-4,
+    8.333333333333333e-3,
+    -0.16666666666666666,
+];
+const COS: [f64; 8] = [
+    4.779477332387385e-14,
+    -1.1470745597729725e-11,
+    2.08767569878681e-9,
+    -2.755731922398589e-7,
+    2.48015873015873e-5,
+    -1.3888888888888889e-3,
+    4.1666666666666664e-2,
+    -0.5,
+];
 
 impl Writer {
     fn f(&self, shape: &[usize]) -> String {
@@ -73,7 +117,9 @@ impl Writer {
 
     fn cmp(&mut self, dir: &str, a: &str, b: &str, shape: &[usize]) -> String {
         let (ft, bt) = (self.f(shape), ty(shape, "i1"));
-        self.emit(&format!("stablehlo.compare {dir}, {a}, {b}, FLOAT : ({ft}, {ft}) -> {bt}"))
+        self.emit(&format!(
+            "stablehlo.compare {dir}, {a}, {b}, FLOAT : ({ft}, {ft}) -> {bt}"
+        ))
     }
 
     fn cmp_c(&mut self, dir: &str, a: &str, v: f64, shape: &[usize]) -> String {
@@ -83,7 +129,9 @@ impl Writer {
 
     fn select(&mut self, mask: &str, a: &str, b: &str, shape: &[usize]) -> String {
         let (ft, bt) = (self.f(shape), ty(shape, "i1"));
-        self.emit(&format!("stablehlo.select {mask}, {a}, {b} : ({bt}, {ft}, {ft}) -> {ft}"))
+        self.emit(&format!(
+            "stablehlo.select {mask}, {a}, {b} : ({bt}, {ft}, {ft}) -> {ft}"
+        ))
     }
 
     fn and(&mut self, a: &str, b: &str, shape: &[usize]) -> String {
@@ -109,7 +157,9 @@ impl Writer {
         let biased = self.iop2("add", &ki, &bias, shape);
         let s = self.i64_const(52, shape);
         let bits = self.iop2("shift_left", &biased, &s, shape);
-        self.emit(&format!("stablehlo.bitcast_convert {bits} : ({it}) -> {ft}"))
+        self.emit(&format!(
+            "stablehlo.bitcast_convert {bits} : ({it}) -> {ft}"
+        ))
     }
 
     /// `e^r - 1` for |r| <= 0.35.
@@ -215,7 +265,9 @@ impl Writer {
         let mbits = self.iop2("and", &bits, &mmask, shape);
         let one_bits = self.i64_const(0x3FF0_0000_0000_0000, shape);
         let mbits = self.iop2("or", &mbits, &one_bits, shape);
-        let m = self.emit(&format!("stablehlo.bitcast_convert {mbits} : ({it}) -> {ft}"));
+        let m = self.emit(&format!(
+            "stablehlo.bitcast_convert {mbits} : ({it}) -> {ft}"
+        ));
         // [sqrt(1/2), sqrt 2): halve m above sqrt 2
         let big = self.cmp_c("GT", &m, std::f64::consts::SQRT_2, shape);
         let mh = self.op_c("multiply", &m, 0.5, shape);
@@ -314,7 +366,11 @@ impl Writer {
         let zc = self.op2("multiply", &z, &cp, shape);
         let cos_r = self.op_c("add", &zc, 1.0, shape);
         // quadrant = (q + cosine) mod 4, in f64 (exact for |q| < 2^51)
-        let qq = if cosine { self.op_c("add", &q, 1.0, shape) } else { q };
+        let qq = if cosine {
+            self.op_c("add", &q, 1.0, shape)
+        } else {
+            q
+        };
         let quarter = self.op_c("multiply", &qq, 0.25, shape);
         let fl = self.op1("floor", &quarter, shape);
         let four_fl = self.op_c("multiply", &fl, 4.0, shape);

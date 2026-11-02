@@ -1,10 +1,21 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the filters and the parametric EQ.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamError, ParamInfo, ParamUnit, Parameterized};
 use crate::params::ParamUnit::{Decibels, Fraction, Hertz};
+use crate::params::{
+    from_f64, parameterized, to_f64, ParamError, ParamInfo, ParamUnit, Parameterized,
+};
 
-const EQ_GROUPS: [&str; 8] = ["EQ band 1", "EQ band 2", "EQ band 3", "EQ band 4", "EQ band 5", "EQ band 6", "EQ band 7", "EQ band 8"];
+const EQ_GROUPS: [&str; 8] = [
+    "EQ band 1",
+    "EQ band 2",
+    "EQ band 3",
+    "EQ band 4",
+    "EQ band 5",
+    "EQ band 6",
+    "EQ band 7",
+    "EQ band 8",
+];
 
 /// Six parameters per band: on, type, frequency, gain, Q, slope (cut bands), grouped by band.
 impl<T: Float> Parameterized for ParametricEq<T> {
@@ -20,7 +31,15 @@ impl<T: Float> Parameterized for ParametricEq<T> {
         let d = default_band(self.band_count(), b);
         Some(match field {
             0 => ParamInfo::toggle(id, name, d.enabled),
-            1 => ParamInfo::choice(id, name, &EqBandKind::NAMES, EqBandKind::ALL.iter().position(|&k| k == d.kind).unwrap_or(0)),
+            1 => ParamInfo::choice(
+                id,
+                name,
+                &EqBandKind::NAMES,
+                EqBandKind::ALL
+                    .iter()
+                    .position(|&k| k == d.kind)
+                    .unwrap_or(0),
+            ),
             2 => ParamInfo::new(id, name, Hertz, 20.0, 20_000.0, d.frequency).log(),
             3 => ParamInfo::new(id, name, Decibels, -24.0, 24.0, d.gain_db),
             4 => ParamInfo::new(id, name, ParamUnit::None, 0.1, 18.0, d.q).log(),
@@ -35,7 +54,10 @@ impl<T: Float> Parameterized for ParametricEq<T> {
         let band = (b < self.band_count()).then(|| self.band(b))?;
         Some(match field {
             0 => band.enabled as u8 as f64,
-            1 => EqBandKind::ALL.iter().position(|&k| k == band.kind).unwrap_or(0) as f64,
+            1 => EqBandKind::ALL
+                .iter()
+                .position(|&k| k == band.kind)
+                .unwrap_or(0) as f64,
             2 => band.frequency,
             3 => band.gain_db,
             4 => band.q,
@@ -43,7 +65,10 @@ impl<T: Float> Parameterized for ParametricEq<T> {
         })
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let v = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let v = self
+            .param_info(index)
+            .ok_or(ParamError::UnknownIndex(index))?
+            .validate(value)?;
         let b = index / EQ_BAND_PARAMS;
         match index % EQ_BAND_PARAMS {
             0 => self.set_enabled(b, v >= 0.5),
@@ -94,14 +119,34 @@ parameterized!(Ladder, "Ladder filter",
 /// A designed biquad exposes frequency, Q and gain; one built from raw coefficients has no parameters.
 impl<T: Float> Parameterized for Biquad<T> {
     fn param_count(&self) -> usize {
-        if self.design().is_some() { 3 } else { 0 }
+        if self.design().is_some() {
+            3
+        } else {
+            0
+        }
     }
     fn param_info(&self, index: usize) -> Option<ParamInfo> {
         let d = self.design()?;
         let top = 0.49 * to_f64(d.sample_rate);
         [
-            ParamInfo::new("frequency_hz", "Frequency", Hertz, 10.0, top, 1_000.0f64.min(top)).log(),
-            ParamInfo::new("q", "Q", ParamUnit::None, 0.1, 20.0, core::f64::consts::FRAC_1_SQRT_2).log(),
+            ParamInfo::new(
+                "frequency_hz",
+                "Frequency",
+                Hertz,
+                10.0,
+                top,
+                1_000.0f64.min(top),
+            )
+            .log(),
+            ParamInfo::new(
+                "q",
+                "Q",
+                ParamUnit::None,
+                0.1,
+                20.0,
+                core::f64::consts::FRAC_1_SQRT_2,
+            )
+            .log(),
             ParamInfo::new("gain_db", "Gain", Decibels, -24.0, 24.0, 0.0),
         ]
         .get(index)
@@ -112,11 +157,18 @@ impl<T: Float> Parameterized for Biquad<T> {
     }
     fn get_param(&self, index: usize) -> Option<f64> {
         let d = self.design()?;
-        [to_f64(d.frequency), to_f64(d.q), to_f64(d.gain_db)].get(index).copied()
+        [to_f64(d.frequency), to_f64(d.q), to_f64(d.gain_db)]
+            .get(index)
+            .copied()
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let applied = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
-        let mut d = *self.design().expect("param_info succeeded, so there is a design");
+        let applied = self
+            .param_info(index)
+            .ok_or(ParamError::UnknownIndex(index))?
+            .validate(value)?;
+        let mut d = *self
+            .design()
+            .expect("param_info succeeded, so there is a design");
         match index {
             0 => d.frequency = from_f64(applied),
             1 => d.q = from_f64(applied),
@@ -130,7 +182,9 @@ impl<T: Float> Parameterized for Biquad<T> {
 /// One set of parameters (frequency, Q, gain) applied to every channel's filter.
 impl<T: Float> Parameterized for MultiBiquad<T> {
     fn param_count(&self) -> usize {
-        self.channels().first().map_or(0, Parameterized::param_count)
+        self.channels()
+            .first()
+            .map_or(0, Parameterized::param_count)
     }
     fn param_info(&self, index: usize) -> Option<ParamInfo> {
         self.channels().first()?.param_info(index)

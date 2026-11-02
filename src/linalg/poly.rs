@@ -57,7 +57,9 @@ pub fn polyval<T: Float>(p: &[T], x: T) -> T {
 
 /// `p(z)` at a complex point.
 pub fn polyval_complex<T: Float>(p: &[T], z: Complex<T>) -> Complex<T> {
-    p.iter().fold(Complex::zero(), |acc, &c| acc * z + Complex::new(c, T::_ZERO))
+    p.iter().fold(Complex::zero(), |acc, &c| {
+        acc * z + Complex::new(c, T::_ZERO)
+    })
 }
 
 /// The product of two polynomials (the convolution of their coefficients).
@@ -77,7 +79,13 @@ pub fn polymul<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
 /// The sum of two polynomials (aligned at their constant terms).
 pub fn polyadd<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
     let n = a.len().max(b.len());
-    let at = |p: &[T], i: usize| if i + p.len() >= n { p[i + p.len() - n] } else { T::_ZERO };
+    let at = |p: &[T], i: usize| {
+        if i + p.len() >= n {
+            p[i + p.len() - n]
+        } else {
+            T::_ZERO
+        }
+    };
     (0..n).map(|i| at(a, i) + at(b, i)).collect()
 }
 
@@ -90,7 +98,11 @@ pub fn polyder<T: Float>(p: &[T], m: usize) -> Vec<T> {
         if n == 0 {
             return vec![T::_ZERO];
         }
-        p = p[..n].iter().enumerate().map(|(i, &c)| c * T::_lit((n - i) as f64)).collect();
+        p = p[..n]
+            .iter()
+            .enumerate()
+            .map(|(i, &c)| c * T::_lit((n - i) as f64))
+            .collect();
     }
     p
 }
@@ -105,12 +117,21 @@ pub fn polyfit<T: LinalgFloat>(x: &[T], y: &[T], deg: usize) -> Result<Vec<T>, L
     }
     let cols = deg + 1;
     // column j holds x^(deg - j)
-    let mut v = NdArray::from_fn(&[x.len(), cols], |i| (0..deg - i[1]).fold(T::_ONE, |p, _| p * x[i[0]])).expect("rows x cols");
+    let mut v = NdArray::from_fn(&[x.len(), cols], |i| {
+        (0..deg - i[1]).fold(T::_ONE, |p, _| p * x[i[0]])
+    })
+    .expect("rows x cols");
     let data = v.as_mut_slice();
     let scale: Vec<T> = (0..cols)
         .map(|j| {
-            let norm = (0..x.len()).fold(T::_ZERO, |s, i| s + data[i * cols + j] * data[i * cols + j])._sqrt();
-            if norm == T::_ZERO { T::_ONE } else { norm }
+            let norm = (0..x.len())
+                .fold(T::_ZERO, |s, i| s + data[i * cols + j] * data[i * cols + j])
+                ._sqrt();
+            if norm == T::_ZERO {
+                T::_ONE
+            } else {
+                norm
+            }
         })
         .collect();
     for i in 0..x.len() {
@@ -120,5 +141,11 @@ pub fn polyfit<T: LinalgFloat>(x: &[T], y: &[T], deg: usize) -> Result<Vec<T>, L
     }
     let rhs = NdArray::from_vec(y.to_vec(), &[y.len()]).expect("a vector");
     let fit = super::lstsq(v.view(), rhs.view())?;
-    Ok(fit.solution.as_slice().iter().zip(&scale).map(|(&c, &s)| c / s).collect())
+    Ok(fit
+        .solution
+        .as_slice()
+        .iter()
+        .zip(&scale)
+        .map(|(&c, &s)| c / s)
+        .collect())
 }

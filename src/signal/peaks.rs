@@ -2,8 +2,8 @@
 //! height, threshold, distance, prominence, width and plateau size), [`peak_prominences`] and
 //! [`peak_widths`].
 
-use crate::alloc_prelude::*;
 use super::SignalError;
+use crate::alloc_prelude::*;
 use crate::units::*;
 
 /// An inclusive range a peak property must fall in; either end may be open.
@@ -18,15 +18,24 @@ pub struct Bounds {
 impl Bounds {
     /// Values of at least `min`.
     pub fn at_least(min: f64) -> Self {
-        Self { min: Some(min), max: None }
+        Self {
+            min: Some(min),
+            max: None,
+        }
     }
     /// Values of at most `max`.
     pub fn at_most(max: f64) -> Self {
-        Self { min: None, max: Some(max) }
+        Self {
+            min: None,
+            max: Some(max),
+        }
     }
     /// Values in `[min, max]`.
     pub fn between(min: f64, max: f64) -> Self {
-        Self { min: Some(min), max: Some(max) }
+        Self {
+            min: Some(min),
+            max: Some(max),
+        }
     }
     /// Every value (the property is still computed and reported).
     pub fn any() -> Self {
@@ -63,7 +72,16 @@ pub struct PeakOptions {
 
 impl Default for PeakOptions {
     fn default() -> Self {
-        Self { height: None, threshold: None, distance: None, prominence: None, width: None, wlen: None, rel_height: 0.5, plateau_size: None }
+        Self {
+            height: None,
+            threshold: None,
+            distance: None,
+            prominence: None,
+            width: None,
+            wlen: None,
+            rel_height: 0.5,
+            plateau_size: None,
+        }
     }
 }
 
@@ -158,7 +176,14 @@ pub fn find_peaks<T: Float>(x: &[T], options: &PeakOptions) -> Result<Peaks, Sig
             pick(&mut p.left_edges, keep);
             pick(&mut p.right_edges, keep);
         }
-        for v in [&mut peaks.peak_heights, &mut peaks.left_thresholds, &mut peaks.right_thresholds].into_iter().flatten() {
+        for v in [
+            &mut peaks.peak_heights,
+            &mut peaks.left_thresholds,
+            &mut peaks.right_thresholds,
+        ]
+        .into_iter()
+        .flatten()
+        {
             pick(v, keep);
         }
         if let Some(p) = &mut peaks.prominences {
@@ -174,7 +199,14 @@ pub fn find_peaks<T: Float>(x: &[T], options: &PeakOptions) -> Result<Peaks, Sig
         }
     };
     if let Some(b) = options.plateau_size {
-        let keep: Vec<bool> = peaks.plateaus.as_ref().expect("recorded for this criterion").sizes.iter().map(|&s| b.contains(s as f64)).collect();
+        let keep: Vec<bool> = peaks
+            .plateaus
+            .as_ref()
+            .expect("recorded for this criterion")
+            .sizes
+            .iter()
+            .map(|&s| b.contains(s as f64))
+            .collect();
         retain(&mut peaks, &keep);
     }
     if let Some(b) = options.height {
@@ -185,7 +217,11 @@ pub fn find_peaks<T: Float>(x: &[T], options: &PeakOptions) -> Result<Peaks, Sig
     if let Some(b) = options.threshold {
         let left: Vec<f64> = peaks.indices.iter().map(|&i| at(i) - at(i - 1)).collect();
         let right: Vec<f64> = peaks.indices.iter().map(|&i| at(i) - at(i + 1)).collect();
-        let keep: Vec<bool> = left.iter().zip(&right).map(|(&l, &r)| b.contains(l.min(r)) && b.contains(l.max(r))).collect();
+        let keep: Vec<bool> = left
+            .iter()
+            .zip(&right)
+            .map(|(&l, &r)| b.contains(l.min(r)) && b.contains(l.max(r)))
+            .collect();
         (peaks.left_thresholds, peaks.right_thresholds) = (Some(left), Some(right));
         retain(&mut peaks, &keep);
     }
@@ -198,11 +234,23 @@ pub fn find_peaks<T: Float>(x: &[T], options: &PeakOptions) -> Result<Peaks, Sig
         peaks.prominences = Some(peak_prominences(x, &peaks.indices, options.wlen)?);
     }
     if let Some(b) = options.prominence {
-        let keep: Vec<bool> = peaks.prominences.as_ref().expect("computed above").prominences.iter().map(|&p| b.contains(p)).collect();
+        let keep: Vec<bool> = peaks
+            .prominences
+            .as_ref()
+            .expect("computed above")
+            .prominences
+            .iter()
+            .map(|&p| b.contains(p))
+            .collect();
         retain(&mut peaks, &keep);
     }
     if let Some(b) = options.width {
-        let widths = peak_widths(x, &peaks.indices, options.rel_height, peaks.prominences.as_ref().expect("computed above"))?;
+        let widths = peak_widths(
+            x,
+            &peaks.indices,
+            options.rel_height,
+            peaks.prominences.as_ref().expect("computed above"),
+        )?;
         let keep: Vec<bool> = widths.widths.iter().map(|&w| b.contains(w)).collect();
         peaks.widths = Some(widths);
         retain(&mut peaks, &keep);
@@ -217,7 +265,10 @@ pub fn find_peaks<T: Float>(x: &[T], options: &PeakOptions) -> Result<Peaks, Sig
 /// it), a branch-free loop the compiler vectorizes; only the candidates (rising, then falling or
 /// flat) are visited one by one, so noisy signals don't pay a mispredicted branch per sample.
 fn local_maxima<T: Float>(x: &[T], plateaus: bool) -> Peaks {
-    let mut peaks = Peaks { plateaus: plateaus.then(Plateaus::default), ..Default::default() };
+    let mut peaks = Peaks {
+        plateaus: plateaus.then(Plateaus::default),
+        ..Default::default()
+    };
     let n = x.len();
     if n < 3 {
         return peaks;
@@ -293,7 +344,11 @@ fn select_by_distance(peaks: &[usize], heights: &[f64], distance: usize) -> Vec<
 /// searched each way until a higher sample or the window's edge (`wlen` samples centred on the
 /// peak; `None`: the whole signal); the lowest sample on each side is a base, and the prominence
 /// is the peak's height above the higher base. Errors if a peak index is out of range or `wlen < 2`.
-pub fn peak_prominences<T: Float>(x: &[T], peaks: &[usize], wlen: Option<usize>) -> Result<Prominences, SignalError> {
+pub fn peak_prominences<T: Float>(
+    x: &[T],
+    peaks: &[usize],
+    wlen: Option<usize>,
+) -> Result<Prominences, SignalError> {
     if wlen.is_some_and(|w| w < 2) {
         return Err(SignalError::invalid("wlen must be at least 2"));
     }
@@ -302,7 +357,9 @@ pub fn peak_prominences<T: Float>(x: &[T], peaks: &[usize], wlen: Option<usize>)
     let mut out = Prominences::default();
     for &peak in peaks {
         if peak >= len {
-            return Err(SignalError::invalid(format!("peak {peak} is outside the signal (length {len})")));
+            return Err(SignalError::invalid(format!(
+                "peak {peak} is outside the signal (length {len})"
+            )));
         }
         let (mut lo, mut hi) = (0, len - 1);
         if let Some(w) = wlen {
@@ -344,19 +401,32 @@ pub fn peak_prominences<T: Float>(x: &[T], peaks: &[usize], wlen: Option<usize>)
 /// from the peak, the signal is followed down each way (no further than the bases) to where it
 /// crosses that height, interpolating between samples. `prominences` comes from
 /// [`peak_prominences`] for the same peaks. Errors if `rel_height < 0` or the lengths disagree.
-pub fn peak_widths<T: Float>(x: &[T], peaks: &[usize], rel_height: f64, prominences: &Prominences) -> Result<Widths, SignalError> {
+pub fn peak_widths<T: Float>(
+    x: &[T],
+    peaks: &[usize],
+    rel_height: f64,
+    prominences: &Prominences,
+) -> Result<Widths, SignalError> {
     if rel_height < 0.0 || rel_height.is_nan() {
         return Err(SignalError::invalid("rel_height must be non-negative"));
     }
-    if prominences.prominences.len() != peaks.len() || prominences.left_bases.len() != peaks.len() || prominences.right_bases.len() != peaks.len() {
-        return Err(SignalError::LengthMismatch(peaks.len(), prominences.prominences.len()));
+    if prominences.prominences.len() != peaks.len()
+        || prominences.left_bases.len() != peaks.len()
+        || prominences.right_bases.len() != peaks.len()
+    {
+        return Err(SignalError::LengthMismatch(
+            peaks.len(),
+            prominences.prominences.len(),
+        ));
     }
     let len = x.len();
     let x = |i: usize| x[i].to_f64().unwrap_or(f64::NAN);
     let mut out = Widths::default();
     for (p, &peak) in peaks.iter().enumerate() {
         if peak >= len {
-            return Err(SignalError::invalid(format!("peak {peak} is outside the signal (length {len})")));
+            return Err(SignalError::invalid(format!(
+                "peak {peak} is outside the signal (length {len})"
+            )));
         }
         let (lo, hi) = (prominences.left_bases[p], prominences.right_bases[p]);
         let height = x(peak) - prominences.prominences[p] * rel_height;
@@ -390,30 +460,72 @@ mod tests {
 
     #[test]
     fn plateaus_peak_at_their_middle_and_ends_never_peak() {
-        let any_size = PeakOptions { plateau_size: Some(Bounds::any()), ..Default::default() };
+        let any_size = PeakOptions {
+            plateau_size: Some(Bounds::any()),
+            ..Default::default()
+        };
         let p = find_peaks(&[0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 2.0, 0.0, 3.0], &any_size).unwrap();
         assert_eq!(p.indices, [2, 5]);
         let tops = p.plateaus.unwrap();
         assert_eq!(tops.sizes, [3, 2]);
-        assert_eq!((tops.left_edges, tops.right_edges), (vec![1, 5], vec![3, 6]));
+        assert_eq!(
+            (tops.left_edges, tops.right_edges),
+            (vec![1, 5], vec![3, 6])
+        );
         // plateaus are reported only when asked about
-        assert!(find_peaks(&[0.0, 1.0, 0.0], &PeakOptions::default()).unwrap().plateaus.is_none());
+        assert!(find_peaks(&[0.0, 1.0, 0.0], &PeakOptions::default())
+            .unwrap()
+            .plateaus
+            .is_none());
         // a long noisy signal: the blocked scan agrees with a plain one
         let noise = crate::testing::noise_f64(1000, 5);
-        let plain: Vec<usize> = (1..999).filter(|&i| noise[i - 1] < noise[i] && noise[i] > noise[i + 1]).collect();
-        assert_eq!(find_peaks(&noise, &PeakOptions::default()).unwrap().indices, plain);
+        let plain: Vec<usize> = (1..999)
+            .filter(|&i| noise[i - 1] < noise[i] && noise[i] > noise[i + 1])
+            .collect();
+        assert_eq!(
+            find_peaks(&noise, &PeakOptions::default()).unwrap().indices,
+            plain
+        );
         // a rise into the end is no peak, nor is a plateau that runs into it
-        assert!(find_peaks(&[0.0, 1.0, 1.0], &PeakOptions::default()).unwrap().indices.is_empty());
-        assert!(find_peaks(&[5.0, 1.0], &PeakOptions::default()).unwrap().indices.is_empty());
-        let only_big = PeakOptions { plateau_size: Some(Bounds::at_least(3.0)), ..Default::default() };
-        assert_eq!(find_peaks(&[0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 2.0, 0.0], &only_big).unwrap().indices, [2]);
+        assert!(find_peaks(&[0.0, 1.0, 1.0], &PeakOptions::default())
+            .unwrap()
+            .indices
+            .is_empty());
+        assert!(find_peaks(&[5.0, 1.0], &PeakOptions::default())
+            .unwrap()
+            .indices
+            .is_empty());
+        let only_big = PeakOptions {
+            plateau_size: Some(Bounds::at_least(3.0)),
+            ..Default::default()
+        };
+        assert_eq!(
+            find_peaks(&[0.0, 1.0, 1.0, 1.0, 0.0, 2.0, 2.0, 0.0], &only_big)
+                .unwrap()
+                .indices,
+            [2]
+        );
     }
 
     #[test]
     fn distance_keeps_the_highest_peak() {
         let x = [0.0, 3.0, 0.0, 5.0, 0.0, 4.0, 0.0, 1.0, 0.0];
-        let p = find_peaks(&x, &PeakOptions { distance: Some(3.0), ..Default::default() }).unwrap();
+        let p = find_peaks(
+            &x,
+            &PeakOptions {
+                distance: Some(3.0),
+                ..Default::default()
+            },
+        )
+        .unwrap();
         assert_eq!(p.indices, [3, 7]);
-        assert!(find_peaks(&x, &PeakOptions { distance: Some(0.5), ..Default::default() }).is_err());
+        assert!(find_peaks(
+            &x,
+            &PeakOptions {
+                distance: Some(0.5),
+                ..Default::default()
+            }
+        )
+        .is_err());
     }
 }

@@ -36,7 +36,10 @@ fn main() -> Result<()> {
 /// The packages a `bundle` command builds: every `-p <name>`, or else the first argument.
 fn bundled_packages(args: &[String]) -> Vec<String> {
     if args.first().map(String::as_str) == Some("-p") {
-        args.windows(2).filter(|w| w[0] == "-p").map(|w| w[1].clone()).collect()
+        args.windows(2)
+            .filter(|w| w[0] == "-p")
+            .map(|w| w[1].clone())
+            .collect()
     } else {
         args.first().cloned().into_iter().collect()
     }
@@ -61,7 +64,16 @@ fn notices() -> Result<()> {
     for dir in plugin_dirs()? {
         let output = dir.join(NOTICES);
         let status = Command::new("cargo")
-            .args(["about", "generate", "--all-features", "--locked", "--fail", "-c", "about.toml", "-m"])
+            .args([
+                "about",
+                "generate",
+                "--all-features",
+                "--locked",
+                "--fail",
+                "-c",
+                "about.toml",
+                "-m",
+            ])
             .arg(dir.join("Cargo.toml"))
             .arg("-o")
             .arg(&output)
@@ -69,8 +81,13 @@ fn notices() -> Result<()> {
             .status();
         match status {
             Ok(status) if status.success() => println!("Wrote '{}'", output.display()),
-            Ok(status) => anyhow_bail(format!("cargo about failed for '{}' ({status})", dir.display()))?,
-            Err(e) => anyhow_bail(format!("could not run cargo about ({e}); install it with `cargo install cargo-about`"))?,
+            Ok(status) => anyhow_bail(format!(
+                "cargo about failed for '{}' ({status})",
+                dir.display()
+            ))?,
+            Err(e) => anyhow_bail(format!(
+                "could not run cargo about ({e}); install it with `cargo install cargo-about`"
+            ))?,
         }
     }
     Ok(())
@@ -81,12 +98,18 @@ fn notices() -> Result<()> {
 fn bundle_notices(packages: &[String]) -> Result<()> {
     // the same target directory nice-plug-xtask bundled into (respects CARGO_TARGET_DIR and
     // build.target-dir in Cargo config)
-    let target_dir = cargo_metadata::MetadataCommand::new().no_deps().exec()?.target_directory;
+    let target_dir = cargo_metadata::MetadataCommand::new()
+        .no_deps()
+        .exec()?
+        .target_directory;
     let bundled = target_dir.into_std_path_buf().join("bundled");
     for package in packages {
         let source = Path::new(PLUGINS_DIR).join(package).join(NOTICES);
         if !source.exists() {
-            anyhow_bail(format!("'{}' is missing: run `cargo xtask notices`", source.display()))?;
+            anyhow_bail(format!(
+                "'{}' is missing: run `cargo xtask notices`",
+                source.display()
+            ))?;
         }
         fs::copy(&source, bundled.join(format!("{package}-{NOTICES}")))?;
         for extension in ["clap", "vst3"] {

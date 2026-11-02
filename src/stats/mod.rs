@@ -47,7 +47,12 @@ impl StatsError {
 
 /// An array of `shape` (with `axis` of length `len`, or removed when `len` is `None`) whose lanes
 /// along `axis` are `lanes`.
-fn assemble<T: crate::units::Float + Default>(shape: &[usize], axis: usize, len: Option<usize>, lanes: &[Vec<f64>]) -> Result<crate::signal::NdArray<T>, StatsError> {
+fn assemble<T: crate::units::Float + Default>(
+    shape: &[usize],
+    axis: usize,
+    len: Option<usize>,
+    lanes: &[Vec<f64>],
+) -> Result<crate::signal::NdArray<T>, StatsError> {
     let mut shape = shape.to_vec();
     match len {
         Some(l) => shape[axis] = l,

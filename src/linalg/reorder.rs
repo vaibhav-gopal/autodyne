@@ -186,7 +186,11 @@ fn sylvester(d: &[[f64; 4]; 4], n1: usize, n2: usize) -> [[f64; 2]; 2] {
             }
         }
     }
-    let big = (0..n1 + n2).flat_map(|i| (0..n1 + n2).map(move |j| (i, j))).filter(|&(i, j)| (i < n1) == (j < n1)).map(|(i, j)| d[i][j].abs()).fold(0.0, f64::max);
+    let big = (0..n1 + n2)
+        .flat_map(|i| (0..n1 + n2).map(move |j| (i, j)))
+        .filter(|&(i, j)| (i < n1) == (j < n1))
+        .map(|(i, j)| d[i][j].abs())
+        .fold(0.0, f64::max);
     let smin = (EPS * big).max(SMLNUM);
     let mut perm = [0, 1, 2, 3];
     for s in 0..m {
@@ -210,7 +214,10 @@ fn sylvester(d: &[[f64; 4]; 4], n1: usize, n2: usize) -> [[f64; 2]; 2] {
         let pivot = k[s];
         for r in s + 1..m {
             let f = k[r][s] / pivot[s];
-            k[r][s..m].iter_mut().zip(&pivot[s..m]).for_each(|(v, p)| *v -= f * p);
+            k[r][s..m]
+                .iter_mut()
+                .zip(&pivot[s..m])
+                .for_each(|(v, p)| *v -= f * p);
             rhs[r] -= f * rhs[s];
         }
     }
@@ -313,7 +320,13 @@ fn swap(t: &mut Mat, qt: &mut Mat, j1: usize, n1: usize, n2: usize) -> bool {
             reflect_cols4(&mut d, &u1, tau1, 0, 0..4);
             reflect_rows4(&mut d, &u2, tau2, 1, 0..4);
             reflect_cols4(&mut d, &u2, tau2, 1, 0..4);
-            if d[2][0].abs().max(d[2][1].abs()).max(d[3][0].abs()).max(d[3][1].abs()) > thresh {
+            if d[2][0]
+                .abs()
+                .max(d[2][1].abs())
+                .max(d[3][0].abs())
+                .max(d[3][1].abs())
+                > thresh
+            {
                 return false;
             }
             reflect_rows(t, &u1, tau1, j1, j1..n);
@@ -330,7 +343,12 @@ fn swap(t: &mut Mat, qt: &mut Mat, j1: usize, n1: usize, n2: usize) -> bool {
     // the 2 x 2 blocks in standard form
     for (size, at) in [(n2, j1), (n1, j1 + n2)] {
         if size == 2 {
-            let ([a, b, c, dd], cs, sn) = standardize(t.at(at, at), t.at(at, at + 1), t.at(at + 1, at), t.at(at + 1, at + 1));
+            let ([a, b, c, dd], cs, sn) = standardize(
+                t.at(at, at),
+                t.at(at, at + 1),
+                t.at(at + 1, at),
+                t.at(at + 1, at + 1),
+            );
             t.set(at, at, a);
             t.set(at, at + 1, b);
             t.set(at + 1, at, c);
@@ -354,10 +372,18 @@ pub(super) fn move_up(t: &mut Mat, qt: &mut Mat, mut ifst: usize, mut ilst: usiz
         ilst -= 1;
     }
     // 1, 2, or 3 for a 2 x 2 block split into two 1 x 1 ones on the way
-    let mut nbf = if ifst + 1 < n && t.at(ifst + 1, ifst) != 0.0 { 2 } else { 1 };
+    let mut nbf = if ifst + 1 < n && t.at(ifst + 1, ifst) != 0.0 {
+        2
+    } else {
+        1
+    };
     let mut here = ifst;
     while here > ilst {
-        let nbnext = if here >= 2 && t.at(here - 1, here - 2) != 0.0 { 2 } else { 1 };
+        let nbnext = if here >= 2 && t.at(here - 1, here - 2) != 0.0 {
+            2
+        } else {
+            1
+        };
         if nbf != 3 {
             if !swap(t, qt, here - nbnext, nbnext, nbf) {
                 return;
@@ -418,14 +444,29 @@ mod tests {
         if size == 1 {
             (t.at(at, at), 0.0)
         } else {
-            let (a, b, c, d) = (t.at(at, at), t.at(at, at + 1), t.at(at + 1, at), t.at(at + 1, at + 1));
-            ((a + d) / 2.0, (((a - d) / 2.0).powi(2) + b * c).abs().sqrt())
+            let (a, b, c, d) = (
+                t.at(at, at),
+                t.at(at, at + 1),
+                t.at(at + 1, at),
+                t.at(at + 1, at + 1),
+            );
+            (
+                (a + d) / 2.0,
+                (((a - d) / 2.0).powi(2) + b * c).abs().sqrt(),
+            )
         }
     }
 
     #[test]
     fn swaps_keep_the_similarity_and_move_the_eigenvalues() {
-        for (blocks, seed) in [(vec![1, 1, 1], 1), (vec![1, 2, 1], 2), (vec![2, 1, 1], 3), (vec![1, 1, 2, 2], 4), (vec![2, 2, 1, 2], 5), (vec![1, 2, 2, 1, 1, 2], 6)] {
+        for (blocks, seed) in [
+            (vec![1, 1, 1], 1),
+            (vec![1, 2, 1], 2),
+            (vec![2, 1, 1], 3),
+            (vec![1, 1, 2, 2], 4),
+            (vec![2, 2, 1, 2], 5),
+            (vec![1, 2, 2, 1, 1, 2], 6),
+        ] {
             let t0 = quasi(&blocks, seed);
             let n = t0.rows;
             let (mut t, mut qt) = (t0.clone(), Mat::identity(n));
@@ -434,11 +475,20 @@ mod tests {
             let want = eigenvalues(&t0, n - last, last);
             move_up(&mut t, &mut qt, n - last, 0);
             let got = eigenvalues(&t, 0, last);
-            assert!((got.0 - want.0).abs() < 1e-12 && (got.1 - want.1).abs() < 1e-12, "{blocks:?}: {got:?} vs {want:?}");
+            assert!(
+                (got.0 - want.0).abs() < 1e-12 && (got.1 - want.1).abs() < 1e-12,
+                "{blocks:?}: {got:?} vs {want:?}"
+            );
             // t0 = q t qᵀ, q orthogonal, t quasi-triangular
             let back = qt.t().mul(&t).mul(&qt);
-            assert!(back.sub(&t0).norm() < 1e-12 * t0.norm(), "{blocks:?}: not similar");
-            assert!(qt.mul(&qt.t()).sub(&Mat::identity(n)).norm() < 1e-13, "{blocks:?}: not orthogonal");
+            assert!(
+                back.sub(&t0).norm() < 1e-12 * t0.norm(),
+                "{blocks:?}: not similar"
+            );
+            assert!(
+                qt.mul(&qt.t()).sub(&Mat::identity(n)).norm() < 1e-13,
+                "{blocks:?}: not orthogonal"
+            );
             for i in 2..n {
                 for j in 0..i - 1 {
                     assert_eq!(t.at(i, j), 0.0, "{blocks:?}: ({i}, {j})");
@@ -449,12 +499,23 @@ mod tests {
 
     #[test]
     fn standard_form_of_two_by_two_blocks() {
-        for [a, b, c, d] in [[1.0, 2.0, -3.0, 4.0], [1.0, 2.0, 3.0, 4.0], [2.0, 1.0, -1.0, 2.0], [1.0, 0.0, 5.0, 3.0], [0.0, 1e-20, -1e-20, 0.0]] {
+        for [a, b, c, d] in [
+            [1.0, 2.0, -3.0, 4.0],
+            [1.0, 2.0, 3.0, 4.0],
+            [2.0, 1.0, -1.0, 2.0],
+            [1.0, 0.0, 5.0, 3.0],
+            [0.0, 1e-20, -1e-20, 0.0],
+        ] {
             let ([na, nb, nc, nd], cs, sn) = standardize(a, b, c, d);
             // the same eigenvalues: trace and determinant
             assert!((na + nd - (a + d)).abs() < 1e-12 * (1.0 + (a + d).abs()));
-            assert!((na * nd - nb * nc - (a * d - b * c)).abs() < 1e-12 * (1.0 + (a * d - b * c).abs()));
-            assert!(nc == 0.0 || (na == nd && nb.signum() != nc.signum()), "{a} {b} {c} {d}: {na} {nb} {nc} {nd}");
+            assert!(
+                (na * nd - nb * nc - (a * d - b * c)).abs() < 1e-12 * (1.0 + (a * d - b * c).abs())
+            );
+            assert!(
+                nc == 0.0 || (na == nd && nb.signum() != nc.signum()),
+                "{a} {b} {c} {d}: {na} {nb} {nc} {nd}"
+            );
             assert!((cs * cs + sn * sn - 1.0).abs() < 1e-14);
         }
     }

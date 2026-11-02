@@ -26,7 +26,13 @@ pub struct SmoothedValue<T: Float> {
 impl<T: Float> SmoothedValue<T> {
     /// Starts settled at `initial` with no ramp (changes apply immediately until a ramp length is set).
     pub fn new(initial: T) -> Self {
-        Self { current: initial, target: initial, step: T::_ZERO, remaining: 0, ramp_samples: 0 }
+        Self {
+            current: initial,
+            target: initial,
+            step: T::_ZERO,
+            remaining: 0,
+            ramp_samples: 0,
+        }
     }
     /// Ramp length in samples for future `set_target` calls.
     pub fn with_ramp_samples(mut self, samples: usize) -> Self {
@@ -63,7 +69,11 @@ impl<T: Float> SmoothedValue<T> {
         if self.remaining > 0 {
             self.remaining -= 1;
             // land exactly on the target instead of accumulating rounding error
-            self.current = if self.remaining == 0 { self.target } else { self.current + self.step };
+            self.current = if self.remaining == 0 {
+                self.target
+            } else {
+                self.current + self.step
+            };
         }
         self.current
     }
@@ -90,7 +100,9 @@ pub struct Gain<T: Float> {
 impl<T: Float> Gain<T> {
     /// `ramp_seconds` is how long gain changes take; 0.02 (20 ms) is a common click-free choice.
     pub fn new(initial_gain: T, ramp_seconds: T, sample_rate: T) -> Self {
-        Self { gain: SmoothedValue::new(initial_gain).with_ramp_seconds(ramp_seconds, sample_rate) }
+        Self {
+            gain: SmoothedValue::new(initial_gain).with_ramp_seconds(ramp_seconds, sample_rate),
+        }
     }
     /// Linear gain to ramp to.
     pub fn set_gain(&mut self, gain: T) {
@@ -135,7 +147,9 @@ pub struct StereoWidth<T: Float> {
 impl<T: Float> StereoWidth<T> {
     /// A width stage; changes ramp over 20 ms.
     pub fn new(width: T, sample_rate: T) -> Self {
-        Self { width: SmoothedValue::new(width).with_ramp_seconds(T::_lit(0.02), sample_rate) }
+        Self {
+            width: SmoothedValue::new(width).with_ramp_seconds(T::_lit(0.02), sample_rate),
+        }
     }
     /// Width, at least 0 (0 = mono, 1 = unchanged).
     pub fn set_width(&mut self, width: T) {
@@ -173,7 +187,10 @@ pub struct Panner<T: Float> {
 impl<T: Float> Panner<T> {
     /// A panner at `position` (-1..1); changes ramp over 20 ms.
     pub fn new(position: T, sample_rate: T) -> Self {
-        Self { position: SmoothedValue::new(position._clamp(-T::_ONE, T::_ONE)).with_ramp_seconds(T::_lit(0.02), sample_rate) }
+        Self {
+            position: SmoothedValue::new(position._clamp(-T::_ONE, T::_ONE))
+                .with_ramp_seconds(T::_lit(0.02), sample_rate),
+        }
     }
     /// Pan position, -1 (left) .. 1 (right).
     pub fn set_position(&mut self, position: T) {
@@ -271,7 +288,10 @@ mod tests {
         StereoWidth::new(0.0, FS).process(&mut mono);
         for f in 0..256 {
             let mid = (original.channel(0)[f] + original.channel(1)[f]) / 2.0;
-            assert!((mono.channel(0)[f] - mid).abs() < 1e-15 && (mono.channel(1)[f] - mid).abs() < 1e-15);
+            assert!(
+                (mono.channel(0)[f] - mid).abs() < 1e-15
+                    && (mono.channel(1)[f] - mid).abs() < 1e-15
+            );
         }
     }
 
@@ -282,12 +302,18 @@ mod tests {
             assert!((l * l + r * r - 1.0f64).abs() < 1e-12, "power at {p}");
         }
         let (l, r) = Panner::gains(0.0f64);
-        assert!((l - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12 && (l - r).abs() < 1e-12, "center is -3 dB each side");
+        assert!(
+            (l - std::f64::consts::FRAC_1_SQRT_2).abs() < 1e-12 && (l - r).abs() < 1e-12,
+            "center is -3 dB each side"
+        );
         let (l, r) = Panner::gains(-1.0f64);
         assert!((l - 1.0).abs() < 1e-12 && r.abs() < 1e-12, "hard left");
 
         let mut out = AudioBuffer::new(2, 4);
         Panner::new(1.0, FS).process(&[1.0; 4], &mut out);
-        assert!(out.channel(0).iter().all(|s| s.abs() < 1e-12) && out.channel(1).iter().all(|&s| (s - 1.0).abs() < 1e-12));
+        assert!(
+            out.channel(0).iter().all(|s| s.abs() < 1e-12)
+                && out.channel(1).iter().all(|&s| (s - 1.0).abs() < 1e-12)
+        );
     }
 }

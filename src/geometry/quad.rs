@@ -51,7 +51,10 @@ pub(crate) trait Quad: Copy {
 #[inline(always)]
 pub(crate) fn mul_vec4<Q: Quad>(m: &[Q; 4], v: Q) -> Q {
     let [x, y, z, w] = broadcast(v);
-    m[0].mul(x).add(m[1].mul(y)).add(m[2].mul(z)).add(m[3].mul(w))
+    m[0].mul(x)
+        .add(m[1].mul(y))
+        .add(m[2].mul(z))
+        .add(m[3].mul(w))
 }
 
 /// `a * b`, both given by their columns. Each column's sum goes in pairs: four independent columns
@@ -59,20 +62,32 @@ pub(crate) fn mul_vec4<Q: Quad>(m: &[Q; 4], v: Q) -> Q {
 /// sequence, 1.01x in pairs; for a single `m * v` the sequence measured faster).
 #[inline(always)]
 pub(crate) fn mul_mat4<Q: Quad>(a: &[Q; 4], b: &[Q; 4]) -> [Q; 4] {
-    [mul_col(a, b[0]), mul_col(a, b[1]), mul_col(a, b[2]), mul_col(a, b[3])]
+    [
+        mul_col(a, b[0]),
+        mul_col(a, b[1]),
+        mul_col(a, b[2]),
+        mul_col(a, b[3]),
+    ]
 }
 
 /// One column of [`mul_mat4`].
 #[inline(always)]
 fn mul_col<Q: Quad>(a: &[Q; 4], c: Q) -> Q {
     let [x, y, z, w] = broadcast(c);
-    a[0].mul(x).add(a[1].mul(y)).add(a[2].mul(z).add(a[3].mul(w)))
+    a[0].mul(x)
+        .add(a[1].mul(y))
+        .add(a[2].mul(z).add(a[3].mul(w)))
 }
 
 /// Each lane of `v` in every lane.
 #[inline(always)]
 fn broadcast<Q: Quad>(v: Q) -> [Q; 4] {
-    [v.shuf::<{ imm(0, 0, 0, 0) }>(), v.shuf::<{ imm(1, 1, 1, 1) }>(), v.shuf::<{ imm(2, 2, 2, 2) }>(), v.shuf::<{ imm(3, 3, 3, 3) }>()]
+    [
+        v.shuf::<{ imm(0, 0, 0, 0) }>(),
+        v.shuf::<{ imm(1, 1, 1, 1) }>(),
+        v.shuf::<{ imm(2, 2, 2, 2) }>(),
+        v.shuf::<{ imm(3, 3, 3, 3) }>(),
+    ]
 }
 
 // 2x2 blocks below are packed row-major in one register: lanes (x00, x01, x10, x11).
@@ -80,22 +95,33 @@ fn broadcast<Q: Quad>(v: Q) -> [Q; 4] {
 /// `x * y` for 2x2 blocks.
 #[inline(always)]
 fn mul2<Q: Quad>(x: Q, y: Q) -> Q {
-    let l = x.shuf::<{ imm(0, 0, 2, 2) }>().mul(y.shuf::<{ imm(0, 1, 0, 1) }>());
-    l.add(x.shuf::<{ imm(1, 1, 3, 3) }>().mul(y.shuf::<{ imm(2, 3, 2, 3) }>()))
+    let l = x
+        .shuf::<{ imm(0, 0, 2, 2) }>()
+        .mul(y.shuf::<{ imm(0, 1, 0, 1) }>());
+    l.add(
+        x.shuf::<{ imm(1, 1, 3, 3) }>()
+            .mul(y.shuf::<{ imm(2, 3, 2, 3) }>()),
+    )
 }
 
 /// `adj(x) * y` for 2x2 blocks (`adj` the adjugate: `x * adj(x) = det(x) I`).
 #[inline(always)]
 fn adj_mul<Q: Quad>(x: Q, y: Q) -> Q {
     let l = x.shuf::<{ imm(3, 3, 0, 0) }>().mul(y);
-    l.sub(x.shuf::<{ imm(1, 1, 2, 2) }>().mul(y.shuf::<{ imm(2, 3, 0, 1) }>()))
+    l.sub(
+        x.shuf::<{ imm(1, 1, 2, 2) }>()
+            .mul(y.shuf::<{ imm(2, 3, 0, 1) }>()),
+    )
 }
 
 /// `x * adj(y)` for 2x2 blocks.
 #[inline(always)]
 fn mul_adj<Q: Quad>(x: Q, y: Q) -> Q {
     let l = x.mul(y.shuf::<{ imm(3, 0, 3, 0) }>());
-    l.sub(x.shuf::<{ imm(1, 0, 3, 2) }>().mul(y.shuf::<{ imm(2, 1, 2, 1) }>()))
+    l.sub(
+        x.shuf::<{ imm(1, 0, 3, 2) }>()
+            .mul(y.shuf::<{ imm(2, 1, 2, 1) }>()),
+    )
 }
 
 /// The sum of the lanes, in every lane.
@@ -122,8 +148,13 @@ pub(crate) fn inverse<Q: Quad>(r: &[Q; 4]) -> [Q; 4] {
     let c = r[2].shuf2::<{ imm(0, 1, 0, 1) }>(r[3]);
     let d = r[2].shuf2::<{ imm(2, 3, 2, 3) }>(r[3]);
     // |A|, |B|, |C|, |D| in lanes 0..3
-    let det = r[0].shuf2::<{ imm(0, 2, 0, 2) }>(r[2]).mul(r[1].shuf2::<{ imm(1, 3, 1, 3) }>(r[3]));
-    let det = det.sub(r[0].shuf2::<{ imm(1, 3, 1, 3) }>(r[2]).mul(r[1].shuf2::<{ imm(0, 2, 0, 2) }>(r[3])));
+    let det = r[0]
+        .shuf2::<{ imm(0, 2, 0, 2) }>(r[2])
+        .mul(r[1].shuf2::<{ imm(1, 3, 1, 3) }>(r[3]));
+    let det = det.sub(
+        r[0].shuf2::<{ imm(1, 3, 1, 3) }>(r[2])
+            .mul(r[1].shuf2::<{ imm(0, 2, 0, 2) }>(r[3])),
+    );
     let det_a = det.shuf::<{ imm(0, 0, 0, 0) }>();
     let det_b = det.shuf::<{ imm(1, 1, 1, 1) }>();
     let det_c = det.shuf::<{ imm(2, 2, 2, 2) }>();
@@ -194,20 +225,29 @@ impl Quad for Portable {
     }
     #[inline(always)]
     fn shuf2<const P: i32>(self, o: Self) -> Self {
-        Portable(core::array::from_fn(|k| if k < 2 { self.0[lane(P, k as u32)] } else { o.0[lane(P, k as u32)] }))
+        Portable(core::array::from_fn(|k| {
+            if k < 2 {
+                self.0[lane(P, k as u32)]
+            } else {
+                o.0[lane(P, k as u32)]
+            }
+        }))
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-pub(crate) use sse::F32x4 as Native;
 #[cfg(target_arch = "aarch64")]
 pub(crate) use neon::F32x4 as Native;
+#[cfg(target_arch = "x86_64")]
+pub(crate) use sse::F32x4 as Native;
 #[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
 pub(crate) use wasm::F32x4 as Native;
 
 /// Whether this target has a [`Native`] backend.
-pub(crate) const HAS_NATIVE: bool =
-    cfg!(any(target_arch = "x86_64", target_arch = "aarch64", all(target_arch = "wasm32", target_feature = "simd128")));
+pub(crate) const HAS_NATIVE: bool = cfg!(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    all(target_arch = "wasm32", target_feature = "simd128")
+));
 
 #[cfg(target_arch = "x86_64")]
 mod sse {
@@ -336,7 +376,12 @@ mod neon {
         fn shuf<const P: i32>(self) -> Self {
             let idx = const { bytes(P, 0) };
             // SAFETY: sixteen readable bytes.
-            unsafe { F32x4(vreinterpretq_f32_u8(vqtbl1q_u8(vreinterpretq_u8_f32(self.0), vld1q_u8(idx.as_ptr())))) }
+            unsafe {
+                F32x4(vreinterpretq_f32_u8(vqtbl1q_u8(
+                    vreinterpretq_u8_f32(self.0),
+                    vld1q_u8(idx.as_ptr()),
+                )))
+            }
         }
         #[inline(always)]
         fn shuf2<const P: i32>(self, o: Self) -> Self {
@@ -375,8 +420,8 @@ mod wasm {
             k += 1;
         }
         u8x16(
-            out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7], out[8], out[9], out[10], out[11], out[12],
-            out[13], out[14], out[15],
+            out[0], out[1], out[2], out[3], out[4], out[5], out[6], out[7], out[8], out[9],
+            out[10], out[11], out[12], out[13], out[14], out[15],
         )
     }
 

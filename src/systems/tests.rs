@@ -4,7 +4,11 @@ use super::*;
 
 #[test]
 fn conversions_round_trip() {
-    let tf = TransferFunction::new(vec![1.0, 3.0, 2.0], vec![1.0, 6.0, 11.0, 6.0], Domain::Continuous);
+    let tf = TransferFunction::new(
+        vec![1.0, 3.0, 2.0],
+        vec![1.0, 6.0, 11.0, 6.0],
+        Domain::Continuous,
+    );
     let zpk = tf.to_zpk().unwrap();
     let back = zpk.to_tf();
     for (a, b) in back.num.iter().zip(&tf.num) {
@@ -16,7 +20,10 @@ fn conversions_round_trip() {
     let ss = tf.to_ss().unwrap();
     let again = ss.to_tf_siso().unwrap();
     // the state-space numerator is padded to the denominator's length
-    assert!(again.num[1..].iter().zip(&tf.num).all(|(a, b)| (a - b).abs() < 1e-12));
+    assert!(again.num[1..]
+        .iter()
+        .zip(&tf.num)
+        .all(|(a, b)| (a - b).abs() < 1e-12));
 }
 
 #[test]
@@ -26,7 +33,12 @@ fn stability_continuous_and_discrete() {
     assert!((stable.stability_margin().unwrap() - 1.0).abs() < 1e-12);
     let unstable = TransferFunction::new(vec![1.0], vec![1.0, -1.0, 2.0], Domain::Continuous);
     assert!(!unstable.is_stable().unwrap());
-    let digital = Zpk::new(vec![], vec![C64::new(0.5, 0.5), C64::new(0.5, -0.5)], 1.0, Domain::sampled(100.0));
+    let digital = Zpk::new(
+        vec![],
+        vec![C64::new(0.5, 0.5), C64::new(0.5, -0.5)],
+        1.0,
+        Domain::sampled(100.0),
+    );
     assert!(digital.is_stable());
     assert!((digital.stability_margin() - (1.0 - 0.5f64.sqrt())).abs() < 1e-12);
 }
@@ -51,7 +63,11 @@ fn step_response_settles_to_the_dc_gain() {
     let tf = TransferFunction::new(vec![1.0], vec![1.0, 1.0], Domain::Continuous);
     let y = tf.step(51, Some(0.1)).unwrap();
     for (k, v) in y.iter().enumerate() {
-        assert!((v - (1.0 - (-0.1 * k as f64).exp())).abs() < 1e-12, "t = {}", 0.1 * k as f64);
+        assert!(
+            (v - (1.0 - (-0.1 * k as f64).exp())).abs() < 1e-12,
+            "t = {}",
+            0.1 * k as f64
+        );
     }
     let h = tf.frequency_response(&[0.0, 1.0]);
     assert!((h[0].norm() - 1.0).abs() < 1e-12 && (h[1].norm() - 0.5f64.sqrt()).abs() < 1e-12);

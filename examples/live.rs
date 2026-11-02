@@ -49,7 +49,12 @@ type StereoChain = (
 // DEMO SEQUENCE ===================================================================================
 
 /// C - Am - F - G, one chord per 8 steps, with an arpeggio over it.
-const CHORDS: [[u8; 4]; 4] = [[48, 60, 64, 67], [45, 57, 60, 64], [41, 57, 60, 65], [43, 55, 59, 62]];
+const CHORDS: [[u8; 4]; 4] = [
+    [48, 60, 64, 67],
+    [45, 57, 60, 64],
+    [41, 57, 60, 65],
+    [43, 55, 59, 62],
+];
 const ARP: [u8; 8] = [72, 76, 79, 84, 79, 76, 72, 67];
 
 /// Emits note events with sample offsets inside each block.
@@ -63,16 +68,29 @@ struct Sequencer {
 impl Sequencer {
     fn new(sample_rate: f32) -> Self {
         let step_len = (0.16 * sample_rate) as usize;
-        Self { step_len, gate_len: step_len * 2 / 3, pos: 0, step: 0 }
+        Self {
+            step_len,
+            gate_len: step_len * 2 / 3,
+            pos: 0,
+            step: 0,
+        }
     }
 
     fn events(&mut self, frames: usize, out: &mut Vec<TimedEvent>) {
         let note = |offset, on: bool, note| TimedEvent {
             offset,
             message: if on {
-                MidiMessage::NoteOn { channel: 0, note, velocity: 90 }
+                MidiMessage::NoteOn {
+                    channel: 0,
+                    note,
+                    velocity: 90,
+                }
             } else {
-                MidiMessage::NoteOff { channel: 0, note, velocity: 0 }
+                MidiMessage::NoteOff {
+                    channel: 0,
+                    note,
+                    velocity: 0,
+                }
             },
         };
         let mut t = 0;
@@ -82,15 +100,23 @@ impl Sequencer {
                     let chord = (self.step / 8) % CHORDS.len();
                     let previous = (chord + CHORDS.len() - 1) % CHORDS.len();
                     if self.step > 0 {
-                        CHORDS[previous].iter().for_each(|&n| out.push(note(t, false, n)));
+                        CHORDS[previous]
+                            .iter()
+                            .for_each(|&n| out.push(note(t, false, n)));
                     }
-                    CHORDS[chord].iter().for_each(|&n| out.push(note(t, true, n)));
+                    CHORDS[chord]
+                        .iter()
+                        .for_each(|&n| out.push(note(t, true, n)));
                 }
                 out.push(note(t, true, ARP[self.step % ARP.len()]));
             } else if self.pos == self.gate_len {
                 out.push(note(t, false, ARP[self.step % ARP.len()]));
             }
-            let next = if self.pos < self.gate_len { self.gate_len } else { self.step_len };
+            let next = if self.pos < self.gate_len {
+                self.gate_len
+            } else {
+                self.step_len
+            };
             let n = (next - self.pos).min(frames - t);
             t += n;
             self.pos += n;
@@ -121,7 +147,12 @@ impl Engine {
     fn new(sample_rate: f32, midi: Option<Consumer<MidiMessage>>) -> Self {
         let mut poly = Poly::new(VOICES, MAX_FRAMES, |_| SynthVoice::new(sample_rate));
         // a warmer patch than the defaults, set through the same parameter API a host would use
-        for (id, value) in [("cutoff_hz", 700.0), ("resonance", 0.35), ("env_amount", 2.5), ("amp_release_s", 0.4)] {
+        for (id, value) in [
+            ("cutoff_hz", 700.0),
+            ("resonance", 0.35),
+            ("env_amount", 2.5),
+            ("amp_release_s", 0.4),
+        ] {
             poly.set_param_by_id(id, value).expect("known parameter");
         }
         let mut shaper = Waveshaper::new(Shape::Tanh, 4.0 * sample_rate); // runs at 4x the rate
@@ -131,8 +162,12 @@ impl Engine {
         compressor.set_threshold_db(-18.0);
         compressor.set_makeup_db(3.0);
         let chain = (
-            MultiBiquad::new(2, |_| Biquad::high_shelf(6_000.0, BUTTERWORTH_Q as f32, -4.0, sample_rate)),
-            PerChannel::new(2, |ch| ModulatedDelay::chorus(sample_rate).with_lfo_phase(ch as f32 * 0.5)),
+            MultiBiquad::new(2, |_| {
+                Biquad::high_shelf(6_000.0, BUTTERWORTH_Q as f32, -4.0, sample_rate)
+            }),
+            PerChannel::new(2, |ch| {
+                ModulatedDelay::chorus(sample_rate).with_lfo_phase(ch as f32 * 0.5)
+            }),
             Linked(compressor),
             PerChannel::new(2, |ch| {
                 let mut echo = Echo::new(1.0, sample_rate);
@@ -202,7 +237,9 @@ fn open_midi() -> Option<(midir::MidiInputConnection<()>, Consumer<MidiMessage>)
         println!("no MIDI input ports found");
         return None;
     };
-    let name = input.port_name(port).unwrap_or_else(|_| "unnamed port".into());
+    let name = input
+        .port_name(port)
+        .unwrap_or_else(|_| "unnamed port".into());
     let (mut producer, consumer) = RingBuffer::new(1024);
     let connection = input
         .connect(
@@ -236,10 +273,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let host = cpal::default_host();
-    let device = host.default_output_device().ok_or("no output device found")?;
+    let device = host
+        .default_output_device()
+        .ok_or("no output device found")?;
     let config = device.default_output_config()?;
     println!("device: {}", device.id()?);
-    println!("format: {} Hz, {} channels, {}", config.sample_rate(), config.channels(), config.sample_format());
+    println!(
+        "format: {} Hz, {} channels, {}",
+        config.sample_rate(),
+        config.channels(),
+        config.sample_format()
+    );
 
     let played = Arc::new(AtomicUsize::new(0));
     match config.sample_format() {

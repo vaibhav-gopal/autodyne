@@ -42,7 +42,9 @@ pub enum DynError {
     #[error("cannot cast complex values to the real type {0}")]
     ComplexToReal(DType),
     /// The conversion would lose values; cast explicitly to accept that.
-    #[error("values of type {from} don't convert exactly to {to}; cast explicitly to accept the loss")]
+    #[error(
+        "values of type {from} don't convert exactly to {to}; cast explicitly to accept the loss"
+    )]
     Inexact {
         /// The source type.
         from: DType,
@@ -256,18 +258,54 @@ macro_rules! dyn_match {
 macro_rules! with_dtype {
     ($dtype:expr, $T:ident => $body:expr, $otherwise:expr) => {
         match $dtype {
-            DType::F32 => { type $T = f32; $body }
-            DType::F64 => { type $T = f64; $body }
-            DType::I8 => { type $T = i8; $body }
-            DType::I16 => { type $T = i16; $body }
-            DType::I32 => { type $T = i32; $body }
-            DType::I64 => { type $T = i64; $body }
-            DType::U8 => { type $T = u8; $body }
-            DType::U16 => { type $T = u16; $body }
-            DType::U32 => { type $T = u32; $body }
-            DType::U64 => { type $T = u64; $body }
-            DType::ComplexF32 => { type $T = Complex<f32>; $body }
-            DType::ComplexF64 => { type $T = Complex<f64>; $body }
+            DType::F32 => {
+                type $T = f32;
+                $body
+            }
+            DType::F64 => {
+                type $T = f64;
+                $body
+            }
+            DType::I8 => {
+                type $T = i8;
+                $body
+            }
+            DType::I16 => {
+                type $T = i16;
+                $body
+            }
+            DType::I32 => {
+                type $T = i32;
+                $body
+            }
+            DType::I64 => {
+                type $T = i64;
+                $body
+            }
+            DType::U8 => {
+                type $T = u8;
+                $body
+            }
+            DType::U16 => {
+                type $T = u16;
+                $body
+            }
+            DType::U32 => {
+                type $T = u32;
+                $body
+            }
+            DType::U64 => {
+                type $T = u64;
+                $body
+            }
+            DType::ComplexF32 => {
+                type $T = Complex<f32>;
+                $body
+            }
+            DType::ComplexF64 => {
+                type $T = Complex<f64>;
+                $body
+            }
             DType::I24 => $otherwise,
         }
     };
@@ -301,12 +339,18 @@ impl DynArray {
     /// The typed array, if the element type is `T`.
     pub fn as_array<T: DynElement>(&self) -> Result<&NdArray<T>, DynError> {
         let found = self.dtype();
-        T::peek(self).ok_or(DynError::DTypeMismatch { expected: T::DTYPE, found })
+        T::peek(self).ok_or(DynError::DTypeMismatch {
+            expected: T::DTYPE,
+            found,
+        })
     }
     /// The typed array, mutably, if the element type is `T`.
     pub fn as_array_mut<T: DynElement>(&mut self) -> Result<&mut NdArray<T>, DynError> {
         let found = self.dtype();
-        T::peek_mut(self).ok_or(DynError::DTypeMismatch { expected: T::DTYPE, found })
+        T::peek_mut(self).ok_or(DynError::DTypeMismatch {
+            expected: T::DTYPE,
+            found,
+        })
     }
     /// Unwraps into the typed array, or gives the `DynArray` back if the type differs.
     #[allow(clippy::result_large_err)] // hands the array back on mismatch, like Any::downcast
@@ -341,11 +385,20 @@ impl DynArray {
         out
     }
     /// Deserializes row-major elements from bytes in the given byte order.
-    pub fn from_bytes(bytes: &[u8], dtype: DType, shape: &[usize], endian: Endian) -> Result<Self, DynError> {
+    pub fn from_bytes(
+        bytes: &[u8],
+        dtype: DType,
+        shape: &[usize],
+        endian: Endian,
+    ) -> Result<Self, DynError> {
         let size = dtype.size_bytes();
         let needed = shape.iter().product::<usize>() * size;
         if bytes.len() != needed {
-            return Err(DynError::ByteLength { bytes: bytes.len(), size, needed });
+            return Err(DynError::ByteLength {
+                bytes: bytes.len(),
+                size,
+                needed,
+            });
         }
         with_dtype!(dtype, T => {
             let data: Vec<T> = bytes.chunks_exact(size).map(|c| T::read_raw(c, endian)).collect();
@@ -375,7 +428,12 @@ struct RawLayout {
 }
 
 impl RawLayout {
-    fn new(dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
+    fn new(
+        dtype: DType,
+        shape: &[usize],
+        strides: Option<&[isize]>,
+        offset: usize,
+    ) -> Result<Self, DynError> {
         if dtype == DType::I24 {
             return Err(DynError::Unsupported(dtype));
         }
@@ -387,7 +445,11 @@ impl RawLayout {
         let mut st = [0; MAX_DIMS];
         match strides {
             Some(strides) if strides.len() != shape.len() => {
-                return Err(NdError::ShapeMismatch { expected: shape.len(), got: strides.len() }.into())
+                return Err(NdError::ShapeMismatch {
+                    expected: shape.len(),
+                    got: strides.len(),
+                }
+                .into())
             }
             Some(strides) => st[..strides.len()].copy_from_slice(strides),
             None => {
@@ -398,18 +460,31 @@ impl RawLayout {
                 }
             }
         }
-        Ok(Self { dtype, shape: s, strides: st, ndim: shape.len(), offset })
+        Ok(Self {
+            dtype,
+            shape: s,
+            strides: st,
+            ndim: shape.len(),
+            offset,
+        })
     }
     fn check_bytes(&self, bytes: usize) -> Result<(), DynError> {
         let size = self.dtype.size_bytes();
         if !bytes.is_multiple_of(size) {
-            return Err(DynError::ByteLength { bytes, size, needed: bytes.div_ceil(size) * size });
+            return Err(DynError::ByteLength {
+                bytes,
+                size,
+                needed: bytes.div_ceil(size) * size,
+            });
         }
         Ok(())
     }
     fn check_type<T: DynElement>(&self) -> Result<(), DynError> {
         if T::DTYPE != self.dtype {
-            return Err(DynError::DTypeMismatch { expected: self.dtype, found: T::DTYPE });
+            return Err(DynError::DTypeMismatch {
+                expected: self.dtype,
+                found: T::DTYPE,
+            });
         }
         Ok(())
     }
@@ -431,7 +506,13 @@ impl<'a> DynView<'a> {
     /// A view with explicit element strides (negative ones walk backwards) and the element offset of
     /// index [0, 0, ...] (e.g. a column-major, sliced or reversed tensor). Bounds are checked when a
     /// typed view is taken.
-    pub fn with_strides(bytes: &'a [u8], dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
+    pub fn with_strides(
+        bytes: &'a [u8],
+        dtype: DType,
+        shape: &[usize],
+        strides: Option<&[isize]>,
+        offset: usize,
+    ) -> Result<Self, DynError> {
         let layout = RawLayout::new(dtype, shape, strides, offset)?;
         layout.check_bytes(bytes.len())?;
         Ok(Self { bytes, layout })
@@ -450,7 +531,12 @@ impl<'a> DynView<'a> {
         self.layout.check_type::<T>()?;
         let elements = cast_slice::<T>(self.bytes).ok_or(DynError::Unaligned(self.layout.dtype))?;
         let l = &self.layout;
-        Ok(NdView::from_parts(elements, &l.shape[..l.ndim], &l.strides[..l.ndim], l.offset)?)
+        Ok(NdView::from_parts(
+            elements,
+            &l.shape[..l.ndim],
+            &l.strides[..l.ndim],
+            l.offset,
+        )?)
     }
     /// A contiguous owned copy; works for any alignment.
     pub fn to_array(&self) -> Result<DynArray, DynError> {
@@ -478,7 +564,13 @@ impl<'a> DynViewMut<'a> {
     }
     /// A view with explicit element strides and the element offset of index [0, 0, ...] (see
     /// [`DynView::with_strides`]).
-    pub fn with_strides(bytes: &'a mut [u8], dtype: DType, shape: &[usize], strides: Option<&[isize]>, offset: usize) -> Result<Self, DynError> {
+    pub fn with_strides(
+        bytes: &'a mut [u8],
+        dtype: DType,
+        shape: &[usize],
+        strides: Option<&[isize]>,
+        offset: usize,
+    ) -> Result<Self, DynError> {
         let layout = RawLayout::new(dtype, shape, strides, offset)?;
         layout.check_bytes(bytes.len())?;
         Ok(Self { bytes, layout })
@@ -497,12 +589,21 @@ impl<'a> DynViewMut<'a> {
         let dtype = self.layout.dtype;
         let l = self.layout;
         let elements = cast_slice_mut::<T>(self.bytes).ok_or(DynError::Unaligned(dtype))?;
-        Ok(NdViewMut::from_parts(elements, &l.shape[..l.ndim], &l.strides[..l.ndim], l.offset)?)
+        Ok(NdViewMut::from_parts(
+            elements,
+            &l.shape[..l.ndim],
+            &l.strides[..l.ndim],
+            l.offset,
+        )?)
     }
 }
 
 fn native_endian() -> Endian {
-    if cfg!(target_endian = "little") { Endian::Little } else { Endian::Big }
+    if cfg!(target_endian = "little") {
+        Endian::Little
+    } else {
+        Endian::Big
+    }
 }
 
 #[cfg(test)]
@@ -514,7 +615,13 @@ mod tests {
         let a = DynArray::from_array(NdArray::from_vec(vec![1.5f32, -2.0], &[2]).unwrap());
         assert_eq!(a.dtype(), DType::F32);
         assert_eq!(a.as_array::<f32>().unwrap().as_slice(), [1.5, -2.0]);
-        assert_eq!(a.as_array::<f64>().unwrap_err(), DynError::DTypeMismatch { expected: DType::F64, found: DType::F32 });
+        assert_eq!(
+            a.as_array::<f64>().unwrap_err(),
+            DynError::DTypeMismatch {
+                expected: DType::F64,
+                found: DType::F32
+            }
+        );
         assert!(a.clone().into_array::<i16>().is_err());
         for d in DType::ALL {
             match DynArray::zeros(d, &[3, 2]) {
@@ -526,42 +633,68 @@ mod tests {
 
     #[test]
     fn casting() {
-        let a = DynArray::from_array(NdArray::from_vec(vec![1.7f64, -40_000.0, 3.0], &[3]).unwrap());
+        let a =
+            DynArray::from_array(NdArray::from_vec(vec![1.7f64, -40_000.0, 3.0], &[3]).unwrap());
         let i = a.cast(DType::I16).unwrap();
         assert_eq!(i.as_array::<i16>().unwrap().as_slice(), [1, -32_768, 3]); // truncates, saturates
         let c = a.cast(DType::ComplexF32).unwrap();
-        assert_eq!(c.as_array::<Complex<f32>>().unwrap().as_slice()[0], Complex::new(1.7, 0.0));
+        assert_eq!(
+            c.as_array::<Complex<f32>>().unwrap().as_slice()[0],
+            Complex::new(1.7, 0.0)
+        );
         assert_eq!(c.cast(DType::F32), Err(DynError::ComplexToReal(DType::F32)));
     }
 
     #[test]
     fn byte_serialization_roundtrips_every_dtype() {
         for d in DType::ALL.into_iter().filter(|&d| d != DType::I24) {
-            let a = DynArray::from_array(NdArray::from_vec(vec![1.0f64, 2.0, 3.0, 4.0], &[2, 2]).unwrap()).cast(d).unwrap();
+            let a = DynArray::from_array(
+                NdArray::from_vec(vec![1.0f64, 2.0, 3.0, 4.0], &[2, 2]).unwrap(),
+            )
+            .cast(d)
+            .unwrap();
             for endian in [Endian::Little, Endian::Big] {
                 let bytes = a.to_bytes(endian);
                 assert_eq!(bytes.len(), 4 * d.size_bytes());
-                assert_eq!(DynArray::from_bytes(&bytes, d, &[2, 2], endian).unwrap(), a, "{d} {endian:?}");
+                assert_eq!(
+                    DynArray::from_bytes(&bytes, d, &[2, 2], endian).unwrap(),
+                    a,
+                    "{d} {endian:?}"
+                );
             }
         }
-        assert!(matches!(DynArray::from_bytes(&[0; 3], DType::F32, &[1], Endian::Little), Err(DynError::ByteLength { .. })));
+        assert!(matches!(
+            DynArray::from_bytes(&[0; 3], DType::F32, &[1], Endian::Little),
+            Err(DynError::ByteLength { .. })
+        ));
     }
 
     #[test]
     fn zero_copy_views_of_external_memory() {
-        let a = DynArray::from_array(NdArray::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap());
+        let a = DynArray::from_array(
+            NdArray::from_vec(vec![1.0f32, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]).unwrap(),
+        );
         let bytes = a.as_bytes();
         let view = DynView::new(bytes, DType::F32, &[2, 3]).unwrap();
         let typed = view.typed::<f32>().unwrap();
         assert_eq!(typed.get(&[1, 2]), Some(&6.0));
         // same memory, not a copy
-        assert_eq!(typed.as_slice().unwrap().as_ptr().cast::<u8>(), bytes.as_ptr());
-        assert!(matches!(view.typed::<f64>(), Err(DynError::DTypeMismatch { .. })));
+        assert_eq!(
+            typed.as_slice().unwrap().as_ptr().cast::<u8>(),
+            bytes.as_ptr()
+        );
+        assert!(matches!(
+            view.typed::<f64>(),
+            Err(DynError::DTypeMismatch { .. })
+        ));
         // column-major interpretation of the same bytes
         let t = DynView::with_strides(bytes, DType::F32, &[3, 2], Some(&[1, 3]), 0).unwrap();
         assert_eq!(t.typed::<f32>().unwrap().get(&[2, 0]), Some(&3.0));
         // a layout reaching past the bytes is rejected
-        assert!(DynView::new(bytes, DType::F32, &[3, 3]).unwrap().typed::<f32>().is_err());
+        assert!(DynView::new(bytes, DType::F32, &[3, 3])
+            .unwrap()
+            .typed::<f32>()
+            .is_err());
     }
 
     #[test]
@@ -574,11 +707,17 @@ mod tests {
         assert_eq!(aligned.typed::<f32>().unwrap().to_vec(), [7.0, 8.0]);
         // starting one byte in can never be 4-byte aligned
         let misaligned = DynView::new(&bytes[1..9], DType::F32, &[2]).unwrap();
-        assert_eq!(misaligned.typed::<f32>().unwrap_err(), DynError::Unaligned(DType::F32));
+        assert_eq!(
+            misaligned.typed::<f32>().unwrap_err(),
+            DynError::Unaligned(DType::F32)
+        );
         // the copying path works for any alignment
         let mut shifted = [0u8; 9];
         shifted[1..].copy_from_slice(&bytes[4..12]);
-        let copied = DynView::new(&shifted[1..], DType::F32, &[2]).unwrap().to_array().unwrap();
+        let copied = DynView::new(&shifted[1..], DType::F32, &[2])
+            .unwrap()
+            .to_array()
+            .unwrap();
         assert_eq!(copied.as_array::<f32>().unwrap().as_slice(), [7.0, 8.0]);
     }
 

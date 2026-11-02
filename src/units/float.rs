@@ -6,7 +6,9 @@ use super::*;
 
 /// A concrete floating-point number (`f32`, `f64`): [`Real`] arithmetic plus everything that
 /// inspects a value (bits, rounding, NaN checks, ordering).
-pub trait Float: Real + Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive {
+pub trait Float:
+    Real + Unit + Ordered + BoundedSigned + ExpBasic<Output = Self> + ExpFloat + Trig + CastPrimitive
+{
     /// Not a number.
     const _NAN: Self;
     /// Positive infinity.
@@ -71,7 +73,11 @@ pub trait Float: Real + Unit + Ordered + BoundedSigned + ExpBasic<Output = Self>
     /// (flush-to-zero), which is unsafe in Rust and up to the host.
     #[inline(always)]
     fn _flush_denormal(self) -> Self {
-        if self._abs() < Self::_FLUSH_THRESHOLD { Self::_ZERO } else { self }
+        if self._abs() < Self::_FLUSH_THRESHOLD {
+            Self::_ZERO
+        } else {
+            self
+        }
     }
 }
 
@@ -85,7 +91,7 @@ macro_rules! impl_float {
             const _SIG_BITS: u32 = $SigBits;
             const _EXP_BITS: u32 = Self::_BITS - Self::_SIG_BITS - 1;
             const _SIG_MASK: Self::BitsRepr = (1 << Self::_SIG_BITS) - 1;
-            const _EXP_MASK: Self::BitsRepr = ! (Self::_SIG_MASK | Self::_SIGN_MASK);
+            const _EXP_MASK: Self::BitsRepr = !(Self::_SIG_MASK | Self::_SIGN_MASK);
             const _DIGITS: u32 = $SrcT::DIGITS;
             const _MANTISSA_DIGITS: u32 = $SrcT::MANTISSA_DIGITS;
             const _MIN_EXP: i32 = $SrcT::MIN_EXP;
@@ -192,7 +198,7 @@ macro_rules! impl_float {
                 FloatMath::ln_1p(&self)
             }
         }
-    }
+    };
 }
 
 impl_float!(f32, 23);
@@ -246,7 +252,7 @@ macro_rules! impl_basic_unit_bounds {
                 $SrcT::to_ne_bytes(self)
             }
         }
-    }
+    };
 }
 
 impl_basic_unit_bounds!(f32, u32);
@@ -269,7 +275,7 @@ macro_rules! impl_properties {
             const _MIN: Self = $SrcT::MIN;
             const _MAX: Self = $SrcT::MAX;
         }
-    }
+    };
 }
 
 impl_properties!(f32);
@@ -296,7 +302,7 @@ macro_rules! impl_properties_signed {
         impl BoundedSigned for $SrcT {
             const _MIN_POSITIVE: Self = $SrcT::MIN_POSITIVE;
         }
-    }
+    };
 }
 
 impl_properties_signed!(f32);

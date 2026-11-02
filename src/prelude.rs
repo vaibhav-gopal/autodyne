@@ -11,6 +11,8 @@
 
 pub use crate::units::{Complex, DType, Float, Reflection};
 
+#[cfg(all(feature = "dsp", feature = "std"))]
+pub use crate::signal::{SignalRead, SignalSeek, SignalStream, SignalWrite};
 #[cfg(feature = "dsp")]
 pub use crate::{
     channels::{AudioBuffer, Linked, MultiProcessor, PerChannel},
@@ -19,12 +21,10 @@ pub use crate::{
     processor::Processor,
     resample::Resample,
     signal::{
-        Axis, Broadcast, ComplexSignal, NdArray, SigOwnedOps, SigResizeOps, Signal, SignalMut, SignalOwned,
-        SignalResizable, Source,
+        Axis, Broadcast, ComplexSignal, NdArray, SigOwnedOps, SigResizeOps, Signal, SignalMut,
+        SignalOwned, SignalResizable, Source,
     },
 };
-#[cfg(all(feature = "dsp", feature = "std"))]
-pub use crate::signal::{SignalRead, SignalSeek, SignalStream, SignalWrite};
 
 #[cfg(all(test, feature = "dsp"))]
 mod tests {
@@ -53,7 +53,10 @@ mod tests {
         chain.reset();
         // ... and linked compression is only a MultiProcessor
         let mut buf = AudioBuffer::new(2, 64);
-        let mut linked = (Linked(Compressor::new(fs)), PerChannel::new(2, |_| Compressor::new(fs)));
+        let mut linked = (
+            Linked(Compressor::new(fs)),
+            PerChannel::new(2, |_| Compressor::new(fs)),
+        );
         linked.process(&mut buf);
         linked.reset();
         assert_eq!(linked.param_count(), 12);

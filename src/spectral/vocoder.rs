@@ -35,7 +35,11 @@ impl<T: Float> Vocoder<T> {
         let bins = fft_len / 2 + 1;
         Self {
             fft: RealFft::new(fft_len),
-            window: (0..fft_len).map(|i| T::_lit(0.5 - 0.5 * (core::f64::consts::TAU * i as f64 / fft_len as f64).cos())).collect(),
+            window: (0..fft_len)
+                .map(|i| {
+                    T::_lit(0.5 - 0.5 * (core::f64::consts::TAU * i as f64 / fft_len as f64).cos())
+                })
+                .collect(),
             frame: vec![T::_ZERO; fft_len],
             spectrum: vec![Complex::zero(); bins],
             magnitude: vec![T::_ZERO; bins],
@@ -56,7 +60,11 @@ impl<T: Float> Vocoder<T> {
     /// Sum of the squared window over overlapping frames `hop` apart (the overlap-add gain of
     /// analysis and synthesis windows): constant for a Hann window at a hop of a quarter frame.
     fn overlap_gain(&self, hop: usize) -> T {
-        let total: f64 = self.window.iter().map(|w| w.to_f64().unwrap_or(0.0).powi(2)).sum();
+        let total: f64 = self
+            .window
+            .iter()
+            .map(|w| w.to_f64().unwrap_or(0.0).powi(2))
+            .sum();
         T::_lit(total / hop as f64)
     }
 
@@ -71,7 +79,12 @@ impl<T: Float> Vocoder<T> {
         }
         self.fft.forward(&self.frame, &mut self.spectrum);
         let mut loudest = T::_ZERO;
-        for ((m, p), z) in self.magnitude.iter_mut().zip(self.phase.iter_mut()).zip(&self.spectrum) {
+        for ((m, p), z) in self
+            .magnitude
+            .iter_mut()
+            .zip(self.phase.iter_mut())
+            .zip(&self.spectrum)
+        {
             *m = z.norm();
             *p = z.arg();
             loudest = loudest._max(*m);
@@ -81,7 +94,12 @@ impl<T: Float> Vocoder<T> {
         let floor = loudest * T::_lit(1e-5);
         for k in 2..bins.saturating_sub(2) {
             let m = self.magnitude[k];
-            if m > floor && m > self.magnitude[k - 1] && m >= self.magnitude[k + 1] && m > self.magnitude[k - 2] && m >= self.magnitude[k + 2] {
+            if m > floor
+                && m > self.magnitude[k - 1]
+                && m >= self.magnitude[k + 1]
+                && m > self.magnitude[k - 2]
+                && m >= self.magnitude[k + 2]
+            {
                 self.peaks.push(k);
             }
         }
@@ -92,12 +110,25 @@ impl<T: Float> Vocoder<T> {
         for (i, &p) in self.peaks.iter().enumerate() {
             // the region runs to the lowest bin between this peak and the next
             let region_end = match self.peaks.get(i + 1) {
-                Some(&next) => (p..next).min_by(|&a, &b| self.magnitude[a].partial_cmp(&self.magnitude[b]).unwrap_or(core::cmp::Ordering::Equal)).unwrap_or(p) + 1,
+                Some(&next) => {
+                    (p..next)
+                        .min_by(|&a, &b| {
+                            self.magnitude[a]
+                                .partial_cmp(&self.magnitude[b])
+                                .unwrap_or(core::cmp::Ordering::Equal)
+                        })
+                        .unwrap_or(p)
+                        + 1
+                }
                 None => bins,
             };
             // true frequency of the peak from its phase advance, in radians per sample
             let expected = bin_omega * T::_lit(p as f64);
-            let omega = if self.first { expected } else { expected + princarg(self.phase[p] - self.previous_phase[p] - expected * ha) / ha };
+            let omega = if self.first {
+                expected
+            } else {
+                expected + princarg(self.phase[p] - self.previous_phase[p] - expected * ha) / ha
+            };
             let target = (T::_lit(p as f64) * ratio)._round().to_f64().unwrap_or(0.0) as isize;
             let shift = target - p as isize;
             // the peak's synthesis phase: advanced at its new frequency from where that bin was
@@ -113,7 +144,8 @@ impl<T: Float> Vocoder<T> {
                     continue;
                 }
                 let angle = peak_phase + self.phase[k] - self.phase[p];
-                self.output[j as usize] = self.output[j as usize] + Complex::from_polar(self.magnitude[k], angle);
+                self.output[j as usize] =
+                    self.output[j as usize] + Complex::from_polar(self.magnitude[k], angle);
             }
             region_start = region_end;
         }
@@ -128,7 +160,6 @@ impl<T: Float> Vocoder<T> {
         }
     }
 }
-
 
 /// Real-time pitch shifter: changes pitch without changing duration.
 ///
@@ -161,11 +192,25 @@ impl<T: Float> PitchShifter<T> {
     /// Longer frames resolve low notes better and smear transients more. Panics unless `fft_len`
     /// is a power of two >= 64.
     pub fn with_fft_len(fft_len: usize) -> Self {
-        assert!(fft_len >= 64 && fft_len.is_power_of_two(), "fft_len must be a power of two >= 64");
+        assert!(
+            fft_len >= 64 && fft_len.is_power_of_two(),
+            "fft_len must be a power of two >= 64"
+        );
         let vocoder = Vocoder::new(fft_len);
         let hop = fft_len / 4;
         let norm = T::_ONE / vocoder.overlap_gain(hop);
-        Self { vocoder, hop, semitones: T::_ZERO, ratio: T::_ONE, input: vec![T::_ZERO; fft_len], write: 0, since: 0, output: vec![T::_ZERO; fft_len], read: 0, norm }
+        Self {
+            vocoder,
+            hop,
+            semitones: T::_ZERO,
+            ratio: T::_ONE,
+            input: vec![T::_ZERO; fft_len],
+            write: 0,
+            since: 0,
+            output: vec![T::_ZERO; fft_len],
+            read: 0,
+            norm,
+        }
     }
     /// Shift in semitones (-36..36).
     pub fn set_semitones(&mut self, semitones: T) {
@@ -186,7 +231,10 @@ impl<T: Float> PitchShifter<T> {
     }
     /// Clears the buffers and the vocoder's phases.
     pub fn reset(&mut self) {
-        self.input.iter_mut().chain(self.output.iter_mut()).for_each(|s| *s = T::_ZERO);
+        self.input
+            .iter_mut()
+            .chain(self.output.iter_mut())
+            .for_each(|s| *s = T::_ZERO);
         self.write = 0;
         self.since = 0;
         self.read = 0;
@@ -215,7 +263,11 @@ impl<T: Float> PitchShifter<T> {
                 self.output[at] = self.output[at] + s * self.norm;
             }
         }
-        if self.ratio == T::_ONE { delayed } else { y }
+        if self.ratio == T::_ONE {
+            delayed
+        } else {
+            y
+        }
     }
     /// Processes `block` in place.
     pub fn process(&mut self, block: &mut [T]) {
@@ -277,7 +329,10 @@ impl<T: Float> TimeStretcher<T> {
     /// Longer frames resolve low notes better and smear transients more. Panics unless `fft_len`
     /// is a power of two >= 64.
     pub fn with_fft_len(fft_len: usize) -> Self {
-        assert!(fft_len >= 64 && fft_len.is_power_of_two(), "fft_len must be a power of two >= 64");
+        assert!(
+            fft_len >= 64 && fft_len.is_power_of_two(),
+            "fft_len must be a power of two >= 64"
+        );
         let vocoder = Vocoder::new(fft_len);
         let hop = fft_len / 4;
         let norm = T::_ONE / vocoder.overlap_gain(hop);
@@ -391,7 +446,11 @@ impl<T: Float> TimeStretcher<T> {
             Some((a, b)) if i >= b as isize => a as isize + (i - a as isize) % (b - a) as isize,
             _ => i,
         };
-        if i >= 0 && (i as usize) < source.len() { source[i as usize] } else { T::_ZERO }
+        if i >= 0 && (i as usize) < source.len() {
+            source[i as usize]
+        } else {
+            T::_ZERO
+        }
     }
 
     fn wrap_position(&self, p: f64) -> f64 {
@@ -413,7 +472,10 @@ impl<T: Float> Default for TimeStretcher<T> {
 /// 2048 suits most music at 44.1-48 kHz). The result has `round(input.len() * factor)` samples.
 /// Offline: allocates the output. Panics unless `factor` is in 0.1..=10.
 pub fn time_stretch<T: Float>(input: &[T], factor: f64, fft_len: usize) -> Vec<T> {
-    assert!((0.1..=10.0).contains(&factor), "stretch factor must be within 0.1..=10");
+    assert!(
+        (0.1..=10.0).contains(&factor),
+        "stretch factor must be within 0.1..=10"
+    );
     let mut vocoder = Vocoder::<T>::new(fft_len);
     let n = fft_len;
     let hop = n / 4;
@@ -421,7 +483,13 @@ pub fn time_stretch<T: Float>(input: &[T], factor: f64, fft_len: usize) -> Vec<T
     // pad so the first and last samples sit inside full frames
     let pad = n;
     let padded_len = input.len() + 2 * pad;
-    let at = |i: isize| if i >= pad as isize && ((i as usize) - pad) < input.len() { input[i as usize - pad] } else { T::_ZERO };
+    let at = |i: isize| {
+        if i >= pad as isize && ((i as usize) - pad) < input.len() {
+            input[i as usize - pad]
+        } else {
+            T::_ZERO
+        }
+    };
     let out_len = ((input.len() as f64) * factor).round() as usize;
     let offset = (pad as f64 * factor).round() as usize;
     let mut output = vec![T::_ZERO; offset + out_len + 2 * n];
@@ -470,17 +538,31 @@ mod tests {
 
     #[test]
     fn shifts_tones_by_the_requested_interval() {
-        for (wave, freq, semitones) in [(Waveform::Sine, 440.0, 7.0), (Waveform::Saw, 220.0, -5.0), (Waveform::Saw, 110.0, 12.0), (Waveform::Triangle, 330.0, 3.5)] {
-            let x: Vec<f64> = Oscillator::new(wave, freq, FS).take(48_000).map(|s| 0.5 * s).collect();
+        for (wave, freq, semitones) in [
+            (Waveform::Sine, 440.0, 7.0),
+            (Waveform::Saw, 220.0, -5.0),
+            (Waveform::Saw, 110.0, 12.0),
+            (Waveform::Triangle, 330.0, 3.5),
+        ] {
+            let x: Vec<f64> = Oscillator::new(wave, freq, FS)
+                .take(48_000)
+                .map(|s| 0.5 * s)
+                .collect();
             let mut shifter = PitchShifter::new();
             shifter.set_semitones(semitones);
             let mut y = x.clone();
             shifter.process(&mut y);
             let expected = freq * 2f64.powf(semitones / 12.0);
             let found = pitch_of(&y);
-            assert!(cents(found, expected).abs() < 5.0, "{wave:?} {freq} Hz {semitones:+} st: {found} Hz vs {expected}");
+            assert!(
+                cents(found, expected).abs() < 5.0,
+                "{wave:?} {freq} Hz {semitones:+} st: {found} Hz vs {expected}"
+            );
             let level = 20.0 * (rms(&y[24_000..]) / rms(&x[24_000..])).log10();
-            assert!(level.abs() < 1.5, "{wave:?} {semitones:+} st: level {level} dB");
+            assert!(
+                level.abs() < 1.5,
+                "{wave:?} {semitones:+} st: level {level} dB"
+            );
         }
     }
 
@@ -497,7 +579,10 @@ mod tests {
 
     #[test]
     fn time_stretch_keeps_pitch_and_level() {
-        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 196.0, FS).take(48_000).map(|s| 0.5 * s).collect();
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 196.0, FS)
+            .take(48_000)
+            .map(|s| 0.5 * s)
+            .collect();
         for factor in [0.5, 0.8, 1.5, 2.0] {
             let y = time_stretch(&x, factor, 2_048);
             assert_eq!(y.len(), (48_000.0 * factor) as usize);
@@ -511,7 +596,11 @@ mod tests {
 
     #[test]
     fn streaming_at_a_constant_speed_is_time_stretch() {
-        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 220.0, FS).zip(Sine::new(3.0, FS)).take(24_000).map(|(s, m)| 0.5 * s * (0.6 + 0.4 * m)).collect();
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 220.0, FS)
+            .zip(Sine::new(3.0, FS))
+            .take(24_000)
+            .map(|(s, m)| 0.5 * s * (0.6 + 0.4 * m))
+            .collect();
         let n = 2_048;
         for speed in [1.0, 0.5, 2.0, 0.25] {
             let factor = 1.0 / speed;
@@ -526,13 +615,19 @@ mod tests {
                 s.render(&x, block);
             }
             // the same frames, overlap-added in the same order: the same bits
-            assert!(out[offset..] == offline[..], "speed {speed}: streaming differs from time_stretch");
+            assert!(
+                out[offset..] == offline[..],
+                "speed {speed}: streaming differs from time_stretch"
+            );
         }
     }
 
     #[test]
     fn loops_keep_pitch_and_level_and_stay_inside() {
-        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 196.0, FS).take(48_000).map(|s| 0.5 * s).collect();
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 196.0, FS)
+            .take(48_000)
+            .map(|s| 0.5 * s)
+            .collect();
         let mut s = TimeStretcher::new();
         s.set_speed(0.75);
         s.set_loop(Some(12_000..36_000));
@@ -541,7 +636,10 @@ mod tests {
         for block in out.chunks_mut(256) {
             s.render(&x, block);
             let p = s.position();
-            assert!((11_000.0..36_000.0).contains(&p), "position {p} left the loop");
+            assert!(
+                (11_000.0..36_000.0).contains(&p),
+                "position {p} left the loop"
+            );
         }
         // 3 s at 0.75 covers the 0.5 s loop four and a half times
         let found = pitch_of(&out);
@@ -553,7 +651,10 @@ mod tests {
 
     #[test]
     fn speed_changes_while_playing() {
-        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 247.0, FS).take(5 * 48_000).map(|s| 0.5 * s).collect();
+        let x: Vec<f64> = Oscillator::new(Waveform::Saw, 247.0, FS)
+            .take(5 * 48_000)
+            .map(|s| 0.5 * s)
+            .collect();
         let mut s = TimeStretcher::new();
         s.seek(1_000.0);
         let mut out = vec![0.0; 48_000];
@@ -562,9 +663,16 @@ mod tests {
         s.render(&x, &mut out[24_000..]);
         // 0.5 s at 1x, then 0.5 s at 0.5x: 36,000 samples of source past the seek, less the latency
         let want = 1_000.0 + 24_000.0 + 12_000.0 - 0.5 * s.latency() as f64;
-        assert!((s.position() - want).abs() < s.latency() as f64, "position {} vs {want}", s.position());
+        assert!(
+            (s.position() - want).abs() < s.latency() as f64,
+            "position {} vs {want}",
+            s.position()
+        );
         let found = pitch_of(&out);
-        assert!(cents(found, 247.0).abs() < 5.0, "after the change: {found} Hz");
+        assert!(
+            cents(found, 247.0).abs() < 5.0,
+            "after the change: {found} Hz"
+        );
         assert_eq!(s.speed(), 0.5);
     }
 
@@ -579,6 +687,9 @@ mod tests {
         let y = time_stretch(&x, 2.0, 2_048);
         let level = |a: usize, b: usize| rms(&y[a..b]);
         assert!(level(26_000, 46_000) > 0.6, "the burst is there");
-        assert!(level(0, 20_000) < 0.05 && level(52_000, 96_000) < 0.05, "and nowhere else");
+        assert!(
+            level(0, 20_000) < 0.05 && level(52_000, 96_000) < 0.05,
+            "and nowhere else"
+        );
     }
 }

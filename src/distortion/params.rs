@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the distortion effects.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo, ParamUnit};
 use crate::params::ParamUnit::{Decibels, Fraction, Hertz};
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo, ParamUnit};
 
 parameterized!(Waveshaper, "Waveshaper",
     infos: |_s| [

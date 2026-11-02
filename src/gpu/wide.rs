@@ -6,7 +6,13 @@
 //! reduced with a three-part pi/2, accurate for |x| up to about 1e6. Within 4 ulps of the CPU.
 
 // full-precision constants and NaN idioms such as `x != x` are the point here
-#![allow(clippy::excessive_precision, clippy::approx_constant, clippy::eq_op, clippy::manual_clamp, clippy::if_same_then_else)]
+#![allow(
+    clippy::excessive_precision,
+    clippy::approx_constant,
+    clippy::eq_op,
+    clippy::manual_clamp,
+    clippy::if_same_then_else
+)]
 
 use cubecl::prelude::*;
 
@@ -63,7 +69,11 @@ fn exp_f64(x: f64) -> f64 {
     }
     let q = (y * 1.4426950408889634f64).round();
     // fused steps: plain ones may be re-associated into one product with a rounded ln 2
-    let r = fma(-q, 1.90821492927058770002e-10f64, fma(-q, 6.93147180369123816490e-1f64, y));
+    let r = fma(
+        -q,
+        1.90821492927058770002e-10f64,
+        fma(-q, 6.93147180369123816490e-1f64, y),
+    );
     let mut k = i32::cast_from(q);
     // (NaN casts to anything)
     if k > 1100 {
@@ -147,7 +157,15 @@ fn tanh_f64(x: f64) -> f64 {
 #[cube]
 fn sin_cos_f64(x: f64, #[comptime] cosine: bool) -> f64 {
     let q = (x * 0.6366197723675814f64).round();
-    let r = fma(-q, 2.02226624879595063154e-21f64, fma(-q, 6.07710050633881403649e-11f64, fma(-q, 1.57079632673412561417e0f64, x)));
+    let r = fma(
+        -q,
+        2.02226624879595063154e-21f64,
+        fma(
+            -q,
+            6.07710050633881403649e-11f64,
+            fma(-q, 1.57079632673412561417e0f64, x),
+        ),
+    );
     let z = r * r;
     // sin r to r^17, cos r to r^16, on |r| <= pi/4
     let mut s = 2.8114572543455206e-15f64;

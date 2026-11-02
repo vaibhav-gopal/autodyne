@@ -15,12 +15,40 @@ use crate::units::Float;
 pub const MAX_ROUTES: usize = 16;
 
 const DEPTH_IDS: [&str; MAX_ROUTES] = [
-    "mod_1_depth", "mod_2_depth", "mod_3_depth", "mod_4_depth", "mod_5_depth", "mod_6_depth", "mod_7_depth", "mod_8_depth",
-    "mod_9_depth", "mod_10_depth", "mod_11_depth", "mod_12_depth", "mod_13_depth", "mod_14_depth", "mod_15_depth", "mod_16_depth",
+    "mod_1_depth",
+    "mod_2_depth",
+    "mod_3_depth",
+    "mod_4_depth",
+    "mod_5_depth",
+    "mod_6_depth",
+    "mod_7_depth",
+    "mod_8_depth",
+    "mod_9_depth",
+    "mod_10_depth",
+    "mod_11_depth",
+    "mod_12_depth",
+    "mod_13_depth",
+    "mod_14_depth",
+    "mod_15_depth",
+    "mod_16_depth",
 ];
 const DEPTH_NAMES: [&str; MAX_ROUTES] = [
-    "Mod 1 depth", "Mod 2 depth", "Mod 3 depth", "Mod 4 depth", "Mod 5 depth", "Mod 6 depth", "Mod 7 depth", "Mod 8 depth",
-    "Mod 9 depth", "Mod 10 depth", "Mod 11 depth", "Mod 12 depth", "Mod 13 depth", "Mod 14 depth", "Mod 15 depth", "Mod 16 depth",
+    "Mod 1 depth",
+    "Mod 2 depth",
+    "Mod 3 depth",
+    "Mod 4 depth",
+    "Mod 5 depth",
+    "Mod 6 depth",
+    "Mod 7 depth",
+    "Mod 8 depth",
+    "Mod 9 depth",
+    "Mod 10 depth",
+    "Mod 11 depth",
+    "Mod 12 depth",
+    "Mod 13 depth",
+    "Mod 14 depth",
+    "Mod 15 depth",
+    "Mod 16 depth",
 ];
 
 /// One connection: `sources[source]` (times `sources[via]`, if any) moves parameter `destination`.
@@ -83,9 +111,18 @@ pub struct Modulated<P> {
 impl<P: Parameterized> Modulated<P> {
     /// `sources` modulation inputs and `route_slots` routes (at most [`MAX_ROUTES`]).
     pub fn new(inner: P, sources: usize, route_slots: usize) -> Self {
-        assert!(route_slots <= MAX_ROUTES, "at most {MAX_ROUTES} route slots");
-        let infos: Vec<ParamInfo> = (0..inner.param_count()).map(|i| inner.param_info(i).expect("index below param_count")).collect();
-        let base: Vec<f64> = infos.iter().enumerate().map(|(i, info)| inner.get_param(i).unwrap_or(info.default)).collect();
+        assert!(
+            route_slots <= MAX_ROUTES,
+            "at most {MAX_ROUTES} route slots"
+        );
+        let infos: Vec<ParamInfo> = (0..inner.param_count())
+            .map(|i| inner.param_info(i).expect("index below param_count"))
+            .collect();
+        let base: Vec<f64> = infos
+            .iter()
+            .enumerate()
+            .map(|(i, info)| inner.get_param(i).unwrap_or(info.default))
+            .collect();
         Self {
             pushed: base.clone(),
             offsets: vec![0.0; infos.len()],
@@ -167,7 +204,10 @@ impl<P: Parameterized> Modulated<P> {
     }
     /// Route depth in normalized units, -1..1 (clamped).
     pub fn set_depth(&mut self, slot: usize, depth: f64) -> Result<(), RouteError> {
-        let d = self.depths.get_mut(slot).ok_or(RouteError::UnknownSlot(slot))?;
+        let d = self
+            .depths
+            .get_mut(slot)
+            .ok_or(RouteError::UnknownSlot(slot))?;
         *d = depth.clamp(-1.0, 1.0);
         Ok(())
     }
@@ -178,7 +218,10 @@ impl<P: Parameterized> Modulated<P> {
     /// Names a route's depth parameter for hosts and GUIs, e.g. "LFO > cutoff" (its id stays
     /// `mod_N_depth`, so saved states keep working when routes are renamed).
     pub fn set_depth_name(&mut self, slot: usize, name: &'static str) -> Result<(), RouteError> {
-        let n = self.depth_names.get_mut(slot).ok_or(RouteError::UnknownSlot(slot))?;
+        let n = self
+            .depth_names
+            .get_mut(slot)
+            .ok_or(RouteError::UnknownSlot(slot))?;
         *n = name;
         Ok(())
     }
@@ -245,9 +288,14 @@ impl<P: Parameterized> Parameterized for Modulated<P> {
     fn param_info(&self, index: usize) -> Option<ParamInfo> {
         match index.checked_sub(self.infos.len()) {
             None => Some(self.infos[index]),
-            Some(slot) if slot < self.routes.len() => {
-                Some(ParamInfo::new(DEPTH_IDS[slot], self.depth_names[slot], ParamUnit::Fraction, -1.0, 1.0, 0.0))
-            }
+            Some(slot) if slot < self.routes.len() => Some(ParamInfo::new(
+                DEPTH_IDS[slot],
+                self.depth_names[slot],
+                ParamUnit::Fraction,
+                -1.0,
+                1.0,
+                0.0,
+            )),
             Some(_) => None,
         }
     }
@@ -266,15 +314,26 @@ impl<P: Parameterized> Parameterized for Modulated<P> {
         }
     }
     fn set_param(&mut self, index: usize, value: f64) -> Result<f64, ParamError> {
-        let applied = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let applied = self
+            .param_info(index)
+            .ok_or(ParamError::UnknownIndex(index))?
+            .validate(value)?;
         match index.checked_sub(self.infos.len()) {
             None => {
                 self.base[index] = applied;
                 // takes effect at once (with the current modulation), not only at the next step
-                let offset = self.routes.iter().zip(&self.depths).fold(0.0, |sum, (route, &depth)| match route {
-                    Some(r) if r.destination == index => sum + depth * self.sources[r.source] * r.via.map_or(1.0, |v| self.sources[v]),
-                    _ => sum,
-                });
+                let offset =
+                    self.routes
+                        .iter()
+                        .zip(&self.depths)
+                        .fold(0.0, |sum, (route, &depth)| match route {
+                            Some(r) if r.destination == index => {
+                                sum + depth
+                                    * self.sources[r.source]
+                                    * r.via.map_or(1.0, |v| self.sources[v])
+                            }
+                            _ => sum,
+                        });
                 self.offsets[index] = offset;
                 let value = self.combined(index);
                 self.pushed[index] = value;
@@ -330,7 +389,15 @@ mod tests {
         let mut m = filter();
         let f = m.param_index("frequency_hz").unwrap();
         let info = m.param_info(f).unwrap();
-        m.set_route(0, Some(Route { source: 0, destination: f, via: None })).unwrap();
+        m.set_route(
+            0,
+            Some(Route {
+                source: 0,
+                destination: f,
+                via: None,
+            }),
+        )
+        .unwrap();
         m.set_depth(0, 0.1).unwrap();
         m.set_source(0, 1.0);
         m.apply();
@@ -340,12 +407,23 @@ mod tests {
         assert_eq!(m.modulated_value(f), Some(cutoff(&m)));
 
         // a second route adds; a via source scales its route
-        m.set_route(1, Some(Route { source: 1, destination: f, via: Some(0) })).unwrap();
+        m.set_route(
+            1,
+            Some(Route {
+                source: 1,
+                destination: f,
+                via: Some(0),
+            }),
+        )
+        .unwrap();
         m.set_depth(1, -0.2).unwrap();
         m.set_source(1, 0.5);
         m.apply();
         let expected = info.from_normalized(info.to_normalized(1_000.0) + 0.1 - 0.2 * 0.5 * 1.0);
-        assert!((cutoff(&m) / expected - 1.0).abs() < 1e-12, "the two cancel");
+        assert!(
+            (cutoff(&m) / expected - 1.0).abs() < 1e-12,
+            "the two cancel"
+        );
         assert!((cutoff(&m) - 1_000.0).abs() < 1e-6);
 
         // clamped at the range ends; disconnecting returns exactly to the base
@@ -363,7 +441,15 @@ mod tests {
         let mut m = filter();
         let f = m.param_index("frequency_hz").unwrap();
         let info = m.param_info(f).unwrap();
-        m.set_route(0, Some(Route { source: 0, destination: f, via: None })).unwrap();
+        m.set_route(
+            0,
+            Some(Route {
+                source: 0,
+                destination: f,
+                via: None,
+            }),
+        )
+        .unwrap();
         m.set_depth(0, 0.05).unwrap();
         m.set_source(0, -1.0);
         m.set_param(f, 2_000.0).unwrap(); // applies at once, modulation included
@@ -383,19 +469,42 @@ mod tests {
         assert_eq!(m.param_info(d).unwrap().format(-0.25), "-25%");
         m.set_depth_name(1, "LFO > cutoff").unwrap();
         assert_eq!(m.param_info(d).unwrap().name, "LFO > cutoff");
-        assert_eq!(m.param_info(d).unwrap().id, "mod_2_depth", "ids stay stable");
+        assert_eq!(
+            m.param_info(d).unwrap().id,
+            "mod_2_depth",
+            "ids stay stable"
+        );
         assert_eq!(m.set_route(9, None), Err(RouteError::UnknownSlot(9)));
-        let bad = Route { source: 5, destination: 0, via: None };
+        let bad = Route {
+            source: 5,
+            destination: 0,
+            via: None,
+        };
         assert_eq!(m.set_route(0, Some(bad)), Err(RouteError::UnknownSource(5)));
-        let bad = Route { source: 0, destination: 99, via: None };
-        assert_eq!(m.set_route(0, Some(bad)), Err(RouteError::UnknownDestination(99)));
+        let bad = Route {
+            source: 0,
+            destination: 99,
+            via: None,
+        };
+        assert_eq!(
+            m.set_route(0, Some(bad)),
+            Err(RouteError::UnknownDestination(99))
+        );
     }
 
     #[test]
     fn an_lfo_sweeps_a_filter_at_control_rate() {
         let mut m = filter();
         let f = m.param_index("frequency_hz").unwrap();
-        m.set_route(0, Some(Route { source: 0, destination: f, via: None })).unwrap();
+        m.set_route(
+            0,
+            Some(Route {
+                source: 0,
+                destination: f,
+                via: None,
+            }),
+        )
+        .unwrap();
         m.set_depth(0, 0.2).unwrap();
         let mut lfo = Lfo::new(FS);
         lfo.set_rate(5.0);
@@ -410,8 +519,13 @@ mod tests {
             },
         );
         assert_eq!(seen.len(), 9_600 / RAMP_STEP, "one update per control step");
-        let (lo, hi) = seen.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
-        assert!(lo < 1_000.0 && hi > 1_000.0, "sweeps both ways around the base: {lo}..{hi}");
+        let (lo, hi) = seen
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(lo, hi), &v| (lo.min(v), hi.max(v)));
+        assert!(
+            lo < 1_000.0 && hi > 1_000.0,
+            "sweeps both ways around the base: {lo}..{hi}"
+        );
         let info = m.param_info(f).unwrap();
         let ceiling = info.from_normalized(info.to_normalized(1_000.0) + 0.2);
         assert!(hi <= ceiling * (1.0 + 1e-9));

@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the modulation effects.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 use crate::params::ParamUnit::{Fraction, Hertz, Seconds};
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 
 parameterized!(ModulatedDelay, "Modulated delay",
     infos: |s| [

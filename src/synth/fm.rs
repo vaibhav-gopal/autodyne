@@ -26,17 +26,50 @@ pub struct Algorithm {
 impl Algorithm {
     /// Eight classic 4-operator layouts, from one long stack to four sines added up.
     pub const ALL: [Algorithm; 8] = [
-        Algorithm { modulators: [0b0010, 0b0100, 0b1000, 0], carriers: 0b0001 },
-        Algorithm { modulators: [0b0010, 0b1100, 0, 0], carriers: 0b0001 },
-        Algorithm { modulators: [0b0110, 0, 0b1000, 0], carriers: 0b0001 },
-        Algorithm { modulators: [0b0110, 0b1000, 0b1000, 0], carriers: 0b0001 },
-        Algorithm { modulators: [0b0010, 0, 0b1000, 0], carriers: 0b0101 },
-        Algorithm { modulators: [0b1000, 0b1000, 0b1000, 0], carriers: 0b0111 },
-        Algorithm { modulators: [0, 0, 0b1000, 0], carriers: 0b0111 },
-        Algorithm { modulators: [0, 0, 0, 0], carriers: 0b1111 },
+        Algorithm {
+            modulators: [0b0010, 0b0100, 0b1000, 0],
+            carriers: 0b0001,
+        },
+        Algorithm {
+            modulators: [0b0010, 0b1100, 0, 0],
+            carriers: 0b0001,
+        },
+        Algorithm {
+            modulators: [0b0110, 0, 0b1000, 0],
+            carriers: 0b0001,
+        },
+        Algorithm {
+            modulators: [0b0110, 0b1000, 0b1000, 0],
+            carriers: 0b0001,
+        },
+        Algorithm {
+            modulators: [0b0010, 0, 0b1000, 0],
+            carriers: 0b0101,
+        },
+        Algorithm {
+            modulators: [0b1000, 0b1000, 0b1000, 0],
+            carriers: 0b0111,
+        },
+        Algorithm {
+            modulators: [0, 0, 0b1000, 0],
+            carriers: 0b0111,
+        },
+        Algorithm {
+            modulators: [0, 0, 0, 0],
+            carriers: 0b1111,
+        },
     ];
     /// `>` reads "modulates", `+` "together", `,` "separately heard".
-    pub const NAMES: [&'static str; 8] = ["4>3>2>1", "3+4>2>1", "4>3, +2 >1", "4>2+3>1", "4>3, 2>1", "4>1,2,3", "4>3, 2, 1", "1, 2, 3, 4"];
+    pub const NAMES: [&'static str; 8] = [
+        "4>3>2>1",
+        "3+4>2>1",
+        "4>3, +2 >1",
+        "4>2+3>1",
+        "4>3, 2>1",
+        "4>1,2,3",
+        "4>3, 2, 1",
+        "1, 2, 3, 4",
+    ];
 
     fn carrier_count(&self) -> u32 {
         self.carriers.count_ones()
@@ -91,7 +124,12 @@ impl<T: Float> FmVoice<T> {
         };
         let mut voice = Self {
             sample_rate,
-            ops: [op(1.0, 1.0, 0.002, 1.6, 0.5), op(1.0, 0.3, 0.001, 0.9, 0.3), op(1.0, 0.6, 0.002, 2.2, 0.6), op(14.0, 0.07, 0.001, 0.15, 0.1)],
+            ops: [
+                op(1.0, 1.0, 0.002, 1.6, 0.5),
+                op(1.0, 0.3, 0.001, 0.9, 0.3),
+                op(1.0, 0.6, 0.002, 2.2, 0.6),
+                op(14.0, 0.07, 0.001, 0.15, 0.1),
+            ],
             algorithm: 4,
             feedback: T::_ZERO,
             history: [T::_ZERO; 2],
@@ -179,7 +217,11 @@ impl<T: Float> FmVoice<T> {
             }
             pm = pm * depth;
             if i == OPERATORS - 1 {
-                pm = pm + self.feedback * T::_lit(FEEDBACK_DEPTH) * (self.history[0] + self.history[1]) * T::_lit(0.5);
+                pm = pm
+                    + self.feedback
+                        * T::_lit(FEEDBACK_DEPTH)
+                        * (self.history[0] + self.history[1])
+                        * T::_lit(0.5);
             }
             let op = &mut self.ops[i];
             let env = op.env.next_value();
@@ -223,7 +265,10 @@ impl<T: Float> Voice for FmVoice<T> {
     /// Sounding while any carrier's envelope is.
     fn is_active(&self) -> bool {
         let carriers = Algorithm::ALL[self.algorithm].carriers;
-        self.ops.iter().enumerate().any(|(i, op)| carriers & (1 << i) != 0 && op.env.is_active())
+        self.ops
+            .iter()
+            .enumerate()
+            .any(|(i, op)| carriers & (1 << i) != 0 && op.env.is_active())
     }
     fn render(&mut self, out: &mut [T]) {
         if !self.is_active() {
@@ -233,7 +278,10 @@ impl<T: Float> Voice for FmVoice<T> {
         for s in out {
             *s = self.next_sample();
         }
-        self.history = [self.history[0]._flush_denormal(), self.history[1]._flush_denormal()];
+        self.history = [
+            self.history[0]._flush_denormal(),
+            self.history[1]._flush_denormal(),
+        ];
     }
     fn set_pitch_bend(&mut self, semitones: T) {
         self.bend = semitones;
@@ -315,7 +363,10 @@ mod tests {
             let expected = bessel_j(n, beta).abs();
             for freq in [440.0 + 110.0 * n as f64, 440.0 - 110.0 * n as f64] {
                 let measured = amplitude(&x, freq);
-                assert!((measured - expected).abs() < 2e-3, "{freq} Hz: {measured} vs J_{n}(1) = {expected}");
+                assert!(
+                    (measured - expected).abs() < 2e-3,
+                    "{freq} Hz: {measured} vs J_{n}(1) = {expected}"
+                );
             }
         }
     }
@@ -328,7 +379,11 @@ mod tests {
         let x = render(&mut v, 48_000);
         for (h, level) in [0.8, 0.4, 0.2, 0.1].into_iter().enumerate() {
             let measured = amplitude(&x, 220.0 * (h + 1) as f64);
-            assert!((measured - level / 2.0).abs() < 1e-3, "harmonic {}: {measured}", h + 1); // 4 carriers: / sqrt(4)
+            assert!(
+                (measured - level / 2.0).abs() < 1e-3,
+                "harmonic {}: {measured}",
+                h + 1
+            ); // 4 carriers: / sqrt(4)
         }
     }
 
@@ -353,11 +408,20 @@ mod tests {
             v.set_algorithm(algorithm);
             v.note_on(60, 0.9);
             let x = render(&mut v, 4_800);
-            assert!(x.iter().all(|s| s.is_finite() && s.abs() <= 1.5), "algorithm {algorithm}");
-            assert!(x.iter().any(|&s| s.abs() > 0.01), "algorithm {algorithm} is heard");
+            assert!(
+                x.iter().all(|s| s.is_finite() && s.abs() <= 1.5),
+                "algorithm {algorithm}"
+            );
+            assert!(
+                x.iter().any(|&s| s.abs() > 0.01),
+                "algorithm {algorithm} is heard"
+            );
             v.note_off();
             render(&mut v, 48_000);
-            assert!(!v.is_active(), "algorithm {algorithm} ends after its release");
+            assert!(
+                !v.is_active(),
+                "algorithm {algorithm} ends after its release"
+            );
         }
     }
 
@@ -371,11 +435,24 @@ mod tests {
             v.note_on(57, 1.0);
             render(&mut v, 480);
             let x = render(&mut v, 48_000);
-            let power: Vec<f64> = (1..=12).map(|h| amplitude(&x, 220.0 * h as f64).powi(2)).collect();
-            power.iter().enumerate().map(|(i, p)| (i + 1) as f64 * p).sum::<f64>() / power.iter().sum::<f64>()
+            let power: Vec<f64> = (1..=12)
+                .map(|h| amplitude(&x, 220.0 * h as f64).powi(2))
+                .collect();
+            power
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i + 1) as f64 * p)
+                .sum::<f64>()
+                / power.iter().sum::<f64>()
         };
         let (none, neutral, full) = (centroid(0.0), centroid(0.5), centroid(1.0));
-        assert!((none - 1.0).abs() < 1e-6, "timbre 0: no modulation, a pure sine");
-        assert!(neutral > 1.2 && full > neutral + 0.3, "centroids {none:.2} < {neutral:.2} < {full:.2}");
+        assert!(
+            (none - 1.0).abs() < 1e-6,
+            "timbre 0: no modulation, a pure sine"
+        );
+        assert!(
+            neutral > 1.2 && full > neutral + 0.3,
+            "centroids {none:.2} < {neutral:.2} < {full:.2}"
+        );
     }
 }

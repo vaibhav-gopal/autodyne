@@ -24,7 +24,9 @@ pub struct IqModulator<T: Float> {
 impl<T: Float> IqModulator<T> {
     /// A modulator onto a `carrier` Hz carrier.
     pub fn new(carrier: T, sample_rate: T) -> Self {
-        Self { lo: Phasor::new(carrier, sample_rate) }
+        Self {
+            lo: Phasor::new(carrier, sample_rate),
+        }
     }
     /// Restarts the carrier at phase 0.
     pub fn reset(&mut self) {
@@ -37,7 +39,11 @@ impl<T: Float> IqModulator<T> {
     }
     /// Panics if the lengths differ.
     pub fn process(&mut self, baseband: &[Complex<T>], out: &mut [T]) {
-        assert_eq!(baseband.len(), out.len(), "baseband and output lengths must match");
+        assert_eq!(
+            baseband.len(),
+            out.len(),
+            "baseband and output lengths must match"
+        );
         for (o, &z) in out.iter_mut().zip(baseband) {
             *o = self.modulate_sample(z);
         }
@@ -62,25 +68,45 @@ impl<T: Float> IqDemodulator<T> {
         // A 4th-order Butterworth is two biquads with Q = 1 / (2 cos(pi/8)) and 1 / (2 cos(3pi/8)).
         let q1 = T::_lit(1.0 / (2.0 * (core::f64::consts::PI / 8.0).cos()));
         let q2 = T::_lit(1.0 / (2.0 * (3.0 * core::f64::consts::PI / 8.0).cos()));
-        let stages = [Biquad::lowpass(bandwidth, q1, sample_rate), Biquad::lowpass(bandwidth, q2, sample_rate)];
-        Self { lo: Phasor::new(carrier, sample_rate), lp_i: stages, lp_q: stages }
+        let stages = [
+            Biquad::lowpass(bandwidth, q1, sample_rate),
+            Biquad::lowpass(bandwidth, q2, sample_rate),
+        ];
+        Self {
+            lo: Phasor::new(carrier, sample_rate),
+            lp_i: stages,
+            lp_q: stages,
+        }
     }
     /// Restarts the local oscillator and clears the filters.
     pub fn reset(&mut self) {
         self.lo.reset();
-        self.lp_i.iter_mut().chain(self.lp_q.iter_mut()).for_each(Biquad::reset);
+        self.lp_i
+            .iter_mut()
+            .chain(self.lp_q.iter_mut())
+            .for_each(Biquad::reset);
     }
     /// One baseband sample from one carrier sample.
     #[inline]
     pub fn demodulate_sample(&mut self, x: T) -> Complex<T> {
         let mixed = self.lo.next_sample().conj() * (x * T::_lit(2.0));
-        let i = self.lp_i.iter_mut().fold(mixed.re, |s, f| f.process_sample(s));
-        let q = self.lp_q.iter_mut().fold(mixed.im, |s, f| f.process_sample(s));
+        let i = self
+            .lp_i
+            .iter_mut()
+            .fold(mixed.re, |s, f| f.process_sample(s));
+        let q = self
+            .lp_q
+            .iter_mut()
+            .fold(mixed.im, |s, f| f.process_sample(s));
         Complex::new(i, q)
     }
     /// Panics if the lengths differ.
     pub fn process(&mut self, input: &[T], out: &mut [Complex<T>]) {
-        assert_eq!(input.len(), out.len(), "input and output lengths must match");
+        assert_eq!(
+            input.len(),
+            out.len(),
+            "input and output lengths must match"
+        );
         for (o, &x) in out.iter_mut().zip(input) {
             *o = self.demodulate_sample(x);
         }
@@ -91,12 +117,16 @@ impl<T: Float> IqDemodulator<T> {
 
 /// AM demodulation: |z| per sample (`ComplexSignal::magnitudes_into`). Panics if the lengths differ.
 pub fn envelope<T: Float>(baseband: &[Complex<T>], out: &mut [T]) {
-    baseband.magnitudes_into(out).expect("baseband and output lengths must match");
+    baseband
+        .magnitudes_into(out)
+        .expect("baseband and output lengths must match");
 }
 
 /// PM demodulation: arg z per sample, in (-pi, pi] (`ComplexSignal::phases_into`). Panics if the lengths differ.
 pub fn phase<T: Float>(baseband: &[Complex<T>], out: &mut [T]) {
-    baseband.phases_into(out).expect("baseband and output lengths must match");
+    baseband
+        .phases_into(out)
+        .expect("baseband and output lengths must match");
 }
 
 /// FM modulation to baseband: a message value of 1.0 shifts the instantaneous frequency by `deviation` Hz.
@@ -111,7 +141,10 @@ pub struct FmModulator<T: Float> {
 impl<T: Float> FmModulator<T> {
     /// A modulator where a message of 1.0 deviates the frequency by `deviation` Hz.
     pub fn new(deviation: T, sample_rate: T) -> Self {
-        Self { phase: T::_ZERO, radians_per_unit: T::_TAU * deviation / sample_rate }
+        Self {
+            phase: T::_ZERO,
+            radians_per_unit: T::_TAU * deviation / sample_rate,
+        }
     }
     /// Restarts at phase 0.
     pub fn reset(&mut self) {
@@ -131,7 +164,11 @@ impl<T: Float> FmModulator<T> {
     }
     /// Panics if the lengths differ.
     pub fn process(&mut self, message: &[T], out: &mut [Complex<T>]) {
-        assert_eq!(message.len(), out.len(), "message and output lengths must match");
+        assert_eq!(
+            message.len(),
+            out.len(),
+            "message and output lengths must match"
+        );
         for (o, &m) in out.iter_mut().zip(message) {
             *o = self.modulate_sample(m);
         }
@@ -151,7 +188,10 @@ pub struct FmDiscriminator<T: Float> {
 impl<T: Float> FmDiscriminator<T> {
     /// A discriminator for a modulator with the same `deviation` Hz per unit of message.
     pub fn new(deviation: T, sample_rate: T) -> Self {
-        Self { prev: Complex::one(), units_per_radian: sample_rate / (T::_TAU * deviation) }
+        Self {
+            prev: Complex::one(),
+            units_per_radian: sample_rate / (T::_TAU * deviation),
+        }
     }
     /// Forgets the previous sample.
     pub fn reset(&mut self) {
@@ -166,7 +206,11 @@ impl<T: Float> FmDiscriminator<T> {
     }
     /// Panics if the lengths differ.
     pub fn process(&mut self, baseband: &[Complex<T>], out: &mut [T]) {
-        assert_eq!(baseband.len(), out.len(), "baseband and output lengths must match");
+        assert_eq!(
+            baseband.len(),
+            out.len(),
+            "baseband and output lengths must match"
+        );
         for (o, &z) in out.iter_mut().zip(baseband) {
             *o = self.demodulate_sample(z);
         }
@@ -203,7 +247,10 @@ mod tests {
         for n in 0..100 {
             let w = std::f64::consts::TAU * 1000.0 * n as f64 / FS;
             let expected = 0.6 * w.cos() + 0.3 * w.sin();
-            assert!((m.modulate_sample(z) - expected).abs() < 1e-12, "sample {n}");
+            assert!(
+                (m.modulate_sample(z) - expected).abs() < 1e-12,
+                "sample {n}"
+            );
         }
     }
 
@@ -219,14 +266,22 @@ mod tests {
     #[test]
     fn am_envelope_follows_the_message() {
         // 50% modulation depth with a 50 Hz tone: envelope swings 0.5 .. 1.5
-        let message: Vec<f64> = Sine::new(50.0, FS).with_amplitude(0.5).take(48_000).collect();
+        let message: Vec<f64> = Sine::new(50.0, FS)
+            .with_amplitude(0.5)
+            .take(48_000)
+            .collect();
         let baseband: Vec<Complex<f64>> = message.iter().map(|&m| Complex::from(1.0 + m)).collect();
         let recovered = through_channel(&baseband, 500.0);
         let mut env = vec![0.0; recovered.len()];
         envelope(&recovered, &mut env);
         let tail = &env[SETTLE..];
-        let (lo, hi) = tail.iter().fold((f64::MAX, f64::MIN), |(lo, hi), &e| (lo.min(e), hi.max(e)));
-        assert!((lo - 0.5).abs() < 0.01 && (hi - 1.5).abs() < 0.01, "envelope range {lo}..{hi}");
+        let (lo, hi) = tail
+            .iter()
+            .fold((f64::MAX, f64::MIN), |(lo, hi), &e| (lo.min(e), hi.max(e)));
+        assert!(
+            (lo - 0.5).abs() < 0.01 && (hi - 1.5).abs() < 0.01,
+            "envelope range {lo}..{hi}"
+        );
     }
 
     #[test]
@@ -240,7 +295,10 @@ mod tests {
     #[test]
     fn fm_baseband_roundtrip_is_exact() {
         // Without the carrier and filters, discriminator(modulator(m)) returns m one sample late.
-        let message: Vec<f64> = Sine::new(100.0, FS).with_amplitude(0.8).take(4_800).collect();
+        let message: Vec<f64> = Sine::new(100.0, FS)
+            .with_amplitude(0.8)
+            .take(4_800)
+            .collect();
         let mut baseband = vec![Complex::zero(); message.len()];
         FmModulator::new(1_000.0, FS).process(&message, &mut baseband);
         let mut out = vec![0.0; message.len()];
@@ -269,7 +327,10 @@ mod tests {
         assert!((mean - 0.5).abs() < 1e-3, "mean {mean}");
 
         // tone message -> same tone out (RMS over 90 whole periods of 100 Hz)
-        let message: Vec<f64> = Sine::new(100.0, FS).with_amplitude(0.8).take(48_000).collect();
+        let message: Vec<f64> = Sine::new(100.0, FS)
+            .with_amplitude(0.8)
+            .take(48_000)
+            .collect();
         let out = run(&message);
         let (got, want) = (rms(&out[SETTLE..]), rms(&message[SETTLE..]));
         assert!((got - want).abs() < 0.01 * want, "rms {got} vs {want}");

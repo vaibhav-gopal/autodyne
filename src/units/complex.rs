@@ -1,10 +1,10 @@
 //! [`Complex`]: complex numbers over any [`Float`](super::Float), laid out like C99's and NumPy's, the basis
 //! for FFTs and IQ (de)modulation.
 
+use super::*;
 #[cfg(not(any(feature = "std", test)))]
 use crate::alloc_prelude::*;
 use core::ops::{Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Sub, SubAssign};
-use super::*;
 
 /// Complex number over any Float ; the basis for FFTs and IQ (de)modulation.
 /// Deliberately not a `Unit`: it has no bit-level `PhysicalRepr` and no total order.
@@ -91,7 +91,11 @@ impl<T: Float> Complex<T> {
     /// `self` raised to a real power (principal branch); `0^e` is 0 for `e > 0`.
     pub fn powf(self, e: T) -> Self {
         if self.re == T::_ZERO && self.im == T::_ZERO {
-            return if e == T::_ZERO { Self::one() } else { Self::zero() };
+            return if e == T::_ZERO {
+                Self::one()
+            } else {
+                Self::zero()
+            };
         }
         (self.ln() * e).exp()
     }
@@ -111,11 +115,17 @@ impl<T: Float> Complex<T> {
     }
     /// `sin(a + ib) = sin a cosh b + i cos a sinh b`.
     pub fn sin(self) -> Self {
-        Self::new(self.re._sin() * hyp(self.im, |x| x.cosh()), self.re._cos() * hyp(self.im, |x| x.sinh()))
+        Self::new(
+            self.re._sin() * hyp(self.im, |x| x.cosh()),
+            self.re._cos() * hyp(self.im, |x| x.sinh()),
+        )
     }
     /// `cos(a + ib) = cos a cosh b - i sin a sinh b`.
     pub fn cos(self) -> Self {
-        Self::new(self.re._cos() * hyp(self.im, |x| x.cosh()), -(self.re._sin() * hyp(self.im, |x| x.sinh())))
+        Self::new(
+            self.re._cos() * hyp(self.im, |x| x.cosh()),
+            -(self.re._sin() * hyp(self.im, |x| x.sinh())),
+        )
     }
     /// `tanh(a + ib) = (sinh 2a + i sin 2b) / (cosh 2a + cos 2b)`.
     pub fn tanh(self) -> Self {
@@ -156,7 +166,10 @@ impl<T: Float> Sub for Complex<T> {
 impl<T: Float> Mul for Complex<T> {
     type Output = Self;
     fn mul(self, rhs: Self) -> Self {
-        Self::new(self.re * rhs.re - self.im * rhs.im, self.re * rhs.im + self.im * rhs.re)
+        Self::new(
+            self.re * rhs.re - self.im * rhs.im,
+            self.re * rhs.im + self.im * rhs.re,
+        )
     }
 }
 

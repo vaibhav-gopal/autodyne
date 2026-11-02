@@ -121,39 +121,88 @@ impl<T: Float> PitchTracker<T> {
         assert!(lo > 0.0, "need 0 < min_hz < max_hz < sample_rate / 2");
         let frame_len = (2 * (fs / lo).ceil() as usize).next_power_of_two();
         let hop = frame_len / 4;
-        Self::build(min_hz, max_hz, sample_rate, frame_len, hop, (0.05 * fs / hop as f64).ceil() as usize)
+        Self::build(
+            min_hz,
+            max_hz,
+            sample_rate,
+            frame_len,
+            hop,
+            (0.05 * fs / hop as f64).ceil() as usize,
+        )
     }
 
     /// The same tracker with frames of `frame_len` samples, `hop` apart (allocates). Frames shorter
     /// than a period of `min_hz` limit the longest period to `frame_len - 1`. Panics if `hop` is 0
     /// or the frame can't hold a period of `max_hz` and one more.
     pub fn with_frame(self, frame_len: usize, hop: usize) -> Self {
-        Self::build(self.min_hz, self.max_hz, self.sample_rate, frame_len, hop, self.lag)
+        Self::build(
+            self.min_hz,
+            self.max_hz,
+            self.sample_rate,
+            frame_len,
+            hop,
+            self.lag,
+        )
     }
 
     /// The same tracker deciding each frame `lag` frames after analyzing it (allocates). Longer is
     /// closer to offline decoding, shorter answers sooner; 0 takes each frame's likeliest state.
     pub fn with_lag(self, lag: usize) -> Self {
-        Self::build(self.min_hz, self.max_hz, self.sample_rate, self.frame_len, self.hop, lag)
+        Self::build(
+            self.min_hz,
+            self.max_hz,
+            self.sample_rate,
+            self.frame_len,
+            self.hop,
+            lag,
+        )
     }
 
-    fn build(min_hz: T, max_hz: T, sample_rate: T, frame_len: usize, hop: usize, lag: usize) -> Self {
+    fn build(
+        min_hz: T,
+        max_hz: T,
+        sample_rate: T,
+        frame_len: usize,
+        hop: usize,
+        lag: usize,
+    ) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
-        let (lo, hi) = (min_hz.to_f64().unwrap_or(0.0), max_hz.to_f64().unwrap_or(0.0));
-        assert!(lo > 0.0 && lo < hi && hi < fs / 2.0, "need 0 < min_hz < max_hz < sample_rate / 2");
+        let (lo, hi) = (
+            min_hz.to_f64().unwrap_or(0.0),
+            max_hz.to_f64().unwrap_or(0.0),
+        );
+        assert!(
+            lo > 0.0 && lo < hi && hi < fs / 2.0,
+            "need 0 < min_hz < max_hz < sample_rate / 2"
+        );
         assert!(hop > 0, "hop must be at least 1");
         let min_period = (fs / hi).floor() as usize;
         let max_period = ((fs / lo).ceil() as usize).min(frame_len.saturating_sub(1));
-        assert!(min_period >= 1 && max_period > min_period, "frame_len {frame_len} can't hold a period of max_hz and one more");
+        assert!(
+            min_period >= 1 && max_period > min_period,
+            "frame_len {frame_len} can't hold a period of max_hz and one more"
+        );
         let periods = max_period - min_period + 1;
 
         // the thresholds' prior: probability mass between consecutive thresholds 0, 0.01, ..., 1
         // (numpy's linspace: i * 0.01, the last exactly 1)
-        let grid: Vec<f64> = (0..=THRESHOLDS).map(|i| if i == THRESHOLDS { 1.0 } else { i as f64 * (1.0 / THRESHOLDS as f64) }).collect();
+        let grid: Vec<f64> = (0..=THRESHOLDS)
+            .map(|i| {
+                if i == THRESHOLDS {
+                    1.0
+                } else {
+                    i as f64 * (1.0 / THRESHOLDS as f64)
+                }
+            })
+            .collect();
         let cdf: Vec<f64> = grid.iter().map(|&x| betainc(BETA.0, BETA.1, x)).collect();
         let beta_probs = cdf.windows(2).map(|w| w[1] - w[0]).collect();
-        let rank_weight = (0..periods).map(|k| (-BOLTZMANN * k as f64).exp()).collect();
-        let rank_norm = (0..=periods).map(|n| (1.0 - (-BOLTZMANN).exp()) / (1.0 - (-BOLTZMANN * n as f64).exp())).collect();
+        let rank_weight = (0..periods)
+            .map(|k| (-BOLTZMANN * k as f64).exp())
+            .collect();
+        let rank_norm = (0..=periods)
+            .map(|n| (1.0 - (-BOLTZMANN).exp()) / (1.0 - (-BOLTZMANN * n as f64).exp()))
+            .collect();
 
         // pitch states: 10 per semitone from min_hz up
         let bins = (12.0 * BINS_PER_SEMITONE as f64 * (hi / lo).log2()).floor() as usize + 1;
@@ -168,7 +217,10 @@ impl<T: Float> PitchTracker<T> {
         let stay = 1.0 - SWITCH;
         let switch = 1.0 - stay;
         let floor = (TRANSITION_MIN + TINY).ln();
-        let (mut log_within, mut log_across) = (vec![f64::NEG_INFINITY; bins * width], vec![f64::NEG_INFINITY; bins * width]);
+        let (mut log_within, mut log_across) = (
+            vec![f64::NEG_INFINITY; bins * width],
+            vec![f64::NEG_INFINITY; bins * width],
+        );
         for k in 0..bins {
             let inside = |d: usize| (k + d >= half) && (k + d - half < bins);
             let sum: f64 = (0..width).filter(|&d| inside(d)).map(triangle).sum();
@@ -291,8 +343,19 @@ impl<T: Float> PitchTracker<T> {
     /// The decoded track of a whole recording, exactly as offline pYIN decodes it (one Viterbi pass
     /// over every frame). Allocates: two bytes per frame and pitch state for the trace-back.
     pub fn track(&self, signal: &[T]) -> Vec<Voicing<T>> {
-        let frames = if signal.len() >= self.frame_len { (signal.len() - self.frame_len) / self.hop + 1 } else { 0 };
-        let mut whole = Self::build(self.min_hz, self.max_hz, self.sample_rate, self.frame_len, self.hop, frames);
+        let frames = if signal.len() >= self.frame_len {
+            (signal.len() - self.frame_len) / self.hop + 1
+        } else {
+            0
+        };
+        let mut whole = Self::build(
+            self.min_hz,
+            self.max_hz,
+            self.sample_rate,
+            self.frame_len,
+            self.hop,
+            frames,
+        );
         let mut out = Vec::with_capacity(frames);
         whole.push(signal, |v| out.push(v));
         whole.finish(|v| out.push(v));
@@ -329,13 +392,18 @@ impl<T: Float> PitchTracker<T> {
             let frequency = (state < self.bins).then(|| {
                 let found = self.candidates[slot * self.bins + state];
                 let hz = if found.is_nan() {
-                    self.min_hz.to_f64().unwrap_or(0.0) * (state as f64 / (12 * BINS_PER_SEMITONE) as f64).exp2()
+                    self.min_hz.to_f64().unwrap_or(0.0)
+                        * (state as f64 / (12 * BINS_PER_SEMITONE) as f64).exp2()
                 } else {
                     found
                 };
                 T::_lit(hz)
             });
-            let v = Voicing { frame: f, frequency, probability: T::_lit(self.probabilities[slot]) };
+            let v = Voicing {
+                frame: f,
+                frequency,
+                probability: T::_lit(self.probabilities[slot]),
+            };
             self.latest = Some(v);
             emit(v);
             self.decided += 1;
@@ -363,9 +431,14 @@ impl<T: Float> PitchTracker<T> {
                     let (lo, hi) = (j.saturating_sub(half), (j + half).min(bins - 1));
                     let (mut best, mut arg) = (f64::NEG_INFINITY, 0);
                     for from_layer in 0..2 {
-                        let table = if from_layer == to_layer { &self.log_within } else { &self.log_across };
+                        let table = if from_layer == to_layer {
+                            &self.log_within
+                        } else {
+                            &self.log_across
+                        };
                         for k in lo..=hi {
-                            let cost = self.value[from_layer * bins + k] + table[k * width + j + half - k];
+                            let cost =
+                                self.value[from_layer * bins + k] + table[k * width + j + half - k];
                             if cost > best {
                                 best = cost;
                                 arg = from_layer * bins + k;
@@ -456,8 +529,18 @@ impl<T: Float> PitchTracker<T> {
                 }
             }
             // thresholds no trough is below go to the deepest
-            let deepest = (0..self.troughs.len()).fold(0, |b, t| if y[self.troughs[t]] < y[self.troughs[b]] { t } else { b });
-            let above = self.thresholds.iter().filter(|&&s| y[self.troughs[deepest]] >= s).count();
+            let deepest = (0..self.troughs.len()).fold(0, |b, t| {
+                if y[self.troughs[t]] < y[self.troughs[b]] {
+                    t
+                } else {
+                    b
+                }
+            });
+            let above = self
+                .thresholds
+                .iter()
+                .filter(|&&s| y[self.troughs[deepest]] >= s)
+                .count();
             self.trough_probs[deepest] += NO_TROUGH * self.beta_probs[..above].iter().sum::<f64>();
 
             // each candidate to its pitch bin (a later candidate in the same bin replaces an earlier
@@ -474,10 +557,15 @@ impl<T: Float> PitchTracker<T> {
                 } else {
                     let a = y[i + 1] + y[i - 1] - 2.0 * y[i];
                     let b = (y[i + 1] - y[i - 1]) / 2.0;
-                    if b.abs() >= a.abs() { 0.0 } else { -b / a }
+                    if b.abs() >= a.abs() {
+                        0.0
+                    } else {
+                        -b / a
+                    }
                 };
                 let f0 = fs / ((min_period + i) as f64 + shift);
-                let bin = round_half_even((12 * BINS_PER_SEMITONE) as f64 * (f0 / fmin).log2()).max(0.0) as usize;
+                let bin = round_half_even((12 * BINS_PER_SEMITONE) as f64 * (f0 / fmin).log2())
+                    .max(0.0) as usize;
                 if bin < bins {
                     self.log_obs[bin] = p;
                     candidates[bin] = f0;
@@ -496,7 +584,11 @@ impl<T: Float> PitchTracker<T> {
 /// Rounds to the nearest integer, ties to even (numpy's and Python's `round`).
 fn round_half_even(x: f64) -> f64 {
     let r = x.round();
-    if (x - x.trunc()).abs() == 0.5 && r % 2.0 != 0.0 { r - x.signum() } else { r }
+    if (x - x.trunc()).abs() == 0.5 && r % 2.0 != 0.0 {
+        r - x.signum()
+    } else {
+        r
+    }
 }
 
 impl<T: Float> Processor<T> for PitchTracker<T> {
@@ -523,24 +615,41 @@ mod tests {
     /// A saw at `f` Hz with `noise` of white noise added (relative to the saw's level).
     fn voice(f: f64, seconds: f64, noise: f64, seed: u64) -> Vec<f64> {
         let n = (seconds * FS) as usize;
-        Oscillator::new(Waveform::Saw, f, FS).zip(Noise::<f64>::new(seed)).take(n).map(|(s, w)| 0.5 * s + 0.5 * noise * w).collect()
+        Oscillator::new(Waveform::Saw, f, FS)
+            .zip(Noise::<f64>::new(seed))
+            .take(n)
+            .map(|(s, w)| 0.5 * s + 0.5 * noise * w)
+            .collect()
     }
 
     #[test]
     fn tracks_tones_and_marks_noise_and_silence_unvoiced() {
         let mut signal = vec![0.0; (0.3 * FS) as usize];
         signal.extend(voice(110.0, 0.6, 0.0, 1));
-        signal.extend(Noise::<f64>::new(2).take((0.4 * FS) as usize).map(|x| 0.3 * x));
+        signal.extend(
+            Noise::<f64>::new(2)
+                .take((0.4 * FS) as usize)
+                .map(|x| 0.3 * x),
+        );
         signal.extend(voice(330.0, 0.6, 0.0, 3));
         let t = PitchTracker::new(60.0, 800.0, FS);
         let hop = t.hop() as f64 / FS;
         let track = t.track(&signal);
         // judged away from the edges, where frames straddle two segments
         let at = |s: f64| &track[(s / hop) as usize];
-        for (s, want) in [(0.15, None), (0.6, Some(110.0)), (1.1, None), (1.6, Some(330.0))] {
+        for (s, want) in [
+            (0.15, None),
+            (0.6, Some(110.0)),
+            (1.1, None),
+            (1.6, Some(330.0)),
+        ] {
             let v = at(s);
             match (want, v.frequency) {
-                (None, None) => assert!(v.probability < 0.2, "{s} s: unvoiced with probability {}", v.probability),
+                (None, None) => assert!(
+                    v.probability < 0.2,
+                    "{s} s: unvoiced with probability {}",
+                    v.probability
+                ),
                 (Some(f), Some(got)) => {
                     assert!(cents(got, f).abs() < 5.0, "{s} s: {got} Hz, want {f}");
                     // a saw's whole-frame difference doesn't reach zero at its period, so not all
@@ -557,14 +666,24 @@ mod tests {
         // 85 Hz under noise half its level: YIN's fixed threshold rejects most frames
         let signal = voice(85.0, 1.0, 0.9, 7);
         let mut yin = crate::analysis::PitchDetector::new(60.0, 800.0, FS);
-        let frames: Vec<&[f64]> = signal.chunks(yin.frame_len()).filter(|c| c.len() == yin.frame_len()).collect();
-        let yin_voiced = frames.iter().filter(|f| yin.detect(f).is_some()).count() as f64 / frames.len() as f64;
+        let frames: Vec<&[f64]> = signal
+            .chunks(yin.frame_len())
+            .filter(|c| c.len() == yin.frame_len())
+            .collect();
+        let yin_voiced =
+            frames.iter().filter(|f| yin.detect(f).is_some()).count() as f64 / frames.len() as f64;
         let track = PitchTracker::new(60.0, 800.0, FS).track(&signal);
         let settled = &track[8..track.len() - 8];
         let voiced: Vec<f64> = settled.iter().filter_map(|v| v.frequency).collect();
         let share = voiced.len() as f64 / settled.len() as f64;
-        assert!(share > 0.95 && share > yin_voiced + 0.3, "pYIN voiced {share}, YIN {yin_voiced}");
-        let worst = voiced.iter().map(|&f| cents(f, 85.0).abs()).fold(0.0, f64::max);
+        assert!(
+            share > 0.95 && share > yin_voiced + 0.3,
+            "pYIN voiced {share}, YIN {yin_voiced}"
+        );
+        let worst = voiced
+            .iter()
+            .map(|&f| cents(f, 85.0).abs())
+            .fold(0.0, f64::max);
         assert!(worst < 30.0, "worst {worst} cents off 85 Hz");
     }
 
@@ -592,12 +711,23 @@ mod tests {
         assert_eq!(before_finish, offline.len() - t.lag());
         t.finish(|v| live.push(v));
         assert!(live.iter().enumerate().all(|(i, v)| v.frame == i as u64));
-        let same = live.iter().zip(&offline).filter(|(a, b)| a.frequency.is_some() == b.frequency.is_some()).count();
-        assert!(same as f64 >= 0.97 * offline.len() as f64, "voicing agrees on {same} of {}", offline.len());
+        let same = live
+            .iter()
+            .zip(&offline)
+            .filter(|(a, b)| a.frequency.is_some() == b.frequency.is_some())
+            .count();
+        assert!(
+            same as f64 >= 0.97 * offline.len() as f64,
+            "voicing agrees on {same} of {}",
+            offline.len()
+        );
     }
 
     #[test]
     fn round_half_even_matches_numpy() {
-        assert_eq!([0.5, 1.5, 2.5, -0.5, -1.5, 2.4, 2.6].map(round_half_even), [0.0, 2.0, 2.0, -0.0, -2.0, 2.0, 3.0]);
+        assert_eq!(
+            [0.5, 1.5, 2.5, -0.5, -1.5, 2.4, 2.6].map(round_half_even),
+            [0.0, 2.0, 2.0, -0.0, -2.0, 2.0, 3.0]
+        );
     }
 }

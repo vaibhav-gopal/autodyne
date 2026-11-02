@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the gain stage.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo, ParamUnit};
 use crate::params::ParamUnit::{Decibels, Fraction};
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo, ParamUnit};
 
 parameterized!(Gain, "Gain",
     infos: |_s| [ParamInfo::new("gain_db", "Gain", Decibels, -60.0, 24.0, 0.0).smoothed_internally()],

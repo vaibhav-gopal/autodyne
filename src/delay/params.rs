@@ -1,8 +1,8 @@
 //! The host-facing parameters ([`Parameterized`](crate::params::Parameterized)) of the echo.
 
 use super::*;
-use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 use crate::params::ParamUnit::{Fraction, Seconds};
+use crate::params::{from_f64, parameterized, to_f64, ParamInfo};
 
 parameterized!(Echo, "Echo",
     infos: |s| [

@@ -1,8 +1,8 @@
 //! The analytic signal (`scipy.signal.hilbert`): a real signal plus `i` times its Hilbert
 //! transform, whose magnitude is the envelope and whose angle is the instantaneous phase.
 
-use crate::alloc_prelude::*;
 use super::SpectralError;
+use crate::alloc_prelude::*;
 use crate::fft::{Fft, RealFft};
 use crate::signal::{lanes_f64, NdArray, NdView};
 use crate::units::*;
@@ -21,11 +21,17 @@ use crate::units::*;
 /// let z = hilbert(x.view(), 0, None).unwrap();
 /// assert!(z.as_slice().iter().all(|z| (z.norm() - 1.0).abs() < 1e-12));
 /// ```
-pub fn hilbert<T: Float + Default>(x: NdView<'_, T>, axis: usize, n: Option<usize>) -> Result<NdArray<Complex<T>>, SpectralError> {
+pub fn hilbert<T: Float + Default>(
+    x: NdView<'_, T>,
+    axis: usize,
+    n: Option<usize>,
+) -> Result<NdArray<Complex<T>>, SpectralError> {
     let lanes = lanes_f64(&x, axis)?;
     let n = n.unwrap_or(x.shape()[axis]);
     if n == 0 {
-        return Err(SpectralError::invalid("the transform length must be positive"));
+        return Err(SpectralError::invalid(
+            "the transform length must be positive",
+        ));
     }
     let mut shape = x.shape().to_vec();
     shape[axis] = n;

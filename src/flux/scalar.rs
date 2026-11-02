@@ -40,19 +40,45 @@ pub(crate) enum Binary {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) enum Inst {
-    Const { dst: u32, value: f64 },
-    Unary { dst: u32, op: Unary, a: u32 },
-    Binary { dst: u32, op: Binary, a: u32, b: u32 },
+    Const {
+        dst: u32,
+        value: f64,
+    },
+    Unary {
+        dst: u32,
+        op: Unary,
+        a: u32,
+    },
+    Binary {
+        dst: u32,
+        op: Binary,
+        a: u32,
+        b: u32,
+    },
     /// `if m != 0 { a } else { b }`.
-    Select { dst: u32, m: u32, a: u32, b: u32 },
+    Select {
+        dst: u32,
+        m: u32,
+        a: u32,
+        b: u32,
+    },
     /// `a * b + c`, rounded once (from [`Program::contract`]).
-    MulAdd { dst: u32, a: u32, b: u32, c: u32 },
+    MulAdd {
+        dst: u32,
+        a: u32,
+        b: u32,
+        c: u32,
+    },
 }
 
 impl Inst {
     pub fn dst(&self) -> u32 {
         match *self {
-            Inst::Const { dst, .. } | Inst::Unary { dst, .. } | Inst::Binary { dst, .. } | Inst::Select { dst, .. } | Inst::MulAdd { dst, .. } => dst,
+            Inst::Const { dst, .. }
+            | Inst::Unary { dst, .. }
+            | Inst::Binary { dst, .. }
+            | Inst::Select { dst, .. }
+            | Inst::MulAdd { dst, .. } => dst,
         }
     }
     fn operands(&self) -> Vec<u32> {
@@ -95,8 +121,27 @@ impl Program {
             if !single(&node.shape) || node.kind == Kind::Complex {
                 return None;
             }
-            let un = |op, a: u32| (Inst::Unary { dst: 0, op, a: reg[a as usize] }, fixed[a as usize]);
-            let bin = |op, a: u32, b: u32| (Inst::Binary { dst: 0, op, a: reg[a as usize], b: reg[b as usize] }, fixed[a as usize] && fixed[b as usize]);
+            let un = |op, a: u32| {
+                (
+                    Inst::Unary {
+                        dst: 0,
+                        op,
+                        a: reg[a as usize],
+                    },
+                    fixed[a as usize],
+                )
+            };
+            let bin = |op, a: u32, b: u32| {
+                (
+                    Inst::Binary {
+                        dst: 0,
+                        op,
+                        a: reg[a as usize],
+                        b: reg[b as usize],
+                    },
+                    fixed[a as usize] && fixed[b as usize],
+                )
+            };
             let (inst, invariant_value) = match node.op {
                 Op::Input(k) => {
                     reg[i] = k;
@@ -122,7 +167,13 @@ impl Program {
                     continue;
                 }
                 Op::Const(value) => (Inst::Const { dst: 0, value }, true),
-                Op::Literal(ref data) => (Inst::Const { dst: 0, value: data[0] }, true),
+                Op::Literal(ref data) => (
+                    Inst::Const {
+                        dst: 0,
+                        value: data[0],
+                    },
+                    true,
+                ),
                 Op::Neg(a) => un(Unary::Neg, a),
                 Op::Exp(a) => un(Unary::Exp, a),
                 Op::Log(a) => un(Unary::Log, a),
@@ -143,7 +194,12 @@ impl Program {
                 Op::Compare(Cmp::Gt, a, b) => bin(Binary::Gt, a, b),
                 Op::Compare(Cmp::Eq, a, b) => bin(Binary::Eq, a, b),
                 Op::Select(m, a, b) => (
-                    Inst::Select { dst: 0, m: reg[m as usize], a: reg[a as usize], b: reg[b as usize] },
+                    Inst::Select {
+                        dst: 0,
+                        m: reg[m as usize],
+                        a: reg[a as usize],
+                        b: reg[b as usize],
+                    },
                     fixed[m as usize] && fixed[a as usize] && fixed[b as usize],
                 ),
                 _ => return None,
@@ -159,7 +215,11 @@ impl Program {
             };
             reg[i] = dst;
             fixed[i] = invariant_value;
-            if invariant_value { prologue.push(inst) } else { body.push(inst) }
+            if invariant_value {
+                prologue.push(inst)
+            } else {
+                body.push(inst)
+            }
         }
         Some(Program {
             inputs: graph.inputs.len(),
@@ -177,39 +237,77 @@ impl Program {
     pub fn contract(&self) -> Program {
         let mut uses = vec![0u32; self.registers];
         for inst in self.prologue.iter().chain(&self.body) {
-            inst.operands().into_iter().for_each(|r| uses[r as usize] += 1);
+            inst.operands()
+                .into_iter()
+                .for_each(|r| uses[r as usize] += 1);
         }
         self.outputs.iter().for_each(|&r| uses[r as usize] += 1);
         let mut registers = self.registers as u32;
         let mut fuse = |code: &[Inst]| -> Vec<Inst> {
-            let product = |r: u32| code.iter().find_map(|i| match *i {
-                Inst::Binary { dst, op: Binary::Mul, a, b } if dst == r && uses[r as usize] == 1 => Some((a, b)),
-                _ => None,
-            });
+            let product = |r: u32| {
+                code.iter().find_map(|i| match *i {
+                    Inst::Binary {
+                        dst,
+                        op: Binary::Mul,
+                        a,
+                        b,
+                    } if dst == r && uses[r as usize] == 1 => Some((a, b)),
+                    _ => None,
+                })
+            };
             let mut fused = vec![false; registers as usize];
             let mut out = Vec::with_capacity(code.len());
             for inst in code {
                 match *inst {
-                    Inst::Binary { dst, op: Binary::Add, a, b } => {
+                    Inst::Binary {
+                        dst,
+                        op: Binary::Add,
+                        a,
+                        b,
+                    } => {
                         if let Some((x, y)) = product(a) {
                             fused[a as usize] = true;
-                            out.push(Inst::MulAdd { dst, a: x, b: y, c: b });
+                            out.push(Inst::MulAdd {
+                                dst,
+                                a: x,
+                                b: y,
+                                c: b,
+                            });
                         } else if let Some((x, y)) = product(b) {
                             fused[b as usize] = true;
-                            out.push(Inst::MulAdd { dst, a: x, b: y, c: a });
+                            out.push(Inst::MulAdd {
+                                dst,
+                                a: x,
+                                b: y,
+                                c: a,
+                            });
                         } else {
                             out.push(*inst);
                         }
                     }
-                    Inst::Binary { dst, op: Binary::Sub, a, b } if product(a).is_some() => {
+                    Inst::Binary {
+                        dst,
+                        op: Binary::Sub,
+                        a,
+                        b,
+                    } if product(a).is_some() => {
                         // a * b - c = a * b + (-c), the negation exact
                         let (x, y) = product(a).expect("checked");
                         fused[a as usize] = true;
                         let neg = registers;
                         registers += 1;
                         fused.push(false);
-                        out.push(Inst::Unary { dst: neg, op: Unary::Neg, a: b });
-                        out.push(Inst::MulAdd { dst, a: x, b: y, c: neg });
+                        out.push(Inst::Unary {
+                            dst: neg,
+                            op: Unary::Neg,
+                            a: b,
+                        });
+                        out.push(Inst::MulAdd {
+                            dst,
+                            a: x,
+                            b: y,
+                            c: neg,
+                        });
                     }
                     _ => out.push(*inst),
                 }
@@ -220,7 +318,14 @@ impl Program {
         };
         let prologue = fuse(&self.prologue);
         let body = fuse(&self.body);
-        Program { inputs: self.inputs, invariant: self.invariant, registers: registers as usize, prologue, body, outputs: self.outputs.clone() }
+        Program {
+            inputs: self.inputs,
+            invariant: self.invariant,
+            registers: registers as usize,
+            prologue,
+            body,
+            outputs: self.outputs.clone(),
+        }
     }
 
     /// Runs `code` on the registers.
@@ -259,8 +364,16 @@ impl Program {
                         Binary::Eq => mask(x == y),
                     };
                 }
-                Inst::Select { dst, m, a, b } => r[dst as usize] = if r[m as usize] != T::_ZERO { r[a as usize] } else { r[b as usize] },
-                Inst::MulAdd { dst, a, b, c } => r[dst as usize] = mul_add(r[a as usize], r[b as usize], r[c as usize]),
+                Inst::Select { dst, m, a, b } => {
+                    r[dst as usize] = if r[m as usize] != T::_ZERO {
+                        r[a as usize]
+                    } else {
+                        r[b as usize]
+                    }
+                }
+                Inst::MulAdd { dst, a, b, c } => {
+                    r[dst as usize] = mul_add(r[a as usize], r[b as usize], r[c as usize])
+                }
             }
         }
     }
@@ -270,10 +383,18 @@ impl Program {
 #[inline]
 pub(crate) fn mul_add<T: FluxFloat>(a: T, b: T, c: T) -> T {
     use std::any::Any;
-    if let (Some(&a), Some(&b), Some(&c)) = ((&a as &dyn Any).downcast_ref::<f32>(), (&b as &dyn Any).downcast_ref::<f32>(), (&c as &dyn Any).downcast_ref::<f32>()) {
+    if let (Some(&a), Some(&b), Some(&c)) = (
+        (&a as &dyn Any).downcast_ref::<f32>(),
+        (&b as &dyn Any).downcast_ref::<f32>(),
+        (&c as &dyn Any).downcast_ref::<f32>(),
+    ) {
         return T::_lit(a.mul_add(b, c) as f64);
     }
-    let (a, b, c) = (a.to_f64().unwrap_or(f64::NAN), b.to_f64().unwrap_or(f64::NAN), c.to_f64().unwrap_or(f64::NAN));
+    let (a, b, c) = (
+        a.to_f64().unwrap_or(f64::NAN),
+        b.to_f64().unwrap_or(f64::NAN),
+        c.to_f64().unwrap_or(f64::NAN),
+    );
     T::_lit(a.mul_add(b, c))
 }
 
@@ -296,10 +417,27 @@ pub(crate) struct ScalarScan {
 }
 
 impl ScalarScan {
-    pub fn compile(step: &Graph, step_fwd: &Graph, step_bwd: &Graph, step_vjp: &Graph, params: usize, states: usize, residuals: usize) -> Option<Arc<ScalarScan>> {
-        let (step, step_fwd, step_bwd, step_vjp) =
-            (Program::compile(step, params)?, Program::compile(step_fwd, params)?, Program::compile(step_bwd, params)?, Program::compile(step_vjp, params)?);
-        let contracted = [step.contract(), step_fwd.contract(), step_bwd.contract(), step_vjp.contract()];
+    pub fn compile(
+        step: &Graph,
+        step_fwd: &Graph,
+        step_bwd: &Graph,
+        step_vjp: &Graph,
+        params: usize,
+        states: usize,
+        residuals: usize,
+    ) -> Option<Arc<ScalarScan>> {
+        let (step, step_fwd, step_bwd, step_vjp) = (
+            Program::compile(step, params)?,
+            Program::compile(step_fwd, params)?,
+            Program::compile(step_bwd, params)?,
+            Program::compile(step_vjp, params)?,
+        );
+        let contracted = [
+            step.contract(),
+            step_fwd.contract(),
+            step_bwd.contract(),
+            step_vjp.contract(),
+        ];
         Some(Arc::new(ScalarScan {
             params,
             states,
@@ -330,7 +468,8 @@ impl ScalarScan {
     #[cfg(feature = "jit")]
     pub(crate) fn native<T: FluxFloat>(&self, contract: bool) -> Option<&super::jit::Jit> {
         let cell = &self.jit[usize::from(size_of::<T>() == 8) * 2 + usize::from(contract)];
-        cell.get_or_init(|| super::jit::Jit::compile::<T>(self, contract).map(Arc::new)).as_deref()
+        cell.get_or_init(|| super::jit::Jit::compile::<T>(self, contract).map(Arc::new))
+            .as_deref()
     }
 
     /// Registers holding the parameters, with the prologue run.
@@ -342,7 +481,13 @@ impl ScalarScan {
     }
 
     /// The outputs and the final state.
-    pub fn run<T: FluxFloat>(&self, params: &[T], xs: &[T], s0: &[T], contract: bool) -> (Vec<T>, Vec<T>) {
+    pub fn run<T: FluxFloat>(
+        &self,
+        params: &[T],
+        xs: &[T],
+        s0: &[T],
+        contract: bool,
+    ) -> (Vec<T>, Vec<T>) {
         #[cfg(feature = "jit")]
         if let Some(jit) = self.native::<T>(contract) {
             let mut state = s0.to_vec();
@@ -350,7 +495,14 @@ impl ScalarScan {
             // SAFETY: the buffers have the sizes the compiled loop reads and writes, and it writes
             // every output step
             unsafe {
-                jit.run::<T>()(params.as_ptr(), state.as_mut_ptr(), xs.as_ptr(), ys.as_mut_ptr(), std::ptr::null_mut(), xs.len());
+                jit.run::<T>()(
+                    params.as_ptr(),
+                    state.as_mut_ptr(),
+                    xs.as_ptr(),
+                    ys.as_mut_ptr(),
+                    std::ptr::null_mut(),
+                    xs.len(),
+                );
                 ys.set_len(xs.len());
             }
             return (ys, state);
@@ -374,7 +526,14 @@ impl ScalarScan {
 
     /// The outputs, and for each step its input state followed by its residuals (none when
     /// `checkpointed`).
-    pub fn forward<T: FluxFloat>(&self, params: &[T], xs: &[T], s0: &[T], checkpointed: bool, contract: bool) -> (Vec<T>, Vec<T>) {
+    pub fn forward<T: FluxFloat>(
+        &self,
+        params: &[T],
+        xs: &[T],
+        s0: &[T],
+        checkpointed: bool,
+        contract: bool,
+    ) -> (Vec<T>, Vec<T>) {
         #[cfg(feature = "jit")]
         if let Some(jit) = self.native::<T>(contract) {
             let per = self.states + if checkpointed { 0 } else { self.residuals };
@@ -383,7 +542,14 @@ impl ScalarScan {
             let mut saved = Vec::with_capacity(xs.len() * per);
             // SAFETY: as in `run`; every step's saved values are written too
             unsafe {
-                jit.forward::<T>(checkpointed)(params.as_ptr(), state.as_mut_ptr(), xs.as_ptr(), ys.as_mut_ptr(), saved.as_mut_ptr(), xs.len());
+                jit.forward::<T>(checkpointed)(
+                    params.as_ptr(),
+                    state.as_mut_ptr(),
+                    xs.as_ptr(),
+                    ys.as_mut_ptr(),
+                    saved.as_mut_ptr(),
+                    xs.len(),
+                );
                 ys.set_len(xs.len());
                 saved.set_len(xs.len() * per);
             }
@@ -391,7 +557,11 @@ impl ScalarScan {
         }
         let (p, s) = (self.params, self.states);
         let [step, step_fwd, ..] = self.programs(contract);
-        let (program, r_count) = if checkpointed { (step, 0) } else { (step_fwd, self.residuals) };
+        let (program, r_count) = if checkpointed {
+            (step, 0)
+        } else {
+            (step_fwd, self.residuals)
+        };
         let mut r = Self::registers(program, params);
         let mut state = s0.to_vec();
         let mut ys = Vec::with_capacity(xs.len());
@@ -405,13 +575,25 @@ impl ScalarScan {
                 *v = r[program.outputs[k] as usize];
             }
             ys.push(r[program.outputs[s] as usize]);
-            saved.extend(program.outputs[s + 1..s + 1 + r_count].iter().map(|&o| r[o as usize]));
+            saved.extend(
+                program.outputs[s + 1..s + 1 + r_count]
+                    .iter()
+                    .map(|&o| r[o as usize]),
+            );
         }
         (ys, saved)
     }
 
     /// The reverse scan: the cotangents of the parameters, the initial state and the samples.
-    pub fn backward<T: FluxFloat>(&self, params: &[T], xs: &[T], saved: &[T], dys: &[T], checkpointed: bool, contract: bool) -> (Vec<T>, Vec<T>, Vec<T>) {
+    pub fn backward<T: FluxFloat>(
+        &self,
+        params: &[T],
+        xs: &[T],
+        saved: &[T],
+        dys: &[T],
+        checkpointed: bool,
+        contract: bool,
+    ) -> (Vec<T>, Vec<T>, Vec<T>) {
         #[cfg(feature = "jit")]
         if let Some(jit) = self.native::<T>(contract) {
             let mut d_params = vec![T::_ZERO; self.params];
@@ -419,14 +601,27 @@ impl ScalarScan {
             let mut d_xs = Vec::with_capacity(xs.len());
             // SAFETY: as in `run`; every step's d x is written
             unsafe {
-                jit.backward::<T>(checkpointed)(params.as_ptr(), xs.as_ptr(), saved.as_ptr(), dys.as_ptr(), d_params.as_mut_ptr(), d_state.as_mut_ptr(), d_xs.as_mut_ptr(), xs.len());
+                jit.backward::<T>(checkpointed)(
+                    params.as_ptr(),
+                    xs.as_ptr(),
+                    saved.as_ptr(),
+                    dys.as_ptr(),
+                    d_params.as_mut_ptr(),
+                    d_state.as_mut_ptr(),
+                    d_xs.as_mut_ptr(),
+                    xs.len(),
+                );
                 d_xs.set_len(xs.len());
             }
             return (d_params, d_state, d_xs);
         }
         let (p, s) = (self.params, self.states);
         let [_, _, step_bwd, step_vjp] = self.programs(contract);
-        let (program, r_count) = if checkpointed { (step_vjp, 0) } else { (step_bwd, self.residuals) };
+        let (program, r_count) = if checkpointed {
+            (step_vjp, 0)
+        } else {
+            (step_bwd, self.residuals)
+        };
         let mut r = Self::registers(program, params);
         let mut d_params = vec![T::_ZERO; p];
         let mut d_state = vec![T::_ZERO; s];

@@ -269,22 +269,67 @@ mod tests {
             let gflops = |s: f64| 2.0 * n as f64 / s / 1e9;
             let mut row = format!("TIMING n {n}:");
             let mut add = |name: &str, s: f64| row.push_str(&format!(" {name} {:.1}", gflops(s)));
-            add("f32 base16", best(&mut || dot_kernel(&a32, &b32) as f64, reps));
+            add(
+                "f32 base16",
+                best(&mut || dot_kernel(&a32, &b32) as f64, reps),
+            );
             if avx2_available() {
-                add("avx2-16", best(&mut || unsafe { dot_avx2_lanes::<f32, 16>(&a32, &b32) } as f64, reps));
-                add("avx2-32", best(&mut || unsafe { dot_avx2_lanes::<f32, 32>(&a32, &b32) } as f64, reps));
+                add(
+                    "avx2-16",
+                    best(
+                        &mut || unsafe { dot_avx2_lanes::<f32, 16>(&a32, &b32) } as f64,
+                        reps,
+                    ),
+                );
+                add(
+                    "avx2-32",
+                    best(
+                        &mut || unsafe { dot_avx2_lanes::<f32, 32>(&a32, &b32) } as f64,
+                        reps,
+                    ),
+                );
             }
             if avx512_available() {
-                add("512-16", best(&mut || unsafe { dot_avx512_lanes::<f32, 16>(&a32, &b32) } as f64, reps));
-                add("512-64", best(&mut || unsafe { dot_avx512_lanes::<f32, 64>(&a32, &b32) } as f64, reps));
+                add(
+                    "512-16",
+                    best(
+                        &mut || unsafe { dot_avx512_lanes::<f32, 16>(&a32, &b32) } as f64,
+                        reps,
+                    ),
+                );
+                add(
+                    "512-64",
+                    best(
+                        &mut || unsafe { dot_avx512_lanes::<f32, 64>(&a32, &b32) } as f64,
+                        reps,
+                    ),
+                );
             }
             add("| f64 base16", best(&mut || dot_kernel(&a64, &b64), reps));
             if avx2_available() {
-                add("avx2-16", best(&mut || unsafe { dot_avx2_lanes::<f64, 16>(&a64, &b64) }, reps));
+                add(
+                    "avx2-16",
+                    best(
+                        &mut || unsafe { dot_avx2_lanes::<f64, 16>(&a64, &b64) },
+                        reps,
+                    ),
+                );
             }
             if avx512_available() {
-                add("512-16", best(&mut || unsafe { dot_avx512_lanes::<f64, 16>(&a64, &b64) }, reps));
-                add("512-32", best(&mut || unsafe { dot_avx512_lanes::<f64, 32>(&a64, &b64) }, reps));
+                add(
+                    "512-16",
+                    best(
+                        &mut || unsafe { dot_avx512_lanes::<f64, 16>(&a64, &b64) },
+                        reps,
+                    ),
+                );
+                add(
+                    "512-32",
+                    best(
+                        &mut || unsafe { dot_avx512_lanes::<f64, 32>(&a64, &b64) },
+                        reps,
+                    ),
+                );
             }
             eprintln!("{row} (GFLOP/s)");
         }
@@ -297,7 +342,10 @@ mod tests {
         for len in 0..300 {
             let (x, y) = (&a[..len], &b[..len]);
             assert!((dot(x, y) - naive(x, y)).abs() < 1e-12, "len {len}");
-            assert!((dot_kernel(x, y) - naive(x, y)).abs() < 1e-12, "baseline kernel, len {len}");
+            assert!(
+                (dot_kernel(x, y) - naive(x, y)).abs() < 1e-12,
+                "baseline kernel, len {len}"
+            );
         }
     }
 
@@ -314,7 +362,10 @@ mod tests {
     fn f32_agrees_with_f64() {
         let a: Vec<f64> = noise(3, 1000);
         let b: Vec<f64> = noise(4, 1000);
-        let (a32, b32): (Vec<f32>, Vec<f32>) = (a.iter().map(|&x| x as f32).collect(), b.iter().map(|&x| x as f32).collect());
+        let (a32, b32): (Vec<f32>, Vec<f32>) = (
+            a.iter().map(|&x| x as f32).collect(),
+            b.iter().map(|&x| x as f32).collect(),
+        );
         assert!((dot(&a32, &b32) as f64 - naive(&a, &b)).abs() < 1e-4);
     }
 

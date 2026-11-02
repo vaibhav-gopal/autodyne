@@ -29,7 +29,13 @@ pub fn k_weighting<T: Float>(sample_rate: T) -> [BiquadCoeffs<T>; 2] {
     let (f0, q) = (38.13547087602444, 0.5003270373238773);
     let k = (pi * f0 / fs).tan();
     let a0 = 1.0 + k / q + k * k;
-    let highpass = BiquadCoeffs { b0: c(1.0), b1: c(-2.0), b2: c(1.0), a1: c(2.0 * (k * k - 1.0) / a0), a2: c((1.0 - k / q + k * k) / a0) };
+    let highpass = BiquadCoeffs {
+        b0: c(1.0),
+        b1: c(-2.0),
+        b2: c(1.0),
+        a1: c(2.0 * (k * k - 1.0) / a0),
+        a2: c((1.0 - k / q + k * k) / a0),
+    };
     [shelf, highpass]
 }
 
@@ -58,20 +64,37 @@ impl<T: Float> TruePeak<T> {
     /// A detector for `sample_rate`: 4x oversampling below 88.2 kHz, 2x below 176.4 kHz, none above.
     pub fn new(sample_rate: T) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
-        let factor = if fs < 88_200.0 { 4 } else if fs < 176_400.0 { 2 } else { 1 };
+        let factor = if fs < 88_200.0 {
+            4
+        } else if fs < 176_400.0 {
+            2
+        } else {
+            1
+        };
         let mut taps = Vec::new();
         if factor > 1 {
             // odd length (one zero tap appended): the group delay is then a whole number of input
             // samples plus a whole phase, so the branches interpolate at exactly 1/factor steps
             // between the samples instead of straddling them
-            let mut h: Vec<f64> = design_lowpass(fs / 2.0, factor * TRUE_PEAK_TAPS - 1, fs * factor as f64);
+            let mut h: Vec<f64> =
+                design_lowpass(fs / 2.0, factor * TRUE_PEAK_TAPS - 1, fs * factor as f64);
             h.push(0.0);
             for phase in 0..factor {
                 // output phase p uses h[p + j * factor] on input x[n - j]
-                taps.extend((0..TRUE_PEAK_TAPS).rev().map(|j| T::_lit(h[phase + j * factor] * factor as f64)));
+                taps.extend(
+                    (0..TRUE_PEAK_TAPS)
+                        .rev()
+                        .map(|j| T::_lit(h[phase + j * factor] * factor as f64)),
+                );
             }
         }
-        Self { factor, taps, history: vec![T::_ZERO; 2 * TRUE_PEAK_TAPS], write: 0, peak: T::_ZERO }
+        Self {
+            factor,
+            taps,
+            history: vec![T::_ZERO; 2 * TRUE_PEAK_TAPS],
+            write: 0,
+            peak: T::_ZERO,
+        }
     }
     /// The oversampling factor (1, 2 or 4).
     pub fn factor(&self) -> usize {
@@ -80,7 +103,11 @@ impl<T: Float> TruePeak<T> {
     /// Input samples by which the interpolated points trail the input: they lie between the
     /// samples `latency()` and `latency() - 1` back (0 without oversampling).
     pub fn latency(&self) -> usize {
-        if self.factor == 1 { 0 } else { TRUE_PEAK_TAPS / 2 }
+        if self.factor == 1 {
+            0
+        } else {
+            TRUE_PEAK_TAPS / 2
+        }
     }
     /// The largest absolute value among this sample and the interpolated points just before it.
     #[inline]
@@ -99,7 +126,13 @@ impl<T: Float> TruePeak<T> {
         self.history[self.write + TRUE_PEAK_TAPS] = x;
         self.write = (self.write + 1) % TRUE_PEAK_TAPS;
         let recent = &self.history[self.write..self.write + TRUE_PEAK_TAPS];
-        self.taps.as_chunks::<TRUE_PEAK_TAPS>().0.iter().fold(T::_ZERO, |m, branch| m._max(crate::simd::dot(recent, branch)._abs()))
+        self.taps
+            .as_chunks::<TRUE_PEAK_TAPS>()
+            .0
+            .iter()
+            .fold(T::_ZERO, |m, branch| {
+                m._max(crate::simd::dot(recent, branch)._abs())
+            })
     }
     /// Measures `block`, raising the held [`peak`](Self::peak).
     pub fn push(&mut self, block: &[T]) {
@@ -158,7 +191,10 @@ struct Histogram {
 
 impl Histogram {
     fn new() -> Self {
-        Self { counts: vec![0; HISTOGRAM_BINS], energies: vec![0.0; HISTOGRAM_BINS] }
+        Self {
+            counts: vec![0; HISTOGRAM_BINS],
+            energies: vec![0.0; HISTOGRAM_BINS],
+        }
     }
     fn add(&mut self, mean_square: f64) {
         let l = loudness_of(mean_square);
@@ -174,7 +210,9 @@ impl Histogram {
     }
     /// First bin whose center lies above `loudness`.
     fn first_bin_above(loudness: f64) -> usize {
-        ((loudness - ABSOLUTE_GATE) / HISTOGRAM_STEP + 0.5).floor().clamp(0.0, HISTOGRAM_BINS as f64) as usize
+        ((loudness - ABSOLUTE_GATE) / HISTOGRAM_STEP + 0.5)
+            .floor()
+            .clamp(0.0, HISTOGRAM_BINS as f64) as usize
     }
     fn bin_center(bin: usize) -> f64 {
         ABSOLUTE_GATE + (bin as f64 + 0.5) * HISTOGRAM_STEP
@@ -186,7 +224,8 @@ impl Histogram {
     }
     /// The relative gate: blocks more than `relative_lu` below the absolute-gated mean are dropped.
     fn relative_start(&self, relative_lu: f64) -> Option<usize> {
-        self.mean_loudness(0).map(|l| Self::first_bin_above(l + relative_lu))
+        self.mean_loudness(0)
+            .map(|l| Self::first_bin_above(l + relative_lu))
     }
 }
 
@@ -259,7 +298,11 @@ impl<T: Float> LoudnessMeter<T> {
     }
     /// Measures every channel of `buffer`.
     pub fn process_buffer(&mut self, buffer: &AudioBuffer<T>) {
-        assert_eq!(buffer.channels(), self.channels(), "the buffer's channel count must match the meter's");
+        assert_eq!(
+            buffer.channels(),
+            self.channels(),
+            "the buffer's channel count must match the meter's"
+        );
         self.run(buffer.frames(), |c| buffer.channel(c));
     }
 
@@ -270,7 +313,12 @@ impl<T: Float> LoudnessMeter<T> {
         let mut start = 0;
         while start < frames {
             let n = (frames - start).min(self.step_len - self.step_fill);
-            for (c, ([shelf, highpass], peak)) in self.filters.iter_mut().zip(self.true_peaks.iter_mut()).enumerate() {
+            for (c, ([shelf, highpass], peak)) in self
+                .filters
+                .iter_mut()
+                .zip(self.true_peaks.iter_mut())
+                .enumerate()
+            {
                 let input = &channel(c)[start..start + n];
                 let mut sum = T::_ZERO;
                 for &x in input {
@@ -297,7 +345,12 @@ impl<T: Float> LoudnessMeter<T> {
         for f in &mut self.filters {
             f.iter_mut().for_each(|b| b.flush_denormals());
         }
-        let latest = |n: usize| (0..n).map(|i| self.steps[((self.step_count - 1 - i as u64) % ring as u64) as usize]).sum::<f64>() / n as f64;
+        let latest = |n: usize| {
+            (0..n)
+                .map(|i| self.steps[((self.step_count - 1 - i as u64) % ring as u64) as usize])
+                .sum::<f64>()
+                / n as f64
+        };
         if self.step_count >= 4 {
             // a 400 ms gating block every 100 ms (75% overlap)
             let block = latest(4);
@@ -333,7 +386,11 @@ impl<T: Float> LoudnessMeter<T> {
     /// and those more than 10 LU below the remaining average are left out), LUFS.
     pub fn integrated(&self) -> T {
         let start = self.blocks.relative_start(-10.0);
-        T::_lit(start.and_then(|s| self.blocks.mean_loudness(s)).unwrap_or(f64::NEG_INFINITY))
+        T::_lit(
+            start
+                .and_then(|s| self.blocks.mean_loudness(s))
+                .unwrap_or(f64::NEG_INFINITY),
+        )
     }
     /// Loudness range (EBU Tech 3342): the spread between the 10th and 95th percentiles of the
     /// short-term loudness, after gating 20 LU below its average, in LU. 0 until 3 s are measured.
@@ -361,7 +418,11 @@ impl<T: Float> LoudnessMeter<T> {
     }
     /// Highest true peak of any channel since the last reset, dBTP.
     pub fn true_peak_db(&self) -> T {
-        let peak = self.true_peaks.iter().map(TruePeak::peak).fold(T::_ZERO, |m, p| m._max(p));
+        let peak = self
+            .true_peaks
+            .iter()
+            .map(TruePeak::peak)
+            .fold(T::_ZERO, |m, p| m._max(p));
         T::_lit(20.0) * peak._log10()
     }
     /// Channel `channel`'s highest true peak since the last reset, dBTP.
@@ -386,7 +447,6 @@ impl<T: Float> LoudnessMeter<T> {
     }
 }
 
-
 impl<T: Float> MultiProcessor<T> for LoudnessMeter<T> {
     /// Measures `buffer` and leaves it unchanged.
     fn process(&mut self, buffer: &mut AudioBuffer<T>) {
@@ -409,7 +469,10 @@ mod tests {
             let mut remaining = (seconds * fs).round() as usize;
             let gain = 10f64.powf(db / 20.0);
             while remaining > 0 {
-                let block: Vec<f64> = (&mut sine).take(remaining.min(500)).map(|s| s * gain).collect();
+                let block: Vec<f64> = (&mut sine)
+                    .take(remaining.min(500))
+                    .map(|s| s * gain)
+                    .collect();
                 remaining -= block.len();
                 let channels = vec![block.as_slice(); meter.channels()];
                 meter.process(&channels);
@@ -433,7 +496,10 @@ mod tests {
             (highpass.a2, 0.99007225036621),
         ];
         for (i, (got, want)) in expected.into_iter().enumerate() {
-            assert!((got - want).abs() < 1e-8, "coefficient {i}: {got} vs {want}");
+            assert!(
+                (got - want).abs() < 1e-8,
+                "coefficient {i}: {got} vs {want}"
+            );
         }
     }
 
@@ -444,15 +510,26 @@ mod tests {
             for level in [-23.0, -33.0] {
                 let mut meter = LoudnessMeter::new(2, fs);
                 play(&mut meter, fs, &[(level, 6.0)]); // the standard plays 20 s; 6 covers the 3 s window twice
-                for (name, reading) in [("momentary", meter.momentary()), ("short-term", meter.short_term()), ("integrated", meter.integrated())] {
-                    assert!((reading - level).abs() < 0.1, "{fs} Hz {level} dBFS: {name} {reading}");
+                for (name, reading) in [
+                    ("momentary", meter.momentary()),
+                    ("short-term", meter.short_term()),
+                    ("integrated", meter.integrated()),
+                ] {
+                    assert!(
+                        (reading - level).abs() < 0.1,
+                        "{fs} Hz {level} dBFS: {name} {reading}"
+                    );
                 }
             }
         }
         // one channel carries half the power: 3 dB less
         let mut mono = LoudnessMeter::new(1, 48_000.0);
         play(&mut mono, 48_000.0, &[(-23.0, 5.0)]);
-        assert!((mono.integrated() + 26.01).abs() < 0.1, "{}", mono.integrated());
+        assert!(
+            (mono.integrated() + 26.01).abs() < 0.1,
+            "{}",
+            mono.integrated()
+        );
     }
 
     #[test]
@@ -460,23 +537,53 @@ mod tests {
         // Tech 3341 cases 3 and 4: the quiet parts fall below the relative (or absolute) gate
         let fs = 48_000.0;
         let mut meter = LoudnessMeter::new(2, fs);
-        play(&mut meter, fs, &[(-36.0, 10.0), (-23.0, 60.0), (-36.0, 10.0)]);
-        assert!((meter.integrated() + 23.0).abs() < 0.1, "{}", meter.integrated());
+        play(
+            &mut meter,
+            fs,
+            &[(-36.0, 10.0), (-23.0, 60.0), (-36.0, 10.0)],
+        );
+        assert!(
+            (meter.integrated() + 23.0).abs() < 0.1,
+            "{}",
+            meter.integrated()
+        );
         let mut meter = LoudnessMeter::new(2, fs);
-        play(&mut meter, fs, &[(-72.0, 10.0), (-36.0, 10.0), (-23.0, 60.0), (-36.0, 10.0), (-72.0, 10.0)]);
-        assert!((meter.integrated() + 23.0).abs() < 0.1, "{}", meter.integrated());
+        play(
+            &mut meter,
+            fs,
+            &[
+                (-72.0, 10.0),
+                (-36.0, 10.0),
+                (-23.0, 60.0),
+                (-36.0, 10.0),
+                (-72.0, 10.0),
+            ],
+        );
+        assert!(
+            (meter.integrated() + 23.0).abs() < 0.1,
+            "{}",
+            meter.integrated()
+        );
         assert!(meter.max_momentary() < -22.9 && meter.max_short_term() < -22.9);
         meter.reset();
         assert_eq!(meter.integrated(), f64::NEG_INFINITY, "nothing measured");
         play(&mut meter, fs, &[(-80.0, 2.0)]);
-        assert_eq!(meter.integrated(), f64::NEG_INFINITY, "below the absolute gate");
+        assert_eq!(
+            meter.integrated(),
+            f64::NEG_INFINITY,
+            "below the absolute gate"
+        );
     }
 
     #[test]
     fn loudness_range_spans_the_levels() {
         // Tech 3342 cases 1 and 2: 20 s at one level, then 20 s at another
         let fs = 48_000.0;
-        for (a, b, range) in [(-20.0, -30.0, 10.0), (-20.0, -15.0, 5.0), (-40.0, -20.0, 20.0)] {
+        for (a, b, range) in [
+            (-20.0, -30.0, 10.0),
+            (-20.0, -15.0, 5.0),
+            (-40.0, -20.0, 20.0),
+        ] {
             let mut meter = LoudnessMeter::new(2, fs);
             play(&mut meter, fs, &[(a, 20.0), (b, 20.0)]);
             let lra = meter.loudness_range();
@@ -489,17 +596,29 @@ mod tests {
         // a quarter-rate sine sampled 45 degrees off its peaks: samples reach 0.707, the wave 1.0
         for fs in [44_100.0, 48_000.0, 96_000.0, 192_000.0] {
             let mut tp = TruePeak::new(fs);
-            let x: Vec<f64> = (0..4_800).map(|n| (std::f64::consts::FRAC_PI_2 * n as f64 + std::f64::consts::FRAC_PI_4).sin()).collect();
+            let x: Vec<f64> = (0..4_800)
+                .map(|n| {
+                    (std::f64::consts::FRAC_PI_2 * n as f64 + std::f64::consts::FRAC_PI_4).sin()
+                })
+                .collect();
             tp.push(&x);
             if tp.factor() > 1 {
                 assert!(tp.peak_db().abs() < 0.2, "{fs} Hz: {} dBTP", tp.peak_db());
             } else {
-                assert!((tp.peak_db() + 3.01).abs() < 0.01, "no oversampling at 192 kHz");
+                assert!(
+                    (tp.peak_db() + 3.01).abs() < 0.01,
+                    "no oversampling at 192 kHz"
+                );
             }
         }
         // in band, the reading is exact
         let mut tp = TruePeak::new(48_000.0);
-        tp.push(&Sine::new(997.0, 48_000.0).take(48_000).map(|s| 0.5 * s).collect::<Vec<f64>>());
+        tp.push(
+            &Sine::new(997.0, 48_000.0)
+                .take(48_000)
+                .map(|s| 0.5 * s)
+                .collect::<Vec<f64>>(),
+        );
         assert!((tp.peak_db() + 6.0206).abs() < 0.02, "{}", tp.peak_db());
         // the meter reports the loudest channel
         let mut meter = LoudnessMeter::new(2, 48_000.0);

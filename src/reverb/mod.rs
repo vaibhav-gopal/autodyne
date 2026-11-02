@@ -8,9 +8,9 @@
 //! tend: Audio / reverb
 
 use crate::alloc_prelude::*;
-mod params;
 mod convolver;
 mod fdn;
+mod params;
 
 pub use convolver::*;
 pub use fdn::*;
@@ -54,6 +54,9 @@ mod tests {
         // the last 10% sits ~54 dB below the first 10% (60 dB over the length, 10% windows)
         let drop_db = 20.0 * (early / late).log10();
         assert!((drop_db - 54.0).abs() < 4.0, "{drop_db:.1} dB");
-        assert_ne!(synthetic_ir::<f32>(0.1, 48_000.0, 1), synthetic_ir::<f32>(0.1, 48_000.0, 2));
+        assert_ne!(
+            synthetic_ir::<f32>(0.1, 48_000.0, 1),
+            synthetic_ir::<f32>(0.1, 48_000.0, 2)
+        );
     }
 }

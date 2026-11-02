@@ -22,15 +22,26 @@ impl<T: Float> LinkwitzRiley<T> {
     pub fn new(frequency: T, sample_rate: T) -> Self {
         let f = clamp_frequency(frequency, sample_rate);
         let q = T::_lit(BUTTERWORTH_Q);
-        let (lp, hp) = (Biquad::lowpass(f, q, sample_rate), Biquad::highpass(f, q, sample_rate));
-        Self { frequency: f, sample_rate, low: [lp; 2], high: [hp; 2] }
+        let (lp, hp) = (
+            Biquad::lowpass(f, q, sample_rate),
+            Biquad::highpass(f, q, sample_rate),
+        );
+        Self {
+            frequency: f,
+            sample_rate,
+            low: [lp; 2],
+            high: [hp; 2],
+        }
     }
     /// Moves the crossover, keeping the filters' state (no click).
     pub fn set_frequency(&mut self, hz: T) {
         let f = clamp_frequency(hz, self.sample_rate);
         self.frequency = f;
         let q = T::_lit(BUTTERWORTH_Q);
-        let (lp, hp) = (BiquadCoeffs::lowpass(f, q, self.sample_rate), BiquadCoeffs::highpass(f, q, self.sample_rate));
+        let (lp, hp) = (
+            BiquadCoeffs::lowpass(f, q, self.sample_rate),
+            BiquadCoeffs::highpass(f, q, self.sample_rate),
+        );
         self.low.iter_mut().for_each(|b| b.set_coeffs(lp));
         self.high.iter_mut().for_each(|b| b.set_coeffs(hp));
     }
@@ -41,15 +52,25 @@ impl<T: Float> LinkwitzRiley<T> {
     /// The all-pass that the two bands sum to: run it on signals that bypass this split, so they
     /// stay in phase with the ones that went through it.
     pub fn allpass(&self) -> Biquad<T> {
-        Biquad::new(BiquadCoeffs::allpass(self.frequency, T::_lit(BUTTERWORTH_Q), self.sample_rate))
+        Biquad::new(BiquadCoeffs::allpass(
+            self.frequency,
+            T::_lit(BUTTERWORTH_Q),
+            self.sample_rate,
+        ))
     }
     /// Clears the filters' state.
     pub fn reset(&mut self) {
-        self.low.iter_mut().chain(self.high.iter_mut()).for_each(Biquad::reset);
+        self.low
+            .iter_mut()
+            .chain(self.high.iter_mut())
+            .for_each(Biquad::reset);
     }
     /// Sets decayed filter states to exact zeros (see [`Biquad::flush_denormals`]).
     pub fn flush_denormals(&mut self) {
-        self.low.iter_mut().chain(self.high.iter_mut()).for_each(Biquad::flush_denormals);
+        self.low
+            .iter_mut()
+            .chain(self.high.iter_mut())
+            .for_each(Biquad::flush_denormals);
     }
     /// (low band, high band) of one sample.
     #[inline]
@@ -62,7 +83,10 @@ impl<T: Float> LinkwitzRiley<T> {
     }
     /// |H| of the (low, high) bands at `frequency`.
     pub fn magnitudes_at(&self, frequency: T) -> (T, T) {
-        let (l, h) = (self.low[0].magnitude_at(frequency, self.sample_rate), self.high[0].magnitude_at(frequency, self.sample_rate));
+        let (l, h) = (
+            self.low[0].magnitude_at(frequency, self.sample_rate),
+            self.high[0].magnitude_at(frequency, self.sample_rate),
+        );
         (l * l, h * h)
     }
 }
@@ -88,10 +112,26 @@ pub struct Crossover<T: Float> {
 impl<T: Float> Crossover<T> {
     /// One band more than `frequencies` (1 to MAX_BANDS - 1 of them, ascending). Panics otherwise.
     pub fn new(frequencies: &[T], sample_rate: T) -> Self {
-        assert!((1..MAX_BANDS).contains(&frequencies.len()), "a crossover takes 1 to {} frequencies", MAX_BANDS - 1);
-        assert!(frequencies.windows(2).all(|w| w[0] < w[1]), "crossover frequencies must ascend");
-        let lr = core::array::from_fn(|i| LinkwitzRiley::new(frequencies.get(i).copied().unwrap_or(T::_lit(1_000.0)), sample_rate));
-        let mut c = Self { splits: frequencies.len(), lr, compensation: [[lr[0].allpass(); MAX_BANDS - 1]; MAX_BANDS - 1] };
+        assert!(
+            (1..MAX_BANDS).contains(&frequencies.len()),
+            "a crossover takes 1 to {} frequencies",
+            MAX_BANDS - 1
+        );
+        assert!(
+            frequencies.windows(2).all(|w| w[0] < w[1]),
+            "crossover frequencies must ascend"
+        );
+        let lr = core::array::from_fn(|i| {
+            LinkwitzRiley::new(
+                frequencies.get(i).copied().unwrap_or(T::_lit(1_000.0)),
+                sample_rate,
+            )
+        });
+        let mut c = Self {
+            splits: frequencies.len(),
+            lr,
+            compensation: [[lr[0].allpass(); MAX_BANDS - 1]; MAX_BANDS - 1],
+        };
         c.redesign_compensation();
         c
     }
@@ -127,12 +167,18 @@ impl<T: Float> Crossover<T> {
     /// Clears every filter's state.
     pub fn reset(&mut self) {
         self.lr.iter_mut().for_each(LinkwitzRiley::reset);
-        self.compensation.iter_mut().flatten().for_each(Biquad::reset);
+        self.compensation
+            .iter_mut()
+            .flatten()
+            .for_each(Biquad::reset);
     }
     /// Call about once per block when splitting sample by sample: decayed states become exact zeros.
     pub fn flush_denormals(&mut self) {
         self.lr.iter_mut().for_each(LinkwitzRiley::flush_denormals);
-        self.compensation.iter_mut().flatten().for_each(Biquad::flush_denormals);
+        self.compensation
+            .iter_mut()
+            .flatten()
+            .for_each(Biquad::flush_denormals);
     }
     /// Splits one sample into `bands()` values (the rest of `out` is zeroed).
     #[inline]
@@ -160,7 +206,9 @@ mod tests {
     const FS: f64 = 48_000.0;
 
     fn sine(freq: f64, n: usize) -> Vec<f64> {
-        (0..n).map(|i| (std::f64::consts::TAU * freq * i as f64 / FS).sin()).collect()
+        (0..n)
+            .map(|i| (std::f64::consts::TAU * freq * i as f64 / FS).sin())
+            .collect()
     }
     fn rms(x: &[f64]) -> f64 {
         (x.iter().map(|s| s * s).sum::<f64>() / x.len() as f64).sqrt()
@@ -174,10 +222,13 @@ mod tests {
         for freq in [50.0, 700.0, 1_000.0, 1_400.0, 9_000.0] {
             let mut lr = LinkwitzRiley::new(1_000.0, FS);
             let x = sine(freq, 48_000);
-            let y: Vec<f64> = x.iter().map(|&s| {
-                let (l, h) = lr.split(s);
-                l + h
-            }).collect();
+            let y: Vec<f64> = x
+                .iter()
+                .map(|&s| {
+                    let (l, h) = lr.split(s);
+                    l + h
+                })
+                .collect();
             let gain_db = 20.0 * (rms(&y[24_000..]) / rms(&x[24_000..])).log10();
             assert!(gain_db.abs() < 1e-3, "{freq} Hz: {gain_db} dB");
         }
@@ -185,7 +236,11 @@ mod tests {
 
     #[test]
     fn multiband_splits_recombine_flat_and_separate() {
-        for frequencies in [&[1_000.0][..], &[200.0, 2_000.0], &[120.0, 1_000.0, 6_000.0]] {
+        for frequencies in [
+            &[1_000.0][..],
+            &[200.0, 2_000.0],
+            &[120.0, 1_000.0, 6_000.0],
+        ] {
             for freq in [40.0, 120.0, 400.0, 1_000.0, 3_000.0, 6_000.0, 15_000.0] {
                 let mut c = Crossover::new(frequencies, FS);
                 let x = sine(freq, 48_000);
@@ -200,10 +255,15 @@ mod tests {
                     sum[i] = out.iter().sum();
                 }
                 let gain_db = 20.0 * (rms(&sum[24_000..]) / rms(&x[24_000..])).log10();
-                assert!(gain_db.abs() < 1e-3, "{frequencies:?} at {freq} Hz: sum {gain_db} dB");
+                assert!(
+                    gain_db.abs() < 1e-3,
+                    "{frequencies:?} at {freq} Hz: sum {gain_db} dB"
+                );
                 // the tone lands mostly in its own band
                 let band_of = frequencies.iter().filter(|&&f| f < freq).count();
-                let loudest = (0..c.bands()).max_by(|&a, &b| rms(&bands[a][24_000..]).total_cmp(&rms(&bands[b][24_000..]))).unwrap();
+                let loudest = (0..c.bands())
+                    .max_by(|&a, &b| rms(&bands[a][24_000..]).total_cmp(&rms(&bands[b][24_000..])))
+                    .unwrap();
                 if frequencies.iter().all(|&f| (freq / f).log2().abs() > 0.5) {
                     assert_eq!(loudest, band_of, "{frequencies:?} at {freq} Hz");
                 }

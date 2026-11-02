@@ -21,12 +21,18 @@ impl<T: Float> SpringConfig<T> {
     /// A spring that completes an undamped oscillation in `response` seconds (`omega = 2π /
     /// response`), with `damping_ratio` (SwiftUI's and Framer's parameters).
     pub fn from_response(response: T, damping_ratio: T) -> Self {
-        SpringConfig { omega: T::_TAU / response, zeta: damping_ratio }
+        SpringConfig {
+            omega: T::_TAU / response,
+            zeta: damping_ratio,
+        }
     }
 
     /// A mass on a spring with a damper: `omega = sqrt(k / m)`, `zeta = c / (2 sqrt(k m))`.
     pub fn from_physical(stiffness: T, damping: T, mass: T) -> Self {
-        SpringConfig { omega: (stiffness / mass)._sqrt(), zeta: damping / (T::_lit(2.0) * (stiffness * mass)._sqrt()) }
+        SpringConfig {
+            omega: (stiffness / mass)._sqrt(),
+            zeta: damping / (T::_lit(2.0) * (stiffness * mass)._sqrt()),
+        }
     }
 
     /// The exact state transition over `dt`: with `x` the displacement from the target and `v` the
@@ -42,8 +48,21 @@ impl<T: Float> SpringConfig<T> {
         let qt2 = q * dt * dt;
         let (c, s) = if qt2._abs() < T::_lit(1e-2) {
             // c = Σ (q t²)^k / (2k)!, s = t Σ (q t²)^k / (2k + 1)!: four terms, error below 3e-13
-            let c = T::_ONE + qt2 * (T::_lit(0.5) + qt2 * (T::_lit(1.0 / 24.0) + qt2 * (T::_lit(1.0 / 720.0) + qt2 * T::_lit(1.0 / 40_320.0))));
-            let s = dt * (T::_ONE + qt2 * (T::_lit(1.0 / 6.0) + qt2 * (T::_lit(1.0 / 120.0) + qt2 * (T::_lit(1.0 / 5_040.0) + qt2 * T::_lit(1.0 / 362_880.0)))));
+            let c = T::_ONE
+                + qt2
+                    * (T::_lit(0.5)
+                        + qt2
+                            * (T::_lit(1.0 / 24.0)
+                                + qt2 * (T::_lit(1.0 / 720.0) + qt2 * T::_lit(1.0 / 40_320.0))));
+            let s = dt
+                * (T::_ONE
+                    + qt2
+                        * (T::_lit(1.0 / 6.0)
+                            + qt2
+                                * (T::_lit(1.0 / 120.0)
+                                    + qt2
+                                        * (T::_lit(1.0 / 5_040.0)
+                                            + qt2 * T::_lit(1.0 / 362_880.0)))));
             (c, s)
         } else if q > T::_ZERO {
             let w = q._sqrt();
@@ -57,7 +76,12 @@ impl<T: Float> SpringConfig<T> {
             (cos, sin / w)
         };
         let decay = (-a * dt)._exp();
-        [decay * (c + a * s), decay * s, -decay * self.omega * self.omega * s, decay * (c - a * s)]
+        [
+            decay * (c + a * s),
+            decay * s,
+            -decay * self.omega * self.omega * s,
+            decay * (c - a * s),
+        ]
     }
 }
 
@@ -180,13 +204,20 @@ impl<T: Float> Springs<T> {
         }
         for i in 0..self.position.len() {
             let m = self.matrices[self.config[i] as usize];
-            let (x, v, t) = (self.position[i] - self.target[i], self.velocity[i], self.target[i]);
+            let (x, v, t) = (
+                self.position[i] - self.target[i],
+                self.velocity[i],
+                self.target[i],
+            );
             self.position[i] = t + (m[0] * x + m[1] * v);
             self.velocity[i] = m[2] * x + m[3] * v;
         }
         self.settled.clear();
         for i in 0..self.position.len() {
-            if self.moving[i] && (self.position[i] - self.target[i])._abs() <= self.rest_distance && self.velocity[i]._abs() <= self.rest_speed {
+            if self.moving[i]
+                && (self.position[i] - self.target[i])._abs() <= self.rest_distance
+                && self.velocity[i]._abs() <= self.rest_speed
+            {
                 self.position[i] = self.target[i];
                 self.velocity[i] = T::_ZERO;
                 self.moving[i] = false;
@@ -241,19 +272,40 @@ mod tests {
     #[test]
     fn closed_forms_and_continuity_at_critical_damping() {
         // critically damped from rest at x0: x(t) = x0 (1 + ω t) e^(-ω t)
-        let c = SpringConfig { omega: 8.0, zeta: 1.0 };
+        let c = SpringConfig {
+            omega: 8.0,
+            zeta: 1.0,
+        };
         for t in [0.01, 0.1, 0.5, 2.0] {
             let (x, _) = apply(c.transition(t), (1.0, 0.0));
-            assert!((x - (1.0 + 8.0 * t) * (-8.0 * t).exp()).abs() < 1e-14, "t {t}");
+            assert!(
+                (x - (1.0 + 8.0 * t) * (-8.0 * t).exp()).abs() < 1e-14,
+                "t {t}"
+            );
         }
         // undamped: a pure cosine
-        let (x, v) = apply(SpringConfig { omega: 3.0, zeta: 0.0 }.transition(0.7), (1.0, 0.0));
+        let (x, v) = apply(
+            SpringConfig {
+                omega: 3.0,
+                zeta: 0.0,
+            }
+            .transition(0.7),
+            (1.0, 0.0),
+        );
         assert!((x - (2.1f64).cos()).abs() < 1e-14 && (v + 3.0 * (2.1f64).sin()).abs() < 1e-13);
         // the series and the closed forms agree where they meet
         for zeta in [1.0 - 1e-7, 1.0 + 1e-7, 1.0 - 0.05, 1.0 + 0.05] {
             let m = SpringConfig { omega: 10.0, zeta }.transition(0.2);
-            let crit = SpringConfig { omega: 10.0, zeta: 1.0 }.transition(0.2);
-            let gap = m.iter().zip(&crit).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            let crit = SpringConfig {
+                omega: 10.0,
+                zeta: 1.0,
+            }
+            .transition(0.2);
+            let gap = m
+                .iter()
+                .zip(&crit)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f64::max);
             assert!(gap < 2.0 * (zeta - 1.0f64).abs(), "zeta {zeta}: {gap}");
         }
     }
@@ -267,7 +319,10 @@ mod tests {
         for _ in 0..50 {
             s = apply(c.transition(0.01), s);
         }
-        assert!((s.0 - whole.0).abs() < 1e-13 && (s.1 - whole.1).abs() < 1e-12, "{s:?} vs {whole:?}");
+        assert!(
+            (s.0 - whole.0).abs() < 1e-13 && (s.1 - whole.1).abs() < 1e-12,
+            "{s:?} vs {whole:?}"
+        );
     }
 
     #[test]

@@ -58,20 +58,20 @@ mod stream;
 mod transform;
 
 pub use analysis::*;
-pub use array_math::{ArrayMath, ComplexArrayMath, RealArrayMath};
-pub use generic::{convolve, frames};
 pub(crate) use array_math::{
-    broadcast_in_dim, broadcast_to_any, concatenate_any, dot_operands, pad_any, reduce_axes_with, reshape_any, reverse_any, select_any, slice_any, sum_axes_with,
-    take_any, transpose_any,
+    broadcast_in_dim, broadcast_to_any, concatenate_any, dot_operands, pad_any, reduce_axes_with,
+    reshape_any, reverse_any, select_any, slice_any, sum_axes_with, take_any, transpose_any,
 };
 #[cfg(feature = "flux")]
 pub(crate) use array_math::{clamp_index, concat_shape, pad_shape, slice_shape};
+pub use array_math::{ArrayMath, ComplexArrayMath, RealArrayMath};
 pub use complex::*;
 pub use container::*;
-pub use convolution::*;
+pub(crate) use container::{extended, Edge};
 #[cfg(feature = "faer")]
 pub(crate) use convolution::correlate_valid;
-pub(crate) use container::{extended, Edge};
+pub use convolution::*;
+pub use generic::{convolve, frames};
 pub(crate) use nd_axis::lanes_f64;
 pub use nd_axis::{concatenate, stack};
 pub use nd_ops::*;

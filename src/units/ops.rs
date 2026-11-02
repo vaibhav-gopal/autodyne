@@ -1,12 +1,21 @@
 //! Operation traits the number types share: [`Bitwise`], exponentials and powers ([`ExpBasic`],
 //! [`ExpFloat`] ...) and [`Trig`].
 
-use core::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
 use super::*;
+use core::ops::{BitAnd, BitOr, BitXor, Not, Shl, Shr};
 
 // Marker traits
 /// Bit operations: not, and, or, xor and shifts.
-pub trait Bitwise: Not<Output = Self> + BitAnd<Output = Self> + BitOr<Output = Self> + BitXor<Output = Self> + Shl<Output = Self> + Shr<Output = Self> + Sized {}
+pub trait Bitwise:
+    Not<Output = Self>
+    + BitAnd<Output = Self>
+    + BitOr<Output = Self>
+    + BitXor<Output = Self>
+    + Shl<Output = Self>
+    + Shr<Output = Self>
+    + Sized
+{
+}
 
 /// Squares and square roots.
 pub trait ExpBasic: Unit {

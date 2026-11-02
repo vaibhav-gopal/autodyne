@@ -2,9 +2,9 @@
 //! (key and velocity ranges, round robin).
 
 use crate::alloc_prelude::*;
+use alloc::sync::Arc;
 use core::ops::RangeInclusive;
 use core::sync::atomic::{AtomicUsize, Ordering};
-use alloc::sync::Arc;
 
 use super::voice::{MAX_STRETCH, SINC_CUTOFF, SINC_ZEROS};
 use crate::filter::design_lowpass;
@@ -32,7 +32,12 @@ pub enum LoopMode {
 
 impl LoopMode {
     /// Every mode, in parameter order.
-    pub const ALL: [LoopMode; 4] = [LoopMode::Off, LoopMode::Forward, LoopMode::PingPong, LoopMode::Sustain];
+    pub const ALL: [LoopMode; 4] = [
+        LoopMode::Off,
+        LoopMode::Forward,
+        LoopMode::PingPong,
+        LoopMode::Sustain,
+    ];
     /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 4] = ["Off", "Forward", "Ping-pong", "Sustain"];
 }
@@ -78,7 +83,10 @@ impl<T: Float> Sample<T> {
     pub fn new(channels: Vec<Vec<T>>, sample_rate: T) -> Self {
         assert!(!channels.is_empty(), "a sample needs at least one channel");
         let frames = channels[0].len();
-        assert!(channels.iter().all(|c| c.len() == frames), "every channel needs the same length");
+        assert!(
+            channels.iter().all(|c| c.len() == frames),
+            "every channel needs the same length"
+        );
         let padded = channels
             .into_iter()
             .take(2)
@@ -90,7 +98,15 @@ impl<T: Float> Sample<T> {
                 v
             })
             .collect();
-        Self { levels: vec![Level { channels: padded, frames }], sample_rate: sample_rate.to_f64().unwrap_or(48_000.0), root_key: 60.0, looping: None }
+        Self {
+            levels: vec![Level {
+                channels: padded,
+                frames,
+            }],
+            sample_rate: sample_rate.to_f64().unwrap_or(48_000.0),
+            root_key: 60.0,
+            looping: None,
+        }
     }
     /// From one channel (see [`new`](Self::new)).
     pub fn from_mono(data: Vec<T>, sample_rate: T) -> Self {
@@ -105,7 +121,11 @@ impl<T: Float> Sample<T> {
             sample.root_key = root;
         }
         if let Some(l) = file.loops.first() {
-            let mode = if l.kind == WavLoopKind::PingPong { LoopMode::PingPong } else { LoopMode::Forward };
+            let mode = if l.kind == WavLoopKind::PingPong {
+                LoopMode::PingPong
+            } else {
+                LoopMode::Forward
+            };
             sample = sample.with_loop(l.start, l.end, mode, 0);
         }
         Ok(sample)
@@ -119,7 +139,12 @@ impl<T: Float> Sample<T> {
     /// loop length and to the frames before `start`.
     pub fn with_loop(mut self, start: usize, end: usize, mode: LoopMode, crossfade: usize) -> Self {
         let end = end.min(self.frames());
-        self.looping = (start < end && mode != LoopMode::Off).then(|| Loop { start, end, mode, crossfade: crossfade.min(end - start).min(start) });
+        self.looping = (start < end && mode != LoopMode::Off).then(|| Loop {
+            start,
+            end,
+            mode,
+            crossfade: crossfade.min(end - start).min(start),
+        });
         self
     }
     /// Removes the loop.
@@ -133,7 +158,10 @@ impl<T: Float> Sample<T> {
         let taps: Vec<f64> = design_lowpass(0.225, 127, 1.0);
         let center = taps.len() / 2;
         while self.levels.len() <= octaves {
-            let prev = self.levels.last().expect("a sample has its full-resolution level");
+            let prev = self
+                .levels
+                .last()
+                .expect("a sample has its full-resolution level");
             let frames = prev.frames.div_ceil(2);
             if frames < MIN_LEVEL_FRAMES {
                 break;
@@ -142,12 +170,22 @@ impl<T: Float> Sample<T> {
                 .channels
                 .iter()
                 .map(|data| {
-                    let x = |i: isize| if i >= 0 && (i as usize) < prev.frames { data[PAD + i as usize].to_f64().unwrap_or(0.0) } else { 0.0 };
+                    let x = |i: isize| {
+                        if i >= 0 && (i as usize) < prev.frames {
+                            data[PAD + i as usize].to_f64().unwrap_or(0.0)
+                        } else {
+                            0.0
+                        }
+                    };
                     let mut out = vec![T::_ZERO; frames + 2 * PAD];
                     for (m, o) in out[PAD..PAD + frames].iter_mut().enumerate() {
                         // centered low-pass at frame 2m, then keep every other frame
                         let at = (2 * m) as isize;
-                        let y: f64 = taps.iter().enumerate().map(|(j, h)| h * x(at + center as isize - j as isize)).sum();
+                        let y: f64 = taps
+                            .iter()
+                            .enumerate()
+                            .map(|(j, h)| h * x(at + center as isize - j as isize))
+                            .sum();
                         *o = T::_lit(y);
                     }
                     out
@@ -180,7 +218,11 @@ impl<T: Float> Sample<T> {
     /// Frame `i` of `channel` in the original resolution (0 outside the sample).
     pub fn frame(&self, channel: usize, i: usize) -> T {
         let level = &self.levels[0];
-        if i < level.frames { level.channels[channel][PAD + i] } else { T::_ZERO }
+        if i < level.frames {
+            level.channels[channel][PAD + i]
+        } else {
+            T::_ZERO
+        }
     }
 }
 
@@ -206,7 +248,15 @@ pub struct Zone<T: Float> {
 impl<T: Float> Zone<T> {
     /// Every key and velocity, untuned, unity gain, centered.
     pub fn new(sample: Arc<Sample<T>>) -> Self {
-        Self { sample, keys: 0..=127, velocities: 0..=127, root_key: None, tune_cents: 0.0, gain_db: 0.0, pan: 0.0 }
+        Self {
+            sample,
+            keys: 0..=127,
+            velocities: 0..=127,
+            root_key: None,
+            tune_cents: 0.0,
+            gain_db: 0.0,
+            pan: 0.0,
+        }
     }
     /// The keys covered.
     pub fn keys(mut self, keys: RangeInclusive<u8>) -> Self {
@@ -261,7 +311,10 @@ pub struct SampleMap<T: Float> {
 impl<T: Float> SampleMap<T> {
     /// A map of these zones (several may overlap: they take turns).
     pub fn new(zones: Vec<Zone<T>>) -> Self {
-        Self { zones, next: AtomicUsize::new(0) }
+        Self {
+            zones,
+            next: AtomicUsize::new(0),
+        }
     }
     /// One sample across the whole keyboard.
     pub fn single(sample: Sample<T>) -> Self {
@@ -273,13 +326,20 @@ impl<T: Float> SampleMap<T> {
     }
     /// The zone for `key` at MIDI `velocity`: the matching one, taking turns among several.
     pub fn find(&self, key: u8, velocity: u8) -> Option<&Zone<T>> {
-        let matching = self.zones.iter().filter(|z| z.contains(key, velocity)).count();
+        let matching = self
+            .zones
+            .iter()
+            .filter(|z| z.contains(key, velocity))
+            .count();
         let turn = match matching {
             0 => return None,
             1 => 0,
             n => self.next.fetch_add(1, Ordering::Relaxed) % n,
         };
-        self.zones.iter().filter(|z| z.contains(key, velocity)).nth(turn)
+        self.zones
+            .iter()
+            .filter(|z| z.contains(key, velocity))
+            .nth(turn)
     }
 }
 
@@ -289,12 +349,33 @@ mod tests {
 
     #[test]
     fn construction_loops_and_metadata() {
-        let s = Sample::new(vec![vec![0.5f64; 1_000], vec![-0.5; 1_000], vec![0.0; 1_000]], 44_100.0);
-        assert_eq!((s.channels(), s.frames(), s.root_key()), (2, 1_000, 60.0), "at most two channels");
+        let s = Sample::new(
+            vec![vec![0.5f64; 1_000], vec![-0.5; 1_000], vec![0.0; 1_000]],
+            44_100.0,
+        );
+        assert_eq!(
+            (s.channels(), s.frames(), s.root_key()),
+            (2, 1_000, 60.0),
+            "at most two channels"
+        );
         assert_eq!((s.frame(1, 999), s.frame(0, 1_000)), (-0.5, 0.0));
         let s = s.with_loop(100, 5_000, LoopMode::Forward, 500);
-        assert_eq!(s.loop_points(), Some(Loop { start: 100, end: 1_000, mode: LoopMode::Forward, crossfade: 100 }), "clamped");
-        assert_eq!(s.clone().with_loop(10, 10, LoopMode::Forward, 0).loop_points(), None);
+        assert_eq!(
+            s.loop_points(),
+            Some(Loop {
+                start: 100,
+                end: 1_000,
+                mode: LoopMode::Forward,
+                crossfade: 100
+            }),
+            "clamped"
+        );
+        assert_eq!(
+            s.clone()
+                .with_loop(10, 10, LoopMode::Forward, 0)
+                .loop_points(),
+            None
+        );
         assert_eq!(s.with_loop(0, 10, LoopMode::Off, 0).loop_points(), None);
     }
 
@@ -304,33 +385,65 @@ mod tests {
             sample_rate: 32_000,
             channels: vec![vec![0.25f32; 400]],
             root_key: Some(64.5),
-            loops: vec![wav::WavLoop { start: 50, end: 350, kind: WavLoopKind::PingPong }],
+            loops: vec![wav::WavLoop {
+                start: 50,
+                end: 350,
+                kind: WavLoopKind::PingPong,
+            }],
         };
         let s = Sample::<f32>::from_wav(&wav::write(&file, wav::WavFormat::Float32)).unwrap();
-        assert_eq!((s.sample_rate(), s.root_key(), s.frames()), (32_000.0, 64.5, 400));
-        assert_eq!(s.loop_points(), Some(Loop { start: 50, end: 350, mode: LoopMode::PingPong, crossfade: 0 }));
+        assert_eq!(
+            (s.sample_rate(), s.root_key(), s.frames()),
+            (32_000.0, 64.5, 400)
+        );
+        assert_eq!(
+            s.loop_points(),
+            Some(Loop {
+                start: 50,
+                end: 350,
+                mode: LoopMode::PingPong,
+                crossfade: 0
+            })
+        );
     }
 
     #[test]
     fn mipmaps_halve_the_rate_and_keep_the_band() {
         // a low tone survives decimation at full level; one above the new Nyquist is removed
         let fs = 48_000.0;
-        let tone = |f: f64| (0..8_192).map(|i| (std::f64::consts::TAU * f * i as f64 / fs).sin()).collect::<Vec<f64>>();
+        let tone = |f: f64| {
+            (0..8_192)
+                .map(|i| (std::f64::consts::TAU * f * i as f64 / fs).sin())
+                .collect::<Vec<f64>>()
+        };
         let s = Sample::from_mono(tone(1_000.0), fs).with_mipmaps(3);
         assert_eq!(s.levels.len(), 4);
         assert_eq!(s.levels[1].frames, 4_096);
         let rms = |l: &Level<f64>| {
             let edge = l.frames / 8; // away from the start and end transients
-            (l.channels[0][PAD + edge..PAD + l.frames - edge].iter().map(|x| x * x).sum::<f64>() / (l.frames - 2 * edge) as f64).sqrt()
+            (l.channels[0][PAD + edge..PAD + l.frames - edge]
+                .iter()
+                .map(|x| x * x)
+                .sum::<f64>()
+                / (l.frames - 2 * edge) as f64)
+                .sqrt()
         };
         for level in &s.levels[1..] {
-            assert!((rms(level) - 0.5f64.sqrt()).abs() < 0.01, "level keeps a 1 kHz tone: {}", rms(level));
+            assert!(
+                (rms(level) - 0.5f64.sqrt()).abs() < 0.01,
+                "level keeps a 1 kHz tone: {}",
+                rms(level)
+            );
         }
         // aligned: level 1 frame m is the original's frame 2m
         let (l0, l1) = (&s.levels[0].channels[0], &s.levels[1].channels[0]);
         assert!((l1[PAD + 1_500] - l0[PAD + 3_000]).abs() < 0.01);
         let high = Sample::from_mono(tone(15_000.0), fs).with_mipmaps(1);
-        assert!(rms(&high.levels[1]) < 1e-3, "15 kHz is above level 1's 12 kHz Nyquist: {}", rms(&high.levels[1]));
+        assert!(
+            rms(&high.levels[1]) < 1e-3,
+            "15 kHz is above level 1's 12 kHz Nyquist: {}",
+            rms(&high.levels[1])
+        );
     }
 
     #[test]
@@ -346,6 +459,8 @@ mod tests {
         assert_eq!((first(40, 10), first(40, 100)), (Some(1.0), Some(2.0)));
         let turns: Vec<_> = (0..4).map(|_| first(72, 90).unwrap()).collect();
         assert_eq!(turns, vec![3.0, 4.0, 3.0, 4.0]);
-        assert!(SampleMap::new(vec![Zone::new(s(1.0)).keys(10..=20)]).find(30, 64).is_none());
+        assert!(SampleMap::new(vec![Zone::new(s(1.0)).keys(10..=20)])
+            .find(30, 64)
+            .is_none());
     }
 }

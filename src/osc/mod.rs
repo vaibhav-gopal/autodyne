@@ -67,7 +67,11 @@ pub struct Sine<T: Float> {
 impl<T: Float> Sine<T> {
     /// A sine at `frequency` Hz, amplitude 1, starting at phase 0.
     pub fn new(frequency: T, sample_rate: T) -> Self {
-        Self { phase: T::_ZERO, increment: frequency / sample_rate, amplitude: T::_ONE }
+        Self {
+            phase: T::_ZERO,
+            increment: frequency / sample_rate,
+            amplitude: T::_ONE,
+        }
     }
     /// Peak amplitude.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
@@ -183,13 +187,22 @@ pub struct Oscillator<T: Float> {
 #[inline]
 pub(crate) fn band_limited_increment<T: Float>(frequency: T, sample_rate: T) -> T {
     let increment = frequency / sample_rate;
-    if increment > T::_ZERO { increment._min(T::_lit(0.5)) } else { T::_ZERO }
+    if increment > T::_ZERO {
+        increment._min(T::_lit(0.5))
+    } else {
+        T::_ZERO
+    }
 }
 
 impl<T: Float> Oscillator<T> {
     /// Frequencies are limited to 0 ..= Nyquist.
     pub fn new(waveform: Waveform<T>, frequency: T, sample_rate: T) -> Self {
-        Self { waveform, phase: T::_ZERO, increment: band_limited_increment(frequency, sample_rate), amplitude: T::_ONE }
+        Self {
+            waveform,
+            phase: T::_ZERO,
+            increment: band_limited_increment(frequency, sample_rate),
+            amplitude: T::_ONE,
+        }
     }
     /// Peak amplitude.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
@@ -236,7 +249,11 @@ impl<T: Float> Oscillator<T> {
             }
             Waveform::Triangle => {
                 let four = T::_lit(4.0);
-                if t < half { four * t - one } else { T::_lit(3.0) - four * t }
+                if t < half {
+                    four * t - one
+                } else {
+                    T::_lit(3.0) - four * t
+                }
             }
         };
         self.phase = self.phase + dt;
@@ -265,7 +282,10 @@ pub struct Phasor<T: Float> {
 impl<T: Float> Phasor<T> {
     /// A phasor at `frequency` Hz (negative frequencies turn the other way).
     pub fn new(frequency: T, sample_rate: T) -> Self {
-        Self { phase: T::_ZERO, increment: frequency / sample_rate }
+        Self {
+            phase: T::_ZERO,
+            increment: frequency / sample_rate,
+        }
     }
     /// Changes frequency without resetting phase.
     pub fn set_frequency(&mut self, frequency: T, sample_rate: T) {
@@ -335,7 +355,10 @@ impl<T: Float> Noise<T> {
         z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
         z ^= z >> 31;
-        Self { state: if z == 0 { 0x9E37_79B9_7F4A_7C15 } else { z }, amplitude: T::_ONE }
+        Self {
+            state: if z == 0 { 0x9E37_79B9_7F4A_7C15 } else { z },
+            amplitude: T::_ONE,
+        }
     }
     /// Peak amplitude.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
@@ -379,7 +402,10 @@ pub struct Impulse<T: Float> {
 impl<T: Float> Impulse<T> {
     /// An impulse of amplitude 1.
     pub fn new() -> Self {
-        Self { fired: false, amplitude: T::_ONE }
+        Self {
+            fired: false,
+            amplitude: T::_ONE,
+        }
     }
     /// The impulse's height.
     pub fn with_amplitude(mut self, amplitude: T) -> Self {
@@ -418,12 +444,20 @@ mod tests {
     fn oscillator_survives_any_frequency() {
         // above Nyquist (even several cycles per sample), negative, NaN: limited to 0 ..= Nyquist,
         // never panicking, never unbounded (a host or a modulation matrix can ask for anything)
-        for waveform in [Waveform::Sine, Waveform::Saw, Waveform::Pulse { pulse_width: 0.3 }, Waveform::Triangle] {
+        for waveform in [
+            Waveform::Sine,
+            Waveform::Saw,
+            Waveform::Pulse { pulse_width: 0.3 },
+            Waveform::Triangle,
+        ] {
             for freq in [440_000.0f32, 24_000.0, 1e9, -500.0, f32::NAN, 0.0] {
                 let mut osc = Oscillator::new(waveform, freq, 48_000.0);
                 for _ in 0..1_000 {
                     let x = osc.next_sample();
-                    assert!(x.is_finite() && x.abs() <= 2.0, "{waveform:?} at {freq} Hz: {x}");
+                    assert!(
+                        x.is_finite() && x.abs() <= 2.0,
+                        "{waveform:?} at {freq} Hz: {x}"
+                    );
                 }
                 osc.set_frequency(freq, 48_000.0);
                 assert!(osc.next_sample().is_finite());
@@ -453,7 +487,9 @@ mod tests {
 
     #[test]
     fn sine_amplitude_phase_and_f32() {
-        let mut osc = Sine::<f32>::new(1.0, 4.0).with_amplitude(0.5).with_phase(0.25);
+        let mut osc = Sine::<f32>::new(1.0, 4.0)
+            .with_amplitude(0.5)
+            .with_phase(0.25);
         let got: Vec<f32> = osc.by_ref().take(4).collect();
         let expected = [0.5, 0.0, -0.5, 0.0];
         for (g, e) in got.iter().zip(expected) {
@@ -469,7 +505,10 @@ mod tests {
         for n in 0..1000 {
             let w = f64::_TAU * f * n as f64 / fs;
             let (p, q) = (pos.next_sample(), neg.next_sample());
-            assert!((p - Complex::new(w.cos(), w.sin())).norm() < 1e-9, "sample {n}");
+            assert!(
+                (p - Complex::new(w.cos(), w.sin())).norm() < 1e-9,
+                "sample {n}"
+            );
             assert!((q - p.conj()).norm() < 1e-9, "sample {n}");
         }
     }
@@ -484,7 +523,9 @@ mod tests {
                 match waveform {
                     Waveform::Saw => -(2.0 / PI) * (k_f * w).sin() / k_f,
                     Waveform::Pulse { .. } if k % 2 == 1 => (4.0 / PI) * (k_f * w).sin() / k_f,
-                    Waveform::Triangle if k % 2 == 1 => -(8.0 / (PI * PI)) * (k_f * w).cos() / (k_f * k_f),
+                    Waveform::Triangle if k % 2 == 1 => {
+                        -(8.0 / (PI * PI)) * (k_f * w).cos() / (k_f * k_f)
+                    }
                     _ => 0.0,
                 }
             })
@@ -503,8 +544,20 @@ mod tests {
             let ideal = band_limited(waveform, t, harmonics);
             let naive = match waveform {
                 Waveform::Saw => 2.0 * t - 1.0,
-                Waveform::Pulse { .. } => if t < 0.5 { 1.0 } else { -1.0 },
-                Waveform::Triangle => if t < 0.5 { 4.0 * t - 1.0 } else { 3.0 - 4.0 * t },
+                Waveform::Pulse { .. } => {
+                    if t < 0.5 {
+                        1.0
+                    } else {
+                        -1.0
+                    }
+                }
+                Waveform::Triangle => {
+                    if t < 0.5 {
+                        4.0 * t - 1.0
+                    } else {
+                        3.0 - 4.0 * t
+                    }
+                }
                 Waveform::Sine => (std::f64::consts::TAU * t).sin(),
             };
             e_blep += (osc.next_sample() - ideal).powi(2);
@@ -518,7 +571,10 @@ mod tests {
         // a high note (few harmonics below Nyquist), where aliasing is worst
         for waveform in [Waveform::Saw, Waveform::Pulse { pulse_width: 0.5 }] {
             let (blep, naive) = errors(waveform, 3_456.7);
-            assert!(blep < 0.6 * naive, "{waveform:?}: polyblep error {blep:.4} vs naive {naive:.4}");
+            assert!(
+                blep < 0.6 * naive,
+                "{waveform:?}: polyblep error {blep:.4} vs naive {naive:.4}"
+            );
         }
     }
 
@@ -541,12 +597,14 @@ mod tests {
         let mut p = Oscillator::new(Waveform::Pulse { pulse_width: 0.25 }, 100.0, 48_000.0);
         let v: Vec<f64> = p.by_ref().take(480).collect(); // one cycle
         let high = v.iter().filter(|&&s| s > 0.0).count();
-        assert!((high as f64 / 480.0 - 0.25).abs() < 0.01, "{high} of 480 samples high");
+        assert!(
+            (high as f64 / 480.0 - 0.25).abs() < 0.01,
+            "{high} of 480 samples high"
+        );
         // switching waveform keeps running from the same phase
         p.set_waveform(Waveform::Sine);
         assert!(p.next_sample().abs() < 1e-9); // back at phase 0 after exactly one cycle
     }
-
 
     #[test]
     fn noise_is_bounded_centered_and_deterministic() {

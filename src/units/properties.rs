@@ -1,7 +1,7 @@
 //! Properties of number types: [`Ordered`], [`Bounded`], [`Signed`] and their combinations.
 
-use core::ops::Neg;
 use super::*;
+use core::ops::Neg;
 
 /// Describes a unit that can be ordered w.r.t itself
 pub trait Ordered: PartialOrd {

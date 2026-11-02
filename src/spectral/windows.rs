@@ -81,7 +81,11 @@ impl FromStr for WindowSpec {
             "cosine" | "halfcosine" => WindowSpec::Cosine,
             "tukey" | "tuk" => WindowSpec::Tukey { alpha: 0.5 },
             "exponential" | "poisson" => WindowSpec::Exponential { tau: 1.0 },
-            other => return Err(super::SpectralError::invalid(format!("unknown window '{other}' (parameterized windows: use the enum)"))),
+            other => {
+                return Err(super::SpectralError::invalid(format!(
+                    "unknown window '{other}' (parameterized windows: use the enum)"
+                )))
+            }
         })
     }
 }
@@ -107,19 +111,48 @@ fn symmetric(spec: WindowSpec, m: usize) -> Vec<f64> {
     match spec {
         WindowSpec::Boxcar => vec![1.0; m],
         WindowSpec::Triang => {
-            let half: Vec<f64> = (1..=m.div_ceil(2)).map(|n| if m.is_multiple_of(2) { (2.0 * n as f64 - 1.0) / mf } else { 2.0 * n as f64 / (mf + 1.0) }).collect();
+            let half: Vec<f64> = (1..=m.div_ceil(2))
+                .map(|n| {
+                    if m.is_multiple_of(2) {
+                        (2.0 * n as f64 - 1.0) / mf
+                    } else {
+                        2.0 * n as f64 / (mf + 1.0)
+                    }
+                })
+                .collect();
             let mut w = half.clone();
-            let tail = if m.is_multiple_of(2) { &half[..] } else { &half[..half.len() - 1] };
+            let tail = if m.is_multiple_of(2) {
+                &half[..]
+            } else {
+                &half[..half.len() - 1]
+            };
             w.extend(tail.iter().rev());
             w
         }
-        WindowSpec::Bartlett => (0..m).map(|i| if idx(i) <= (mf - 1.0) / 2.0 { 2.0 * idx(i) / (mf - 1.0) } else { 2.0 - 2.0 * idx(i) / (mf - 1.0) }).collect(),
+        WindowSpec::Bartlett => (0..m)
+            .map(|i| {
+                if idx(i) <= (mf - 1.0) / 2.0 {
+                    2.0 * idx(i) / (mf - 1.0)
+                } else {
+                    2.0 - 2.0 * idx(i) / (mf - 1.0)
+                }
+            })
+            .collect(),
         WindowSpec::Hann => cosine_sum(m, &[0.5, 0.5]),
         WindowSpec::Hamming => cosine_sum(m, &[0.54, 0.46]),
         WindowSpec::Blackman => cosine_sum(m, &[0.42, 0.50, 0.08]),
         WindowSpec::BlackmanHarris => cosine_sum(m, &[0.35875, 0.48829, 0.14128, 0.01168]),
         WindowSpec::Nuttall => cosine_sum(m, &[0.3635819, 0.4891775, 0.1365995, 0.0106411]),
-        WindowSpec::Flattop => cosine_sum(m, &[0.21557895, 0.41663158, 0.277263158, 0.083578947, 0.006947368]),
+        WindowSpec::Flattop => cosine_sum(
+            m,
+            &[
+                0.21557895,
+                0.41663158,
+                0.277263158,
+                0.083578947,
+                0.006947368,
+            ],
+        ),
         WindowSpec::Bohman => {
             let mut w = vec![0.0; m];
             for (i, wi) in w.iter_mut().enumerate().take(m - 1).skip(1) {
@@ -132,16 +165,27 @@ fn symmetric(spec: WindowSpec, m: usize) -> Vec<f64> {
             .map(|i| {
                 let n = idx(i) - (mf - 1.0) / 2.0;
                 let r = n.abs() / (mf / 2.0);
-                if n.abs() <= (mf - 1.0) / 4.0 { 1.0 - 6.0 * r * r + 6.0 * r * r * r } else { 2.0 * (1.0 - r).powi(3) }
+                if n.abs() <= (mf - 1.0) / 4.0 {
+                    1.0 - 6.0 * r * r + 6.0 * r * r * r
+                } else {
+                    2.0 * (1.0 - r).powi(3)
+                }
             })
             .collect(),
         WindowSpec::Cosine => (0..m).map(|i| (PI / mf * (idx(i) + 0.5)).sin()).collect(),
         WindowSpec::Kaiser { beta } => {
             let alpha = (mf - 1.0) / 2.0;
             let i0b = bessel_i0(beta);
-            (0..m).map(|i| bessel_i0(beta * (1.0 - ((idx(i) - alpha) / alpha).powi(2)).max(0.0).sqrt()) / i0b).collect()
+            (0..m)
+                .map(|i| {
+                    bessel_i0(beta * (1.0 - ((idx(i) - alpha) / alpha).powi(2)).max(0.0).sqrt())
+                        / i0b
+                })
+                .collect()
         }
-        WindowSpec::Gaussian { std } => (0..m).map(|i| (-(idx(i) - (mf - 1.0) / 2.0).powi(2) / (2.0 * std * std)).exp()).collect(),
+        WindowSpec::Gaussian { std } => (0..m)
+            .map(|i| (-(idx(i) - (mf - 1.0) / 2.0).powi(2) / (2.0 * std * std)).exp())
+            .collect(),
         WindowSpec::Tukey { alpha } => {
             if alpha <= 0.0 {
                 return vec![1.0; m];
@@ -158,12 +202,15 @@ fn symmetric(spec: WindowSpec, m: usize) -> Vec<f64> {
                     } else if i < m - width - 1 {
                         1.0
                     } else {
-                        0.5 * (1.0 + (PI * (-2.0 / alpha + 1.0 + 2.0 * n / alpha / (mf - 1.0))).cos())
+                        0.5 * (1.0
+                            + (PI * (-2.0 / alpha + 1.0 + 2.0 * n / alpha / (mf - 1.0))).cos())
                     }
                 })
                 .collect()
         }
-        WindowSpec::Exponential { tau } => (0..m).map(|i| (-(idx(i) - (mf - 1.0) / 2.0).abs() / tau).exp()).collect(),
+        WindowSpec::Exponential { tau } => (0..m)
+            .map(|i| (-(idx(i) - (mf - 1.0) / 2.0).abs() / tau).exp())
+            .collect(),
         WindowSpec::Chebwin { attenuation } => chebwin(m, attenuation),
     }
 }
@@ -173,7 +220,10 @@ fn cosine_sum(m: usize, a: &[f64]) -> Vec<f64> {
     (0..m)
         .map(|i| {
             let fac = -PI + 2.0 * PI * i as f64 / (m - 1) as f64;
-            a.iter().enumerate().map(|(k, &ak)| ak * (k as f64 * fac).cos()).sum()
+            a.iter()
+                .enumerate()
+                .map(|(k, &ak)| ak * (k as f64 * fac).cos())
+                .sum()
         })
         .collect()
 }
@@ -197,7 +247,10 @@ fn chebwin(m: usize, at: f64) -> Vec<f64> {
     let mut buf: Vec<Complex<f64>> = if m % 2 == 1 {
         p.iter().map(|&v| Complex::new(v, 0.0)).collect()
     } else {
-        p.iter().enumerate().map(|(k, &v)| Complex::cis(PI / m as f64 * k as f64) * v).collect()
+        p.iter()
+            .enumerate()
+            .map(|(k, &v)| Complex::cis(PI / m as f64 * k as f64) * v)
+            .collect()
     };
     Fft::new(m).forward(&mut buf);
     let re: Vec<f64> = buf.iter().map(|z| z.re).collect();
@@ -222,14 +275,38 @@ mod tests {
 
     #[test]
     fn known_windows() {
-        assert!(close(&get_window(WindowSpec::Hann, 4, true), &[0.0, 0.5, 1.0, 0.5]));
-        assert!(close(&get_window(WindowSpec::Hann, 5, false), &[0.0, 0.5, 1.0, 0.5, 0.0]));
-        assert!(close(&get_window(WindowSpec::Hamming, 3, false), &[0.08, 1.0, 0.08]));
-        assert!(close(&get_window(WindowSpec::Triang, 4, false), &[0.25, 0.75, 0.75, 0.25]));
-        assert!(close(&get_window(WindowSpec::Triang, 5, false), &[1.0 / 3.0, 2.0 / 3.0, 1.0, 2.0 / 3.0, 1.0 / 3.0]));
-        assert!(close(&get_window(WindowSpec::Bartlett, 5, false), &[0.0, 0.5, 1.0, 0.5, 0.0]));
-        assert!(close(&get_window(WindowSpec::Kaiser { beta: 0.0 }, 4, false), &[1.0; 4]));
-        assert!(close(&get_window(WindowSpec::Tukey { alpha: 1.0 }, 5, false), &get_window(WindowSpec::Hann, 5, false)));
+        assert!(close(
+            &get_window(WindowSpec::Hann, 4, true),
+            &[0.0, 0.5, 1.0, 0.5]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Hann, 5, false),
+            &[0.0, 0.5, 1.0, 0.5, 0.0]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Hamming, 3, false),
+            &[0.08, 1.0, 0.08]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Triang, 4, false),
+            &[0.25, 0.75, 0.75, 0.25]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Triang, 5, false),
+            &[1.0 / 3.0, 2.0 / 3.0, 1.0, 2.0 / 3.0, 1.0 / 3.0]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Bartlett, 5, false),
+            &[0.0, 0.5, 1.0, 0.5, 0.0]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Kaiser { beta: 0.0 }, 4, false),
+            &[1.0; 4]
+        ));
+        assert!(close(
+            &get_window(WindowSpec::Tukey { alpha: 1.0 }, 5, false),
+            &get_window(WindowSpec::Hann, 5, false)
+        ));
         assert_eq!("hanning".parse::<WindowSpec>(), Ok(WindowSpec::Hann));
         let cheb = get_window(WindowSpec::Chebwin { attenuation: 100.0 }, 9, false);
         assert!((cheb[4] - 1.0).abs() < 1e-12 && (cheb[0] - cheb[8]).abs() < 1e-12);

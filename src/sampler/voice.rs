@@ -9,8 +9,8 @@ use crate::units::lazy::Lazy;
 use super::sample::{Level, PAD};
 use super::{LoopMode, SampleMap, Zone};
 use crate::envelope::Adsr;
-use crate::synth::Voice;
 use crate::special::bessel_i0;
+use crate::synth::Voice;
 use crate::units::*;
 
 /// How a [`SamplerVoice`] reads between recorded frames when playing at another pitch.
@@ -27,7 +27,11 @@ pub enum Interpolation {
 
 impl Interpolation {
     /// Every method, in parameter order.
-    pub const ALL: [Interpolation; 3] = [Interpolation::Linear, Interpolation::Cubic, Interpolation::Sinc];
+    pub const ALL: [Interpolation; 3] = [
+        Interpolation::Linear,
+        Interpolation::Cubic,
+        Interpolation::Sinc,
+    ];
     /// Display names, in the order of [`ALL`](Self::ALL).
     pub const NAMES: [&'static str; 3] = ["Linear", "Cubic", "Sinc"];
 }
@@ -57,7 +61,11 @@ fn sinc_table() -> &'static [f64] {
                 if i > len {
                     return 0.0;
                 }
-                let sinc = if i == 0 { 1.0 } else { (core::f64::consts::PI * t).sin() / (core::f64::consts::PI * t) };
+                let sinc = if i == 0 {
+                    1.0
+                } else {
+                    (core::f64::consts::PI * t).sin() / (core::f64::consts::PI * t)
+                };
                 let r = t / SINC_ZEROS as f64;
                 sinc * bessel_i0(beta * (1.0 - r * r).max(0.0).sqrt()) / bessel_i0(beta)
             })
@@ -189,10 +197,19 @@ impl<T: Float> SamplerVoice<T> {
     fn update_pitch(&mut self) {
         let Some(zone) = &self.zone else { return };
         let sample = &zone.sample;
-        let semitones = self.note as f64 + self.bend.to_f64().unwrap_or(0.0) + self.tune.to_f64().unwrap_or(0.0) + zone.tune_cents / 100.0 - zone.root();
-        let ratio = (sample.sample_rate() / self.sample_rate * 2f64.powf(semitones / 12.0)).clamp(1e-6, 1e6);
+        let semitones = self.note as f64
+            + self.bend.to_f64().unwrap_or(0.0)
+            + self.tune.to_f64().unwrap_or(0.0)
+            + zone.tune_cents / 100.0
+            - zone.root();
+        let ratio = (sample.sample_rate() / self.sample_rate * 2f64.powf(semitones / 12.0))
+            .clamp(1e-6, 1e6);
         self.increment = ratio;
-        self.level = if ratio >= 2.0 { (ratio.log2().floor() as usize).min(sample.levels.len() - 1) } else { 0 };
+        self.level = if ratio >= 2.0 {
+            (ratio.log2().floor() as usize).min(sample.levels.len() - 1)
+        } else {
+            0
+        };
         let speed = ratio / (1u64 << self.level) as f64;
         self.cutoff = SINC_CUTOFF * (1.0 / speed).clamp(1.0 / MAX_STRETCH, 1.0);
     }
@@ -203,7 +220,10 @@ impl<T: Float> SamplerVoice<T> {
         let level = T::_lit(10f64.powf(zone.gain_db / 20.0)) * (T::_ONE - s + s * self.velocity);
         // balance: the far side is turned down, the near side stays
         let pan = zone.pan;
-        self.gains = (level * T::_lit((1.0 - pan).min(1.0)), level * T::_lit((1.0 + pan).min(1.0)));
+        self.gains = (
+            level * T::_lit((1.0 - pan).min(1.0)),
+            level * T::_lit((1.0 + pan).min(1.0)),
+        );
     }
 
     /// Whether the loop is in effect right now.
@@ -223,7 +243,13 @@ impl<T: Float> SamplerVoice<T> {
         let scale = (1u64 << self.level) as f64;
         let p = pos / scale;
         // loop points at this level, for reading across the seam of a seamless (uncrossfaded) loop
-        let seam = looping.filter(|l| l.crossfade == 0).map(|l| ((l.start as f64 / scale).round() as isize, (l.end as f64 / scale).round() as isize, l.mode));
+        let seam = looping.filter(|l| l.crossfade == 0).map(|l| {
+            (
+                (l.start as f64 / scale).round() as isize,
+                (l.end as f64 / scale).round() as isize,
+                l.mode,
+            )
+        });
         let frames = level.frames as isize;
         let wrapped = self.wrapped;
         let index = |k: isize| -> usize {
@@ -282,7 +308,8 @@ impl<T: Float> SamplerVoice<T> {
                     let j = (x as usize).min(table.len() - 2);
                     *w = c * (table[j] + (table[j + 1] - table[j]) * (x - j as f64));
                 }
-                let crosses_seam = seam.is_some_and(|(s, e, _)| last >= e || (wrapped && first < s));
+                let crosses_seam =
+                    seam.is_some_and(|(s, e, _)| last >= e || (wrapped && first < s));
                 if crosses_seam {
                     for (&w, k) in weights[..taps].iter().zip(first..=last) {
                         add(k, w);
@@ -290,7 +317,12 @@ impl<T: Float> SamplerVoice<T> {
                 } else {
                     // the usual case: one contiguous run of frames (the padding covers the ends)
                     let at = (first + PAD as isize) as usize;
-                    let dot = |data: &[T]| data[at..at + taps].iter().zip(&weights[..taps]).fold(0.0, |acc, (x, w)| acc + w * x.to_f64().unwrap_or(0.0));
+                    let dot = |data: &[T]| {
+                        data[at..at + taps]
+                            .iter()
+                            .zip(&weights[..taps])
+                            .fold(0.0, |acc, (x, w)| acc + w * x.to_f64().unwrap_or(0.0))
+                    };
                     sum = (dot(left), dot(right));
                 }
             }
@@ -309,7 +341,8 @@ impl<T: Float> SamplerVoice<T> {
             let fade_start = (lp.end - lp.crossfade) as f64;
             if self.pos >= fade_start {
                 // equal-power crossfade from the loop's end into the frames leading up to its start
-                let g = (self.pos - fade_start) / lp.crossfade as f64 * core::f64::consts::FRAC_PI_2;
+                let g =
+                    (self.pos - fade_start) / lp.crossfade as f64 * core::f64::consts::FRAC_PI_2;
                 let (into, out) = (T::_lit(g.sin()), T::_lit(g.cos()));
                 let (bl, br) = self.read(self.pos - (lp.end - lp.start) as f64, looping);
                 l = l * out + bl * into;
@@ -361,11 +394,15 @@ impl<T: Float> Voice for SamplerVoice<T> {
     fn note_on(&mut self, note: u8, velocity: T) {
         self.note = note;
         self.velocity = velocity._clamp(T::_ZERO, T::_ONE);
-        let vel7 = (self.velocity.to_f64().unwrap_or(0.0) * 127.0).round().clamp(1.0, 127.0) as u8;
+        let vel7 = (self.velocity.to_f64().unwrap_or(0.0) * 127.0)
+            .round()
+            .clamp(1.0, 127.0) as u8;
         self.zone = self.map.find(note, vel7).cloned();
         self.finished = self.zone.is_none();
         let frames = self.zone.as_ref().map_or(0, |z| z.sample.frames());
-        self.pos = (self.start.to_f64().unwrap_or(0.0) * frames as f64).floor().min(frames.saturating_sub(1) as f64);
+        self.pos = (self.start.to_f64().unwrap_or(0.0) * frames as f64)
+            .floor()
+            .min(frames.saturating_sub(1) as f64);
         self.dir = 1.0;
         self.wrapped = false;
         self.released = false;
@@ -416,7 +453,9 @@ mod tests {
     const FS: f64 = 48_000.0;
 
     fn sine(freq: f64, frames: usize, fs: f64) -> Vec<f64> {
-        (0..frames).map(|i| (std::f64::consts::TAU * freq * i as f64 / fs).sin()).collect()
+        (0..frames)
+            .map(|i| (std::f64::consts::TAU * freq * i as f64 / fs).sin())
+            .collect()
     }
 
     fn voice(sample: Sample<f64>) -> SamplerVoice<f64> {
@@ -450,7 +489,12 @@ mod tests {
         let bin = |f: f64| (f * n as f64 / FS).round() as usize;
         let (lo, hi) = (bin(freq) - 4, bin(freq) + 4);
         let tone = spectrum[lo..=hi].iter().map(db).fold(f64::MIN, f64::max);
-        let rest = spectrum.iter().enumerate().filter(|(k, _)| (*k < lo || *k > hi) && *k > 3).map(|(_, z)| db(z)).fold(f64::MIN, f64::max);
+        let rest = spectrum
+            .iter()
+            .enumerate()
+            .filter(|(k, _)| (*k < lo || *k > hi) && *k > 3)
+            .map(|(_, z)| db(z))
+            .fold(f64::MIN, f64::max);
         (tone, rest)
     }
 
@@ -467,7 +511,10 @@ mod tests {
                 let out = play(&mut v, note, 24_000);
                 let crossings = out.windows(2).filter(|w| w[0] < 0.0 && w[1] >= 0.0).count() as f64;
                 let measured = crossings / 0.5;
-                assert!((measured / freq - 1.0).abs() < 0.01, "{interpolation:?} note {note}: {measured} Hz");
+                assert!(
+                    (measured / freq - 1.0).abs() < 0.01,
+                    "{interpolation:?} note {note}: {measured} Hz"
+                );
             }
         }
     }
@@ -489,7 +536,12 @@ mod tests {
             levels.push(rest - tone);
         }
         assert!(levels[2] < -85.0, "sinc artifacts {} dB", levels[2]);
-        assert!(levels[0] > -60.0 && levels[1] > levels[2] + 20.0, "linear {} dB, cubic {} dB", levels[0], levels[1]);
+        assert!(
+            levels[0] > -60.0 && levels[1] > levels[2] + 20.0,
+            "linear {} dB, cubic {} dB",
+            levels[0],
+            levels[1]
+        );
     }
 
     #[test]
@@ -498,7 +550,11 @@ mod tests {
         // (within an octave) and the mipmaps (beyond) remove them instead
         for (freq, semitones, mipmaps) in [(15_000.0, 11, 0), (9_000.0, 19, 3)] {
             let data = sine(freq, 192_000, FS); // long enough not to run out at 3x speed
-            let mut v = voice(Sample::from_mono(data, FS).with_root_key(60.0).with_mipmaps(mipmaps));
+            let mut v = voice(
+                Sample::from_mono(data, FS)
+                    .with_root_key(60.0)
+                    .with_mipmaps(mipmaps),
+            );
             let out = play(&mut v, 60 + semitones, 40_000);
             let peak = out[20_000..].iter().fold(0.0f64, |m, x| m.max(x.abs()));
             assert!(peak < 1e-4, "{freq} Hz up {semitones}: {peak}");
@@ -506,28 +562,55 @@ mod tests {
         // and a 2 kHz tone 2.5 octaves up (to 11.3 kHz) plays cleanly from the mipmaps
         let target = bin(3_861);
         let data = sine(target / 2f64.powf(2.5), 200_000, FS);
-        let mut v = voice(Sample::from_mono(data, FS).with_root_key(60.0).with_mipmaps(3));
+        let mut v = voice(
+            Sample::from_mono(data, FS)
+                .with_root_key(60.0)
+                .with_mipmaps(3),
+        );
         let out = play(&mut v, 90, 30_000);
         let (tone, rest) = tone_and_rest(&out, target);
-        assert!(tone.abs() < 0.5 && rest - tone < -70.0, "tone {tone} dB, rest {rest} dB");
+        assert!(
+            tone.abs() < 0.5 && rest - tone < -70.0,
+            "tone {tone} dB, rest {rest} dB"
+        );
     }
 
     #[test]
     fn loops_forward_ping_pong_and_sustain() {
         // a ramp 0..1000 so positions are visible in the output
         let ramp: Vec<f64> = (0..1_000).map(|i| i as f64 / 1_000.0).collect();
-        let mut v = voice(Sample::from_mono(ramp.clone(), FS).with_root_key(60.0).with_loop(200, 300, LoopMode::Forward, 0));
+        let mut v = voice(
+            Sample::from_mono(ramp.clone(), FS)
+                .with_root_key(60.0)
+                .with_loop(200, 300, LoopMode::Forward, 0),
+        );
         v.set_interpolation(Interpolation::Linear);
         let out = play(&mut v, 60, 600);
         assert_eq!(out[350], ramp[250], "forward: 350 frames in, back at 250");
         assert!(v.is_active());
-        let mut v = voice(Sample::from_mono(ramp.clone(), FS).with_root_key(60.0).with_loop(200, 300, LoopMode::PingPong, 0));
+        let mut v = voice(
+            Sample::from_mono(ramp.clone(), FS)
+                .with_root_key(60.0)
+                .with_loop(200, 300, LoopMode::PingPong, 0),
+        );
         v.set_interpolation(Interpolation::Linear);
         let out = play(&mut v, 60, 600);
-        assert!((out[320] - 0.28).abs() < 1e-9, "ping-pong: bounced at 300, coming back: {}", out[320]);
-        assert!((out[430] - 0.23).abs() < 1e-9, "and forward again after 200: {}", out[430]);
+        assert!(
+            (out[320] - 0.28).abs() < 1e-9,
+            "ping-pong: bounced at 300, coming back: {}",
+            out[320]
+        );
+        assert!(
+            (out[430] - 0.23).abs() < 1e-9,
+            "and forward again after 200: {}",
+            out[430]
+        );
         // sustain: loops while held, then plays out to the end and stops
-        let mut v = voice(Sample::from_mono(ramp.clone(), FS).with_root_key(60.0).with_loop(200, 300, LoopMode::Sustain, 0));
+        let mut v = voice(
+            Sample::from_mono(ramp.clone(), FS)
+                .with_root_key(60.0)
+                .with_loop(200, 300, LoopMode::Sustain, 0),
+        );
         v.amp_env_mut().set_release(10.0);
         let held = play(&mut v, 60, 2_000);
         assert!(held[1_999] < 0.3 && v.is_active());
@@ -535,7 +618,10 @@ mod tests {
         let mut tail = vec![0.0; 2_000];
         v.render(&mut tail);
         assert!(!v.is_active(), "the end of the sample ends the voice");
-        assert!(tail.iter().any(|&x| x > 0.9), "played past the loop to the end");
+        assert!(
+            tail.iter().any(|&x| x > 0.9),
+            "played past the loop to the end"
+        );
         // without a loop the voice ends with the sample
         let mut v = voice(Sample::from_mono(ramp, FS));
         play(&mut v, 60, 1_001);
@@ -546,17 +632,36 @@ mod tests {
     fn seamless_and_crossfaded_loops_have_no_click() {
         // a 100 Hz sine with a loop of exactly 4 cycles is seamless: sinc reads across the seam
         let data = sine(100.0, 9_600, FS);
-        let mut v = voice(Sample::from_mono(data, FS).with_root_key(60.0).with_loop(1_920, 3_840, LoopMode::Forward, 0));
+        let mut v = voice(Sample::from_mono(data, FS).with_root_key(60.0).with_loop(
+            1_920,
+            3_840,
+            LoopMode::Forward,
+            0,
+        ));
         let out = play(&mut v, 61, 20_000);
-        let jump = out.windows(2).skip(100).map(|w| (w[1] - w[0]).abs()).fold(0.0, f64::max);
+        let jump = out
+            .windows(2)
+            .skip(100)
+            .map(|w| (w[1] - w[0]).abs())
+            .fold(0.0, f64::max);
         let expected = std::f64::consts::TAU * 100.0 * 2f64.powf(1.0 / 12.0) / FS;
-        assert!(jump < expected * 1.01, "largest step {jump} vs a sine's {expected}");
+        assert!(
+            jump < expected * 1.01,
+            "largest step {jump} vs a sine's {expected}"
+        );
         // a loop cut mid-cycle clicks, unless crossfaded
         let data = sine(100.0, 9_600, FS);
         let step = |crossfade| {
-            let mut v = voice(Sample::from_mono(data.clone(), FS).with_root_key(60.0).with_loop(2_000, 4_123, LoopMode::Forward, crossfade));
+            let mut v = voice(
+                Sample::from_mono(data.clone(), FS)
+                    .with_root_key(60.0)
+                    .with_loop(2_000, 4_123, LoopMode::Forward, crossfade),
+            );
             let out = play(&mut v, 60, 20_000);
-            out.windows(2).skip(100).map(|w| (w[1] - w[0]).abs()).fold(0.0, f64::max)
+            out.windows(2)
+                .skip(100)
+                .map(|w| (w[1] - w[0]).abs())
+                .fold(0.0, f64::max)
         };
         assert!(step(0) > 0.2, "an uncrossfaded bad loop jumps");
         assert!(step(1_000) < 0.03, "crossfaded: {}", step(1_000));
@@ -567,17 +672,29 @@ mod tests {
         let left_only = Arc::new(Sample::new(vec![vec![0.5; 4_800], vec![0.0; 4_800]], FS));
         let map = Arc::new(SampleMap::new(vec![
             Zone::new(left_only.clone()).keys(0..=59).gain_db(-6.0206),
-            Zone::new(Arc::new(Sample::from_mono(vec![0.5; 4_800], FS))).keys(60..=127).pan(0.5),
+            Zone::new(Arc::new(Sample::from_mono(vec![0.5; 4_800], FS)))
+                .keys(60..=127)
+                .pan(0.5),
         ]));
         let mut v = SamplerVoice::new(map, FS);
         v.amp_env_mut().set_attack(0.0);
         let (mut l, mut r) = (vec![0.0; 100], vec![0.0; 100]);
         v.note_on(40, 1.0);
         v.render_stereo(&mut l, &mut r);
-        assert!((l[50] - 0.25).abs() < 1e-3 && r[50] == 0.0, "stereo sample, -6 dB: {} {}", l[50], r[50]);
+        assert!(
+            (l[50] - 0.25).abs() < 1e-3 && r[50] == 0.0,
+            "stereo sample, -6 dB: {} {}",
+            l[50],
+            r[50]
+        );
         v.note_on(70, 0.5);
         v.render_stereo(&mut l, &mut r);
-        assert!((l[50] - 0.125).abs() < 1e-3 && (r[50] - 0.25).abs() < 1e-3, "half velocity, panned right: {} {}", l[50], r[50]);
+        assert!(
+            (l[50] - 0.125).abs() < 1e-3 && (r[50] - 0.25).abs() < 1e-3,
+            "half velocity, panned right: {} {}",
+            l[50],
+            r[50]
+        );
         v.set_velocity_sensitivity(0.0);
         v.note_on(70, 0.1);
         v.render_stereo(&mut l, &mut r);

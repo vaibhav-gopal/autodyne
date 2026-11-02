@@ -168,15 +168,31 @@ fn sqrt4(v: [f32; 4]) -> [f32; 4] {
     out
 }
 
-#[cfg(all(not(feature = "std"), target_arch = "wasm32", target_feature = "simd128"))]
+#[cfg(all(
+    not(feature = "std"),
+    target_arch = "wasm32",
+    target_feature = "simd128"
+))]
 #[inline(always)]
 fn sqrt4(v: [f32; 4]) -> [f32; 4] {
     use core::arch::wasm32::*;
     let r = f32x4_sqrt(f32x4(v[0], v[1], v[2], v[3]));
-    [f32x4_extract_lane::<0>(r), f32x4_extract_lane::<1>(r), f32x4_extract_lane::<2>(r), f32x4_extract_lane::<3>(r)]
+    [
+        f32x4_extract_lane::<0>(r),
+        f32x4_extract_lane::<1>(r),
+        f32x4_extract_lane::<2>(r),
+        f32x4_extract_lane::<3>(r),
+    ]
 }
 
-#[cfg(all(not(feature = "std"), not(any(target_arch = "x86_64", target_arch = "aarch64", all(target_arch = "wasm32", target_feature = "simd128")))))]
+#[cfg(all(
+    not(feature = "std"),
+    not(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        all(target_arch = "wasm32", target_feature = "simd128")
+    ))
+))]
 #[inline(always)]
 fn sqrt4(v: [f32; 4]) -> [f32; 4] {
     v.map(libm::sqrtf)
@@ -224,7 +240,10 @@ mod tests {
         assert_eq!((a + b).0, [3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]);
         assert_eq!((a * b - a / b).0[3], 4.0 * 2.0 - 4.0 / 2.0);
         assert_eq!((-a).abs(), a);
-        assert_eq!(F32x4::ramp(-1.0, 1.0).clamp(0.0, 1.5).0, [0.0, 0.0, 1.0, 1.5]);
+        assert_eq!(
+            F32x4::ramp(-1.0, 1.0).clamp(0.0, 1.5).0,
+            [0.0, 0.0, 1.0, 1.5]
+        );
         assert_eq!(F32x4::ramp(-0.5, 0.5).saturate().0, [0.0, 0.0, 0.5, 1.0]);
         assert_eq!(a.min(b).0[..3], [1.0, 2.0, 2.0]);
         assert_eq!(a.max(b).0[..3], [2.0, 2.0, 3.0]);
@@ -251,6 +270,9 @@ mod tests {
         v.store(&mut out);
         assert_eq!(out, [1.0, 2.0]);
         // half up, saturating, NaN to 0
-        assert_eq!(F32s([0.4, 0.5, 1.5, 254.5, 255.4, 300.0, -3.0, f32::NAN]).to_u8(), [0, 1, 2, 255, 255, 255, 0, 0]);
+        assert_eq!(
+            F32s([0.4, 0.5, 1.5, 254.5, 255.4, 300.0, -3.0, f32::NAN]).to_u8(),
+            [0, 1, 2, 255, 255, 255, 0, 0]
+        );
     }
 }

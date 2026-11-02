@@ -13,10 +13,10 @@
 //!
 //! tend: Audio / dynamics
 
-mod params;
 mod gate;
 mod limiter;
 mod multiband;
+mod params;
 mod transient;
 
 pub use gate::*;
@@ -54,7 +54,11 @@ impl<T: Float, G: GainComputer<T>> MultiProcessor<T> for Linked<G> {
 pub fn time_coeff<T: Real>(seconds: T, sample_rate: T) -> T {
     // branch-free: e^(-1/0) is already 0, and non-positive times select 0
     let zero = T::lit(0.0);
-    T::select(seconds.greater(zero), (-T::lit(1.0) / (seconds * sample_rate)).exp(), zero)
+    T::select(
+        seconds.greater(zero),
+        (-T::lit(1.0) / (seconds * sample_rate)).exp(),
+        zero,
+    )
 }
 
 /// One envelope-follower step over [`Real`]: rises toward the level with `attack_coeff`, falls
@@ -103,7 +107,11 @@ impl<T: Real> CompressorCurve<T> {
         // floor at -200 dB so silence gives a finite level (log of 0 is -infinity)
         let level_db = gain_to_db(level.maximum(T::lit(1e-10)));
         let target = level_db - self.output_level_db(level_db);
-        let coeff = T::select(target.greater(reduction_db), self.attack_coeff, self.release_coeff);
+        let coeff = T::select(
+            target.greater(reduction_db),
+            self.attack_coeff,
+            self.release_coeff,
+        );
         let reduction = coeff * reduction_db + (T::lit(1.0) - coeff) * target;
         (reduction, db_to_gain(-reduction))
     }
@@ -163,7 +171,8 @@ impl<T: Float> EnvelopeFollower<T> {
     /// Feeds one sample and returns the updated envelope.
     #[inline]
     pub fn process_sample(&mut self, x: T) -> T {
-        self.envelope = envelope_step(self.attack_coeff, self.release_coeff, self.envelope, x)._flush_denormal();
+        self.envelope = envelope_step(self.attack_coeff, self.release_coeff, self.envelope, x)
+            ._flush_denormal();
         self.envelope
     }
     /// Replaces each sample of `block` with the envelope at that point.
@@ -267,7 +276,11 @@ impl<T: Float> Compressor<T> {
     }
     /// The ratio; infinite for a limiter.
     pub fn ratio(&self) -> T {
-        if self.slope == T::_ZERO { T::_INFINITY } else { T::_ONE / self.slope }
+        if self.slope == T::_ZERO {
+            T::_INFINITY
+        } else {
+            T::_ONE / self.slope
+        }
     }
     /// Knee width in dB.
     pub fn knee_db(&self) -> T {
@@ -300,7 +313,13 @@ impl<T: Float> Compressor<T> {
     }
     /// The static curve and smoothing (for driving the same compressor from generic or traced code).
     pub fn curve(&self) -> CompressorCurve<T> {
-        CompressorCurve { threshold_db: self.threshold_db, slope: self.slope, knee_db: self.knee_db, attack_coeff: self.attack_coeff, release_coeff: self.release_coeff }
+        CompressorCurve {
+            threshold_db: self.threshold_db,
+            slope: self.slope,
+            knee_db: self.knee_db,
+            attack_coeff: self.attack_coeff,
+            release_coeff: self.release_coeff,
+        }
     }
     /// Advances one sample given the detector level (a linear peak, >= 0) and returns the linear gain
     /// to apply, makeup included. `process_sample` feeds it |x|; linked multichannel compression feeds
@@ -338,8 +357,8 @@ crate::processor::forward_processor!(Compressor, EnvelopeFollower);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::assert_close;
     use crate::osc::Sine;
+    use crate::testing::assert_close;
 
     const FS: f64 = 48_000.0;
 
@@ -399,14 +418,27 @@ mod tests {
         let mut block = vec![0.5; 48_000]; // constant level: -6.02 dB
         c.process(&mut block);
         let expected_db = c.output_level_db(gain_to_db(0.5)) + 3.0;
-        assert_close(gain_to_db(block[47_999]), expected_db, 1e-6, "settled level");
-        assert_close(c.gain_reduction_db(), gain_to_db(0.5) - c.output_level_db(gain_to_db(0.5)), 1e-6, "meter");
+        assert_close(
+            gain_to_db(block[47_999]),
+            expected_db,
+            1e-6,
+            "settled level",
+        );
+        assert_close(
+            c.gain_reduction_db(),
+            gain_to_db(0.5) - c.output_level_db(gain_to_db(0.5)),
+            1e-6,
+            "meter",
+        );
     }
 
     #[test]
     fn quiet_signals_pass_through() {
         let mut c = Compressor::new(FS); // threshold -18 dB, knee down to -21 dB
-        let input: Vec<f64> = Sine::new(440.0, FS).with_amplitude(0.01).take(4_800).collect(); // -40 dB
+        let input: Vec<f64> = Sine::new(440.0, FS)
+            .with_amplitude(0.01)
+            .take(4_800)
+            .collect(); // -40 dB
         let mut out = input.clone();
         c.process(&mut out);
         for (a, b) in input.iter().zip(&out) {
@@ -421,8 +453,14 @@ mod tests {
         let mut block: Vec<f64> = Sine::new(100.0, FS).take(48_000).collect(); // 0 dBFS peaks
         lim.process(&mut block);
         let peak = block.iter().fold(0.0f64, |m, s| m.max(s.abs()));
-        assert!(peak <= ceiling + 1e-12, "peak {peak} over ceiling {ceiling}");
-        assert!(peak > 0.99 * ceiling, "limiter should reach the ceiling, peak {peak}");
+        assert!(
+            peak <= ceiling + 1e-12,
+            "peak {peak} over ceiling {ceiling}"
+        );
+        assert!(
+            peak > 0.99 * ceiling,
+            "limiter should reach the ceiling, peak {peak}"
+        );
     }
 
     #[test]

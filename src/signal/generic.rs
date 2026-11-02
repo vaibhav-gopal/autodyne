@@ -2,8 +2,8 @@
 //! `DynArray` and traces (and differentiates) with `flux`: framing and convolution along the last
 //! axis, built from the array primitives alone.
 
-use crate::alloc_prelude::*;
 use super::array_math::{ArrayMath, RealArrayMath};
+use crate::alloc_prelude::*;
 use crate::units::gcd;
 /// Overlapping frames along the last axis: `[..., n]` becomes `[..., count, length]`, frame `f`
 /// holding samples `f * hop .. f * hop + length`, `count = 1 + (n - length) / hop` (samples after
@@ -31,19 +31,34 @@ pub fn frames<A: ArrayMath>(x: A, length: usize, hop: usize) -> A {
 pub(crate) fn frames_by_slices<A: ArrayMath>(x: A, length: usize, hop: usize) -> A {
     let shape = x.shape();
     let (&n, lead) = shape.split_last().expect("frames: needs an axis");
-    assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
-    assert!(n >= length, "frames: {n} samples are fewer than one frame of {length}");
+    assert!(
+        length >= 1 && hop >= 1,
+        "frames: length and hop must be positive"
+    );
+    assert!(
+        n >= length,
+        "frames: {n} samples are fewer than one frame of {length}"
+    );
     let count = 1 + (n - length) / hop;
     let used = (count - 1) * hop + length;
     let g = gcd(length, hop);
     let (per_frame, per_hop) = (length / g, hop / g);
     let k = lead.len();
-    let blocks = x.slice_axis(k, 0, used).reshape(&[lead, &[used / g, g]].concat());
+    let blocks = x
+        .slice_axis(k, 0, used)
+        .reshape(&[lead, &[used / g, g]].concat());
     let parts: Vec<A> = (0..per_frame)
         .map(|r| {
-            let (mut start, mut limit, mut stride) = (vec![0; k + 2], [lead, &[used / g, g]].concat(), vec![1; k + 2]);
+            let (mut start, mut limit, mut stride) = (
+                vec![0; k + 2],
+                [lead, &[used / g, g]].concat(),
+                vec![1; k + 2],
+            );
             (start[k], limit[k], stride[k]) = (r, r + (count - 1) * per_hop + 1, per_hop);
-            blocks.clone().slice(&start, &limit, &stride).reshape(&[lead, &[count, 1, g]].concat())
+            blocks
+                .clone()
+                .slice(&start, &limit, &stride)
+                .reshape(&[lead, &[count, 1, g]].concat())
         })
         .collect();
     A::concatenate(&parts, k + 1).reshape(&[lead, &[count, length]].concat())
@@ -57,9 +72,15 @@ pub(crate) fn overlap_add_by_pads<A: ArrayMath>(x: A, n: usize, hop: usize) -> A
     assert!(shape.len() >= 2, "overlap_add: needs [..., count, length]");
     let k = shape.len() - 2;
     let (lead, count, length) = (&shape[..k], shape[k], shape[k + 1]);
-    assert!(count >= 1 && hop >= 1, "overlap_add: needs frames and a positive hop");
+    assert!(
+        count >= 1 && hop >= 1,
+        "overlap_add: needs frames and a positive hop"
+    );
     let used = (count - 1) * hop + length;
-    assert!(n >= used, "overlap_add: {count} frames of {length}, {hop} apart, need {used} samples, not {n}");
+    assert!(
+        n >= used,
+        "overlap_add: {count} frames of {length}, {hop} apart, need {used} samples, not {n}"
+    );
     let g = gcd(length, hop);
     let (per_frame, per_hop) = (length / g, hop / g);
     let blocks = x.reshape(&[lead, &[count, per_frame, g]].concat());
@@ -67,7 +88,10 @@ pub(crate) fn overlap_add_by_pads<A: ArrayMath>(x: A, n: usize, hop: usize) -> A
     for r in 0..per_frame {
         let (mut start, mut limit) = (vec![0; k + 3], [lead, &[count, per_frame, g]].concat());
         (start[k + 1], limit[k + 1]) = (r, r + 1);
-        let part = blocks.clone().slice(&start, &limit, &vec![1; k + 3]).reshape(&[lead, &[count, g]].concat());
+        let part = blocks
+            .clone()
+            .slice(&start, &limit, &vec![1; k + 3])
+            .reshape(&[lead, &[count, g]].concat());
         let (mut low, mut high, mut interior) = (vec![0; k + 2], vec![0; k + 2], vec![0; k + 2]);
         (low[k], interior[k]) = (r, per_hop - 1);
         high[k] = used / g - (r + (count - 1) * per_hop + 1);
@@ -77,7 +101,9 @@ pub(crate) fn overlap_add_by_pads<A: ArrayMath>(x: A, n: usize, hop: usize) -> A
             Some(t) => t + placed,
         });
     }
-    let flat = total.expect("at least one frame position").reshape(&[lead, &[used]].concat());
+    let flat = total
+        .expect("at least one frame position")
+        .reshape(&[lead, &[used]].concat());
     let mut high = vec![0; k + 1];
     high[k] = n - used;
     flat.pad(&vec![0; k + 1], &high, &vec![0; k + 1])
@@ -103,7 +129,10 @@ const DIRECT_MAX: usize = 32;
 /// ```
 pub fn convolve<A: RealArrayMath>(x: A, kernel: A) -> A {
     let (xs, hs) = (x.shape(), kernel.shape());
-    let (&n, &k) = (xs.last().expect("convolve: the signal needs an axis"), hs.last().expect("convolve: the kernel needs an axis"));
+    let (&n, &k) = (
+        xs.last().expect("convolve: the signal needs an axis"),
+        hs.last().expect("convolve: the kernel needs an axis"),
+    );
     assert!(n >= 1 && k >= 1, "convolve: empty signal or kernel");
     let out = n + k - 1;
     let last = |shape: &[usize], v: usize| {
@@ -122,8 +151,12 @@ pub fn convolve<A: RealArrayMath>(x: A, kernel: A) -> A {
         product.sum_axes(&[axis])
     } else {
         let size = out.next_power_of_two();
-        let spectrum = x.pad(&vec![0; xs.len()], &last(&xs, size - n), &vec![0; xs.len()]).rfft_complex();
-        let response = kernel.pad(&vec![0; hs.len()], &last(&hs, size - k), &vec![0; hs.len()]).rfft_complex();
+        let spectrum = x
+            .pad(&vec![0; xs.len()], &last(&xs, size - n), &vec![0; xs.len()])
+            .rfft_complex();
+        let response = kernel
+            .pad(&vec![0; hs.len()], &last(&hs, size - k), &vec![0; hs.len()])
+            .rfft_complex();
         let y = A::irfft_complex(spectrum * response, size);
         let axis = y.shape().len() - 1;
         y.slice_axis(axis, 0, out)
@@ -135,7 +168,9 @@ mod tests {
     use crate::signal::NdArray;
 
     fn ramp(n: usize, seed: f64) -> Vec<f64> {
-        (0..n).map(|i| ((i as f64 * 0.37 + seed).sin() * 3.0).fract()).collect()
+        (0..n)
+            .map(|i| ((i as f64 * 0.37 + seed).sin() * 3.0).fract())
+            .collect()
     }
 
     #[test]
@@ -144,15 +179,31 @@ mod tests {
             let (x, h) = (ramp(n, 0.1), ramp(k, 0.7));
             let want = crate::signal::Signal::convolved(&x[..], &h);
             // rows of a batch against one kernel, and against a kernel per row
-            let batch = NdArray::<f64>::array(&[x.clone(), x.iter().map(|v| v * 2.0).collect()].concat(), &[2, n]);
+            let batch = NdArray::<f64>::array(
+                &[x.clone(), x.iter().map(|v| v * 2.0).collect()].concat(),
+                &[2, n],
+            );
             let got = convolve(batch.clone(), NdArray::array(&h, &[k]));
             assert_eq!(got.shape(), [2, n + k - 1]);
             for (i, w) in want.iter().enumerate() {
-                assert!((got.as_slice()[i] - w).abs() < 1e-9 && (got.as_slice()[n + k - 1 + i] - 2.0 * w).abs() < 1e-9, "n {n} k {k} sample {i}");
+                assert!(
+                    (got.as_slice()[i] - w).abs() < 1e-9
+                        && (got.as_slice()[n + k - 1 + i] - 2.0 * w).abs() < 1e-9,
+                    "n {n} k {k} sample {i}"
+                );
             }
-            let per_row = convolve(batch, NdArray::array(&[h.clone(), h.iter().map(|v| -v).collect()].concat(), &[2, k]));
+            let per_row = convolve(
+                batch,
+                NdArray::array(
+                    &[h.clone(), h.iter().map(|v| -v).collect()].concat(),
+                    &[2, k],
+                ),
+            );
             for (i, w) in want.iter().enumerate() {
-                assert!((per_row.as_slice()[n + k - 1 + i] + 2.0 * w).abs() < 1e-9, "per-row kernel, n {n} k {k}");
+                assert!(
+                    (per_row.as_slice()[n + k - 1 + i] + 2.0 * w).abs() < 1e-9,
+                    "per-row kernel, n {n} k {k}"
+                );
             }
         }
     }

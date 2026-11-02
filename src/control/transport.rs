@@ -23,19 +23,31 @@ pub struct Transport {
 impl Default for Transport {
     /// 120 BPM, 4/4, stopped at the start.
     fn default() -> Self {
-        Self { tempo: 120.0, beats_per_bar: 4.0, position: 0.0, playing: false }
+        Self {
+            tempo: 120.0,
+            beats_per_bar: 4.0,
+            position: 0.0,
+            playing: false,
+        }
     }
 }
 
 impl Transport {
     /// Stopped at the start, in 4/4 at `tempo` BPM.
     pub fn new(tempo: f64) -> Self {
-        Self { tempo, ..Self::default() }
+        Self {
+            tempo,
+            ..Self::default()
+        }
     }
     /// Bar length in beats (quarter notes) of a time signature: numerator x 4 / denominator.
     /// Falls back to 4/4 for a signature with a zero part.
     pub fn bar_length(numerator: u32, denominator: u32) -> f64 {
-        if numerator == 0 || denominator == 0 { 4.0 } else { numerator as f64 * 4.0 / denominator as f64 }
+        if numerator == 0 || denominator == 0 {
+            4.0
+        } else {
+            numerator as f64 * 4.0 / denominator as f64
+        }
     }
     /// Length of one beat in seconds.
     pub fn seconds_per_beat(&self) -> f64 {
@@ -47,7 +59,11 @@ impl Transport {
     }
     /// The position `samples` from now (moves only while playing).
     pub fn position_after(&self, samples: usize, sample_rate: f64) -> f64 {
-        if self.playing { self.position + samples as f64 * self.beats_per_sample(sample_rate) } else { self.position }
+        if self.playing {
+            self.position + samples as f64 * self.beats_per_sample(sample_rate)
+        } else {
+            self.position
+        }
     }
     /// Moves the position forward by `samples` (only while playing).
     pub fn advance(&mut self, samples: usize, sample_rate: f64) {
@@ -87,11 +103,15 @@ impl Division {
     }
     /// One and a half times as long.
     pub const fn dotted(self) -> Division {
-        Division { beats: self.beats * 1.5 }
+        Division {
+            beats: self.beats * 1.5,
+        }
     }
     /// Three in the time of two.
     pub const fn triplet(self) -> Division {
-        Division { beats: self.beats * 2.0 / 3.0 }
+        Division {
+            beats: self.beats * 2.0 / 3.0,
+        }
     }
     /// Its length in seconds at `tempo` BPM.
     pub fn seconds(self, tempo: f64) -> f64 {
@@ -121,8 +141,10 @@ impl Division {
         Division::bars(4.0),
     ];
     /// Display names, in the order of [`ALL`](Self::ALL) ("T": triplet, ".": dotted).
-    pub const NAMES: [&'static str; 15] =
-        ["1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4", "1/2T", "1/4.", "1/2", "1/1", "2/1", "4/1"];
+    pub const NAMES: [&'static str; 15] = [
+        "1/32", "1/16T", "1/16", "1/8T", "1/16.", "1/8", "1/4T", "1/8.", "1/4", "1/2T", "1/4.",
+        "1/2", "1/1", "2/1", "4/1",
+    ];
     /// Index of `QUARTER` in [`ALL`](Self::ALL).
     pub const QUARTER_INDEX: usize = 8;
 }
@@ -140,7 +162,10 @@ mod tests {
         assert!((Division::QUARTER.triplet().beats - 2.0 / 3.0).abs() < 1e-12);
         assert_eq!(Division::WHOLE.hz(120.0), 0.5);
         assert_eq!(Division::ALL[Division::QUARTER_INDEX], Division::QUARTER);
-        assert!(Division::ALL.windows(2).all(|w| w[0].beats < w[1].beats), "shortest first");
+        assert!(
+            Division::ALL.windows(2).all(|w| w[0].beats < w[1].beats),
+            "shortest first"
+        );
         assert_eq!(Division::ALL.len(), Division::NAMES.len());
     }
 
@@ -157,6 +182,13 @@ mod tests {
         t.beats_per_bar = Transport::bar_length(6, 8); // six eighths: three quarter-note beats
         assert_eq!(t.beats_per_bar, 3.0);
         assert_eq!(t.bar_and_beat(), (3.0, 0.5));
-        assert_eq!((Transport::bar_length(7, 8), Transport::bar_length(3, 4), Transport::bar_length(0, 4)), (3.5, 3.0, 4.0));
+        assert_eq!(
+            (
+                Transport::bar_length(7, 8),
+                Transport::bar_length(3, 4),
+                Transport::bar_length(0, 4)
+            ),
+            (3.5, 3.0, 4.0)
+        );
     }
 }

@@ -10,8 +10,8 @@
 //!   handles bytes, partial samples or endianness.
 
 use crate::alloc_prelude::*;
-use std::io::{self, Read, Seek, SeekFrom, Write};
 use core::marker::PhantomData;
+use std::io::{self, Read, Seek, SeekFrom, Write};
 
 use super::{Endian, Source};
 use crate::processor::Processor;
@@ -31,7 +31,12 @@ pub trait SignalRead {
     fn read_exact_samples(&mut self, mut out: &mut [Self::Sample]) -> io::Result<()> {
         while !out.is_empty() {
             match self.read_samples(out)? {
-                0 => return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "signal stream ended early")),
+                0 => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "signal stream ended early",
+                    ))
+                }
                 n => out = &mut out[n..],
             }
         }
@@ -55,7 +60,11 @@ pub trait SignalRead {
     }
 
     /// Pumps samples into `writer`, `block` at a time, until this stream ends; returns the count.
-    fn copy_to<W: SignalWrite<Sample = Self::Sample> + ?Sized>(&mut self, writer: &mut W, block: usize) -> io::Result<u64>
+    fn copy_to<W: SignalWrite<Sample = Self::Sample> + ?Sized>(
+        &mut self,
+        writer: &mut W,
+        block: usize,
+    ) -> io::Result<u64>
     where
         Self::Sample: Default,
     {
@@ -79,7 +88,10 @@ pub trait SignalRead {
         Self::Sample: Float,
         P: Processor<Self::Sample>,
     {
-        ProcessedStream { stream: self, processor }
+        ProcessedStream {
+            stream: self,
+            processor,
+        }
     }
 }
 
@@ -100,7 +112,12 @@ pub trait SignalWrite {
     fn write_all_samples(&mut self, mut samples: &[Self::Sample]) -> io::Result<()> {
         while !samples.is_empty() {
             match self.write_samples(samples)? {
-                0 => return Err(io::Error::new(io::ErrorKind::WriteZero, "signal sink accepted no samples")),
+                0 => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "signal sink accepted no samples",
+                    ))
+                }
                 n => samples = &samples[n..],
             }
         }
@@ -148,7 +165,12 @@ fn resolve_seek(pos: SeekFrom, current: u64, len: u64) -> io::Result<u64> {
         SeekFrom::End(d) => len.checked_add_signed(d),
         SeekFrom::Current(d) => current.checked_add_signed(d),
     };
-    target.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "seek to a negative sample position"))
+    target.ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "seek to a negative sample position",
+        )
+    })
 }
 
 // IN-MEMORY AND GENERATED STREAMS =================================================================
@@ -165,7 +187,11 @@ pub struct SignalCursor<C, T> {
 impl<C, T> SignalCursor<C, T> {
     /// A cursor at the start of `inner`.
     pub fn new(inner: C) -> Self {
-        Self { inner, pos: 0, _sample: PhantomData }
+        Self {
+            inner,
+            pos: 0,
+            _sample: PhantomData,
+        }
     }
     /// The underlying signal.
     pub fn get_ref(&self) -> &C {
@@ -191,7 +217,8 @@ impl<T: Copy, C: AsRef<[T]>> SignalRead for SignalCursor<C, T> {
 impl<T: Copy, C: AsRef<[T]>> SignalSeek for SignalCursor<C, T> {
     fn seek_samples(&mut self, pos: SeekFrom) -> io::Result<u64> {
         let target = resolve_seek(pos, self.pos as u64, self.inner.as_ref().len() as u64)?;
-        self.pos = usize::try_from(target).map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "position too large"))?;
+        self.pos = usize::try_from(target)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "position too large"))?;
         Ok(target)
     }
 }
@@ -230,7 +257,10 @@ pub struct SourceStream<S> {
 impl<S> SourceStream<S> {
     /// `source` as a stream of `length` samples (`None`: endless).
     pub fn new(source: S, length: Option<u64>) -> Self {
-        Self { source, remaining: length }
+        Self {
+            source,
+            remaining: length,
+        }
     }
     /// The source, e.g. to change its parameters while streaming.
     pub fn source_mut(&mut self) -> &mut S {
@@ -319,7 +349,10 @@ impl SampleEncoding {
 
     fn check(&self) -> io::Result<()> {
         if self.dtype.is_complex() {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "complex types are not supported as sample encodings"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "complex types are not supported as sample encodings",
+            ));
         }
         Ok(())
     }
@@ -397,7 +430,13 @@ impl<R: Read, T: Float> SampleReader<R, T> {
     /// Fails with `InvalidInput` for complex encodings.
     pub fn new(inner: R, encoding: SampleEncoding) -> io::Result<Self> {
         encoding.check()?;
-        Ok(Self { inner, encoding, bytes: Vec::new(), carry: 0, _sample: PhantomData })
+        Ok(Self {
+            inner,
+            encoding,
+            bytes: Vec::new(),
+            carry: 0,
+            _sample: PhantomData,
+        })
     }
     /// How samples are decoded.
     pub fn encoding(&self) -> SampleEncoding {
@@ -429,7 +468,10 @@ impl<R: Read, T: Float> SignalRead for SampleReader<R, T> {
             let have = self.carry + n;
             let samples = have / size;
             if samples > 0 {
-                for (o, chunk) in out.iter_mut().zip(self.bytes[..samples * size].chunks_exact(size)) {
+                for (o, chunk) in out
+                    .iter_mut()
+                    .zip(self.bytes[..samples * size].chunks_exact(size))
+                {
                     *o = self.encoding.decode(chunk);
                 }
                 self.bytes.copy_within(samples * size..have, 0);
@@ -441,7 +483,10 @@ impl<R: Read, T: Float> SignalRead for SampleReader<R, T> {
                 return if self.carry == 0 {
                     Ok(0)
                 } else {
-                    Err(io::Error::new(io::ErrorKind::UnexpectedEof, "byte stream ended in the middle of a sample"))
+                    Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "byte stream ended in the middle of a sample",
+                    ))
                 };
             }
         }
@@ -474,7 +519,12 @@ impl<W: Write, T: Float> SampleWriter<W, T> {
     /// Fails with `InvalidInput` for complex encodings.
     pub fn new(inner: W, encoding: SampleEncoding) -> io::Result<Self> {
         encoding.check()?;
-        Ok(Self { inner, encoding, bytes: Vec::new(), _sample: PhantomData })
+        Ok(Self {
+            inner,
+            encoding,
+            bytes: Vec::new(),
+            _sample: PhantomData,
+        })
     }
     /// How samples are encoded.
     pub fn encoding(&self) -> SampleEncoding {
@@ -555,7 +605,11 @@ mod tests {
             for endian in [Endian::Little, Endian::Big] {
                 let e = SampleEncoding::new(dtype, endian);
                 // one integer step, but no finer than f64 can resolve (64-bit integers pass through f64)
-                let tol = if dtype.is_float() { 1e-7 } else { (1.0 / e.int_scale()).max(1e-15) };
+                let tol = if dtype.is_float() {
+                    1e-7
+                } else {
+                    (1.0 / e.int_scale()).max(1e-15)
+                };
                 let mut bytes = vec![0u8; e.bytes_per_sample()];
                 for v in values {
                     e.encode(v, &mut bytes);
@@ -577,7 +631,14 @@ mod tests {
             assert_eq!(bytes.len(), 1_000 * dtype.size_bytes());
 
             // 5 bytes per read never lines up with 2/3/4-byte samples
-            let mut r = SampleReader::<_, f64>::new(Trickle { data: &bytes, chunk: 5 }, enc).unwrap();
+            let mut r = SampleReader::<_, f64>::new(
+                Trickle {
+                    data: &bytes,
+                    chunk: 5,
+                },
+                enc,
+            )
+            .unwrap();
             let mut back = Vec::new();
             r.read_to_end_samples(&mut back).unwrap();
             assert_eq!(back.len(), 1_000);
@@ -588,11 +649,19 @@ mod tests {
 
     #[test]
     fn truncated_byte_stream_is_an_error() {
-        let mut r = SampleReader::<_, f32>::new(&[1u8, 2, 3][..], SampleEncoding::little(DType::I16)).unwrap();
+        let mut r =
+            SampleReader::<_, f32>::new(&[1u8, 2, 3][..], SampleEncoding::little(DType::I16))
+                .unwrap();
         let mut out = [0.0f32; 4];
         assert_eq!(r.read_samples(&mut out).unwrap(), 1);
-        assert_eq!(r.read_samples(&mut out).unwrap_err().kind(), io::ErrorKind::UnexpectedEof);
-        assert!(SampleReader::<_, f32>::new(&[][..], SampleEncoding::little(DType::ComplexF32)).is_err());
+        assert_eq!(
+            r.read_samples(&mut out).unwrap_err().kind(),
+            io::ErrorKind::UnexpectedEof
+        );
+        assert!(
+            SampleReader::<_, f32>::new(&[][..], SampleEncoding::little(DType::ComplexF32))
+                .is_err()
+        );
     }
 
     #[test]
@@ -630,11 +699,16 @@ mod tests {
     #[test]
     fn generated_stream_processed_and_pumped() {
         let fs = 48_000.0;
-        let mut stream = Sine::new(8_000.0, fs).stream_for(4_800).through(Biquad::lowpass(500.0, BUTTERWORTH_Q, fs));
+        let mut stream = Sine::new(8_000.0, fs)
+            .stream_for(4_800)
+            .through(Biquad::lowpass(500.0, BUTTERWORTH_Q, fs));
         let mut sink = SignalCursor::new(Vec::new());
         assert_eq!(stream.copy_to(&mut sink, 256).unwrap(), 4_800);
         let out = sink.into_inner();
         assert_eq!(out.len(), 4_800);
-        assert!(out[2_400..].rms().unwrap() < 0.01, "8 kHz is far above the 500 Hz cutoff");
+        assert!(
+            out[2_400..].rms().unwrap() < 0.01,
+            "8 kHz is far above the 500 Hz cutoff"
+        );
     }
 }

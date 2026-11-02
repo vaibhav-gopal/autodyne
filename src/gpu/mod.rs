@@ -87,7 +87,9 @@ mod sealed {
 }
 
 /// Element types a [`GpuArray`] holds: `f32` and `f64`.
-pub trait GpuFloat: Float + CubeElement + Copy + Default + Send + Sync + sealed::Sealed + 'static {
+pub trait GpuFloat:
+    Float + CubeElement + Copy + Default + Send + Sync + sealed::Sealed + 'static
+{
     /// The element type's name ("f32", "f64").
     const NAME: &'static str;
     /// `v` rounded to this type (host-side constants: twiddles, scales).
@@ -117,9 +119,9 @@ impl GpuFloat for f64 {
 const THREADS: u32 = 256;
 
 mod kernels;
-mod wide;
 #[cfg(test)]
 mod tests;
+mod wide;
 
 use kernels::*;
 
@@ -128,8 +130,13 @@ use kernels::*;
 /// `e^(-2 pi i t / n)` for `t` in `0..n / 2`, interleaved, computed in f64 and kept on the GPU
 /// for the life of the process (one table per length and type).
 fn twiddles<T: GpuFloat>(n: usize) -> Handle {
-    static CACHE: OnceLock<std::sync::Mutex<std::collections::HashMap<(&'static str, usize), Handle>>> = OnceLock::new();
-    let mut cache = CACHE.get_or_init(Default::default).lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    static CACHE: OnceLock<
+        std::sync::Mutex<std::collections::HashMap<(&'static str, usize), Handle>>,
+    > = OnceLock::new();
+    let mut cache = CACHE
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     cache
         .entry((T::NAME, n))
         .or_insert_with(|| {
@@ -139,7 +146,11 @@ fn twiddles<T: GpuFloat>(n: usize) -> Handle {
                     [T::of(a.cos()), T::of(a.sin())]
                 })
                 .collect();
-            client().create(Bytes::from_elems(if tw.is_empty() { vec![T::of(0.0); 2] } else { tw }))
+            client().create(Bytes::from_elems(if tw.is_empty() {
+                vec![T::of(0.0); 2]
+            } else {
+                tw
+            }))
         })
         .clone()
 }
@@ -152,7 +163,15 @@ fn shared_fft_max<T: GpuFloat>() -> usize {
 /// Transforms of `lanes` rows of power-of-two length `n <= shared_fft_max` in one launch (one cube
 /// per row, see `fft_shared_kernel`): real input when `real_input`, the first `bins` values out,
 /// scaled by `scale`.
-fn fft_shared<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, real_input: bool, bins: usize, inverse: bool, scale: f64) -> Handle {
+fn fft_shared<T: GpuFloat>(
+    x: &Handle,
+    lanes: usize,
+    n: usize,
+    real_input: bool,
+    bins: usize,
+    inverse: bool,
+    scale: f64,
+) -> Handle {
     let out = client().empty((2 * lanes * bins).max(1) * size_of::<T>());
     let tw = twiddles::<T>(n);
     let input_len = if real_input { lanes * n } else { 2 * lanes * n };
@@ -187,7 +206,10 @@ fn radix2<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> Han
     let sign = T::of(if inverse { -1.0 } else { 1.0 });
     // pass p writes buffer p mod 2 and reads the previous one (the input for the first): the
     // input is never written, and a one-point transform (no passes) is the input itself
-    let buffers = [client().empty(len * size_of::<T>()), client().empty(len * size_of::<T>())];
+    let buffers = [
+        client().empty(len * size_of::<T>()),
+        client().empty(len * size_of::<T>()),
+    ];
     let mut src = x.clone();
     let (mut ns, mut pass) = (1, 0);
     while ns < n {
@@ -223,7 +245,9 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
     // the chirp, k² reduced modulo 2n so the angle stays exact
     let chirp: Vec<(f64, f64)> = (0..n)
         .map(|k| {
-            let a = sign * std::f64::consts::PI * ((k as u128 * k as u128) % (2 * n as u128)) as f64 / n as f64;
+            let a =
+                sign * std::f64::consts::PI * ((k as u128 * k as u128) % (2 * n as u128)) as f64
+                    / n as f64;
             (a.cos(), a.sin())
         })
         .collect();
@@ -235,7 +259,13 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
         filter[m - k] = c;
     }
     crate::fft::Fft::<f64>::new(m).forward(&mut filter);
-    let to_gpu = |v: Vec<(f64, f64)>| client().create(Bytes::from_elems(v.into_iter().flat_map(|(a, b)| [T::of(a), T::of(b)]).collect::<Vec<T>>()));
+    let to_gpu = |v: Vec<(f64, f64)>| {
+        client().create(Bytes::from_elems(
+            v.into_iter()
+                .flat_map(|(a, b)| [T::of(a), T::of(b)])
+                .collect::<Vec<T>>(),
+        ))
+    };
     let chirp_gpu = to_gpu(chirp);
     let filter_gpu = to_gpu(filter.iter().map(|z| (z.re, z.im)).collect());
     let padded = client().empty(2 * lanes * m * size_of::<T>());
@@ -257,7 +287,14 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
     let spectrum = radix2::<T>(&padded, lanes, m, false);
     // SAFETY: spectrum holds lanes * m complex values, the filter m
     unsafe {
-        complex_mul_kernel::launch_unchecked::<T>(client(), cubes(lanes * m), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(spectrum.clone(), 2 * lanes * m), BufferArg::from_raw_parts(filter_gpu, 2 * m), m)
+        complex_mul_kernel::launch_unchecked::<T>(
+            client(),
+            cubes(lanes * m),
+            CubeDim::new_1d(THREADS),
+            BufferArg::from_raw_parts(spectrum.clone(), 2 * lanes * m),
+            BufferArg::from_raw_parts(filter_gpu, 2 * m),
+            m,
+        )
     };
     let conv = radix2::<T>(&spectrum, lanes, m, true);
     let out = client().empty(2 * lanes * n * size_of::<T>());
@@ -266,7 +303,10 @@ fn bluestein<T: GpuFloat>(x: &Handle, lanes: usize, n: usize, inverse: bool) -> 
         let s = 1.0 / m as f64;
         (0..n)
             .flat_map(|k| {
-                let a = sign * std::f64::consts::PI * ((k as u128 * k as u128) % (2 * n as u128)) as f64 / n as f64;
+                let a = sign
+                    * std::f64::consts::PI
+                    * ((k as u128 * k as u128) % (2 * n as u128)) as f64
+                    / n as f64;
                 [T::of(a.cos() * s), T::of(a.sin() * s)]
             })
             .collect()
@@ -303,13 +343,22 @@ pub struct GpuArray<T: GpuFloat = f32> {
 impl<T: GpuFloat> Clone for GpuArray<T> {
     /// Another view of the same memory (no copy).
     fn clone(&self) -> Self {
-        GpuArray { handle: self.handle.clone(), memory: self.memory.clone(), perm: self.perm.clone(), _elem: PhantomData }
+        GpuArray {
+            handle: self.handle.clone(),
+            memory: self.memory.clone(),
+            perm: self.perm.clone(),
+            _elem: PhantomData,
+        }
     }
 }
 
 impl<T: GpuFloat> std::fmt::Debug for GpuArray<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("GpuArray").field("dtype", &T::NAME).field("shape", &self.shape()).field("perm", &self.perm).finish()
+        f.debug_struct("GpuArray")
+            .field("dtype", &T::NAME)
+            .field("shape", &self.shape())
+            .field("perm", &self.perm)
+            .finish()
     }
 }
 
@@ -321,7 +370,11 @@ enum Pairing {
 
 /// Vectors of 4 when `n` allows, else single values.
 fn width(n: usize) -> usize {
-    if n.is_multiple_of(4) { 4 } else { 1 }
+    if n.is_multiple_of(4) {
+        4
+    } else {
+        1
+    }
 }
 
 fn cubes(units: usize) -> CubeCount {
@@ -353,7 +406,12 @@ impl<T: GpuFloat> GpuArray<T> {
     }
 
     fn new(handle: Handle, memory: Vec<usize>, perm: Vec<usize>) -> GpuArray<T> {
-        GpuArray { handle, memory, perm, _elem: PhantomData }
+        GpuArray {
+            handle,
+            memory,
+            perm,
+            _elem: PhantomData,
+        }
     }
 
     /// Copies `x` to the GPU. A permuted contiguous view (a transpose, say) goes up as it lies in
@@ -375,7 +433,11 @@ impl<T: GpuFloat> GpuArray<T> {
             }
             None => (x.to_vec(), x.shape().to_vec(), identity(n)),
         };
-        Ok(GpuArray::new(client().create(Bytes::from_elems(data)), memory, perm))
+        Ok(GpuArray::new(
+            client().create(Bytes::from_elems(data)),
+            memory,
+            perm,
+        ))
     }
 
     /// Moves `x` to the GPU (its buffer handed over, not copied, when it is contiguous).
@@ -386,12 +448,18 @@ impl<T: GpuFloat> GpuArray<T> {
         Self::check()?;
         let memory = x.shape().to_vec();
         let perm = identity(memory.len());
-        Ok(GpuArray::new(client().create(Bytes::from_elems(x.into_vec())), memory, perm))
+        Ok(GpuArray::new(
+            client().create(Bytes::from_elems(x.into_vec())),
+            memory,
+            perm,
+        ))
     }
 
     /// Copies the values back, contiguous in this array's axis order.
     pub fn to_host(&self) -> NdArray<T> {
-        let bytes = client().read_one(self.handle.clone()).expect("the GPU returns the array");
+        let bytes = client()
+            .read_one(self.handle.clone())
+            .expect("the GPU returns the array");
         let mut data = match bytes.try_into_vec::<T>() {
             Ok(v) => v,
             Err(bytes) => T::from_bytes(&bytes).to_vec(),
@@ -401,7 +469,11 @@ impl<T: GpuFloat> GpuArray<T> {
         if self.is_standard() {
             return buffer;
         }
-        buffer.view().permute(&self.perm).expect("a permutation").to_owned()
+        buffer
+            .view()
+            .permute(&self.perm)
+            .expect("a permutation")
+            .to_owned()
     }
 
     /// Length of each axis (of this view).
@@ -434,14 +506,29 @@ impl<T: GpuFloat> GpuArray<T> {
     /// Axis `j` of the result is axis `axes[j]` of this array (`numpy.transpose`): a view.
     pub fn permute(&self, axes: &[usize]) -> GpuArray<T> {
         let mut seen = vec![false; self.ndim()];
-        let valid = axes.len() == self.ndim() && axes.iter().all(|&a| a < self.ndim() && !std::mem::replace(&mut seen[a], true));
-        assert!(valid, "GpuArray::permute: {axes:?} is not a permutation of {} axes", self.ndim());
-        GpuArray::new(self.handle.clone(), self.memory.clone(), axes.iter().map(|&a| self.perm[a]).collect())
+        let valid = axes.len() == self.ndim()
+            && axes
+                .iter()
+                .all(|&a| a < self.ndim() && !std::mem::replace(&mut seen[a], true));
+        assert!(
+            valid,
+            "GpuArray::permute: {axes:?} is not a permutation of {} axes",
+            self.ndim()
+        );
+        GpuArray::new(
+            self.handle.clone(),
+            self.memory.clone(),
+            axes.iter().map(|&a| self.perm[a]).collect(),
+        )
     }
 
     fn empty(memory: &[usize], perm: Vec<usize>) -> GpuArray<T> {
         let len: usize = memory.iter().product();
-        GpuArray::new(client().empty(len.max(1) * size_of::<T>()), memory.to_vec(), perm)
+        GpuArray::new(
+            client().empty(len.max(1) * size_of::<T>()),
+            memory.to_vec(),
+            perm,
+        )
     }
 
     /// A new buffer of row-major `shape`, element `i` read from this buffer at the
@@ -452,7 +539,10 @@ impl<T: GpuFloat> GpuArray<T> {
         if len > 0 {
             let shape_u: Vec<u32> = shape.iter().map(|&s| s as u32).collect();
             let strides_u: Vec<u32> = strides.iter().map(|&s| s as u32).collect();
-            let (sh, st) = (client().create(Bytes::from_elems(shape_u)), client().create(Bytes::from_elems(strides_u)));
+            let (sh, st) = (
+                client().create(Bytes::from_elems(shape_u)),
+                client().create(Bytes::from_elems(strides_u)),
+            );
             // SAFETY: every index read is inside the buffer (strides of a permutation of its layout)
             unsafe {
                 gather_kernel::launch_unchecked::<T>(
@@ -504,7 +594,16 @@ impl<T: GpuFloat> GpuArray<T> {
         if n > 0 {
             // SAFETY: both arrays hold n values; the launch covers n / w vectors
             unsafe {
-                axpb_kernel::launch_unchecked::<T>(client(), cubes(n / w), CubeDim::new_1d(THREADS), w, BufferArg::from_raw_parts(self.handle.clone(), n), BufferArg::from_raw_parts(out.handle.clone(), n), T::scalar_arg(a), T::scalar_arg(b))
+                axpb_kernel::launch_unchecked::<T>(
+                    client(),
+                    cubes(n / w),
+                    CubeDim::new_1d(THREADS),
+                    w,
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
+                    T::scalar_arg(a),
+                    T::scalar_arg(b),
+                )
             };
         }
         out
@@ -671,16 +770,32 @@ impl<T: GpuFloat> GpuArray<T> {
     fn unary(&self, op: u32) -> GpuArray<T> {
         let out = GpuArray::empty(&self.memory, self.perm.clone());
         let (n, w) = (self.len(), width(self.len()));
-        let own = matches!(op, EXP | LN | TANH | SIN | COS) && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
+        let own = matches!(op, EXP | LN | TANH | SIN | COS)
+            && std::any::TypeId::of::<T>() == std::any::TypeId::of::<f64>();
         if n > 0 && own {
             // SAFETY: both hold n values (f64, checked above)
             unsafe {
-                wide::transcendental_f64_kernel::launch_unchecked(client(), cubes(n), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(self.handle.clone(), n), BufferArg::from_raw_parts(out.handle.clone(), n), op)
+                wide::transcendental_f64_kernel::launch_unchecked(
+                    client(),
+                    cubes(n),
+                    CubeDim::new_1d(THREADS),
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
+                    op,
+                )
             };
         } else if n > 0 {
             // SAFETY: both hold n values
             unsafe {
-                unary_kernel::launch_unchecked::<T>(client(), cubes(n / w), CubeDim::new_1d(THREADS), w, BufferArg::from_raw_parts(self.handle.clone(), n), BufferArg::from_raw_parts(out.handle.clone(), n), op)
+                unary_kernel::launch_unchecked::<T>(
+                    client(),
+                    cubes(n / w),
+                    CubeDim::new_1d(THREADS),
+                    w,
+                    BufferArg::from_raw_parts(self.handle.clone(), n),
+                    BufferArg::from_raw_parts(out.handle.clone(), n),
+                    op,
+                )
             };
         }
         out
@@ -754,7 +869,10 @@ impl<T: GpuFloat> GpuArray<T> {
 
     /// Sums along `axis` of a matrix (0: down the columns, 1: along the rows), still on the GPU.
     pub fn sum_axis(&self, axis: usize) -> GpuArray<T> {
-        assert!(self.ndim() == 2 && axis < 2, "GpuArray::sum_axis: a matrix and axis 0 or 1");
+        assert!(
+            self.ndim() == 2 && axis < 2,
+            "GpuArray::sum_axis: a matrix and axis 0 or 1"
+        );
         // summing along the buffer's rows or down its columns, whichever the axis is in memory
         let (rows, cols) = (self.memory[0], self.memory[1]);
         if self.perm[axis] == 1 {
@@ -816,7 +934,12 @@ impl<T: GpuFloat> GpuArray<T> {
     /// memory. Transposed views are made contiguous first. Panics unless the inner dimensions agree.
     pub fn matmul(&self, other: &GpuArray<T>) -> GpuArray<T> {
         let (a, b) = (self.contiguous(), other.contiguous());
-        assert!(a.ndim() == 2 && b.ndim() == 2 && a.memory[1] == b.memory[0], "GpuArray::matmul: {:?} @ {:?}", self.shape(), other.shape());
+        assert!(
+            a.ndim() == 2 && b.ndim() == 2 && a.memory[1] == b.memory[0],
+            "GpuArray::matmul: {:?} @ {:?}",
+            self.shape(),
+            other.shape()
+        );
         let (m, k, n) = (a.memory[0], a.memory[1], b.memory[1]);
         let out = GpuArray::empty(&[m, n], vec![0, 1]);
         if m == 0 || n == 0 {
@@ -874,7 +997,13 @@ impl<T: GpuFloat> GpuArray<T> {
         if !x.is_empty() {
             // SAFETY: x holds lanes * n values, z twice as many
             unsafe {
-                real_to_complex_kernel::launch_unchecked::<T>(client(), cubes(x.len()), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(x.handle.clone(), x.len()), BufferArg::from_raw_parts(z.handle.clone(), 2 * x.len()))
+                real_to_complex_kernel::launch_unchecked::<T>(
+                    client(),
+                    cubes(x.len()),
+                    CubeDim::new_1d(THREADS),
+                    BufferArg::from_raw_parts(x.handle.clone(), x.len()),
+                    BufferArg::from_raw_parts(z.handle.clone(), 2 * x.len()),
+                )
             };
         }
         let spectrum = z.complex_transform(false);
@@ -903,7 +1032,13 @@ impl<T: GpuFloat> GpuArray<T> {
     pub fn irfft(&self, n: usize) -> GpuArray<T> {
         let x = self.contiguous();
         let mut shape = x.memory.clone();
-        assert!(shape.len() >= 2 && shape[shape.len() - 1] == 2 && shape[shape.len() - 2] == n / 2 + 1 && n >= 1, "GpuArray::irfft: bins [..., n / 2 + 1, 2] for n = {n}, got {shape:?}");
+        assert!(
+            shape.len() >= 2
+                && shape[shape.len() - 1] == 2
+                && shape[shape.len() - 2] == n / 2 + 1
+                && n >= 1,
+            "GpuArray::irfft: bins [..., n / 2 + 1, 2] for n = {n}, got {shape:?}"
+        );
         shape.truncate(shape.len() - 2);
         let bins = n / 2 + 1;
         let lanes = x.len() / (2 * bins);
@@ -927,7 +1062,14 @@ impl<T: GpuFloat> GpuArray<T> {
         if lanes > 0 {
             // SAFETY: z holds lanes * n complex values, out lanes * n
             unsafe {
-                real_part_kernel::launch_unchecked::<T>(client(), cubes(lanes * n), CubeDim::new_1d(THREADS), BufferArg::from_raw_parts(z.handle.clone(), 2 * lanes * n), BufferArg::from_raw_parts(out.handle.clone(), lanes * n), T::arg(1.0))
+                real_part_kernel::launch_unchecked::<T>(
+                    client(),
+                    cubes(lanes * n),
+                    CubeDim::new_1d(THREADS),
+                    BufferArg::from_raw_parts(z.handle.clone(), 2 * lanes * n),
+                    BufferArg::from_raw_parts(out.handle.clone(), lanes * n),
+                    T::arg(1.0),
+                )
             };
         }
         shape.push(n);
@@ -937,17 +1079,33 @@ impl<T: GpuFloat> GpuArray<T> {
     /// `[..., n, 2]` complex lanes transformed along `n` (inverse scaled by `1 / n`).
     fn complex_transform(&self, inverse: bool) -> GpuArray<T> {
         let x = self.contiguous();
-        assert!(x.ndim() >= 2 && x.memory[x.ndim() - 1] == 2, "GpuArray::fft: interleaved complex data [..., n, 2], got {:?}", self.shape());
+        assert!(
+            x.ndim() >= 2 && x.memory[x.ndim() - 1] == 2,
+            "GpuArray::fft: interleaved complex data [..., n, 2], got {:?}",
+            self.shape()
+        );
         let n = x.memory[x.ndim() - 2];
         let lanes = x.len() / (2 * n.max(1));
         if lanes == 0 || n == 0 {
             return x;
         }
         if n.is_power_of_two() && n <= shared_fft_max::<T>() {
-            let out = fft_shared::<T>(&x.handle, lanes, n, false, n, inverse, if inverse { 1.0 / n as f64 } else { 1.0 });
+            let out = fft_shared::<T>(
+                &x.handle,
+                lanes,
+                n,
+                false,
+                n,
+                inverse,
+                if inverse { 1.0 / n as f64 } else { 1.0 },
+            );
             return GpuArray::new(out, x.memory.clone(), identity(x.ndim()));
         }
-        let z = if n.is_power_of_two() { radix2::<T>(&x.handle, lanes, n, inverse) } else { bluestein::<T>(&x.handle, lanes, n, inverse) };
+        let z = if n.is_power_of_two() {
+            radix2::<T>(&x.handle, lanes, n, inverse)
+        } else {
+            bluestein::<T>(&x.handle, lanes, n, inverse)
+        };
         let z = if inverse {
             let scaled = GpuArray::<T>::empty(&[lanes, n, 2], vec![0, 1, 2]);
             // SAFETY: z and scaled hold lanes * n complex values

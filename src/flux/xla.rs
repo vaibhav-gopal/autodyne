@@ -13,7 +13,10 @@ use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use super::hlo::Program;
-use super::runtime::{check_inputs, check_outputs, check_resident, find_tool, npy, Backend, DeviceArray, Executable, HostArray, HostRef, Resident, Scratch, TempDir};
+use super::runtime::{
+    check_inputs, check_outputs, check_resident, find_tool, npy, Backend, DeviceArray, Executable,
+    HostArray, HostRef, Resident, Scratch, TempDir,
+};
 use super::FluxError;
 
 /// The request loop run by Python: one tab-separated request per line, one reply per line.
@@ -92,12 +95,21 @@ impl Xla {
             Some(p) => PathBuf::from(p),
             None => find_tool(None, "python3")
                 .or_else(|| find_tool(None, "python"))
-                .ok_or_else(|| FluxError::Tool { tool: "python", message: "no python3 / python on PATH (or set AUTODYNE_XLA_PYTHON)".into() })?,
+                .ok_or_else(|| FluxError::Tool {
+                    tool: "python",
+                    message: "no python3 / python on PATH (or set AUTODYNE_XLA_PYTHON)".into(),
+                })?,
         };
         let dir = TempDir::new()?;
         let script = dir.path.join("xla_server.py");
         std::fs::write(&script, SERVER)?;
-        let mut child = Command::new(&python).arg("-u").arg(&script).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn()?;
+        let mut child = Command::new(&python)
+            .arg("-u")
+            .arg(&script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
         let stdin = child.stdin.take().expect("piped");
         let mut stdout = BufReader::new(child.stdout.take().expect("piped"));
         let mut line = String::new();
@@ -107,11 +119,24 @@ impl Xla {
             _ => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let message = line.trim_end().strip_prefix("error\t").unwrap_or("the server did not start").to_string();
-                return Err(FluxError::Tool { tool: "xla", message });
+                let message = line
+                    .trim_end()
+                    .strip_prefix("error\t")
+                    .unwrap_or("the server did not start")
+                    .to_string();
+                return Err(FluxError::Tool {
+                    tool: "xla",
+                    message,
+                });
             }
         };
-        Ok(Xla { server: Arc::new(Server { io: Mutex::new((child, stdin, stdout)), dir }), description })
+        Ok(Xla {
+            server: Arc::new(Server {
+                io: Mutex::new((child, stdin, stdout)),
+                dir,
+            }),
+            description,
+        })
     }
 
     /// The platform and device the server runs on, e.g. `cpu cpu (jax 0.11.2)`.
@@ -135,12 +160,21 @@ impl Server {
         stdin.flush()?;
         let mut line = String::new();
         if stdout.read_line(&mut line)? == 0 {
-            return Err(FluxError::Tool { tool: "xla", message: "the server exited".into() });
+            return Err(FluxError::Tool {
+                tool: "xla",
+                message: "the server exited".into(),
+            });
         }
         match line.trim_end_matches(['\r', '\n']).split_once('\t') {
             Some(("ok", payload)) => Ok(payload.to_string()),
-            Some(("error", message)) => Err(FluxError::Tool { tool: "xla", message: message.to_string() }),
-            _ => Err(FluxError::Tool { tool: "xla", message: format!("unexpected reply {line:?}") }),
+            Some(("error", message)) => Err(FluxError::Tool {
+                tool: "xla",
+                message: message.to_string(),
+            }),
+            _ => Err(FluxError::Tool {
+                tool: "xla",
+                message: format!("unexpected reply {line:?}"),
+            }),
         }
     }
 }
@@ -154,9 +188,15 @@ impl Drop for Server {
 }
 
 fn path(p: &std::path::Path) -> Result<String, FluxError> {
-    let s = p.to_str().ok_or_else(|| FluxError::Tool { tool: "xla", message: format!("non-UTF-8 path {p:?}") })?;
+    let s = p.to_str().ok_or_else(|| FluxError::Tool {
+        tool: "xla",
+        message: format!("non-UTF-8 path {p:?}"),
+    })?;
     if s.contains(['\t', '\n']) {
-        return Err(FluxError::Tool { tool: "xla", message: format!("unusable path {p:?}") });
+        return Err(FluxError::Tool {
+            tool: "xla",
+            message: format!("unusable path {p:?}"),
+        });
     }
     Ok(s.to_string())
 }
@@ -171,7 +211,11 @@ impl Backend for Xla {
         let _cleanup = Scratch(vec![source.clone()]);
         std::fs::write(&source, &program.text)?;
         let id = self.server.request(&["compile".into(), path(&source)?])?;
-        Ok(Box::new(Compiled { server: self.server.clone(), id, program: program.clone() }))
+        Ok(Box::new(Compiled {
+            server: self.server.clone(),
+            id,
+            program: program.clone(),
+        }))
     }
 }
 
@@ -189,8 +233,16 @@ impl Executable for Compiled {
 
     fn run_host(&self, inputs: &[HostRef<'_>]) -> Result<Vec<HostArray>, FluxError> {
         check_inputs(&self.program, inputs)?;
-        let ins: Vec<PathBuf> = inputs.iter().map(|_| self.server.dir.file("in", "npy")).collect();
-        let outs: Vec<PathBuf> = self.program.outputs.iter().map(|_| self.server.dir.file("out", "npy")).collect();
+        let ins: Vec<PathBuf> = inputs
+            .iter()
+            .map(|_| self.server.dir.file("in", "npy"))
+            .collect();
+        let outs: Vec<PathBuf> = self
+            .program
+            .outputs
+            .iter()
+            .map(|_| self.server.dir.file("out", "npy"))
+            .collect();
         let _cleanup = Scratch(ins.iter().chain(&outs).cloned().collect());
         let mut request = vec!["run".to_string(), self.id.clone(), inputs.len().to_string()];
         for (x, p) in inputs.iter().zip(&ins) {
@@ -201,7 +253,10 @@ impl Executable for Compiled {
             request.push(path(p)?);
         }
         self.server.request(&request)?;
-        let results = outs.iter().map(|p| npy::load(p)).collect::<Result<Vec<_>, _>>()?;
+        let results = outs
+            .iter()
+            .map(|p| npy::load(p))
+            .collect::<Result<Vec<_>, _>>()?;
         check_outputs(&self.program, &results)?;
         Ok(results)
     }
@@ -211,7 +266,14 @@ impl Executable for Compiled {
         let _cleanup = Scratch(vec![file.clone()]);
         npy::save(&file, a)?;
         let id = self.server.request(&["put".into(), path(&file)?])?;
-        Ok(DeviceArray::device(a.shape().to_vec(), a.dtype(), Box::new(ServerArray { server: self.server.clone(), id })))
+        Ok(DeviceArray::device(
+            a.shape().to_vec(),
+            a.dtype(),
+            Box::new(ServerArray {
+                server: self.server.clone(),
+                id,
+            }),
+        ))
     }
 
     fn run_resident(&self, inputs: &[&DeviceArray]) -> Result<Vec<DeviceArray>, FluxError> {
@@ -224,10 +286,23 @@ impl Executable for Compiled {
         let outputs: Vec<DeviceArray> = ids
             .split(',')
             .zip(&self.program.outputs)
-            .map(|(id, shape)| DeviceArray::device(shape.clone(), self.program.dtype, Box::new(ServerArray { server: self.server.clone(), id: id.to_string() })))
+            .map(|(id, shape)| {
+                DeviceArray::device(
+                    shape.clone(),
+                    self.program.dtype,
+                    Box::new(ServerArray {
+                        server: self.server.clone(),
+                        id: id.to_string(),
+                    }),
+                )
+            })
             .collect();
         if outputs.len() != self.program.outputs.len() {
-            return Err(FluxError::Shape(format!("the program should return {} outputs, got {}", self.program.outputs.len(), outputs.len())));
+            return Err(FluxError::Shape(format!(
+                "the program should return {} outputs, got {}",
+                self.program.outputs.len(),
+                outputs.len()
+            )));
         }
         Ok(outputs)
     }
@@ -236,10 +311,17 @@ impl Executable for Compiled {
         let held = self.held(a)?;
         let file = self.server.dir.file("get", "npy");
         let _cleanup = Scratch(vec![file.clone()]);
-        self.server.request(&["get".into(), held.id.clone(), path(&file)?])?;
+        self.server
+            .request(&["get".into(), held.id.clone(), path(&file)?])?;
         let x = npy::load(&file)?;
         if x.shape() != a.shape() || x.dtype() != a.dtype() {
-            return Err(FluxError::Shape(format!("expected {:?} {:?}, got {:?} {:?}", a.shape(), a.dtype(), x.shape(), x.dtype())));
+            return Err(FluxError::Shape(format!(
+                "expected {:?} {:?}, got {:?} {:?}",
+                a.shape(),
+                a.dtype(),
+                x.shape(),
+                x.dtype()
+            )));
         }
         Ok(x)
     }
@@ -251,9 +333,13 @@ impl Compiled {
         match &a.data {
             Resident::Device(handle) => match handle.downcast_ref::<ServerArray>() {
                 Some(s) if Arc::ptr_eq(&s.server, &self.server) => Ok(s),
-                _ => Err(FluxError::Shape("this array is held by another backend".into())),
+                _ => Err(FluxError::Shape(
+                    "this array is held by another backend".into(),
+                )),
             },
-            Resident::Host(_) => Err(FluxError::Shape("this array was not uploaded to this backend".into())),
+            Resident::Host(_) => Err(FluxError::Shape(
+                "this array was not uploaded to this backend".into(),
+            )),
         }
     }
 }

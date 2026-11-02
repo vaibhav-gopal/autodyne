@@ -40,8 +40,15 @@ impl<T: Float> ModulatedDelay<T> {
     /// Delay sweeps between `base - depth` and `base + depth` seconds at `rate_hz`.
     /// Panics if `depth > base` (the delay can't go negative).
     pub fn new(base_seconds: T, depth_seconds: T, rate_hz: T, sample_rate: T) -> Self {
-        assert!(depth_seconds <= base_seconds, "depth must not exceed the base delay");
-        let max = ((base_seconds + depth_seconds) * sample_rate)._ceil().to_usize().expect("delay must be finite") + 2;
+        assert!(
+            depth_seconds <= base_seconds,
+            "depth must not exceed the base delay"
+        );
+        let max = ((base_seconds + depth_seconds) * sample_rate)
+            ._ceil()
+            .to_usize()
+            .expect("delay must be finite")
+            + 2;
         Self {
             line: DelayLine::new(max),
             lfo: Sine::new(rate_hz, sample_rate),
@@ -100,7 +107,8 @@ impl<T: Float> ModulatedDelay<T> {
     /// Sweep depth in seconds, limited so the delay stays within the line allocated in `new`.
     pub fn set_depth(&mut self, seconds: T) {
         let room = T::_lit(self.line.max_delay() as f64 - 1.0) - self.base_samples;
-        self.depth_samples = (seconds * self.sample_rate)._clamp(T::_ZERO, room._min(self.base_samples));
+        self.depth_samples =
+            (seconds * self.sample_rate)._clamp(T::_ZERO, room._min(self.base_samples));
     }
     /// Negative feedback is allowed (it moves a flanger's peaks to where the notches were).
     /// Clamped to +/-0.95 to stay stable.
@@ -128,7 +136,8 @@ impl<T: Float> ModulatedDelay<T> {
         self.current_delay = self.base_samples + self.depth_samples * self.lfo.next_sample();
         // read before pushing x, so the newest stored sample is one step old (as in `Echo`)
         let delayed = self.line.read_frac(self.current_delay - T::_ONE);
-        self.line.push((x + self.feedback * delayed)._flush_denormal());
+        self.line
+            .push((x + self.feedback * delayed)._flush_denormal());
         let mix = self.mix.next_value();
         x * (T::_ONE - mix) + delayed * mix
     }
@@ -188,7 +197,13 @@ impl<T: Float> Phaser<T> {
     pub fn new(stages: usize, sample_rate: T) -> Self {
         assert!(stages > 0, "a phaser needs at least one stage");
         Self {
-            stages: vec![Allpass1 { x1: T::_ZERO, y1: T::_ZERO }; stages],
+            stages: vec![
+                Allpass1 {
+                    x1: T::_ZERO,
+                    y1: T::_ZERO
+                };
+                stages
+            ],
             lfo: Sine::new(T::_lit(0.5), sample_rate),
             lfo_phase: T::_ZERO,
             rate: T::_lit(0.5),
@@ -233,7 +248,10 @@ impl<T: Float> Phaser<T> {
     }
     /// Sweep range; equal values hold the all-passes still. Panics unless 0 < min <= max < Nyquist.
     pub fn set_range(&mut self, min_hz: T, max_hz: T) {
-        assert!(min_hz > T::_ZERO && min_hz <= max_hz && max_hz < self.sample_rate / T::_lit(2.0), "invalid phaser range");
+        assert!(
+            min_hz > T::_ZERO && min_hz <= max_hz && max_hz < self.sample_rate / T::_lit(2.0),
+            "invalid phaser range"
+        );
         self.min_hz = min_hz;
         self.max_hz = max_hz;
     }
@@ -249,7 +267,12 @@ impl<T: Float> Phaser<T> {
     /// Clears the all-passes and restarts the LFO at its starting phase.
     pub fn reset(&mut self) {
         self.mix.set_immediate(self.mix.target());
-        self.stages.iter_mut().for_each(|s| *s = Allpass1 { x1: T::_ZERO, y1: T::_ZERO });
+        self.stages.iter_mut().for_each(|s| {
+            *s = Allpass1 {
+                x1: T::_ZERO,
+                y1: T::_ZERO,
+            }
+        });
         self.lfo = self.lfo.with_phase(self.lfo_phase);
         self.last_out = T::_ZERO;
     }
@@ -281,8 +304,8 @@ crate::processor::forward_processor!(ModulatedDelay, Phaser);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::assert_close;
     use crate::osc::{Impulse, Sine};
+    use crate::testing::assert_close;
 
     /// Steady-state gain for a unit sine at `freq` (RMS over a whole number of cycles).
     fn gain_at(mut process: impl FnMut(&mut [f64]), freq: f64, fs: f64) -> f64 {
@@ -356,7 +379,16 @@ mod tests {
         let fs = 48_000.0;
         let a = allpass_coeff(1_000.0, fs);
         let mut stage = Allpass1 { x1: 0.0, y1: 0.0 };
-        assert_close(gain_at(|b| b.iter_mut().for_each(|s| *s = stage.process(*s, a)), 3_000.0, fs), 1.0, 1e-9, "unity gain");
+        assert_close(
+            gain_at(
+                |b| b.iter_mut().for_each(|s| *s = stage.process(*s, a)),
+                3_000.0,
+                fs,
+            ),
+            1.0,
+            1e-9,
+            "unity gain",
+        );
         // -90 degrees at the corner: sin in, -cos out
         let mut stage = Allpass1 { x1: 0.0, y1: 0.0 };
         let mut osc = Sine::new(1_000.0, fs);
@@ -377,10 +409,21 @@ mod tests {
         let (fs, f0) = (48_000.0, 1_000.0);
         let mut p = Phaser::new(4, fs);
         p.set_range(f0, f0);
-        let notch = (std::f64::consts::FRAC_PI_8.tan() * (std::f64::consts::PI * f0 / fs).tan()).atan() * fs / std::f64::consts::PI;
+        let notch = (std::f64::consts::FRAC_PI_8.tan() * (std::f64::consts::PI * f0 / fs).tan())
+            .atan()
+            * fs
+            / std::f64::consts::PI;
         let mut probe = p.clone();
-        assert!(gain_at(|b| probe.process(b), notch, fs) < 0.01, "notch at {notch:.1} Hz");
+        assert!(
+            gain_at(|b| probe.process(b), notch, fs) < 0.01,
+            "notch at {notch:.1} Hz"
+        );
         let mut probe = p.clone();
-        assert_close(gain_at(|b| probe.process(b), f0, fs), 1.0, 1e-6, "full level at f0");
+        assert_close(
+            gain_at(|b| probe.process(b), f0, fs),
+            1.0,
+            1e-6,
+            "full level at f0",
+        );
     }
 }

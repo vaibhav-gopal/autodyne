@@ -38,7 +38,11 @@ const TILE: usize = 64;
 
 /// Orders the axes by the stride of operand `driver` (largest outer, so the inner loop has the
 /// smallest), drops length-1 axes, and merges neighbours that every operand walks as one run.
-fn plan<const N: usize>(shape: &[usize], strides: &[[isize; MAX_DIMS]; N], driver: usize) -> Plan<N> {
+fn plan<const N: usize>(
+    shape: &[usize],
+    strides: &[[isize; MAX_DIMS]; N],
+    driver: usize,
+) -> Plan<N> {
     let mut axes = [0usize; MAX_DIMS];
     let mut n = 0;
     for (a, &d) in shape.iter().enumerate() {
@@ -50,12 +54,19 @@ fn plan<const N: usize>(shape: &[usize], strides: &[[isize; MAX_DIMS]; N], drive
     // insertion sort, stable: descending stride size of the driver
     for i in 1..n {
         let mut j = i;
-        while j > 0 && strides[driver][axes[j - 1]].unsigned_abs() < strides[driver][axes[j]].unsigned_abs() {
+        while j > 0
+            && strides[driver][axes[j - 1]].unsigned_abs() < strides[driver][axes[j]].unsigned_abs()
+        {
             axes.swap(j - 1, j);
             j -= 1;
         }
     }
-    let mut p = Plan { ndim: 0, dims: [1; MAX_DIMS], strides: [[0; MAX_DIMS]; N], tiled: false };
+    let mut p = Plan {
+        ndim: 0,
+        dims: [1; MAX_DIMS],
+        strides: [[0; MAX_DIMS]; N],
+        tiled: false,
+    };
     for &a in &axes[..n] {
         let d = shape[a];
         if p.ndim > 0 {
@@ -83,7 +94,10 @@ fn plan<const N: usize>(shape: &[usize], strides: &[[isize; MAX_DIMS]; N], drive
         let (outer, inner) = (p.ndim - 2, p.ndim - 1);
         // an operand that steps faster along the outer axis than the inner one is read across
         // lines: block both axes so those lines are reused while they are still in cache
-        let crosses = p.strides.iter().any(|s| s[outer] != 0 && s[outer].unsigned_abs() < s[inner].unsigned_abs());
+        let crosses = p
+            .strides
+            .iter()
+            .any(|s| s[outer] != 0 && s[outer].unsigned_abs() < s[inner].unsigned_abs());
         p.tiled = crosses && p.dims[outer] > TILE && p.dims[inner] > TILE;
     }
     p
@@ -137,7 +151,11 @@ fn execute<const N: usize>(p: &Plan<N>, mut body: impl FnMut([isize; N], usize, 
             while i0 < n_inner {
                 let len = TILE.min(n_inner - i0);
                 for o in o0..o1 {
-                    let at: [isize; N] = core::array::from_fn(|k| base[k] + o as isize * p.strides[k][outer] + i0 as isize * p.strides[k][inner]);
+                    let at: [isize; N] = core::array::from_fn(|k| {
+                        base[k]
+                            + o as isize * p.strides[k][outer]
+                            + i0 as isize * p.strides[k][inner]
+                    });
                     body(at, len, inner_strides);
                 }
                 i0 += len;
@@ -230,7 +248,11 @@ impl<P: NdProducer> Zip<(P,)> {
         let mut s = [0; MAX_DIMS];
         s[..shape.len()].copy_from_slice(shape);
         let ndim = shape.len();
-        Zip { producers: (producer,), shape: s, ndim }
+        Zip {
+            producers: (producer,),
+            shape: s,
+            ndim,
+        }
     }
 }
 
@@ -243,8 +265,16 @@ impl<P> Zip<P> {
         if shape == self.shape() {
             return Ok(());
         }
-        let axis = shape.iter().zip(self.shape()).position(|(a, b)| a != b).unwrap_or(0);
-        Err(NdError::Broadcast { axis, from: shape.get(axis).copied().unwrap_or(0), to: self.shape().get(axis).copied().unwrap_or(0) })
+        let axis = shape
+            .iter()
+            .zip(self.shape())
+            .position(|(a, b)| a != b)
+            .unwrap_or(0);
+        Err(NdError::Broadcast {
+            axis,
+            from: shape.get(axis).copied().unwrap_or(0),
+            to: self.shape().get(axis).copied().unwrap_or(0),
+        })
     }
 }
 
@@ -370,13 +400,27 @@ pub fn broadcast_shapes(a: &[usize], b: &[usize]) -> Result<([usize; MAX_DIMS], 
     }
     let mut out = [0; MAX_DIMS];
     for i in 0..n {
-        let x = if i + a.len() >= n { a[i + a.len() - n] } else { 1 };
-        let y = if i + b.len() >= n { b[i + b.len() - n] } else { 1 };
+        let x = if i + a.len() >= n {
+            a[i + a.len() - n]
+        } else {
+            1
+        };
+        let y = if i + b.len() >= n {
+            b[i + b.len() - n]
+        } else {
+            1
+        };
         out[i] = match (x, y) {
             (x, y) if x == y => x,
             (1, y) => y,
             (x, 1) => x,
-            (x, y) => return Err(NdError::Broadcast { axis: i, from: x.min(y), to: x.max(y) }),
+            (x, y) => {
+                return Err(NdError::Broadcast {
+                    axis: i,
+                    from: x.min(y),
+                    to: x.max(y),
+                })
+            }
         };
     }
     Ok((out, n))
@@ -391,8 +435,14 @@ impl<'a, T> NdViewMut<'a, T> {
     }
     /// Calls `f(self_element, other_element)` at every index, with `other` broadcast to this
     /// view's shape.
-    pub fn zip_mut_with<U>(&mut self, other: &NdView<'_, U>, f: impl FnMut(&mut T, &U)) -> Result<(), NdError> {
-        Zip::from(self.reborrow()).and_broadcast(*other)?.for_each(f);
+    pub fn zip_mut_with<U>(
+        &mut self,
+        other: &NdView<'_, U>,
+        f: impl FnMut(&mut T, &U),
+    ) -> Result<(), NdError> {
+        Zip::from(self.reborrow())
+            .and_broadcast(*other)?
+            .for_each(f);
         Ok(())
     }
 }
@@ -445,7 +495,8 @@ macro_rules! arithmetic {
         /// (use `zip_mut_with` to handle that as an error).
         impl<'a, 'b, T: Copy + $Op<Output = T>> $OpAssign<&NdView<'b, T>> for NdViewMut<'a, T> {
             fn $op_assign(&mut self, rhs: &NdView<'b, T>) {
-                self.zip_mut_with(rhs, |x, &y| *x = $Op::$op(*x, y)).expect("operands broadcast");
+                self.zip_mut_with(rhs, |x, &y| *x = $Op::$op(*x, y))
+                    .expect("operands broadcast");
             }
         }
         impl<T: Scalar + $Op<Output = T>, S: StorageMut<Elem = T>> $OpAssign<T> for NdArray<T, S> {
@@ -453,12 +504,16 @@ macro_rules! arithmetic {
                 self.view_mut().$op_assign(rhs);
             }
         }
-        impl<'b, T: Copy + $Op<Output = T>, S: StorageMut<Elem = T>> $OpAssign<&NdView<'b, T>> for NdArray<T, S> {
+        impl<'b, T: Copy + $Op<Output = T>, S: StorageMut<Elem = T>> $OpAssign<&NdView<'b, T>>
+            for NdArray<T, S>
+        {
             fn $op_assign(&mut self, rhs: &NdView<'b, T>) {
                 self.view_mut().$op_assign(rhs);
             }
         }
-        impl<T: Copy + $Op<Output = T>, S: StorageMut<Elem = T>, S2: Storage<Elem = T>> $OpAssign<&NdArray<T, S2>> for NdArray<T, S> {
+        impl<T: Copy + $Op<Output = T>, S: StorageMut<Elem = T>, S2: Storage<Elem = T>>
+            $OpAssign<&NdArray<T, S2>> for NdArray<T, S>
+        {
             fn $op_assign(&mut self, rhs: &NdArray<T, S2>) {
                 self.view_mut().$op_assign(&rhs.view());
             }
@@ -467,9 +522,16 @@ macro_rules! arithmetic {
         impl<'a, 'b, T: Copy + Default + $Op<Output = T>> $Op<NdView<'b, T>> for NdView<'a, T> {
             type Output = NdArray<T>;
             fn $op(self, rhs: NdView<'b, T>) -> NdArray<T> {
-                let (shape, n) = broadcast_shapes(self.shape(), rhs.shape()).expect("operands broadcast");
-                let (a, b) = (self.broadcast_to(&shape[..n]).expect("broadcasts"), rhs.broadcast_to(&shape[..n]).expect("broadcasts"));
-                Zip::from(a).and(b).expect("same shape").map_collect(|&x, &y| $Op::$op(x, y))
+                let (shape, n) =
+                    broadcast_shapes(self.shape(), rhs.shape()).expect("operands broadcast");
+                let (a, b) = (
+                    self.broadcast_to(&shape[..n]).expect("broadcasts"),
+                    rhs.broadcast_to(&shape[..n]).expect("broadcasts"),
+                );
+                Zip::from(a)
+                    .and(b)
+                    .expect("same shape")
+                    .map_collect(|&x, &y| $Op::$op(x, y))
             }
         }
         impl<'a, T: Scalar + Default + $Op<Output = T>> $Op<T> for NdView<'a, T> {
@@ -478,13 +540,17 @@ macro_rules! arithmetic {
                 self.map(|&x| $Op::$op(x, rhs))
             }
         }
-        impl<T: Copy + Default + $Op<Output = T>, S: Storage<Elem = T>, S2: Storage<Elem = T>> $Op<&NdArray<T, S2>> for &NdArray<T, S> {
+        impl<T: Copy + Default + $Op<Output = T>, S: Storage<Elem = T>, S2: Storage<Elem = T>>
+            $Op<&NdArray<T, S2>> for &NdArray<T, S>
+        {
             type Output = NdArray<T>;
             fn $op(self, rhs: &NdArray<T, S2>) -> NdArray<T> {
                 $Op::$op(self.view(), rhs.view())
             }
         }
-        impl<T: Scalar + Default + $Op<Output = T>, S: Storage<Elem = T>> $Op<T> for &NdArray<T, S> {
+        impl<T: Scalar + Default + $Op<Output = T>, S: Storage<Elem = T>> $Op<T>
+            for &NdArray<T, S>
+        {
             type Output = NdArray<T>;
             fn $op(self, rhs: T) -> NdArray<T> {
                 $Op::$op(self.view(), rhs)
@@ -537,7 +603,10 @@ fn lanes_pairwise<T: Float, const LANES: usize>(run: &[T]) -> [T; LANES] {
         return acc;
     }
     let mid = run.len().div_ceil(BLOCK) / 2 * BLOCK;
-    let (a, b) = (lanes_pairwise::<T, LANES>(&run[..mid]), lanes_pairwise::<T, LANES>(&run[mid..]));
+    let (a, b) = (
+        lanes_pairwise::<T, LANES>(&run[..mid]),
+        lanes_pairwise::<T, LANES>(&run[mid..]),
+    );
     core::array::from_fn(|i| a[i] + b[i])
 }
 
@@ -582,7 +651,8 @@ fn pairwise_sum<T: Float>(ptr: *const T, n: usize, stride: isize) -> T {
         halves(start, mid, leaf) + halves(start + mid, len - mid, leaf)
     }
     halves(0, n, &strided)
-}/// How a reduction combines input elements into an output element: one at a time, or a whole run
+}
+/// How a reduction combines input elements into an output element: one at a time, or a whole run
 /// that lands on the same output element (where a reducer can do better than element by element).
 trait Reducer<T, U> {
     fn element(&mut self, acc: U, x: &T) -> U;
@@ -625,11 +695,21 @@ impl<'a, T> NdView<'a, T> {
     /// see below): every element of `out` is set to `init`, then combined with each input element
     /// that maps onto it, `*o = f(*o, x)`, in a fixed order. This is the write side of
     /// broadcasting: the axes where `out` has length 1 (or is missing, at the front) are reduced.
-    pub fn fold_into<U: Copy>(&self, out: &mut NdViewMut<'_, U>, init: U, f: impl FnMut(U, &T) -> U) -> Result<(), NdError> {
+    pub fn fold_into<U: Copy>(
+        &self,
+        out: &mut NdViewMut<'_, U>,
+        init: U,
+        f: impl FnMut(U, &T) -> U,
+    ) -> Result<(), NdError> {
         self.reduce_into(out, init, FoldWith(f))
     }
 
-    fn reduce_into<U: Copy>(&self, out: &mut NdViewMut<'_, U>, init: U, mut reducer: impl Reducer<T, U>) -> Result<(), NdError> {
+    fn reduce_into<U: Copy>(
+        &self,
+        out: &mut NdViewMut<'_, U>,
+        init: U,
+        mut reducer: impl Reducer<T, U>,
+    ) -> Result<(), NdError> {
         // out's layout repeated over the reduced axes: only ever touched through raw pointers here,
         // one read-modify-write at a time, so the repetition is sound
         let target = out.layout.broadcast_to(self.shape())?;
@@ -705,7 +785,9 @@ impl<'a, T: Float> NdView<'a, T> {
         let ptr = self.ptr;
         let plan = plan(self.shape(), &strides, 0);
         let mut total = T::_ZERO;
-        execute(&plan, |at, n, step| total = total + pairwise_sum(ptr.wrapping_offset(at[0]), n, step[0]));
+        execute(&plan, |at, n, step| {
+            total = total + pairwise_sum(ptr.wrapping_offset(at[0]), n, step[0])
+        });
         total
     }
     /// Mean of every element; `None` when empty.
@@ -714,7 +796,9 @@ impl<'a, T: Float> NdView<'a, T> {
     }
     /// Root mean square; `None` when empty.
     pub fn rms(&self) -> Option<T> {
-        (!self.is_empty()).then(|| (self.fold(T::_ZERO, |acc, &x| acc + x * x) / T::_lit(self.len() as f64))._sqrt())
+        (!self.is_empty()).then(|| {
+            (self.fold(T::_ZERO, |acc, &x| acc + x * x) / T::_lit(self.len() as f64))._sqrt()
+        })
     }
     /// Largest absolute value (0 when empty).
     pub fn peak(&self) -> T {
@@ -731,7 +815,10 @@ impl<'a, T: Float> NdView<'a, T> {
         let n = self.ndim();
         let order = self.memory_order();
         let order = &order[..n];
-        let at = order.iter().position(|&a| a == axis).expect("a permutation");
+        let at = order
+            .iter()
+            .position(|&a| a == axis)
+            .expect("a permutation");
         if at + 1 < n {
             let p = self.permute(order)?;
             if let Some(data) = p.as_slice() {
@@ -739,10 +826,16 @@ impl<'a, T: Float> NdView<'a, T> {
                 let sums = sum_rows(data, &ps[..at], ps[at], ps[at + 1..].iter().product());
                 // result axis i is the input's axis kept[i]; put them back in ascending order
                 let kept: Vec<usize> = order.iter().copied().filter(|&a| a != axis).collect();
-                let in_memory = NdArray::from_vec(sums, &kept.iter().map(|&a| self.shape()[a]).collect::<Vec<_>>())?;
+                let in_memory = NdArray::from_vec(
+                    sums,
+                    &kept.iter().map(|&a| self.shape()[a]).collect::<Vec<_>>(),
+                )?;
                 let mut sorted = kept.clone();
                 sorted.sort_unstable();
-                let perm: Vec<usize> = sorted.iter().map(|a| kept.iter().position(|b| b == a).expect("kept")).collect();
+                let perm: Vec<usize> = sorted
+                    .iter()
+                    .map(|a| kept.iter().position(|b| b == a).expect("kept"))
+                    .collect();
                 if perm.iter().enumerate().all(|(i, &p)| i == p) {
                     return Ok(in_memory);
                 }
@@ -771,7 +864,10 @@ fn sum_rows<T: Float>(data: &[T], outer: &[usize], rows: usize, inner: usize) ->
     if inner == 0 {
         return out;
     }
-    for (block, acc) in data.chunks_exact(rows * inner).zip(out.chunks_exact_mut(inner)) {
+    for (block, acc) in data
+        .chunks_exact(rows * inner)
+        .zip(out.chunks_exact_mut(inner))
+    {
         let mut quads = block.chunks_exact(4 * inner);
         for quad in &mut quads {
             let (r0, rest) = quad.split_at(inner);
@@ -804,7 +900,10 @@ impl<T: Float, S: Storage<Elem = T>> NdArray<T, S> {
 impl Layout {
     fn without_axis_checked(&self, axis: usize) -> Result<Layout, NdError> {
         if axis >= self.ndim {
-            return Err(NdError::AxisOutOfRange { axis, ndim: self.ndim });
+            return Err(NdError::AxisOutOfRange {
+                axis,
+                ndim: self.ndim,
+            });
         }
         Ok(self.without_axis(axis))
     }
@@ -822,7 +921,11 @@ impl<'a, T: Copy + Default> NdViewMut<'a, T> {
     /// thread; any block processor (a filter, a compressor) works this way, since its state
     /// carries from one piece to the next. Use `for_each_lane` instead when `f` needs a whole lane
     /// at once (sorting, reversing).
-    pub fn for_each_lane_chunked(&mut self, axis: usize, mut f: impl FnMut(usize, &mut [T])) -> Result<(), NdError> {
+    pub fn for_each_lane_chunked(
+        &mut self,
+        axis: usize,
+        mut f: impl FnMut(usize, &mut [T]),
+    ) -> Result<(), NdError> {
         let mut buffer = [T::default(); LANE_CHUNK];
         for (index, lane) in self.lanes_mut(axis)?.enumerate() {
             if lane.is_contiguous() {
@@ -851,13 +954,20 @@ impl<'a, T: Copy + Default> NdViewMut<'a, T> {
     /// Runs `processors[i]` over lane `i` along `axis` (e.g. one filter per channel of a
     /// `[batch, channel, time]` tensor along time). Allocation-free; errors unless there is one
     /// processor per lane.
-    pub fn process_lanes<P: Processor<T>>(&mut self, axis: usize, processors: &mut [P]) -> Result<(), NdError>
+    pub fn process_lanes<P: Processor<T>>(
+        &mut self,
+        axis: usize,
+        processors: &mut [P],
+    ) -> Result<(), NdError>
     where
         T: Float,
     {
         let lanes = self.lanes_mut(axis)?.len();
         if lanes != processors.len() {
-            return Err(NdError::ShapeMismatch { expected: lanes, got: processors.len() });
+            return Err(NdError::ShapeMismatch {
+                expected: lanes,
+                got: processors.len(),
+            });
         }
         self.for_each_lane_chunked(axis, |i, piece| processors[i].process(piece))
     }
@@ -865,14 +975,22 @@ impl<'a, T: Copy + Default> NdViewMut<'a, T> {
 
 impl<T: Copy + Default, S: StorageMut<Elem = T>> NdArray<T, S> {
     /// See [`NdViewMut::for_each_lane_chunked`].
-    pub fn for_each_lane_chunked(&mut self, axis: usize, f: impl FnMut(usize, &mut [T])) -> Result<(), NdError> {
+    pub fn for_each_lane_chunked(
+        &mut self,
+        axis: usize,
+        f: impl FnMut(usize, &mut [T]),
+    ) -> Result<(), NdError> {
         self.view_mut().for_each_lane_chunked(axis, f)
     }
 }
 
 impl<T: Float + Default, S: StorageMut<Elem = T>> NdArray<T, S> {
     /// See [`NdViewMut::process_lanes`].
-    pub fn process_lanes<P: Processor<T>>(&mut self, axis: usize, processors: &mut [P]) -> Result<(), NdError> {
+    pub fn process_lanes<P: Processor<T>>(
+        &mut self,
+        axis: usize,
+        processors: &mut [P],
+    ) -> Result<(), NdError> {
         self.view_mut().process_lanes(axis, processors)
     }
 }
@@ -904,11 +1022,19 @@ mod tests {
         let p = plan(&[6, 5], &[[1, 6, 0, 0, 0, 0, 0, 0]], 0);
         assert_eq!((p.ndim, p.dims[0], p.strides[0][0]), (1, 30, 1));
         // a broadcast operand blocks merging where its stride is 0
-        let p = plan(&[4, 5], &[[5, 1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0]], 0);
+        let p = plan(
+            &[4, 5],
+            &[[5, 1, 0, 0, 0, 0, 0, 0], [0, 1, 0, 0, 0, 0, 0, 0]],
+            0,
+        );
         assert_eq!(p.ndim, 2);
         assert!(!p.tiled, "a broadcast row is not a transpose");
         // a large transpose against a contiguous output is walked in blocks
-        let p = plan(&[500, 400], &[[400, 1, 0, 0, 0, 0, 0, 0], [1, 500, 0, 0, 0, 0, 0, 0]], 0);
+        let p = plan(
+            &[500, 400],
+            &[[400, 1, 0, 0, 0, 0, 0, 0], [1, 500, 0, 0, 0, 0, 0, 0]],
+            0,
+        );
         assert!(p.tiled);
     }
 
@@ -919,15 +1045,24 @@ mod tests {
         let t = a.view().permute(&[0, 2, 1]).unwrap();
         let mut out = NdArray::<f64>::zeros(t.shape()).unwrap();
         let mut visits = NdArray::<u32>::zeros(t.shape()).unwrap();
-        Zip::from(out.view_mut()).and(t).unwrap().and(visits.view_mut()).unwrap().for_each(|o, &x, n| {
-            *o = x;
-            *n += 1;
-        });
+        Zip::from(out.view_mut())
+            .and(t)
+            .unwrap()
+            .and(visits.view_mut())
+            .unwrap()
+            .for_each(|o, &x, n| {
+                *o = x;
+                *n += 1;
+            });
         assert!(visits.as_slice().iter().all(|&n| n == 1));
         assert_eq!(out.as_slice(), &t.to_vec()[..]);
         // and a reduction through the same blocks
         let col_sums = t.sum_axis(1).unwrap();
-        let reference: Vec<f64> = (0..3).flat_map(|b| (0..130).map(move |j| (0..70).map(|i| (b * 9_100 + j * 70 + i) as f64).sum())).collect();
+        let reference: Vec<f64> = (0..3)
+            .flat_map(|b| {
+                (0..130).map(move |j| (0..70).map(|i| (b * 9_100 + j * 70 + i) as f64).sum())
+            })
+            .collect();
         assert_eq!(col_sums.as_slice(), &reference[..]);
     }
 
@@ -939,7 +1074,11 @@ mod tests {
             a.view(),
             a.view().flip(1).unwrap(),
             b.view().transpose(),
-            a.view().step_axis(2, -2).unwrap().slice_axis(0, 1..4).unwrap(),
+            a.view()
+                .step_axis(2, -2)
+                .unwrap()
+                .slice_axis(0, 1..4)
+                .unwrap(),
         ];
         for x in views {
             for y in views {
@@ -948,9 +1087,17 @@ mod tests {
                 }
                 let mut out = NdArray::<f64>::zeros(x.shape()).unwrap();
                 let mut flipped = NdArray::<f64>::zeros(x.shape()).unwrap();
-                Zip::from(out.view_mut()).and(x).unwrap().and(y).unwrap().for_each(|o, &p, &q| *o = 2.0 * p - q);
+                Zip::from(out.view_mut())
+                    .and(x)
+                    .unwrap()
+                    .and(y)
+                    .unwrap()
+                    .for_each(|o, &p, &q| *o = 2.0 * p - q);
                 // the output itself may be written through a reversed view
-                Zip::from(flipped.view_mut().flip(0).unwrap()).and(x).unwrap().for_each(|o, &p| *o = p);
+                Zip::from(flipped.view_mut().flip(0).unwrap())
+                    .and(x)
+                    .unwrap()
+                    .for_each(|o, &p| *o = p);
                 let mut reference = Vec::new();
                 for (p, q) in x.iter().zip(y.iter()) {
                     reference.push(2.0 * p - q);
@@ -969,14 +1116,22 @@ mod tests {
         let col = NdArray::from_vec(vec![100.0, 200.0], &[2, 1]).unwrap();
         assert_eq!((&m + &row).as_slice(), [10.0, 21.0, 32.0, 13.0, 24.0, 35.0]);
         assert_eq!((col.view() + row.view()).shape(), [2, 3]);
-        assert_eq!((col.view() + row.view()).as_slice(), [110.0, 120.0, 130.0, 210.0, 220.0, 230.0]);
+        assert_eq!(
+            (col.view() + row.view()).as_slice(),
+            [110.0, 120.0, 130.0, 210.0, 220.0, 230.0]
+        );
         assert_eq!((&m * 2.0).as_slice(), [0.0, 2.0, 4.0, 6.0, 8.0, 10.0]);
         let mut x = m.clone();
         x -= &row.view();
         x /= 2.0;
         assert_eq!(x.as_slice(), [-5.0, -9.5, -14.0, -3.5, -8.0, -12.5]);
         assert!(broadcast_shapes(&[2, 3], &[4]).is_err());
-        assert_eq!(broadcast_shapes(&[5, 1, 3], &[4, 1]).map(|(s, n)| s[..n].to_vec()).unwrap(), [5, 4, 3]);
+        assert_eq!(
+            broadcast_shapes(&[5, 1, 3], &[4, 1])
+                .map(|(s, n)| s[..n].to_vec())
+                .unwrap(),
+            [5, 4, 3]
+        );
     }
 
     #[test]
@@ -984,18 +1139,29 @@ mod tests {
         let a = counting(&[3, 4]);
         // a strided column, no copy
         let col = a.view().index_axis(1, 2).unwrap();
-        assert_eq!((col.sum(), col.mean(), col.max(), col.min()), (2.0 + 6.0 + 10.0, Some(6.0), Some(10.0), Some(2.0)));
+        assert_eq!(
+            (col.sum(), col.mean(), col.max(), col.min()),
+            (2.0 + 6.0 + 10.0, Some(6.0), Some(10.0), Some(2.0))
+        );
         assert_eq!(a.view().flip(0).unwrap().sum(), 66.0);
         assert_eq!(a.sum_axis(0).unwrap().as_slice(), [12.0, 15.0, 18.0, 21.0]);
         assert_eq!(a.sum_axis(1).unwrap().as_slice(), [6.0, 22.0, 38.0]);
         assert_eq!(a.mean_axis(1).unwrap().as_slice(), [1.5, 5.5, 9.5]);
         // fold_into: the write side of broadcasting (max over rows into a [1, 4] array)
         let mut out = NdArray::<f64>::zeros(&[1, 4]).unwrap();
-        a.view().fold_into(&mut out.view_mut(), f64::MIN, |m, &x| m.max(x)).unwrap();
+        a.view()
+            .fold_into(&mut out.view_mut(), f64::MIN, |m, &x| m.max(x))
+            .unwrap();
         assert_eq!(out.as_slice(), [8.0, 9.0, 10.0, 11.0]);
-        assert!(a.view().sum_into(&mut NdArray::<f64>::zeros(&[2]).unwrap().view_mut()).is_err());
+        assert!(a
+            .view()
+            .sum_into(&mut NdArray::<f64>::zeros(&[2]).unwrap().view_mut())
+            .is_err());
         let rms = NdArray::from_vec(vec![3.0, -4.0], &[2]).unwrap();
-        assert_eq!((rms.view().rms(), rms.view().peak()), (Some(12.5f64.sqrt()), 4.0));
+        assert_eq!(
+            (rms.view().rms(), rms.view().peak()),
+            (Some(12.5f64.sqrt()), 4.0)
+        );
     }
 
     #[test]
@@ -1003,7 +1169,14 @@ mod tests {
         // all six axis orders of a 3x4x5 array, summed along each axis (some through the row-block
         // path, some through the general one), against direct sums
         let a = counting(&[3, 4, 5]).map(|v| (v * 0.37).sin());
-        for perm in [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]] {
+        for perm in [
+            [0, 1, 2],
+            [0, 2, 1],
+            [1, 0, 2],
+            [1, 2, 0],
+            [2, 0, 1],
+            [2, 1, 0],
+        ] {
             let v = a.view().permute(&perm).unwrap();
             for axis in 0..3 {
                 let got = v.sum_axis(axis).unwrap();
@@ -1018,11 +1191,16 @@ mod tests {
                         index[d] = rest % n;
                         rest /= n;
                     }
-                    let want: f64 = (0..v.shape()[axis]).map(|i| {
-                        index[axis] = i;
-                        *v.get(&index).unwrap()
-                    }).sum();
-                    assert!((g - want).abs() < 1e-12, "perm {perm:?} axis {axis} element {k}: {g} vs {want}");
+                    let want: f64 = (0..v.shape()[axis])
+                        .map(|i| {
+                            index[axis] = i;
+                            *v.get(&index).unwrap()
+                        })
+                        .sum();
+                    assert!(
+                        (g - want).abs() < 1e-12,
+                        "perm {perm:?} axis {axis} element {k}: {g} vs {want}"
+                    );
                 }
             }
         }
@@ -1045,14 +1223,25 @@ mod tests {
         let n = 2_000;
         let noise: Vec<f64> = Noise::new(3).take(n * 2).collect();
         let mut interleaved = NdArray::from_vec(noise.clone(), &[n, 2]).unwrap();
-        let mut filters = [Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0), Biquad::highpass(500.0, BUTTERWORTH_Q, 48_000.0)];
+        let mut filters = [
+            Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0),
+            Biquad::highpass(500.0, BUTTERWORTH_Q, 48_000.0),
+        ];
         interleaved.process_lanes(0, &mut filters).unwrap();
         for ch in 0..2 {
             let mut reference: Vec<f64> = noise.iter().skip(ch).step_by(2).copied().collect();
-            let mut f = if ch == 0 { Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0) } else { Biquad::highpass(500.0, BUTTERWORTH_Q, 48_000.0) };
+            let mut f = if ch == 0 {
+                Biquad::lowpass(1_000.0, BUTTERWORTH_Q, 48_000.0)
+            } else {
+                Biquad::highpass(500.0, BUTTERWORTH_Q, 48_000.0)
+            };
             f.process(&mut reference);
             let got = interleaved.view().index_axis(1, ch).unwrap().to_vec();
-            let err = got.iter().zip(&reference).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            let err = got
+                .iter()
+                .zip(&reference)
+                .map(|(a, b)| (a - b).abs())
+                .fold(0.0, f64::max);
             assert!(err < 1e-12, "channel {ch}: {err}");
         }
         assert!(interleaved.process_lanes(0, &mut filters[..1]).is_err());

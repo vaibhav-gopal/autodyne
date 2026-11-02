@@ -11,12 +11,19 @@
 
 #[cfg(feature = "ndarray")]
 mod ndarray_crate {
-    use ndarray::{ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD, Axis as NdAxis, Dimension, IxDyn, ShapeBuilder};
+    use ndarray::{
+        ArrayD, ArrayView, ArrayViewD, ArrayViewMut, ArrayViewMutD, Axis as NdAxis, Dimension,
+        IxDyn, ShapeBuilder,
+    };
 
     use crate::signal::{NdArray, NdError, NdView, NdViewMut, MAX_DIMS};
 
     /// (pointer to the lowest-addressed element, absolute strides, axes to flip back)
-    fn lowest<T>(ptr: *const T, shape: &[usize], strides: &[isize]) -> (*const T, [usize; MAX_DIMS], [bool; MAX_DIMS]) {
+    fn lowest<T>(
+        ptr: *const T,
+        shape: &[usize],
+        strides: &[isize],
+    ) -> (*const T, [usize; MAX_DIMS], [bool; MAX_DIMS]) {
         let mut abs = [0usize; MAX_DIMS];
         let mut flip = [false; MAX_DIMS];
         let mut low = ptr;
@@ -61,7 +68,9 @@ mod ndarray_crate {
             // SAFETY: the layout was validated against live memory for 'a; from the lowest element
             // with absolute strides every reachable element is inside it, and flipping the reversed
             // axes restores the original order
-            let mut out = unsafe { ArrayView::from_shape_ptr(IxDyn(view.shape()).strides(IxDyn(&abs[..n])), low) };
+            let mut out = unsafe {
+                ArrayView::from_shape_ptr(IxDyn(view.shape()).strides(IxDyn(&abs[..n])), low)
+            };
             for (i, &f) in flip[..n].iter().enumerate() {
                 if f {
                     out.invert_axis(NdAxis(i));
@@ -73,11 +82,17 @@ mod ndarray_crate {
 
     impl<'a, T> From<NdViewMut<'a, T>> for ArrayViewMutD<'a, T> {
         fn from(mut view: NdViewMut<'a, T>) -> Self {
-            let (low, abs, flip) = lowest(view.as_mut_ptr().cast_const(), view.shape(), view.strides());
+            let (low, abs, flip) =
+                lowest(view.as_mut_ptr().cast_const(), view.shape(), view.strides());
             let n = view.ndim();
             let shape: Vec<usize> = view.shape().to_vec();
             // SAFETY: as above; the view was exclusive (and injective) for 'a
-            let mut out = unsafe { ArrayViewMut::from_shape_ptr(IxDyn(&shape).strides(IxDyn(&abs[..n])), low.cast_mut()) };
+            let mut out = unsafe {
+                ArrayViewMut::from_shape_ptr(
+                    IxDyn(&shape).strides(IxDyn(&abs[..n])),
+                    low.cast_mut(),
+                )
+            };
             for (i, &f) in flip[..n].iter().enumerate() {
                 if f {
                     out.invert_axis(NdAxis(i));
@@ -91,7 +106,8 @@ mod ndarray_crate {
         /// Moves the `Vec` across, no copy. Axis labels are dropped.
         fn from(array: NdArray<T>) -> Self {
             let shape = array.shape().to_vec();
-            ArrayD::from_shape_vec(IxDyn(&shape), array.into_vec()).expect("an NdArray's shape matches its elements")
+            ArrayD::from_shape_vec(IxDyn(&shape), array.into_vec())
+                .expect("an NdArray's shape matches its elements")
         }
     }
 
@@ -106,7 +122,10 @@ mod ndarray_crate {
                 if offset.unwrap_or(0) == 0 && data.len() == shape.iter().product::<usize>() {
                     return NdArray::from_vec(data, &shape);
                 }
-                return NdArray::from_vec(data[offset.unwrap_or(0)..][..shape.iter().product::<usize>()].to_vec(), &shape);
+                return NdArray::from_vec(
+                    data[offset.unwrap_or(0)..][..shape.iter().product::<usize>()].to_vec(),
+                    &shape,
+                );
             }
             NdArray::from_vec(array.iter().cloned().collect(), &shape)
         }
@@ -132,7 +151,11 @@ mod ndarray_crate {
             let back = ArrayViewD::from(flipped);
             assert_eq!(back.shape(), [5, 3]);
             assert_eq!(back.iter().copied().collect::<Vec<_>>(), flipped.to_vec());
-            assert_eq!(back.as_ptr(), flipped.get(&[0, 0]).unwrap() as *const f32, "the same memory");
+            assert_eq!(
+                back.as_ptr(),
+                flipped.get(&[0, 0]).unwrap() as *const f32,
+                "the same memory"
+            );
         }
 
         #[test]
@@ -152,7 +175,10 @@ mod ndarray_crate {
             let again = NdArray::try_from(theirs).unwrap();
             assert_eq!(again.as_slice().as_ptr(), address);
             // a transposed array copies into row-major order
-            let t = NdArray::try_from(Array2::from_shape_fn((2, 3), |(i, j)| i * 3 + j).reversed_axes()).unwrap();
+            let t = NdArray::try_from(
+                Array2::from_shape_fn((2, 3), |(i, j)| i * 3 + j).reversed_axes(),
+            )
+            .unwrap();
             assert_eq!(t.as_slice(), [0, 3, 1, 4, 2, 5]);
         }
     }

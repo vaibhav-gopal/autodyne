@@ -77,15 +77,33 @@ impl BigFloat {
 
     /// Positive zero at `prec` bits.
     pub fn zero(prec: u32) -> Self {
-        BigFloat { kind: Kind::Finite, neg: false, mant: BigInt::zero(), exp: 0, prec }
+        BigFloat {
+            kind: Kind::Finite,
+            neg: false,
+            mant: BigInt::zero(),
+            exp: 0,
+            prec,
+        }
     }
     /// Not a number, at `prec` bits.
     pub fn nan(prec: u32) -> Self {
-        BigFloat { kind: Kind::Nan, neg: false, mant: BigInt::zero(), exp: 0, prec }
+        BigFloat {
+            kind: Kind::Nan,
+            neg: false,
+            mant: BigInt::zero(),
+            exp: 0,
+            prec,
+        }
     }
     /// Infinity of the given sign, at `prec` bits.
     pub fn infinity(negative: bool, prec: u32) -> Self {
-        BigFloat { kind: Kind::Inf, neg: negative, mant: BigInt::zero(), exp: 0, prec }
+        BigFloat {
+            kind: Kind::Inf,
+            neg: negative,
+            mant: BigInt::zero(),
+            exp: 0,
+            prec,
+        }
     }
 
     /// `±mant · 2^exp` rounded to `prec` bits (ties to even); `sticky` says whether nonzero bits
@@ -94,14 +112,23 @@ impl BigFloat {
         let mant = mant.abs();
         let bits = mant.bits();
         if bits == 0 {
-            return BigFloat { neg, ..BigFloat::zero(prec) };
+            return BigFloat {
+                neg,
+                ..BigFloat::zero(prec)
+            };
         }
         let p = prec as u64;
         if bits <= p {
             let shift = (p - bits) as usize;
             // a sticky bit below an exactly representable value only matters for exact ties,
             // which cannot happen here (all dropped bits were below the last kept one)
-            return BigFloat { kind: Kind::Finite, neg, mant: mant << shift, exp: exp - shift as i64, prec };
+            return BigFloat {
+                kind: Kind::Finite,
+                neg,
+                mant: mant << shift,
+                exp: exp - shift as i64,
+                prec,
+            };
         }
         let shift = bits - p;
         let half = mant.bit(shift - 1);
@@ -115,7 +142,13 @@ impl BigFloat {
                 e += 1;
             }
         }
-        BigFloat { kind: Kind::Finite, neg, mant: m, exp: e, prec }
+        BigFloat {
+            kind: Kind::Finite,
+            neg,
+            mant: m,
+            exp: e,
+            prec,
+        }
     }
 
     /// `v` exactly when it fits `prec` bits, otherwise rounded to nearest (ties to even).
@@ -127,12 +160,19 @@ impl BigFloat {
             return BigFloat::infinity(v < 0.0, prec);
         }
         if v == 0.0 {
-            return BigFloat { neg: v.is_sign_negative(), ..BigFloat::zero(prec) };
+            return BigFloat {
+                neg: v.is_sign_negative(),
+                ..BigFloat::zero(prec)
+            };
         }
         let bits = v.to_bits();
         let raw_exp = ((bits >> 52) & 0x7ff) as i64;
         let frac = bits & ((1 << 52) - 1);
-        let (m, e) = if raw_exp == 0 { (frac, -1074) } else { (frac | (1 << 52), raw_exp - 1075) };
+        let (m, e) = if raw_exp == 0 {
+            (frac, -1074)
+        } else {
+            (frac | (1 << 52), raw_exp - 1075)
+        };
         BigFloat::round(v < 0.0, BigInt::from(m), e, prec, false)
     }
 
@@ -145,7 +185,10 @@ impl BigFloat {
     pub fn with_precision(&self, prec: u32) -> Self {
         match self.kind {
             Kind::Finite => BigFloat::round(self.neg, self.mant.clone(), self.exp, prec, false),
-            _ => BigFloat { prec, ..self.clone() },
+            _ => BigFloat {
+                prec,
+                ..self.clone()
+            },
         }
     }
 
@@ -183,8 +226,20 @@ impl BigFloat {
     pub fn to_f64(&self) -> f64 {
         match self.kind {
             Kind::Nan => f64::NAN,
-            Kind::Inf => if self.neg { f64::NEG_INFINITY } else { f64::INFINITY },
-            Kind::Finite if self.is_zero() => if self.neg { -0.0 } else { 0.0 },
+            Kind::Inf => {
+                if self.neg {
+                    f64::NEG_INFINITY
+                } else {
+                    f64::INFINITY
+                }
+            }
+            Kind::Finite if self.is_zero() => {
+                if self.neg {
+                    -0.0
+                } else {
+                    0.0
+                }
+            }
             Kind::Finite => {
                 let r = self.with_precision(53);
                 let m = r.mant.to_f64();
@@ -201,7 +256,11 @@ impl BigFloat {
                     v /= 2f64.powi(s as i32);
                     e += s;
                 }
-                if self.neg { -v } else { v }
+                if self.neg {
+                    -v
+                } else {
+                    v
+                }
             }
         }
     }
@@ -219,13 +278,26 @@ impl BigFloat {
         let other_neg = other.neg ^ negate_other;
         match (self.kind, other.kind) {
             (Kind::Nan, _) | (_, Kind::Nan) => return BigFloat::nan(prec),
-            (Kind::Inf, Kind::Inf) => return if self.neg == other_neg { BigFloat::infinity(self.neg, prec) } else { BigFloat::nan(prec) },
+            (Kind::Inf, Kind::Inf) => {
+                return if self.neg == other_neg {
+                    BigFloat::infinity(self.neg, prec)
+                } else {
+                    BigFloat::nan(prec)
+                }
+            }
             (Kind::Inf, _) => return BigFloat::infinity(self.neg, prec),
             (_, Kind::Inf) => return BigFloat::infinity(other_neg, prec),
             _ => {}
         }
         if other.is_zero() {
-            return if self.is_zero() { BigFloat { neg: self.neg && other_neg, ..BigFloat::zero(prec) } } else { self.with_precision(prec) };
+            return if self.is_zero() {
+                BigFloat {
+                    neg: self.neg && other_neg,
+                    ..BigFloat::zero(prec)
+                }
+            } else {
+                self.with_precision(prec)
+            };
         }
         if self.is_zero() {
             let mut r = other.with_precision(prec);
@@ -233,7 +305,11 @@ impl BigFloat {
             return r;
         }
         // align; an operand far below the other only contributes a sticky bit
-        let (big, small, big_neg, small_neg) = if self.magnitude() >= other.magnitude() { (self, other, self.neg, other_neg) } else { (other, self, other_neg, self.neg) };
+        let (big, small, big_neg, small_neg) = if self.magnitude() >= other.magnitude() {
+            (self, other, self.neg, other_neg)
+        } else {
+            (other, self, other_neg, self.neg)
+        };
         let gap = big.exp - (small.magnitude() + 1);
         let limit = prec as i64 + 3;
         let (sm, se, sticky) = if gap > limit {
@@ -258,8 +334,20 @@ impl BigFloat {
         let neg = self.neg != other.neg;
         match (self.kind, other.kind) {
             (Kind::Nan, _) | (_, Kind::Nan) => BigFloat::nan(prec),
-            (Kind::Inf, _) | (_, Kind::Inf) => if self.is_zero() || other.is_zero() { BigFloat::nan(prec) } else { BigFloat::infinity(neg, prec) },
-            _ => BigFloat::round(neg, &self.mant * &other.mant, self.exp + other.exp, prec, false),
+            (Kind::Inf, _) | (_, Kind::Inf) => {
+                if self.is_zero() || other.is_zero() {
+                    BigFloat::nan(prec)
+                } else {
+                    BigFloat::infinity(neg, prec)
+                }
+            }
+            _ => BigFloat::round(
+                neg,
+                &self.mant * &other.mant,
+                self.exp + other.exp,
+                prec,
+                false,
+            ),
         }
     }
 
@@ -268,30 +356,58 @@ impl BigFloat {
         match (self.kind, other.kind) {
             (Kind::Nan, _) | (_, Kind::Nan) | (Kind::Inf, Kind::Inf) => return BigFloat::nan(prec),
             (Kind::Inf, _) => return BigFloat::infinity(neg, prec),
-            (_, Kind::Inf) => return BigFloat { neg, ..BigFloat::zero(prec) },
+            (_, Kind::Inf) => {
+                return BigFloat {
+                    neg,
+                    ..BigFloat::zero(prec)
+                }
+            }
             _ => {}
         }
         if other.is_zero() {
-            return if self.is_zero() { BigFloat::nan(prec) } else { BigFloat::infinity(neg, prec) };
+            return if self.is_zero() {
+                BigFloat::nan(prec)
+            } else {
+                BigFloat::infinity(neg, prec)
+            };
         }
         if self.is_zero() {
-            return BigFloat { neg, ..BigFloat::zero(prec) };
+            return BigFloat {
+                neg,
+                ..BigFloat::zero(prec)
+            };
         }
         // enough quotient bits for prec plus rounding
-        let shift = (prec as u64 + 2 + other.mant.bits()).saturating_sub(self.mant.bits()) as usize + 2;
+        let shift =
+            (prec as u64 + 2 + other.mant.bits()).saturating_sub(self.mant.bits()) as usize + 2;
         let (q, r) = (&self.mant << shift).div_rem(&other.mant);
-        BigFloat::round(neg, q, self.exp - other.exp - shift as i64, prec, !r.is_zero())
+        BigFloat::round(
+            neg,
+            q,
+            self.exp - other.exp - shift as i64,
+            prec,
+            !r.is_zero(),
+        )
     }
 
     /// The square root (NaN below zero).
     pub fn sqrt_prec(&self, prec: u32) -> Self {
         match self.kind {
             Kind::Nan => return BigFloat::nan(prec),
-            Kind::Inf => return if self.neg { BigFloat::nan(prec) } else { BigFloat::infinity(false, prec) },
+            Kind::Inf => {
+                return if self.neg {
+                    BigFloat::nan(prec)
+                } else {
+                    BigFloat::infinity(false, prec)
+                }
+            }
             _ => {}
         }
         if self.is_zero() {
-            return BigFloat { neg: self.neg, ..BigFloat::zero(prec) };
+            return BigFloat {
+                neg: self.neg,
+                ..BigFloat::zero(prec)
+            };
         }
         if self.neg {
             return BigFloat::nan(prec);
@@ -340,7 +456,11 @@ impl BigFloat {
         while !term.is_zero() {
             term = &term / &n2;
             let t = &term / &BigInt::from(2 * k + 1);
-            sum = if alternate && k % 2 == 1 { sum - t } else { sum + t };
+            sum = if alternate && k % 2 == 1 {
+                sum - t
+            } else {
+                sum + t
+            };
             k += 1;
         }
         sum
@@ -350,7 +470,8 @@ impl BigFloat {
     pub fn pi(prec: u32) -> BigFloat {
         BigFloat::cached(0, prec, || {
             let w = (prec + GUARD) as usize;
-            let v = (BigFloat::arc_recip(5, w, true) << 4) - (BigFloat::arc_recip(239, w, true) << 2);
+            let v =
+                (BigFloat::arc_recip(5, w, true) << 4) - (BigFloat::arc_recip(239, w, true) << 2);
             BigFloat::round(false, v, -(w as i64), prec, true)
         })
     }
@@ -359,7 +480,13 @@ impl BigFloat {
     pub fn ln2(prec: u32) -> BigFloat {
         BigFloat::cached(1, prec, || {
             let w = (prec + GUARD) as usize;
-            BigFloat::round(false, BigFloat::arc_recip(3, w, false) << 1, -(w as i64), prec, true)
+            BigFloat::round(
+                false,
+                BigFloat::arc_recip(3, w, false) << 1,
+                -(w as i64),
+                prec,
+                true,
+            )
         })
     }
 
@@ -369,14 +496,24 @@ impl BigFloat {
     fn exp_prec(&self, prec: u32) -> BigFloat {
         match self.kind {
             Kind::Nan => return BigFloat::nan(prec),
-            Kind::Inf => return if self.neg { BigFloat::zero(prec) } else { BigFloat::infinity(false, prec) },
+            Kind::Inf => {
+                return if self.neg {
+                    BigFloat::zero(prec)
+                } else {
+                    BigFloat::infinity(false, prec)
+                }
+            }
             _ => {}
         }
         if self.is_zero() {
             return BigFloat::from_f64(1.0, prec);
         }
         if self.magnitude() > 62 {
-            return if self.neg { BigFloat::zero(prec) } else { BigFloat::infinity(false, prec) };
+            return if self.neg {
+                BigFloat::zero(prec)
+            } else {
+                BigFloat::infinity(false, prec)
+            };
         }
         // x = k ln2 + r with |r| <= ln2 / 2
         let w = prec + GUARD + self.magnitude().max(0) as u32;
@@ -391,7 +528,9 @@ impl BigFloat {
         let (mut sum, mut term) = (one.clone(), one);
         let mut n = 1u64;
         loop {
-            term = term.mul_impl(&r, wf).div_impl(&BigFloat::from_f64(n as f64, wf), wf);
+            term = term
+                .mul_impl(&r, wf)
+                .div_impl(&BigFloat::from_f64(n as f64, wf), wf);
             if term.is_zero() || term.magnitude() < sum.magnitude() - wf as i64 - 2 {
                 break;
             }
@@ -408,7 +547,13 @@ impl BigFloat {
     fn ln_prec(&self, prec: u32) -> BigFloat {
         match self.kind {
             Kind::Nan => return BigFloat::nan(prec),
-            Kind::Inf => return if self.neg { BigFloat::nan(prec) } else { BigFloat::infinity(false, prec) },
+            Kind::Inf => {
+                return if self.neg {
+                    BigFloat::nan(prec)
+                } else {
+                    BigFloat::infinity(false, prec)
+                }
+            }
             _ => {}
         }
         if self.is_zero() {
@@ -421,13 +566,18 @@ impl BigFloat {
         let mut e = self.magnitude();
         let w = prec + GUARD + 64;
         let wide = self.with_precision(w);
-        let mut m = BigFloat { exp: -(wide.mant.bits() as i64 - 1), ..wide };
+        let mut m = BigFloat {
+            exp: -(wide.mant.bits() as i64 - 1),
+            ..wide
+        };
         if m.to_f64() > core::f64::consts::SQRT_2 {
             m = m.mul_pow2(-1);
             e += 1;
         }
         let one = BigFloat::from_f64(1.0, w);
-        let z = m.add_impl(&one, w, true).div_impl(&m.add_impl(&one, w, false), w);
+        let z = m
+            .add_impl(&one, w, true)
+            .div_impl(&m.add_impl(&one, w, false), w);
         let z2 = z.mul_impl(&z, w);
         let (mut sum, mut power) = (z.clone(), z.clone());
         let mut k = 1u64;
@@ -452,8 +602,12 @@ impl BigFloat {
             let (mut sum, mut term) = (start.clone(), start);
             let mut n = first;
             loop {
-                term = term.mul_impl(&r2, w).div_impl(&BigFloat::from_f64(((n + 1) * (n + 2)) as f64, w), w);
-                if term.is_zero() || (!sum.is_zero() && term.magnitude() < sum.magnitude() - w as i64 - 2) {
+                term = term
+                    .mul_impl(&r2, w)
+                    .div_impl(&BigFloat::from_f64(((n + 1) * (n + 2)) as f64, w), w);
+                if term.is_zero()
+                    || (!sum.is_zero() && term.magnitude() < sum.magnitude() - w as i64 - 2)
+                {
                     break;
                 }
                 term = -term;
@@ -462,7 +616,10 @@ impl BigFloat {
             }
             sum
         };
-        (series(r.with_precision(w), 1), series(BigFloat::from_f64(1.0, w), 0))
+        (
+            series(r.with_precision(w), 1),
+            series(BigFloat::from_f64(1.0, w), 0),
+        )
     }
 
     /// `(sin x, cos x)` at `prec` bits: reduced by multiples of π/2.
@@ -496,9 +653,21 @@ impl BigFloat {
             return BigInt::zero();
         }
         let half = BigFloat::from_f64(0.5, x.prec + 2);
-        let shifted = if x.neg { x.add_impl(&half, x.prec + 2, true) } else { x.add_impl(&half, x.prec + 2, false) };
-        let mag = if shifted.exp >= 0 { &shifted.mant << shifted.exp as usize } else { &shifted.mant >> (-shifted.exp) as usize };
-        if shifted.neg { -mag } else { mag }
+        let shifted = if x.neg {
+            x.add_impl(&half, x.prec + 2, true)
+        } else {
+            x.add_impl(&half, x.prec + 2, false)
+        };
+        let mag = if shifted.exp >= 0 {
+            &shifted.mant << shifted.exp as usize
+        } else {
+            &shifted.mant >> (-shifted.exp) as usize
+        };
+        if shifted.neg {
+            -mag
+        } else {
+            mag
+        }
     }
 
     fn tanh_prec(&self, prec: u32) -> BigFloat {
@@ -518,7 +687,9 @@ impl BigFloat {
         let w = prec + GUARD + (-self.magnitude()).max(0) as u32;
         let e2 = self.mul_pow2(1).exp_prec(w);
         let one = BigFloat::from_f64(1.0, w);
-        e2.add_impl(&one, w, true).div_impl(&e2.add_impl(&one, w, false), w).with_precision(prec)
+        e2.add_impl(&one, w, true)
+            .div_impl(&e2.add_impl(&one, w, false), w)
+            .with_precision(prec)
     }
 
     /// Whether the value is an integer, and its parity.
@@ -547,7 +718,11 @@ impl BigFloat {
             return BigFloat::from_f64(1.0, prec);
         }
         if self.is_zero() {
-            return if e.neg { BigFloat::infinity(false, prec) } else { BigFloat::zero(prec) };
+            return if e.neg {
+                BigFloat::infinity(false, prec)
+            } else {
+                BigFloat::zero(prec)
+            };
         }
         let odd = match (self.neg, e.integer_parity()) {
             (true, None) => return BigFloat::nan(prec),
@@ -556,13 +731,25 @@ impl BigFloat {
         };
         // e ln|x| with bits for the size of the exponent
         let w = prec + GUARD + e.magnitude().max(0) as u32 + 64;
-        let r = self.abs().ln_prec(w).mul_impl(e, w).exp_prec(w).with_precision(prec);
-        if odd { -r } else { r }
+        let r = self
+            .abs()
+            .ln_prec(w)
+            .mul_impl(e, w)
+            .exp_prec(w)
+            .with_precision(prec);
+        if odd {
+            -r
+        } else {
+            r
+        }
     }
 
     /// `|self|`.
     pub fn abs(&self) -> BigFloat {
-        BigFloat { neg: false, ..self.clone() }
+        BigFloat {
+            neg: false,
+            ..self.clone()
+        }
     }
 
     /// The decimal value to `digits` significant digits (round half to even), like `1.234e-5` for
@@ -570,7 +757,13 @@ impl BigFloat {
     pub fn to_string_digits(&self, digits: usize) -> String {
         match self.kind {
             Kind::Nan => return "NaN".into(),
-            Kind::Inf => return if self.neg { "-inf".into() } else { "inf".into() },
+            Kind::Inf => {
+                return if self.neg {
+                    "-inf".into()
+                } else {
+                    "inf".into()
+                }
+            }
             _ => {}
         }
         let sign = if self.neg { "-" } else { "" };
@@ -584,8 +777,16 @@ impl BigFloat {
             let k = digits as i64 - 1 - d;
             let mut num = self.mant.clone();
             let mut den = BigInt::one();
-            if k >= 0 { num = num * BigInt::from(10u64).pow(k as u32) } else { den = den * BigInt::from(10u64).pow((-k) as u32) }
-            if self.exp >= 0 { num = num << self.exp as usize } else { den = den << (-self.exp) as usize }
+            if k >= 0 {
+                num = num * BigInt::from(10u64).pow(k as u32)
+            } else {
+                den = den * BigInt::from(10u64).pow((-k) as u32)
+            }
+            if self.exp >= 0 {
+                num = num << self.exp as usize
+            } else {
+                den = den << (-self.exp) as usize
+            }
             let (q, r) = num.div_rem(&den);
             // round half to even
             let twice = r << 1;
@@ -615,10 +816,18 @@ impl BigFloat {
                 } else {
                     let (i, f) = all.split_at(point);
                     let f = f.trim_end_matches('0');
-                    if f.is_empty() { i.to_string() } else { format!("{i}.{f}") }
+                    if f.is_empty() {
+                        i.to_string()
+                    } else {
+                        format!("{i}.{f}")
+                    }
                 }
             } else {
-                let f = format!("{}{}", "0".repeat((-d - 1) as usize), all.trim_end_matches('0'));
+                let f = format!(
+                    "{}{}",
+                    "0".repeat((-d - 1) as usize),
+                    all.trim_end_matches('0')
+                );
                 format!("0.{f}")
             };
             format!("{sign}{s}")
@@ -633,7 +842,9 @@ impl BigFloat {
 impl fmt::Display for BigFloat {
     /// Enough significant digits to identify the value (or `{:.N}` for N significant digits).
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let digits = f.precision().unwrap_or((self.prec as f64 * core::f64::consts::LOG10_2).ceil() as usize + 1);
+        let digits = f
+            .precision()
+            .unwrap_or((self.prec as f64 * core::f64::consts::LOG10_2).ceil() as usize + 1);
         f.write_str(&self.to_string_digits(digits))
     }
 }
@@ -723,7 +934,15 @@ impl PartialOrd for BigFloat {
         if self.is_nan() || other.is_nan() {
             return None;
         }
-        let sign = |x: &BigFloat| if x.is_zero() { 0 } else if x.neg { -1 } else { 1 };
+        let sign = |x: &BigFloat| {
+            if x.is_zero() {
+                0
+            } else if x.neg {
+                -1
+            } else {
+                1
+            }
+        };
         let (sa, sb) = (sign(self), sign(other));
         if sa != sb {
             return Some(sa.cmp(&sb));
@@ -737,7 +956,8 @@ impl PartialOrd for BigFloat {
             (_, Kind::Inf) => Ordering::Less,
             _ => self.magnitude().cmp(&other.magnitude()).then_with(|| {
                 let e = self.exp.min(other.exp);
-                (&self.mant << (self.exp - e) as usize).cmp(&(&other.mant << (other.exp - e) as usize))
+                (&self.mant << (self.exp - e) as usize)
+                    .cmp(&(&other.mant << (other.exp - e) as usize))
             }),
         };
         Some(if sa > 0 { mag } else { mag.reverse() })
@@ -819,10 +1039,22 @@ impl RealValued for BigFloat {
         BigFloat::abs(&self)
     }
     fn minimum(self, other: Self) -> Self {
-        if self.is_nan() || other.is_nan() { BigFloat::nan(self.prec.max(other.prec)) } else if other < self { other } else { self }
+        if self.is_nan() || other.is_nan() {
+            BigFloat::nan(self.prec.max(other.prec))
+        } else if other < self {
+            other
+        } else {
+            self
+        }
     }
     fn maximum(self, other: Self) -> Self {
-        if self.is_nan() || other.is_nan() { BigFloat::nan(self.prec.max(other.prec)) } else if other > self { other } else { self }
+        if self.is_nan() || other.is_nan() {
+            BigFloat::nan(self.prec.max(other.prec))
+        } else if other > self {
+            other
+        } else {
+            self
+        }
     }
     fn less(self, other: Self) -> bool {
         self < other
@@ -831,7 +1063,11 @@ impl RealValued for BigFloat {
         self > other
     }
     fn select(mask: bool, if_true: Self, if_false: Self) -> Self {
-        if mask { if_true } else { if_false }
+        if mask {
+            if_true
+        } else {
+            if_false
+        }
     }
     fn floor(self) -> Self {
         if !self.is_finite() || self.is_zero() || self.exp >= 0 {
@@ -841,7 +1077,11 @@ impl RealValued for BigFloat {
         let drop = (-self.exp) as usize;
         let int = &self.mant >> drop;
         let had_fraction = (0..drop as u64).any(|i| self.mant.bit(i));
-        let int = if self.neg && had_fraction { int + BigInt::one() } else { int };
+        let int = if self.neg && had_fraction {
+            int + BigInt::one()
+        } else {
+            int
+        };
         BigFloat::round(self.neg, int, 0, self.prec, false)
     }
 }
@@ -857,7 +1097,15 @@ mod tests {
     #[test]
     fn double_precision_agrees_with_f64() {
         // at 53 bits, correctly rounded basic operations equal IEEE doubles
-        let xs = [0.1, -2.5, 3.0, 1e-300, 7.0e200, std::f64::consts::PI, 1.0 / 3.0];
+        let xs = [
+            0.1,
+            -2.5,
+            3.0,
+            1e-300,
+            7.0e200,
+            std::f64::consts::PI,
+            1.0 / 3.0,
+        ];
         for &a in &xs {
             for &b in &xs {
                 assert_eq!((f(a) + f(b)).to_f64(), a + b, "{a} + {b}");
@@ -890,9 +1138,13 @@ mod tests {
     fn high_precision_constants_and_identities() {
         let p = 300;
         let pi = BigFloat::pi(p);
-        assert!(pi.to_string_digits(80).starts_with("3.14159265358979323846264338327950288419716939937510582097494459230781640628620"));
+        assert!(pi.to_string_digits(80).starts_with(
+            "3.14159265358979323846264338327950288419716939937510582097494459230781640628620"
+        ));
         let ln2 = BigFloat::ln2(p);
-        assert!(ln2.to_string_digits(60).starts_with("0.69314718055994530941723212145817656807550013436025525412068"));
+        assert!(ln2
+            .to_string_digits(60)
+            .starts_with("0.69314718055994530941723212145817656807550013436025525412068"));
         // exp(ln 2) = 2, sin² + cos² = 1, sqrt(2)² = 2, at 300 bits
         let two = BigFloat::from_f64(2.0, p);
         let tol = BigFloat::from_f64(1.0, p).mul_pow2(-(p as i64) + 4);
@@ -900,14 +1152,20 @@ mod tests {
         assert!(near(&ln2.clone().exp(), &two));
         let x = BigFloat::parse("1.2345678901234567890123456789", p).unwrap();
         let (s, c) = x.sin_cos_prec(p);
-        assert!(near(&(&(&s * &s) + &(&c * &c)), &BigFloat::from_f64(1.0, p)));
+        assert!(near(
+            &(&(&s * &s) + &(&c * &c)),
+            &BigFloat::from_f64(1.0, p)
+        ));
         let r = two.clone().sqrt();
         assert!(near(&(&r * &r), &two));
         // sin(π) is tiny, cos(π) = -1
         let (s, c) = pi.sin_cos_prec(p);
         assert!(s.abs() < tol && near(&c, &BigFloat::from_f64(-1.0, p)));
         // large arguments reduce correctly: sin(1e10) = -0.4875060250875106...
-        assert!(BigFloat::from_f64(1e10, 200).sin().to_string_digits(15).starts_with("-0.487506025087511"));
+        assert!(BigFloat::from_f64(1e10, 200)
+            .sin()
+            .to_string_digits(15)
+            .starts_with("-0.487506025087511"));
     }
 
     #[test]
@@ -915,8 +1173,14 @@ mod tests {
         let x = BigFloat::parse("-12.375e2", 64).unwrap();
         assert_eq!(x.to_f64(), -1237.5);
         assert_eq!(x.to_string_digits(6), "-1237.5");
-        assert_eq!(BigFloat::parse("1e-30", 64).unwrap().to_string_digits(3), "1e-30");
-        assert_eq!(BigFloat::from_f64(0.000125, 53).to_string_digits(3), "0.000125");
+        assert_eq!(
+            BigFloat::parse("1e-30", 64).unwrap().to_string_digits(3),
+            "1e-30"
+        );
+        assert_eq!(
+            BigFloat::from_f64(0.000125, 53).to_string_digits(3),
+            "0.000125"
+        );
         assert!("abc".parse::<BigFloat>().is_err());
         // generic Real-style code at 256 bits
         BigFloat::set_default_precision(256);
@@ -924,7 +1188,9 @@ mod tests {
             (x.exp() + T::lit(1.0)).ln()
         }
         let y = softplus(BigFloat::from_f64(0.0, 256));
-        assert!(y.to_string_digits(70).starts_with("0.69314718055994530941723212145817656807550013436025"));
+        assert!(y
+            .to_string_digits(70)
+            .starts_with("0.69314718055994530941723212145817656807550013436025"));
         BigFloat::set_default_precision(128);
         assert!(f(1.0) < f(2.0) && f(-1.0) < f(0.0) && f(f64::NAN).partial_cmp(&f(1.0)).is_none());
     }

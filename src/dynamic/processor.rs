@@ -127,7 +127,10 @@ pub struct Typed<P, T> {
 impl<P, T> Typed<P, T> {
     /// Wraps `processor`.
     pub fn new(processor: P) -> Self {
-        Self { processor, _sample: PhantomData }
+        Self {
+            processor,
+            _sample: PhantomData,
+        }
     }
     /// The wrapped processor.
     pub fn inner(&self) -> &P {
@@ -148,7 +151,10 @@ impl<T: FloatElement, P: Processor<T> + Parameterized + Send> DynProcessor for T
         T::DTYPE
     }
     fn process_dyn(&mut self, block: DynBlock<'_>) -> Result<(), DynError> {
-        let samples = T::from_block(block).map_err(|found| DynError::DTypeMismatch { expected: T::DTYPE, found })?;
+        let samples = T::from_block(block).map_err(|found| DynError::DTypeMismatch {
+            expected: T::DTYPE,
+            found,
+        })?;
         self.processor.process(samples);
         Ok(())
     }
@@ -184,8 +190,12 @@ impl DynProcessor for Vec<Box<dyn DynProcessor>> {
     fn process_dyn(&mut self, block: DynBlock<'_>) -> Result<(), DynError> {
         // re-borrow the block for each stage by matching once on its type
         match block {
-            DynBlock::F32(b) => self.iter_mut().try_for_each(|p| p.process_dyn(DynBlock::F32(b))),
-            DynBlock::F64(b) => self.iter_mut().try_for_each(|p| p.process_dyn(DynBlock::F64(b))),
+            DynBlock::F32(b) => self
+                .iter_mut()
+                .try_for_each(|p| p.process_dyn(DynBlock::F32(b))),
+            DynBlock::F64(b) => self
+                .iter_mut()
+                .try_for_each(|p| p.process_dyn(DynBlock::F64(b))),
         }
     }
     fn reset(&mut self) {
@@ -222,9 +232,15 @@ pub trait ProcessorFactory {
 }
 
 /// Builds the factory's processor for a sample type chosen at runtime (`F32` or `F64`).
-pub fn build_dyn<F: ProcessorFactory>(factory: &F, dtype: DType, sample_rate: f64) -> Result<Box<dyn DynProcessor>, DynError> {
+pub fn build_dyn<F: ProcessorFactory>(
+    factory: &F,
+    dtype: DType,
+    sample_rate: f64,
+) -> Result<Box<dyn DynProcessor>, DynError> {
     match dtype {
-        DType::F32 => Ok(Box::new(Typed::<_, f32>::new(factory.build(sample_rate as f32)))),
+        DType::F32 => Ok(Box::new(Typed::<_, f32>::new(
+            factory.build(sample_rate as f32),
+        ))),
         DType::F64 => Ok(Box::new(Typed::<_, f64>::new(factory.build(sample_rate)))),
         other => Err(DynError::Unsupported(other)),
     }
@@ -243,7 +259,10 @@ mod tests {
     impl ProcessorFactory for LowpassThenCompress {
         type Output<T: FloatElement> = (Biquad<T>, Compressor<T>);
         fn build<T: FloatElement>(&self, sample_rate: T) -> Self::Output<T> {
-            (Biquad::lowpass(T::_lit(2_000.0), T::_lit(BUTTERWORTH_Q), sample_rate), Compressor::new(sample_rate))
+            (
+                Biquad::lowpass(T::_lit(2_000.0), T::_lit(BUTTERWORTH_Q), sample_rate),
+                Compressor::new(sample_rate),
+            )
         }
     }
 
@@ -262,14 +281,23 @@ mod tests {
         let mut single = build_dyn(&LowpassThenCompress, DType::F32, 48_000.0).unwrap();
         let mut got32: Vec<f32> = input.iter().map(|&x| x as f32).collect();
         single.process_dyn(DynBlock::F32(&mut got32)).unwrap();
-        assert!(got32.iter().zip(&expected).all(|(a, b)| (*a as f64 - b).abs() < 1e-4));
+        assert!(got32
+            .iter()
+            .zip(&expected)
+            .all(|(a, b)| (*a as f64 - b).abs() < 1e-4));
     }
 
     #[test]
     fn type_mismatch_is_an_error() {
         let mut p = build_dyn(&LowpassThenCompress, DType::F32, 48_000.0).unwrap();
         let mut block = [0.0f64; 4];
-        assert_eq!(p.process_dyn(DynBlock::F64(&mut block)), Err(DynError::DTypeMismatch { expected: DType::F32, found: DType::F64 }));
+        assert_eq!(
+            p.process_dyn(DynBlock::F64(&mut block)),
+            Err(DynError::DTypeMismatch {
+                expected: DType::F32,
+                found: DType::F64
+            })
+        );
         assert!(build_dyn(&LowpassThenCompress, DType::I16, 48_000.0).is_err());
     }
 
@@ -284,7 +312,9 @@ mod tests {
 
     #[test]
     fn lanes_of_a_runtime_typed_array_and_runtime_chains() {
-        let mut array = DynArray::from_array(NdArray::from_fn(&[2, 1_000], |i| if i[1] == 0 { 1.0f32 } else { 0.0 }).unwrap());
+        let mut array = DynArray::from_array(
+            NdArray::from_fn(&[2, 1_000], |i| if i[1] == 0 { 1.0f32 } else { 0.0 }).unwrap(),
+        );
         let mut chain: Vec<Box<dyn DynProcessor>> = vec![
             build_dyn(&LowpassThenCompress, DType::F32, 48_000.0).unwrap(),
             build_dyn(&LowpassThenCompress, DType::F32, 48_000.0).unwrap(),
@@ -292,10 +322,16 @@ mod tests {
         chain.process_lanes(&mut array, 1).unwrap();
         let a = array.as_array::<f32>().unwrap();
         // both channels got the same impulse, so the same response
-        assert_eq!(a.view().index_axis(0, 0).unwrap().to_vec(), a.view().index_axis(0, 1).unwrap().to_vec());
+        assert_eq!(
+            a.view().index_axis(0, 0).unwrap().to_vec(),
+            a.view().index_axis(0, 1).unwrap().to_vec()
+        );
         assert_eq!(chain.param_count(), 18);
 
         let mut ints = DynArray::zeros(DType::I16, &[4]).unwrap();
-        assert_eq!(chain.process_lanes(&mut ints, 0), Err(DynError::Unsupported(DType::I16)));
+        assert_eq!(
+            chain.process_lanes(&mut ints, 0),
+            Err(DynError::Unsupported(DType::I16))
+        );
     }
 }

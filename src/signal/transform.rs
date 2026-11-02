@@ -1,8 +1,8 @@
 //! [`SignalMut`]: in-place transforms of real-valued signals, and the [`Broadcast`] policy for pointwise
 //! operations between signals of different lengths.
 
-use crate::alloc_prelude::*;
 use super::{Signal, SignalError};
+use crate::alloc_prelude::*;
 use crate::units::*;
 
 /// How a pointwise operation treats `other` when it is shorter or longer than `self`.
@@ -53,7 +53,11 @@ pub trait SignalMut: Signal {
     /// Scales so the peak equals `target`; returns the gain applied (1 for silence, which is left as is).
     fn normalize_peak(&mut self, target: Self::Sample) -> Self::Sample {
         let peak = self.peak();
-        let gain = if peak > Self::Sample::_ZERO { target / peak } else { Self::Sample::_ONE };
+        let gain = if peak > Self::Sample::_ZERO {
+            target / peak
+        } else {
+            Self::Sample::_ONE
+        };
         self.scale(gain);
         gain
     }
@@ -149,7 +153,9 @@ pub trait SignalMut: Signal {
         let rest = &mut x[overlap..];
         match mode {
             Broadcast::Strict | Broadcast::Truncate => {}
-            Broadcast::ZeroPad => rest.iter_mut().for_each(|a| *a = f(*a, Self::Sample::_ZERO)),
+            Broadcast::ZeroPad => rest
+                .iter_mut()
+                .for_each(|a| *a = f(*a, Self::Sample::_ZERO)),
             Broadcast::Fill(v) => rest.iter_mut().for_each(|a| *a = f(*a, v)),
             Broadcast::Latch => {
                 let last = other[m - 1];
@@ -259,7 +265,10 @@ mod tests {
         let mut x = [3.0, 4.0];
         x.project_onto(&[1.0, 0.0]).unwrap();
         assert_eq!(x, [3.0, 0.0]);
-        assert_eq!([1.0, 2.0].project_onto(&[0.0, 0.0]), Err(SignalError::ZeroNorm));
+        assert_eq!(
+            [1.0, 2.0].project_onto(&[0.0, 0.0]),
+            Err(SignalError::ZeroNorm)
+        );
     }
 
     #[test]
@@ -269,7 +278,10 @@ mod tests {
             let mut x = [1.0, 1.0, 1.0, 1.0, 1.0];
             x.zip_apply(&other, mode, |a, b| a + b).map(|_| x)
         };
-        assert_eq!(run(Broadcast::Strict), Err(SignalError::LengthMismatch(5, 2)));
+        assert_eq!(
+            run(Broadcast::Strict),
+            Err(SignalError::LengthMismatch(5, 2))
+        );
         assert_eq!(run(Broadcast::Truncate), Ok([11.0, 21.0, 1.0, 1.0, 1.0]));
         assert_eq!(run(Broadcast::ZeroPad), Ok([11.0, 21.0, 1.0, 1.0, 1.0]));
         assert_eq!(run(Broadcast::Fill(2.0)), Ok([11.0, 21.0, 3.0, 3.0, 3.0]));
@@ -277,10 +289,14 @@ mod tests {
         assert_eq!(run(Broadcast::Tile), Ok([11.0, 21.0, 11.0, 21.0, 11.0]));
         // ZeroPad vs Truncate differ for multiplication
         let mut m = [2.0, 2.0, 2.0];
-        m.zip_apply(&[3.0], Broadcast::ZeroPad, |a, b| a * b).unwrap();
+        m.zip_apply(&[3.0], Broadcast::ZeroPad, |a, b| a * b)
+            .unwrap();
         assert_eq!(m, [6.0, 0.0, 0.0]);
         let mut e = [1.0];
-        assert_eq!(e.zip_apply(&[], Broadcast::Tile, |a, b| a + b), Err(SignalError::Empty));
+        assert_eq!(
+            e.zip_apply(&[], Broadcast::Tile, |a, b| a + b),
+            Err(SignalError::Empty)
+        );
     }
 
     #[test]

@@ -30,7 +30,12 @@ pub struct AutodyneReverb {
 impl Default for AutodyneReverb {
     fn default() -> Self {
         let reverb = Smoothed::new(Reverb::new(48_000.0), RAMP_SECONDS, 48_000.0);
-        Self { params: Arc::new(ParamBridge::new(&reverb)), reverb, mono_scratch: Vec::new(), sample_rate: 48_000.0 }
+        Self {
+            params: Arc::new(ParamBridge::new(&reverb)),
+            reverb,
+            mono_scratch: Vec::new(),
+            sample_rate: 48_000.0,
+        }
     }
 }
 
@@ -64,10 +69,19 @@ impl Plugin for AutodyneReverb {
         self.params.clone()
     }
 
-    fn activate(&mut self, _layout: &AudioIOLayout, config: &BufferConfig, _context: &mut impl ActivateContext<Self>) -> bool {
+    fn activate(
+        &mut self,
+        _layout: &AudioIOLayout,
+        config: &BufferConfig,
+        _context: &mut impl ActivateContext<Self>,
+    ) -> bool {
         // allocation is fine here: this runs outside the audio callback
         self.sample_rate = config.sample_rate;
-        self.reverb = Smoothed::new(Reverb::new(config.sample_rate), RAMP_SECONDS, config.sample_rate as f64);
+        self.reverb = Smoothed::new(
+            Reverb::new(config.sample_rate),
+            RAMP_SECONDS,
+            config.sample_rate as f64,
+        );
         self.mono_scratch = vec![0.0; config.max_buffer_size as usize];
         // the new reverb takes every current host setting at once: no glide from the defaults when a
         // preset loads or the sample rate changes (this runs off the audio thread)
@@ -81,15 +95,24 @@ impl Plugin for AutodyneReverb {
         self.reverb.settle();
     }
 
-    fn process(&mut self, buffer: &mut Buffer, _aux: &mut AuxiliaryBuffers, _context: &mut impl ProcessContext<Self>) -> ProcessStatus {
+    fn process(
+        &mut self,
+        buffer: &mut Buffer,
+        _aux: &mut AuxiliaryBuffers,
+        _context: &mut impl ProcessContext<Self>,
+    ) -> ProcessStatus {
         self.params.apply(&mut self.reverb);
         match buffer.as_slice() {
-            [left, right] => self.reverb.run(left.len(), |r, range| r.process_stereo(&mut left[range.clone()], &mut right[range])),
+            [left, right] => self.reverb.run(left.len(), |r, range| {
+                r.process_stereo(&mut left[range.clone()], &mut right[range])
+            }),
             [mono] => {
                 let n = mono.len();
                 let other = &mut self.mono_scratch[..n];
                 other.copy_from_slice(mono);
-                self.reverb.run(n, |r, range| r.process_stereo(&mut mono[range.clone()], &mut other[range]));
+                self.reverb.run(n, |r, range| {
+                    r.process_stereo(&mut mono[range.clone()], &mut other[range])
+                });
                 for (m, o) in mono.iter_mut().zip(other.iter()) {
                     *m = 0.5 * (*m + *o);
                 }
@@ -103,10 +126,16 @@ impl Plugin for AutodyneReverb {
 
 impl ClapPlugin for AutodyneReverb {
     const CLAP_ID: &'static str = "com.github.vaibhav-gopal.autodyne.reverb";
-    const CLAP_DESCRIPTION: Option<&'static str> = Some("Feedback delay network reverb with modulated delay lines");
+    const CLAP_DESCRIPTION: Option<&'static str> =
+        Some("Feedback delay network reverb with modulated delay lines");
     const CLAP_MANUAL_URL: Option<&'static str> = Some(Self::URL);
     const CLAP_SUPPORT_URL: Option<&'static str> = None;
-    const CLAP_FEATURES: &'static [ClapFeature] = &[ClapFeature::AudioEffect, ClapFeature::Reverb, ClapFeature::Stereo, ClapFeature::Mono];
+    const CLAP_FEATURES: &'static [ClapFeature] = &[
+        ClapFeature::AudioEffect,
+        ClapFeature::Reverb,
+        ClapFeature::Stereo,
+        ClapFeature::Mono,
+    ];
 }
 
 nice_export_clap!(AutodyneReverb);
@@ -114,7 +143,8 @@ nice_export_clap!(AutodyneReverb);
 #[cfg(feature = "vst3")]
 impl Vst3Plugin for AutodyneReverb {
     const VST3_CLASS_ID: [u8; 16] = *b"AutodyneReverb01";
-    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] = &[Vst3SubCategory::Fx, Vst3SubCategory::Reverb];
+    const VST3_SUBCATEGORIES: &'static [Vst3SubCategory] =
+        &[Vst3SubCategory::Fx, Vst3SubCategory::Reverb];
 }
 
 #[cfg(feature = "vst3")]

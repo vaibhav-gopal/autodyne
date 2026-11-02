@@ -2,8 +2,10 @@
 
 use super::*;
 use crate::osc::Waveform;
-use crate::params::{from_f64, parameterized, to_f64, ParamError, ParamInfo, ParamUnit, Parameterized};
 use crate::params::ParamUnit::{Cents, Decibels, Fraction, Hertz, Seconds};
+use crate::params::{
+    from_f64, parameterized, to_f64, ParamError, ParamInfo, ParamUnit, Parameterized,
+};
 
 parameterized!(SynthVoice, "Synth voice",
     infos: |_s| [
@@ -160,8 +162,16 @@ impl<V: Voice + Parameterized> Parameterized for Poly<V> {
         let voice = self.voices().first()?;
         match index.checked_sub(voice.param_count()) {
             None => voice.param_info(index),
-            Some(0) => Some(ParamInfo::choice("voice_mode", "Voice mode", &VoiceMode::NAMES, 0)),
-            Some(1) => Some(ParamInfo::new("bend_range", "Bend range", ParamUnit::None, 0.0, 48.0, 2.0).integer()),
+            Some(0) => Some(ParamInfo::choice(
+                "voice_mode",
+                "Voice mode",
+                &VoiceMode::NAMES,
+                0,
+            )),
+            Some(1) => Some(
+                ParamInfo::new("bend_range", "Bend range", ParamUnit::None, 0.0, 48.0, 2.0)
+                    .integer(),
+            ),
             Some(2) => Some(ParamInfo::toggle("mpe", "MPE", false)),
             Some(_) => None,
         }
@@ -178,7 +188,12 @@ impl<V: Voice + Parameterized> Parameterized for Poly<V> {
         let voice = self.voices().first()?;
         match index.checked_sub(voice.param_count()) {
             None => voice.get_param(index),
-            Some(0) => Some(VoiceMode::ALL.iter().position(|&m| m == self.mode()).unwrap_or(0) as f64),
+            Some(0) => Some(
+                VoiceMode::ALL
+                    .iter()
+                    .position(|&m| m == self.mode())
+                    .unwrap_or(0) as f64,
+            ),
             Some(1) => Some(to_f64(self.bend_range())),
             Some(2) => Some(f64::from(u8::from(self.mpe()))),
             Some(_) => None,
@@ -193,7 +208,10 @@ impl<V: Voice + Parameterized> Parameterized for Poly<V> {
             }
             return applied;
         }
-        let applied = self.param_info(index).ok_or(ParamError::UnknownIndex(index))?.validate(value)?;
+        let applied = self
+            .param_info(index)
+            .ok_or(ParamError::UnknownIndex(index))?
+            .validate(value)?;
         match index - voice_params {
             0 => self.set_mode(VoiceMode::ALL[applied as usize]),
             1 => self.set_bend_range(from_f64(applied)),

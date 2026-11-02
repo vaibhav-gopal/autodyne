@@ -82,7 +82,15 @@ pub struct OdeOptions<'a> {
 
 impl Default for OdeOptions<'_> {
     fn default() -> Self {
-        Self { method: OdeMethod::Rk45, rtol: 1e-3, atol: 1e-6, first_step: None, max_step: f64::INFINITY, t_eval: None, events: Vec::new() }
+        Self {
+            method: OdeMethod::Rk45,
+            rtol: 1e-3,
+            atol: 1e-6,
+            first_step: None,
+            max_step: f64::INFINITY,
+            t_eval: None,
+            events: Vec::new(),
+        }
     }
 }
 
@@ -152,19 +160,75 @@ const RK45: Tableau = Tableau {
         &[1.0 / 5.0],
         &[3.0 / 40.0, 9.0 / 40.0],
         &[44.0 / 45.0, -56.0 / 15.0, 32.0 / 9.0],
-        &[19372.0 / 6561.0, -25360.0 / 2187.0, 64448.0 / 6561.0, -212.0 / 729.0],
-        &[9017.0 / 3168.0, -355.0 / 33.0, 46732.0 / 5247.0, 49.0 / 176.0, -5103.0 / 18656.0],
+        &[
+            19372.0 / 6561.0,
+            -25360.0 / 2187.0,
+            64448.0 / 6561.0,
+            -212.0 / 729.0,
+        ],
+        &[
+            9017.0 / 3168.0,
+            -355.0 / 33.0,
+            46732.0 / 5247.0,
+            49.0 / 176.0,
+            -5103.0 / 18656.0,
+        ],
     ],
-    b: &[35.0 / 384.0, 0.0, 500.0 / 1113.0, 125.0 / 192.0, -2187.0 / 6784.0, 11.0 / 84.0],
-    e: &[-71.0 / 57600.0, 0.0, 71.0 / 16695.0, -71.0 / 1920.0, 17253.0 / 339200.0, -22.0 / 525.0, 1.0 / 40.0],
+    b: &[
+        35.0 / 384.0,
+        0.0,
+        500.0 / 1113.0,
+        125.0 / 192.0,
+        -2187.0 / 6784.0,
+        11.0 / 84.0,
+    ],
+    e: &[
+        -71.0 / 57600.0,
+        0.0,
+        71.0 / 16695.0,
+        -71.0 / 1920.0,
+        17253.0 / 339200.0,
+        -22.0 / 525.0,
+        1.0 / 40.0,
+    ],
     p: &[
-        &[1.0, -8048581381.0 / 2820520608.0, 8663915743.0 / 2820520608.0, -12715105075.0 / 11282082432.0],
+        &[
+            1.0,
+            -8048581381.0 / 2820520608.0,
+            8663915743.0 / 2820520608.0,
+            -12715105075.0 / 11282082432.0,
+        ],
         &[0.0, 0.0, 0.0, 0.0],
-        &[0.0, 131558114200.0 / 32700410799.0, -68118460800.0 / 10900136933.0, 87487479700.0 / 32700410799.0],
-        &[0.0, -1754552775.0 / 470086768.0, 14199869525.0 / 1410260304.0, -10690763975.0 / 1880347072.0],
-        &[0.0, 127303824393.0 / 49829197408.0, -318862633887.0 / 49829197408.0, 701980252875.0 / 199316789632.0],
-        &[0.0, -282668133.0 / 205662961.0, 2019193451.0 / 616988883.0, -1453857185.0 / 822651844.0],
-        &[0.0, 40617522.0 / 29380423.0, -110615467.0 / 29380423.0, 69997945.0 / 29380423.0],
+        &[
+            0.0,
+            131558114200.0 / 32700410799.0,
+            -68118460800.0 / 10900136933.0,
+            87487479700.0 / 32700410799.0,
+        ],
+        &[
+            0.0,
+            -1754552775.0 / 470086768.0,
+            14199869525.0 / 1410260304.0,
+            -10690763975.0 / 1880347072.0,
+        ],
+        &[
+            0.0,
+            127303824393.0 / 49829197408.0,
+            -318862633887.0 / 49829197408.0,
+            701980252875.0 / 199316789632.0,
+        ],
+        &[
+            0.0,
+            -282668133.0 / 205662961.0,
+            2019193451.0 / 616988883.0,
+            -1453857185.0 / 822651844.0,
+        ],
+        &[
+            0.0,
+            40617522.0 / 29380423.0,
+            -110615467.0 / 29380423.0,
+            69997945.0 / 29380423.0,
+        ],
     ],
     error_order: 4,
 };
@@ -174,16 +238,33 @@ const RK23: Tableau = Tableau {
     a: &[&[], &[1.0 / 2.0], &[0.0, 3.0 / 4.0]],
     b: &[2.0 / 9.0, 1.0 / 3.0, 4.0 / 9.0],
     e: &[5.0 / 72.0, -1.0 / 12.0, -1.0 / 9.0, 1.0 / 8.0],
-    p: &[&[1.0, -4.0 / 3.0, 5.0 / 9.0], &[0.0, 1.0, -2.0 / 3.0], &[0.0, 4.0 / 3.0, -8.0 / 9.0], &[0.0, -1.0, 1.0]],
+    p: &[
+        &[1.0, -4.0 / 3.0, 5.0 / 9.0],
+        &[0.0, 1.0, -2.0 / 3.0],
+        &[0.0, 4.0 / 3.0, -8.0 / 9.0],
+        &[0.0, -1.0, 1.0],
+    ],
     error_order: 2,
 };
 
 /// One step's dense output: `y(t_old + x h)` for `x` in [0, 1].
 enum Dense {
     /// `y_old + h sum_j q[j] x^(j + 1)` (the Runge-Kutta polynomials, coefficients per state)
-    Poly { t_old: f64, h: f64, y_old: Vec<f64>, q: Vec<Vec<f64>> },
+    Poly {
+        t_old: f64,
+        h: f64,
+        y_old: Vec<f64>,
+        q: Vec<Vec<f64>>,
+    },
     /// cubic Hermite from the end values and slopes
-    Hermite { t_old: f64, h: f64, y0: Vec<f64>, y1: Vec<f64>, f0: Vec<f64>, f1: Vec<f64> },
+    Hermite {
+        t_old: f64,
+        h: f64,
+        y0: Vec<f64>,
+        y1: Vec<f64>,
+        f0: Vec<f64>,
+        f1: Vec<f64>,
+    },
 }
 
 impl Dense {
@@ -205,10 +286,24 @@ impl Dense {
                     })
                     .collect()
             }
-            Dense::Hermite { t_old, h, y0, y1, f0, f1 } => {
+            Dense::Hermite {
+                t_old,
+                h,
+                y0,
+                y1,
+                f0,
+                f1,
+            } => {
                 let x = (t - t_old) / h;
-                let (h00, h10, h01, h11) = (2.0 * x * x * x - 3.0 * x * x + 1.0, x * x * x - 2.0 * x * x + x, -2.0 * x * x * x + 3.0 * x * x, x * x * x - x * x);
-                (0..y0.len()).map(|i| h00 * y0[i] + h10 * h * f0[i] + h01 * y1[i] + h11 * h * f1[i]).collect()
+                let (h00, h10, h01, h11) = (
+                    2.0 * x * x * x - 3.0 * x * x + 1.0,
+                    x * x * x - 2.0 * x * x + x,
+                    -2.0 * x * x * x + 3.0 * x * x,
+                    x * x * x - x * x,
+                );
+                (0..y0.len())
+                    .map(|i| h00 * y0[i] + h10 * h * f0[i] + h01 * y1[i] + h11 * h * f1[i])
+                    .collect()
             }
         }
     }
@@ -268,7 +363,12 @@ impl Lu {
 ///
 /// Errors on non-positive tolerances, an empty state, or output times outside the span or out of
 /// order.
-pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, f64), y0: &[f64], mut options: OdeOptions<'a>) -> Result<OdeSolution, OdeError> {
+pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(
+    mut f: F,
+    t_span: (f64, f64),
+    y0: &[f64],
+    mut options: OdeOptions<'a>,
+) -> Result<OdeSolution, OdeError> {
     let (t0, t1) = t_span;
     let n = y0.len();
     if n == 0 {
@@ -276,17 +376,25 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
     }
     let (rtol, atol) = (options.rtol, options.atol);
     if !(rtol > 0.0 && atol >= 0.0) {
-        return Err(OdeError::invalid(format!("tolerances must be positive (rtol {rtol}, atol {atol})")));
+        return Err(OdeError::invalid(format!(
+            "tolerances must be positive (rtol {rtol}, atol {atol})"
+        )));
     }
     if !(t0.is_finite() && t1.is_finite()) || options.max_step.is_nan() || options.max_step <= 0.0 {
-        return Err(OdeError::invalid("the span must be finite and max_step positive"));
+        return Err(OdeError::invalid(
+            "the span must be finite and max_step positive",
+        ));
     }
     let dir = if t1 >= t0 { 1.0 } else { -1.0 };
     if let Some(te) = &options.t_eval {
-        let inside = te.iter().all(|&t| (t - t0) * dir >= 0.0 && (t1 - t) * dir >= 0.0);
+        let inside = te
+            .iter()
+            .all(|&t| (t - t0) * dir >= 0.0 && (t1 - t) * dir >= 0.0);
         let ordered = te.windows(2).all(|w| (w[1] - w[0]) * dir >= 0.0);
         if !inside || !ordered {
-            return Err(OdeError::invalid("t_eval must lie in the span, ordered in the direction of integration"));
+            return Err(OdeError::invalid(
+                "t_eval must lie in the span, ordered in the direction of integration",
+            ));
         }
     }
     let mut nfev = 0;
@@ -309,26 +417,52 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
     let interval = (t1 - t0).abs();
     let mut h_abs = match options.first_step {
         Some(h) if h > 0.0 => h.min(interval),
-        Some(h) => return Err(OdeError::invalid(format!("first_step must be positive, got {h}"))),
+        Some(h) => {
+            return Err(OdeError::invalid(format!(
+                "first_step must be positive, got {h}"
+            )))
+        }
         None => {
             // scipy.integrate._ivp.common.select_initial_step
             let scale: Vec<f64> = y.iter().map(|v| atol + v.abs() * rtol).collect();
             let d0 = rms(y.iter().zip(&scale).map(|(v, s)| v / s));
             let d1 = rms(fy.iter().zip(&scale).map(|(v, s)| v / s));
-            let h0 = if d0 < 1e-5 || d1 < 1e-5 { 1e-6 } else { 0.01 * d0 / d1 };
+            let h0 = if d0 < 1e-5 || d1 < 1e-5 {
+                1e-6
+            } else {
+                0.01 * d0 / d1
+            };
             let h0 = h0.min(interval);
             let y1: Vec<f64> = y.iter().zip(&fy).map(|(v, d)| v + h0 * dir * d).collect();
             let mut f1 = vec![0.0; n];
             eval(t + h0 * dir, &y1, &mut f1, &mut nfev);
-            let d2 = rms(f1.iter().zip(&fy).zip(&scale).map(|((a, b), s)| (a - b) / s)) / h0;
+            let d2 = rms(f1
+                .iter()
+                .zip(&fy)
+                .zip(&scale)
+                .map(|((a, b), s)| (a - b) / s))
+                / h0;
             // SciPy passes the error estimator's order here, not the method's
-            let h1 = if d1 <= 1e-15 && d2 <= 1e-15 { (h0 * 1e-3).max(1e-6) } else { (0.01 / d1.max(d2)).powf(1.0 / (error_order as f64 + 1.0)) };
+            let h1 = if d1 <= 1e-15 && d2 <= 1e-15 {
+                (h0 * 1e-3).max(1e-6)
+            } else {
+                (0.01 / d1.max(d2)).powf(1.0 / (error_order as f64 + 1.0))
+            };
             (100.0 * h0).min(h1).min(interval)
         }
     };
     h_abs = h_abs.min(options.max_step);
 
-    let mut sol = OdeSolution { t: Vec::new(), y: Vec::new(), t_events: vec![Vec::new(); options.events.len()], y_events: vec![Vec::new(); options.events.len()], nfev: 0, njev: 0, nlu: 0, status: OdeStatus::Finished };
+    let mut sol = OdeSolution {
+        t: Vec::new(),
+        y: Vec::new(),
+        t_events: vec![Vec::new(); options.events.len()],
+        y_events: vec![Vec::new(); options.events.len()],
+        nfev: 0,
+        njev: 0,
+        nlu: 0,
+        status: OdeStatus::Finished,
+    };
     let mut next_eval = 0;
     match &options.t_eval {
         None => {
@@ -399,17 +533,33 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
                 k[0].copy_from_slice(&fy);
                 for s in 1..stages {
                     for i in 0..n {
-                        tmp[i] = y[i] + h * tb.a[s].iter().enumerate().map(|(j, &a)| a * k[j][i]).sum::<f64>();
+                        tmp[i] = y[i]
+                            + h * tb.a[s]
+                                .iter()
+                                .enumerate()
+                                .map(|(j, &a)| a * k[j][i])
+                                .sum::<f64>();
                     }
                     eval(t + tb.c[s] * h, &tmp, &mut k[s], &mut nfev);
                 }
                 for i in 0..n {
-                    y_new[i] = y[i] + h * tb.b.iter().enumerate().map(|(j, &b)| b * k[j][i]).sum::<f64>();
+                    y_new[i] = y[i]
+                        + h * tb
+                            .b
+                            .iter()
+                            .enumerate()
+                            .map(|(j, &b)| b * k[j][i])
+                            .sum::<f64>();
                 }
                 eval(t_new, &y_new, &mut f_new, &mut nfev);
                 k[stages].copy_from_slice(&f_new);
                 error_norm = rms((0..n).map(|i| {
-                    let err = h * tb.e.iter().enumerate().map(|(j, &e)| e * k[j][i]).sum::<f64>();
+                    let err = h * tb
+                        .e
+                        .iter()
+                        .enumerate()
+                        .map(|(j, &e)| e * k[j][i])
+                        .sum::<f64>();
                     err / (atol + y[i].abs().max(y_new[i].abs()) * rtol)
                 }));
             } else {
@@ -440,7 +590,11 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
                     y_new[i] = y[i] + h * k2[i];
                 }
                 eval(t_new, &y_new, &mut f_new, &mut nfev);
-                let mut k3: Vec<f64> = (0..n).map(|i| f_new[i] - e32 * (k2[i] - f1[i]) - 2.0 * (k1[i] - fy[i]) + h * d * dfdt[i]).collect();
+                let mut k3: Vec<f64> = (0..n)
+                    .map(|i| {
+                        f_new[i] - e32 * (k2[i] - f1[i]) - 2.0 * (k1[i] - fy[i]) + h * d * dfdt[i]
+                    })
+                    .collect();
                 lu.solve(&mut k3);
                 error_norm = rms((0..n).map(|i| {
                     let err = h / 6.0 * (k1[i] - 2.0 * k2[i] + k3[i]);
@@ -448,7 +602,11 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
                 }));
             }
             if error_norm < 1.0 {
-                let mut factor = if error_norm == 0.0 { MAX_FACTOR } else { MAX_FACTOR.min(SAFETY * error_norm.powf(error_exponent)) };
+                let mut factor = if error_norm == 0.0 {
+                    MAX_FACTOR
+                } else {
+                    MAX_FACTOR.min(SAFETY * error_norm.powf(error_exponent))
+                };
                 if rejected {
                     factor = factor.min(1.0);
                 }
@@ -459,9 +617,27 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
                         t_old: t,
                         h: step,
                         y_old: y.clone(),
-                        q: (0..tb.p[0].len()).map(|kk| (0..n).map(|i| tb.p.iter().enumerate().map(|(j, row)| row[kk] * k[j][i]).sum()).collect()).collect(),
+                        q: (0..tb.p[0].len())
+                            .map(|kk| {
+                                (0..n)
+                                    .map(|i| {
+                                        tb.p.iter()
+                                            .enumerate()
+                                            .map(|(j, row)| row[kk] * k[j][i])
+                                            .sum()
+                                    })
+                                    .collect()
+                            })
+                            .collect(),
                     },
-                    None => Dense::Hermite { t_old: t, h: step, y0: y.clone(), y1: y_new.clone(), f0: fy.clone(), f1: f_new.clone() },
+                    None => Dense::Hermite {
+                        t_old: t,
+                        h: step,
+                        y0: y.clone(),
+                        y1: y_new.clone(),
+                        f0: fy.clone(),
+                        f1: f_new.clone(),
+                    },
                 };
                 h_abs *= factor;
                 rejected = false;
@@ -486,7 +662,11 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
                         break;
                     }
                     let gm = (ev.g)(m, &dense.eval(m));
-                    if (gm < 0.0) == (ga < 0.0) && gm != 0.0 { a = m } else { b = m }
+                    if (gm < 0.0) == (ga < 0.0) && gm != 0.0 {
+                        a = m
+                    } else {
+                        b = m
+                    }
                 }
                 let ye = dense.eval(b);
                 sol.t_events[e].push(b);
@@ -502,13 +682,21 @@ pub fn solve_ivp<'a, F: FnMut(f64, &[f64], &mut [f64])>(mut f: F, t_span: (f64, 
         match &options.t_eval {
             None => {
                 sol.t.push(t_end);
-                sol.y.push(stop_at.as_ref().map_or_else(|| y_new.clone(), |s| s.1.clone()));
+                sol.y.push(
+                    stop_at
+                        .as_ref()
+                        .map_or_else(|| y_new.clone(), |s| s.1.clone()),
+                );
             }
             Some(te) => {
                 while next_eval < te.len() && (te[next_eval] - t_end) * dir <= 0.0 {
                     let tv = te[next_eval];
                     sol.t.push(tv);
-                    sol.y.push(if tv == t_new { y_new.clone() } else { dense.eval(tv) });
+                    sol.y.push(if tv == t_new {
+                        y_new.clone()
+                    } else {
+                        dense.eval(tv)
+                    });
                     next_eval += 1;
                 }
             }
@@ -531,7 +719,11 @@ fn finish(mut sol: OdeSolution, nfev: usize) -> OdeSolution {
 
 /// The next representable f64 above `x >= 0` (for SciPy's minimum step, 10 ulps of `t`).
 fn next_up(x: f64) -> f64 {
-    if x == 0.0 { f64::from_bits(1) } else { f64::from_bits(x.to_bits() + 1) }
+    if x == 0.0 {
+        f64::from_bits(1)
+    } else {
+        f64::from_bits(x.to_bits() + 1)
+    }
 }
 
 #[cfg(test)]

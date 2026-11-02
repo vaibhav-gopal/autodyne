@@ -64,34 +64,62 @@ impl Default for Emit {
 impl Emit {
     /// Single precision, FFTs emitted whole.
     pub fn f32() -> Self {
-        Emit { dtype: DType::F32, max_fft: None, soft_f64: false, scan_unroll: 1 }
+        Emit {
+            dtype: DType::F32,
+            max_fft: None,
+            soft_f64: false,
+            scan_unroll: 1,
+        }
     }
     /// Double precision, FFTs emitted whole.
     pub fn f64() -> Self {
-        Emit { dtype: DType::F64, max_fft: None, soft_f64: false, scan_unroll: 1 }
+        Emit {
+            dtype: DType::F64,
+            max_fft: None,
+            soft_f64: false,
+            scan_unroll: 1,
+        }
     }
     /// Computing in `T`.
     pub fn of<T: FluxFloat>() -> Self {
-        Emit { dtype: T::DTYPE, max_fft: None, soft_f64: false, scan_unroll: 1 }
+        Emit {
+            dtype: T::DTYPE,
+            max_fft: None,
+            soft_f64: false,
+            scan_unroll: 1,
+        }
     }
     /// FFTs of at most `n` points (at least 2).
     pub fn max_fft(self, n: usize) -> Self {
         assert!(n >= 2, "Emit::max_fft: at least 2 points");
-        Emit { max_fft: Some(n), ..self }
+        Emit {
+            max_fft: Some(n),
+            ..self
+        }
     }
     /// `steps` steps of a scan per loop iteration (see [`scan_unroll`](Self::scan_unroll)).
     pub fn scan_unroll(self, steps: usize) -> Self {
-        Emit { scan_unroll: steps.max(1), ..self }
+        Emit {
+            scan_unroll: steps.max(1),
+            ..self
+        }
     }
     /// f64 transcendentals written out of arithmetic (see [`soft_f64`](Self::soft_f64)).
     pub fn soft_f64(self, soft: bool) -> Self {
-        Emit { soft_f64: soft, ..self }
+        Emit {
+            soft_f64: soft,
+            ..self
+        }
     }
     /// With the limits `backend` needs (see [`Backend::max_fft`](super::Backend::max_fft),
     /// [`Backend::soft_f64`](super::Backend::soft_f64) and
     /// [`Backend::scan_unroll`](super::Backend::scan_unroll)).
     pub fn for_backend(self, backend: &dyn super::Backend) -> Self {
-        let emit = Emit { soft_f64: self.soft_f64 || backend.soft_f64(), scan_unroll: self.scan_unroll.max(backend.scan_unroll()), ..self };
+        let emit = Emit {
+            soft_f64: self.soft_f64 || backend.soft_f64(),
+            scan_unroll: self.scan_unroll.max(backend.scan_unroll()),
+            ..self
+        };
         match backend.max_fft() {
             Some(n) => emit.max_fft(emit.max_fft.map_or(n, |m| m.min(n))),
             None => emit,
@@ -112,9 +140,11 @@ fn ty(shape: &[usize], elem: &str) -> String {
     s
 }
 
-
 fn list(xs: &[usize]) -> String {
-    xs.iter().map(usize::to_string).collect::<Vec<_>>().join(", ")
+    xs.iter()
+        .map(usize::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// An `array<i64: ...>` attribute.
@@ -141,8 +171,19 @@ struct Writer {
 impl Writer {
     fn new(emit: &Emit) -> Self {
         let dtype = emit.dtype;
-        assert!(matches!(dtype, DType::F32 | DType::F64), "flux: programs are f32 or f64, not {dtype:?}");
-        Writer { out: String::new(), next: 0, depth: 1, dtype, max_fft: emit.max_fft, soft_f64: emit.soft_f64 && dtype == DType::F64, unroll: emit.scan_unroll }
+        assert!(
+            matches!(dtype, DType::F32 | DType::F64),
+            "flux: programs are f32 or f64, not {dtype:?}"
+        );
+        Writer {
+            out: String::new(),
+            next: 0,
+            depth: 1,
+            dtype,
+            max_fft: emit.max_fft,
+            soft_f64: emit.soft_f64 && dtype == DType::F64,
+            unroll: emit.scan_unroll,
+        }
     }
 
     /// A real constant array (bit-exact hex).
@@ -150,7 +191,11 @@ impl Writer {
         let mut hex = String::with_capacity(2 + 16 * data.len());
         hex.push_str("0x");
         for &v in data {
-            let bytes = if self.dtype == DType::F64 { v.to_le_bytes().to_vec() } else { (v as f32).to_le_bytes().to_vec() };
+            let bytes = if self.dtype == DType::F64 {
+                v.to_le_bytes().to_vec()
+            } else {
+                (v as f32).to_le_bytes().to_vec()
+            };
             for b in bytes {
                 write!(hex, "{b:02X}").expect("writing to a String cannot fail");
             }
@@ -166,15 +211,25 @@ impl Writer {
         perm.swap(r - 2, r - 1);
         let mut to = shape.to_vec();
         to.swap(r - 2, r - 1);
-        let (a, b) = if complex { (self.complex(shape), self.complex(&to)) } else { (self.real(shape), self.real(&to)) };
-        self.emit(&format!("stablehlo.transpose {v}, dims = [{}] : ({a}) -> {b}", list(&perm)))
+        let (a, b) = if complex {
+            (self.complex(shape), self.complex(&to))
+        } else {
+            (self.real(shape), self.real(&to))
+        };
+        self.emit(&format!(
+            "stablehlo.transpose {v}, dims = [{}] : ({a}) -> {b}",
+            list(&perm)
+        ))
     }
 
     /// The split of an `n`-point FFT for the length limit: `(n1, n2)`, `n1` the largest factor
     /// within the limit; `None` when `n` fits (or has no such factor, and is emitted whole).
     fn fft_split(&self, n: usize) -> Option<(usize, usize)> {
         let max = self.max_fft.filter(|&m| n > m)?;
-        (2..=max.min(n - 1)).rev().find(|d| n.is_multiple_of(*d)).map(|d| (d, n / d))
+        (2..=max.min(n - 1))
+            .rev()
+            .find(|d| n.is_multiple_of(*d))
+            .map(|d| (d, n / d))
     }
 
     /// The complex FFT (or its inverse, scaled by 1/n) of `z` along the last axis of `shape`. When
@@ -184,7 +239,9 @@ impl Writer {
         let ct = self.complex(shape);
         let Some((n1, n2)) = self.fft_split(n) else {
             let kind = if inverse { "IFFT" } else { "FFT" };
-            return self.emit(&format!("stablehlo.fft {z}, type = {kind}, length = [{n}] : ({ct}) -> {ct}"));
+            return self.emit(&format!(
+                "stablehlo.fft {z}, type = {kind}, length = [{n}] : ({ct}) -> {ct}"
+            ));
         };
         let lead = &shape[..shape.len() - 1];
         let r = lead.len();
@@ -197,13 +254,31 @@ impl Writer {
         let a = self.fft(&a, &rows, inverse);
         // twiddles exp(∓2πi t2 k1 / n), from real constants (some backends lack complex ones)
         let sign = if inverse { 1.0 } else { -1.0 };
-        let angles: Vec<f64> = (0..n2).flat_map(|t2| (0..n1).map(move |k1| sign * std::f64::consts::TAU * (t2 * k1) as f64 / n as f64)).collect();
-        let cos = self.literal(&angles.iter().map(|a| a.cos()).collect::<Vec<_>>(), &[n2, n1]);
-        let sin = self.literal(&angles.iter().map(|a| a.sin()).collect::<Vec<_>>(), &[n2, n1]);
+        let angles: Vec<f64> = (0..n2)
+            .flat_map(|t2| {
+                (0..n1).map(move |k1| sign * std::f64::consts::TAU * (t2 * k1) as f64 / n as f64)
+            })
+            .collect();
+        let cos = self.literal(
+            &angles.iter().map(|a| a.cos()).collect::<Vec<_>>(),
+            &[n2, n1],
+        );
+        let sin = self.literal(
+            &angles.iter().map(|a| a.sin()).collect::<Vec<_>>(),
+            &[n2, n1],
+        );
         let tt = self.complex(&[n2, n1]);
         let twiddle = self.emit(&format!("stablehlo.complex {cos}, {sin} : {tt}"));
         let rt = self.complex(&rows);
-        let twiddle = if r == 0 { twiddle } else { self.emit(&format!("stablehlo.broadcast_in_dim {twiddle}, dims = [{}, {}] : ({tt}) -> {rt}", r, r + 1)) };
+        let twiddle = if r == 0 {
+            twiddle
+        } else {
+            self.emit(&format!(
+                "stablehlo.broadcast_in_dim {twiddle}, dims = [{}, {}] : ({tt}) -> {rt}",
+                r,
+                r + 1
+            ))
+        };
         let a = self.emit(&format!("stablehlo.multiply {a}, {twiddle} : {rt}"));
         // the n2-point transforms along t2, then X[k1 + n1 k2] in order
         let a = self.swap_last(&a, &rows, true);
@@ -218,7 +293,9 @@ impl Writer {
         let bins = [&shape[..shape.len() - 1], &[n / 2 + 1]].concat();
         let (rt, bt) = (self.real(shape), self.complex(&bins));
         if self.fft_split(n).is_none() {
-            return self.emit(&format!("stablehlo.fft {x}, type = RFFT, length = [{n}] : ({rt}) -> {bt}"));
+            return self.emit(&format!(
+                "stablehlo.fft {x}, type = RFFT, length = [{n}] : ({rt}) -> {bt}"
+            ));
         }
         let zeros = self.splat(0.0, shape);
         let ct = self.complex(shape);
@@ -236,16 +313,34 @@ impl Writer {
         let out_shape = [&bins[..r - 1], &[n]].concat();
         let (bt, ot) = (self.complex(bins), self.real(&out_shape));
         if self.fft_split(n).is_none() {
-            return self.emit(&format!("stablehlo.fft {z}, type = IRFFT, length = [{n}] : ({bt}) -> {ot}"));
+            return self.emit(&format!(
+                "stablehlo.fft {z}, type = IRFFT, length = [{n}] : ({bt}) -> {ot}"
+            ));
         }
         // the whole Hermitian spectrum: bins 0..m (the imaginary parts of 0 and n/2 ignored), then
         // conj of bins n - m .. 1
         let rt = self.real(bins);
         let re = self.emit(&format!("stablehlo.real {z} : ({bt}) -> {rt}"));
         let im = self.emit(&format!("stablehlo.imag {z} : ({bt}) -> {rt}"));
-        let keep: Vec<f64> = (0..m).map(|k| if k == 0 || (n.is_multiple_of(2) && k == n / 2) { 0.0 } else { 1.0 }).collect();
+        let keep: Vec<f64> = (0..m)
+            .map(|k| {
+                if k == 0 || (n.is_multiple_of(2) && k == n / 2) {
+                    0.0
+                } else {
+                    1.0
+                }
+            })
+            .collect();
         let keep = self.literal(&keep, &[m]);
-        let keep = if r == 1 { keep } else { self.emit(&format!("stablehlo.broadcast_in_dim {keep}, dims = [{}] : ({}) -> {rt}", r - 1, self.real(&[m]))) };
+        let keep = if r == 1 {
+            keep
+        } else {
+            self.emit(&format!(
+                "stablehlo.broadcast_in_dim {keep}, dims = [{}] : ({}) -> {rt}",
+                r - 1,
+                self.real(&[m])
+            ))
+        };
         let im = self.emit(&format!("stablehlo.multiply {im}, {keep} : {rt}"));
         let neg = self.emit(&format!("stablehlo.negate {im} : {rt}"));
         let head = self.emit(&format!("stablehlo.complex {re}, {im} : {bt}"));
@@ -255,7 +350,10 @@ impl Writer {
         let (mut start, mut limit) = (vec![0; r], bins.to_vec());
         (start[r - 1], limit[r - 1]) = (1, n - m + 1);
         let tail = self.emit(&format!("\"stablehlo.slice\"({conj}) {{start_indices = {}, limit_indices = {}, strides = {}}} : ({bt}) -> {tt}", i64s(&start), i64s(&limit), i64s(&vec![1; r])));
-        let tail = self.emit(&format!("stablehlo.reverse {tail}, dims = [{}] : {tt}", r - 1));
+        let tail = self.emit(&format!(
+            "stablehlo.reverse {tail}, dims = [{}] : {tt}",
+            r - 1
+        ));
         let ct = self.complex(&out_shape);
         let full = self.emit(&format!("\"stablehlo.concatenate\"({head}, {tail}) {{dimension = {} : i64}} : ({bt}, {tt}) -> {ct}", r - 1));
         let samples = self.fft(&full, &out_shape, true);
@@ -263,7 +361,11 @@ impl Writer {
     }
 
     fn elem(&self) -> &'static str {
-        if self.dtype == DType::F64 { "f64" } else { "f32" }
+        if self.dtype == DType::F64 {
+            "f64"
+        } else {
+            "f32"
+        }
     }
 
     /// The real tensor type of `shape`.
@@ -277,7 +379,11 @@ impl Writer {
 
     /// `v` rounded to the element type, as the bit pattern MLIR reads exactly.
     fn hex(&self, v: f64) -> String {
-        if self.dtype == DType::F64 { format!("0x{:016X}", v.to_bits()) } else { format!("0x{:08X}", (v as f32).to_bits()) }
+        if self.dtype == DType::F64 {
+            format!("0x{:016X}", v.to_bits())
+        } else {
+            format!("0x{:08X}", (v as f32).to_bits())
+        }
     }
 
     fn fresh(&mut self) -> String {
@@ -311,7 +417,9 @@ impl Writer {
         match kind {
             Kind::Complex => {
                 let t = self.complex(&[]);
-                self.emit(&format!("stablehlo.constant dense<(0.000000e+00,0.000000e+00)> : {t}"))
+                self.emit(&format!(
+                    "stablehlo.constant dense<(0.000000e+00,0.000000e+00)> : {t}"
+                ))
             }
             _ => self.splat(0.0, &[]),
         }
@@ -359,7 +467,8 @@ impl Writer {
             // the element type as a scalar (reduction and padding values)
             let scalar = ty(&[], &of_kind(node.kind));
             let unary = |name: &str, a: u32| format!("stablehlo.{name} {} : {out}", n(a));
-            let binary = |name: &str, a: u32, b: u32| format!("stablehlo.{name} {}, {} : {out}", n(a), n(b));
+            let binary =
+                |name: &str, a: u32, b: u32| format!("stablehlo.{name} {}, {} : {out}", n(a), n(b));
             let rhs = match node.op {
                 Op::Input(i) => {
                     names.push(args[i as usize].clone());
@@ -636,7 +745,10 @@ impl Writer {
             let name = self.emit(&rhs);
             names.push(name);
         }
-        g.outputs.iter().map(|&o| names[o as usize].clone()).collect()
+        g.outputs
+            .iter()
+            .map(|&o| names[o as usize].clone())
+            .collect()
     }
 
     /// Real indices into `rows` rows as `i32`s: rounded down and clamped (the gather would clamp
@@ -645,15 +757,26 @@ impl Writer {
         let real_t = self.real(shape);
         let floor = self.emit(&format!("stablehlo.floor {v} : {real_t}"));
         let (lo, hi) = (self.splat(0.0, shape), self.splat((rows - 1) as f64, shape));
-        let clamped = self.emit(&format!("\"stablehlo.clamp\"({lo}, {floor}, {hi}) : ({real_t}, {real_t}, {real_t}) -> {real_t}"));
-        self.emit(&format!("stablehlo.convert {clamped} : ({real_t}) -> {}", ty(shape, "i32")))
+        let clamped = self.emit(&format!(
+            "\"stablehlo.clamp\"({lo}, {floor}, {hi}) : ({real_t}, {real_t}, {real_t}) -> {real_t}"
+        ));
+        self.emit(&format!(
+            "stablehlo.convert {clamped} : ({real_t}) -> {}",
+            ty(shape, "i32")
+        ))
     }
 
     /// Step `i` of `v` (shape `[len, rest...]`), shape `rest`.
     fn step_of(&mut self, v: &str, i: &str, shape: &[usize]) -> String {
         let rest = &shape[1..];
-        let zero = if rest.is_empty() { String::new() } else { self.index(0) };
-        let indices: Vec<&str> = std::iter::once(i).chain(rest.iter().map(|_| zero.as_str())).collect();
+        let zero = if rest.is_empty() {
+            String::new()
+        } else {
+            self.index(0)
+        };
+        let indices: Vec<&str> = std::iter::once(i)
+            .chain(rest.iter().map(|_| zero.as_str()))
+            .collect();
         let index_types = vec![INDEX; indices.len()].join(", ");
         let one = [&[1], rest].concat();
         let sliced = self.emit(&format!(
@@ -663,16 +786,30 @@ impl Writer {
             self.real(shape),
             self.real(&one)
         ));
-        self.emit(&format!("stablehlo.reshape {sliced} : ({}) -> {}", self.real(&one), self.real(rest)))
+        self.emit(&format!(
+            "stablehlo.reshape {sliced} : ({}) -> {}",
+            self.real(&one),
+            self.real(rest)
+        ))
     }
 
     /// `v` (shape `[len, rest...]`) with step `i` replaced by `x` (shape `rest`).
     fn store(&mut self, v: &str, x: &str, i: &str, shape: &[usize]) -> String {
         let rest = &shape[1..];
         let one = [&[1], rest].concat();
-        let x1 = self.emit(&format!("stablehlo.reshape {x} : ({}) -> {}", self.real(rest), self.real(&one)));
-        let zero = if rest.is_empty() { String::new() } else { self.index(0) };
-        let indices: Vec<&str> = std::iter::once(i).chain(rest.iter().map(|_| zero.as_str())).collect();
+        let x1 = self.emit(&format!(
+            "stablehlo.reshape {x} : ({}) -> {}",
+            self.real(rest),
+            self.real(&one)
+        ));
+        let zero = if rest.is_empty() {
+            String::new()
+        } else {
+            self.index(0)
+        };
+        let indices: Vec<&str> = std::iter::once(i)
+            .chain(rest.iter().map(|_| zero.as_str()))
+            .collect();
         let index_types = vec![INDEX; indices.len()].join(", ");
         self.emit(&format!(
             "stablehlo.dynamic_update_slice {v}, {x1}, {} : ({}, {}, {index_types}) -> {}",
@@ -690,7 +827,12 @@ impl Writer {
     /// With an unroll factor `u > 1` each iteration of the loop runs `u` steps (indices
     /// `counter u + j`), and the `len mod u` left over are written after the loop: backends that
     /// drive the loop from the host (IREE on GPUs) then pay for a `u`-th of the round trips.
-    fn for_loop(&mut self, len: usize, init: &[(String, String)], mut body: impl FnMut(&mut Self, &str, &[String]) -> Vec<String>) -> Vec<String> {
+    fn for_loop(
+        &mut self,
+        len: usize,
+        init: &[(String, String)],
+        mut body: impl FnMut(&mut Self, &str, &[String]) -> Vec<String>,
+    ) -> Vec<String> {
         let u = self.unroll.clamp(1, len.max(1));
         let (chunks, rest) = (len / u, len % u);
         let mut values: Vec<String> = init.iter().map(|(v, _)| v.clone()).collect();
@@ -698,17 +840,29 @@ impl Writer {
             let zero = self.index(0);
             let counter = self.fresh();
             let args: Vec<String> = init.iter().map(|_| self.fresh()).collect();
-            let types: Vec<&str> = std::iter::once(INDEX).chain(init.iter().map(|(_, t)| t.as_str())).collect();
+            let types: Vec<&str> = std::iter::once(INDEX)
+                .chain(init.iter().map(|(_, t)| t.as_str()))
+                .collect();
             let types = types.join(", ");
             let result = self.fresh();
             let bindings: Vec<String> = std::iter::once(format!("{counter} = {zero}"))
-                .chain(args.iter().zip(init).map(|(a, (v, _))| format!("{a} = {v}")))
+                .chain(
+                    args.iter()
+                        .zip(init)
+                        .map(|(a, (v, _))| format!("{a} = {v}")),
+                )
                 .collect();
-            self.line(&format!("{result}:{} = stablehlo.while({}) : {types}", init.len() + 1, bindings.join(", ")));
+            self.line(&format!(
+                "{result}:{} = stablehlo.while({}) : {types}",
+                init.len() + 1,
+                bindings.join(", ")
+            ));
             self.line("cond {");
             self.depth += 1;
             let n = self.index(chunks as i32);
-            let more = self.emit(&format!("stablehlo.compare LT, {counter}, {n}, SIGNED : ({INDEX}, {INDEX}) -> tensor<i1>"));
+            let more = self.emit(&format!(
+                "stablehlo.compare LT, {counter}, {n}, SIGNED : ({INDEX}, {INDEX}) -> tensor<i1>"
+            ));
             self.line(&format!("stablehlo.return {more} : tensor<i1>"));
             self.depth -= 1;
             self.line("} do {");
@@ -719,7 +873,8 @@ impl Writer {
                     counter.clone()
                 } else {
                     let factor = self.index(u as i32);
-                    let base = self.emit(&format!("stablehlo.multiply {counter}, {factor} : {INDEX}"));
+                    let base =
+                        self.emit(&format!("stablehlo.multiply {counter}, {factor} : {INDEX}"));
                     let offset = self.index(j as i32);
                     self.emit(&format!("stablehlo.add {base}, {offset} : {INDEX}"))
                 };
@@ -728,8 +883,13 @@ impl Writer {
             }
             let one = self.index(1);
             let step = self.emit(&format!("stablehlo.add {counter}, {one} : {INDEX}"));
-            let carried: Vec<&str> = std::iter::once(step.as_str()).chain(next.iter().map(String::as_str)).collect();
-            self.line(&format!("stablehlo.return {} : {types}", carried.join(", ")));
+            let carried: Vec<&str> = std::iter::once(step.as_str())
+                .chain(next.iter().map(String::as_str))
+                .collect();
+            self.line(&format!(
+                "stablehlo.return {} : {types}",
+                carried.join(", ")
+            ));
             self.depth -= 1;
             self.line("}");
             values = (1..=init.len()).map(|k| format!("{result}#{k}")).collect();
@@ -742,16 +902,35 @@ impl Writer {
     }
 
     /// Wraps the body into `func.func @main`.
-    fn function(self, params: &[(String, Vec<usize>)], results: &[(String, Vec<usize>)]) -> Program {
+    fn function(
+        self,
+        params: &[(String, Vec<usize>)],
+        results: &[(String, Vec<usize>)],
+    ) -> Program {
         let mut text = String::new();
-        let args: Vec<String> = params.iter().map(|(n, s)| format!("{n}: {}", self.real(s))).collect();
+        let args: Vec<String> = params
+            .iter()
+            .map(|(n, s)| format!("{n}: {}", self.real(s)))
+            .collect();
         let types: Vec<String> = results.iter().map(|(_, s)| self.real(s)).collect();
         let names: Vec<&str> = results.iter().map(|(n, _)| n.as_str()).collect();
-        writeln!(text, "func.func @main({}) -> ({}) {{", args.join(", "), types.join(", ")).expect("writing to a String cannot fail");
+        writeln!(
+            text,
+            "func.func @main({}) -> ({}) {{",
+            args.join(", "),
+            types.join(", ")
+        )
+        .expect("writing to a String cannot fail");
         text.push_str(&self.out);
-        writeln!(text, "  return {} : {}", names.join(", "), types.join(", ")).expect("writing to a String cannot fail");
+        writeln!(text, "  return {} : {}", names.join(", "), types.join(", "))
+            .expect("writing to a String cannot fail");
         text.push_str("}\n");
-        Program { text, inputs: params.iter().map(|(_, s)| s.clone()).collect(), outputs: results.iter().map(|(_, s)| s.clone()).collect(), dtype: self.dtype }
+        Program {
+            text,
+            inputs: params.iter().map(|(_, s)| s.clone()).collect(),
+            outputs: results.iter().map(|(_, s)| s.clone()).collect(),
+            dtype: self.dtype,
+        }
     }
 }
 
@@ -768,18 +947,28 @@ impl Graph {
 
     /// This graph as a program, written as `emit` says.
     pub fn program_with(&self, emit: &Emit) -> Program {
-        assert!(self.outputs.iter().all(|&o| self.nodes[o as usize].kind == Kind::Real), "Graph::program: outputs must be real (not masks or complex values)");
+        assert!(
+            self.outputs
+                .iter()
+                .all(|&o| self.nodes[o as usize].kind == Kind::Real),
+            "Graph::program: outputs must be real (not masks or complex values)"
+        );
         let mut w = Writer::new(emit);
         let args: Vec<String> = self.inputs.iter().map(|_| w.fresh()).collect();
         let outs = w.graph(self, &args);
-        let params: Vec<(String, Vec<usize>)> = args.into_iter().zip(self.inputs.iter().cloned()).collect();
-        let results: Vec<(String, Vec<usize>)> = outs.into_iter().zip(self.output_shapes()).collect();
+        let params: Vec<(String, Vec<usize>)> =
+            args.into_iter().zip(self.inputs.iter().cloned()).collect();
+        let results: Vec<(String, Vec<usize>)> =
+            outs.into_iter().zip(self.output_shapes()).collect();
         w.function(&params, &results)
     }
 }
 
 fn check_len(len: usize) {
-    assert!(len > 0 && len <= i32::MAX as usize, "Scan: the signal length must be in 1..=i32::MAX");
+    assert!(
+        len > 0 && len <= i32::MAX as usize,
+        "Scan: the signal length must be in 1..=i32::MAX"
+    );
 }
 
 /// `[len, shape...]`.
@@ -810,24 +999,45 @@ impl Scan {
         let s0: Vec<String> = (0..s).map(|_| w.fresh()).collect();
         let ys = w.splat(0.0, &ys_shape);
 
-        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), w.real(sh))).collect();
+        let mut init: Vec<(String, String)> = params
+            .iter()
+            .zip(&self.params)
+            .map(|(v, sh)| (v.clone(), w.real(sh)))
+            .collect();
         init.push((xs.clone(), w.real(&xs_shape)));
         init.push((ys, w.real(&ys_shape)));
-        init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), w.real(sh))));
+        init.extend(
+            s0.iter()
+                .zip(&self.states)
+                .map(|(v, sh)| (v.clone(), w.real(sh))),
+        );
         let out = w.for_loop(len, &init, |w, i, c| {
             let (params, xs, ys, state) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..]);
             let x = w.step_of(xs, i, &xs_shape);
             let args: Vec<String> = params.iter().chain(state).cloned().chain([x]).collect();
             let next = w.graph(&self.step, &args);
             let ys = w.store(ys, &next[s], i, &ys_shape);
-            params.iter().cloned().chain([xs.clone(), ys]).chain(next[..s].iter().cloned()).collect()
+            params
+                .iter()
+                .cloned()
+                .chain([xs.clone(), ys])
+                .chain(next[..s].iter().cloned())
+                .collect()
         });
 
-        let mut signature: Vec<(String, Vec<usize>)> = params.into_iter().zip(self.params.iter().cloned()).collect();
+        let mut signature: Vec<(String, Vec<usize>)> = params
+            .into_iter()
+            .zip(self.params.iter().cloned())
+            .collect();
         signature.push((xs, xs_shape));
         signature.extend(s0.into_iter().zip(self.states.iter().cloned()));
         let mut results = vec![(out[p + 1].clone(), ys_shape)];
-        results.extend(out[p + 2..].iter().cloned().zip(self.states.iter().cloned()));
+        results.extend(
+            out[p + 2..]
+                .iter()
+                .cloned()
+                .zip(self.states.iter().cloned()),
+        );
         w.function(&signature, &results)
     }
 
@@ -852,10 +1062,19 @@ impl Scan {
         check_len(len);
         let (p, s) = (self.params.len(), self.states.len());
         let (xs_shape, ys_shape) = (stacked(len, &self.sample), stacked(len, &self.output));
-        assert_eq!(loss.output_shape(), ys_shape.as_slice(), "Scan::grad_program: the loss scores outputs of another shape");
+        assert_eq!(
+            loss.output_shape(),
+            ys_shape.as_slice(),
+            "Scan::grad_program: the loss scores outputs of another shape"
+        );
         // per step: the state it starts from, then the residuals (when not checkpointed)
         let (forward, reverse) = self.passes();
-        let saved_shapes: Vec<Vec<usize>> = self.states.iter().chain(self.residual_shapes()).map(|sh| stacked(len, sh)).collect();
+        let saved_shapes: Vec<Vec<usize>> = self
+            .states
+            .iter()
+            .chain(self.residual_shapes())
+            .map(|sh| stacked(len, sh))
+            .collect();
         let k = saved_shapes.len();
         let mut w = Writer::new(emit);
         let params: Vec<String> = (0..p).map(|_| w.fresh()).collect();
@@ -864,11 +1083,19 @@ impl Scan {
         let s0: Vec<String> = (0..s).map(|_| w.fresh()).collect();
 
         // forward: carry params, xs, ys, state, saved states
-        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), w.real(sh))).collect();
+        let mut init: Vec<(String, String)> = params
+            .iter()
+            .zip(&self.params)
+            .map(|(v, sh)| (v.clone(), w.real(sh)))
+            .collect();
         init.push((xs.clone(), w.real(&xs_shape)));
         let ys = w.splat(0.0, &ys_shape);
         init.push((ys, w.real(&ys_shape)));
-        init.extend(s0.iter().zip(&self.states).map(|(v, sh)| (v.clone(), w.real(sh))));
+        init.extend(
+            s0.iter()
+                .zip(&self.states)
+                .map(|(v, sh)| (v.clone(), w.real(sh))),
+        );
         for sh in &saved_shapes {
             let z = w.splat(0.0, sh);
             init.push((z, w.real(sh)));
@@ -880,36 +1107,74 @@ impl Scan {
             let args: Vec<String> = params.iter().chain(state).cloned().chain([x]).collect();
             let out = w.graph(forward, &args);
             let values = state.iter().chain(&out[s + 1..]);
-            let saved: Vec<String> = saved.iter().zip(values).zip(&saved_shapes).map(|((v, st), sh)| w.store(v, st, i, sh)).collect();
+            let saved: Vec<String> = saved
+                .iter()
+                .zip(values)
+                .zip(&saved_shapes)
+                .map(|((v, st), sh)| w.store(v, st, i, sh))
+                .collect();
             let ys = w.store(ys, &out[s], i, &ys_shape);
-            params.iter().cloned().chain([xs.clone(), ys]).chain(out[..s].iter().cloned()).chain(saved).collect()
+            params
+                .iter()
+                .cloned()
+                .chain([xs.clone(), ys])
+                .chain(out[..s].iter().cloned())
+                .chain(saved)
+                .collect()
         });
         let saved = &fwd[p + 2 + s..];
 
         // the loss and its cotangent
-        let args: Vec<String> = std::iter::once(fwd[p + 1].clone()).chain(aux.iter().cloned()).collect();
+        let args: Vec<String> = std::iter::once(fwd[p + 1].clone())
+            .chain(aux.iter().cloned())
+            .collect();
         let out = w.graph(&loss.grad, &args);
         let (value, dys) = (out[0].clone(), out[1].clone());
 
         // backward: carry params, xs, dys, saved states, d state, d params, d xs
-        let mut init: Vec<(String, String)> = params.iter().zip(&self.params).map(|(v, sh)| (v.clone(), w.real(sh))).collect();
+        let mut init: Vec<(String, String)> = params
+            .iter()
+            .zip(&self.params)
+            .map(|(v, sh)| (v.clone(), w.real(sh)))
+            .collect();
         init.push((xs.clone(), w.real(&xs_shape)));
         init.push((dys, w.real(&ys_shape)));
-        init.extend(saved.iter().zip(&saved_shapes).map(|(v, sh)| (v.clone(), w.real(sh))));
+        init.extend(
+            saved
+                .iter()
+                .zip(&saved_shapes)
+                .map(|(v, sh)| (v.clone(), w.real(sh))),
+        );
         for sh in self.states.iter().chain(&self.params).chain([&xs_shape]) {
             let z = w.splat(0.0, sh);
             init.push((z, w.real(sh)));
         }
         let bwd = w.for_loop(len, &init, |w, j, c| {
             let (params, xs, dys, saved) = (&c[..p], &c[p], &c[p + 1], &c[p + 2..p + 2 + k]);
-            let (d_state, d_params, d_xs) = (&c[p + 2 + k..p + 2 + k + s], &c[p + 2 + k + s..p + 2 + k + s + p], &c[p + 2 + k + s + p]);
+            let (d_state, d_params, d_xs) = (
+                &c[p + 2 + k..p + 2 + k + s],
+                &c[p + 2 + k + s..p + 2 + k + s + p],
+                &c[p + 2 + k + s + p],
+            );
             let last = w.index(len as i32 - 1);
             let i = w.emit(&format!("stablehlo.subtract {last}, {j} : {INDEX}"));
             let x = w.step_of(xs, &i, &xs_shape);
             let dy = w.step_of(dys, &i, &ys_shape);
-            let at_step: Vec<String> = saved.iter().zip(&saved_shapes).map(|(v, sh)| w.step_of(v, &i, sh)).collect();
+            let at_step: Vec<String> = saved
+                .iter()
+                .zip(&saved_shapes)
+                .map(|(v, sh)| w.step_of(v, &i, sh))
+                .collect();
             let (state, residuals) = at_step.split_at(s);
-            let args: Vec<String> = params.iter().chain(state).cloned().chain([x]).chain(residuals.iter().cloned()).chain(d_state.iter().cloned()).chain([dy]).collect();
+            let args: Vec<String> = params
+                .iter()
+                .chain(state)
+                .cloned()
+                .chain([x])
+                .chain(residuals.iter().cloned())
+                .chain(d_state.iter().cloned())
+                .chain([dy])
+                .collect();
             let out = w.graph(reverse, &args);
             let d_params: Vec<String> = d_params
                 .iter()
@@ -918,16 +1183,37 @@ impl Scan {
                 .map(|((acc, g), sh)| w.emit(&format!("stablehlo.add {acc}, {g} : {}", w.real(sh))))
                 .collect();
             let d_xs = w.store(d_xs, &out[p + s], &i, &xs_shape);
-            params.iter().chain([xs, dys]).chain(saved).cloned().chain(out[p..p + s].iter().cloned()).chain(d_params).chain([d_xs]).collect()
+            params
+                .iter()
+                .chain([xs, dys])
+                .chain(saved)
+                .cloned()
+                .chain(out[p..p + s].iter().cloned())
+                .chain(d_params)
+                .chain([d_xs])
+                .collect()
         });
 
-        let mut signature: Vec<(String, Vec<usize>)> = params.into_iter().zip(self.params.iter().cloned()).collect();
+        let mut signature: Vec<(String, Vec<usize>)> = params
+            .into_iter()
+            .zip(self.params.iter().cloned())
+            .collect();
         signature.push((xs, xs_shape.clone()));
         signature.extend(aux.into_iter().zip(loss.aux_shapes().iter().cloned()));
         signature.extend(s0.into_iter().zip(self.states.iter().cloned()));
         let mut results = vec![(value, Vec::new())];
-        results.extend(bwd[p + 2 + k + s..p + 2 + k + s + p].iter().cloned().zip(self.params.iter().cloned()));
-        results.extend(bwd[p + 2 + k..p + 2 + k + s].iter().cloned().zip(self.states.iter().cloned()));
+        results.extend(
+            bwd[p + 2 + k + s..p + 2 + k + s + p]
+                .iter()
+                .cloned()
+                .zip(self.params.iter().cloned()),
+        );
+        results.extend(
+            bwd[p + 2 + k..p + 2 + k + s]
+                .iter()
+                .cloned()
+                .zip(self.states.iter().cloned()),
+        );
         results.push((bwd[p + 2 + k + s + p].clone(), xs_shape));
         w.function(&signature, &results)
     }

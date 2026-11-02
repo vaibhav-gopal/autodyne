@@ -108,7 +108,10 @@ pub trait ArrayMath: Elementwise {
     /// (a scalar), matrix · matrix.
     fn dot(self, rhs: Self) -> Self {
         let n = self.shape().len();
-        assert!(n >= 1 && !rhs.shape().is_empty(), "dot: both operands need an axis");
+        assert!(
+            n >= 1 && !rhs.shape().is_empty(),
+            "dot: both operands need an axis"
+        );
         self.dot_general(rhs, &[n - 1], &[0])
     }
 }
@@ -181,27 +184,62 @@ pub trait ComplexArrayMath: ArrayMath {
 }
 
 /// Broadcasts both operands to their common shape (panics, naming the shapes, if they can't).
-fn aligned<'a, T: Copy>(a: &'a NdArray<T>, b: &'a NdArray<T>) -> (super::NdView<'a, T>, super::NdView<'a, T>) {
-    let (shape, n) = broadcast_shapes(a.shape(), b.shape()).unwrap_or_else(|_| panic!("shapes {:?} and {:?} do not broadcast", a.shape(), b.shape()));
-    (a.view().broadcast_to(&shape[..n]).expect("broadcasts"), b.view().broadcast_to(&shape[..n]).expect("broadcasts"))
+fn aligned<'a, T: Copy>(
+    a: &'a NdArray<T>,
+    b: &'a NdArray<T>,
+) -> (super::NdView<'a, T>, super::NdView<'a, T>) {
+    let (shape, n) = broadcast_shapes(a.shape(), b.shape()).unwrap_or_else(|_| {
+        panic!(
+            "shapes {:?} and {:?} do not broadcast",
+            a.shape(),
+            b.shape()
+        )
+    });
+    (
+        a.view().broadcast_to(&shape[..n]).expect("broadcasts"),
+        b.view().broadcast_to(&shape[..n]).expect("broadcasts"),
+    )
 }
 
 fn zip_with<T: Copy, R: Copy>(a: &NdArray<T>, b: &NdArray<T>, f: impl Fn(T, T) -> R) -> NdArray<R> {
     let (a, b) = aligned(a, b);
-    Zip::from(a).and(b).expect("same shape").map_collect(|&x, &y| f(x, y))
+    Zip::from(a)
+        .and(b)
+        .expect("same shape")
+        .map_collect(|&x, &y| f(x, y))
 }
 
 /// `broadcast_in_dim` for any element type (masks included).
-pub(crate) fn broadcast_in_dim<T: Copy>(a: &NdArray<T>, shape: &[usize], dims: &[usize]) -> NdArray<T> {
-    assert_eq!(a.ndim(), dims.len(), "broadcast_in_dim: one result axis per operand axis");
-    assert!(dims.windows(2).all(|w| w[0] < w[1]), "broadcast_in_dim: dims must increase");
+pub(crate) fn broadcast_in_dim<T: Copy>(
+    a: &NdArray<T>,
+    shape: &[usize],
+    dims: &[usize],
+) -> NdArray<T> {
+    assert_eq!(
+        a.ndim(),
+        dims.len(),
+        "broadcast_in_dim: one result axis per operand axis"
+    );
+    assert!(
+        dims.windows(2).all(|w| w[0] < w[1]),
+        "broadcast_in_dim: dims must increase"
+    );
     // put the operand's axes at `dims` (length 1 elsewhere): the row-major order is unchanged
     let mut placed = vec![1; shape.len()];
     for (&d, &n) in dims.iter().zip(a.shape()) {
-        assert!(d < shape.len() && (n == 1 || n == shape[d]), "cannot broadcast {:?} to {shape:?} along {dims:?}", a.shape());
+        assert!(
+            d < shape.len() && (n == 1 || n == shape[d]),
+            "cannot broadcast {:?} to {shape:?} along {dims:?}",
+            a.shape()
+        );
         placed[d] = n;
     }
-    a.view().reshape(&placed).expect("same element count").broadcast_to(shape).expect("checked").to_owned()
+    a.view()
+        .reshape(&placed)
+        .expect("same element count")
+        .broadcast_to(shape)
+        .expect("checked")
+        .to_owned()
 }
 
 // shape operations for any element type (used by every implementation)
@@ -210,51 +248,105 @@ pub(crate) fn broadcast_to_any<T: Copy>(a: NdArray<T>, shape: &[usize]) -> NdArr
     if a.shape() == shape {
         return a;
     }
-    a.view().broadcast_to(shape).unwrap_or_else(|_| panic!("cannot broadcast {:?} to {shape:?}", a.shape())).to_owned()
+    a.view()
+        .broadcast_to(shape)
+        .unwrap_or_else(|_| panic!("cannot broadcast {:?} to {shape:?}", a.shape()))
+        .to_owned()
 }
 
 pub(crate) fn reshape_any<T>(a: NdArray<T>, shape: &[usize]) -> NdArray<T> {
     let from = a.shape().to_vec();
-    a.reshape(shape).unwrap_or_else(|_| panic!("reshape: {from:?} to {shape:?} changes the element count"))
+    a.reshape(shape)
+        .unwrap_or_else(|_| panic!("reshape: {from:?} to {shape:?} changes the element count"))
 }
 
 pub(crate) fn transpose_any<T: Copy>(a: NdArray<T>, perm: &[usize]) -> NdArray<T> {
-    a.view().permute(perm).unwrap_or_else(|_| panic!("transpose: {perm:?} is not a permutation of {:?}", a.shape())).to_owned()
+    a.view()
+        .permute(perm)
+        .unwrap_or_else(|_| {
+            panic!(
+                "transpose: {perm:?} is not a permutation of {:?}",
+                a.shape()
+            )
+        })
+        .to_owned()
 }
 
 /// The shape of a slice (checking its bounds).
-pub(crate) fn slice_shape(shape: &[usize], start: &[usize], limit: &[usize], stride: &[usize]) -> Vec<usize> {
+pub(crate) fn slice_shape(
+    shape: &[usize],
+    start: &[usize],
+    limit: &[usize],
+    stride: &[usize],
+) -> Vec<usize> {
     let n = shape.len();
-    assert!(start.len() == n && limit.len() == n && stride.len() == n, "slice: one start, limit and stride per axis of {shape:?}");
+    assert!(
+        start.len() == n && limit.len() == n && stride.len() == n,
+        "slice: one start, limit and stride per axis of {shape:?}"
+    );
     (0..n)
         .map(|i| {
-            assert!(start[i] <= limit[i] && limit[i] <= shape[i] && stride[i] >= 1, "slice: {start:?}..{limit:?} by {stride:?} is out of range for {shape:?}");
+            assert!(
+                start[i] <= limit[i] && limit[i] <= shape[i] && stride[i] >= 1,
+                "slice: {start:?}..{limit:?} by {stride:?} is out of range for {shape:?}"
+            );
             (limit[i] - start[i]).div_ceil(stride[i])
         })
         .collect()
 }
 
 /// The shape after padding (checking the arguments).
-pub(crate) fn pad_shape(shape: &[usize], low: &[usize], high: &[usize], interior: &[usize]) -> Vec<usize> {
+pub(crate) fn pad_shape(
+    shape: &[usize],
+    low: &[usize],
+    high: &[usize],
+    interior: &[usize],
+) -> Vec<usize> {
     let n = shape.len();
-    assert!(low.len() == n && high.len() == n && interior.len() == n, "pad: one low, high and interior count per axis of {shape:?}");
-    (0..n).map(|i| low[i] + high[i] + if shape[i] == 0 { 0 } else { shape[i] + (shape[i] - 1) * interior[i] }).collect()
+    assert!(
+        low.len() == n && high.len() == n && interior.len() == n,
+        "pad: one low, high and interior count per axis of {shape:?}"
+    );
+    (0..n)
+        .map(|i| {
+            low[i]
+                + high[i]
+                + if shape[i] == 0 {
+                    0
+                } else {
+                    shape[i] + (shape[i] - 1) * interior[i]
+                }
+        })
+        .collect()
 }
 
 /// The shape of a concatenation (checking that the other axes match).
 pub(crate) fn concat_shape(shapes: &[Vec<usize>], axis: usize) -> Vec<usize> {
-    let first = shapes.first().expect("concatenate: needs at least one array");
-    assert!(axis < first.len(), "concatenate: axis {axis} is out of range for {first:?}");
+    let first = shapes
+        .first()
+        .expect("concatenate: needs at least one array");
+    assert!(
+        axis < first.len(),
+        "concatenate: axis {axis} is out of range for {first:?}"
+    );
     let mut shape = first.clone();
     shape[axis] = 0;
     for s in shapes {
-        assert!(s.len() == first.len() && (0..s.len()).all(|i| i == axis || s[i] == first[i]), "concatenate: {s:?} does not match {first:?} off axis {axis}");
+        assert!(
+            s.len() == first.len() && (0..s.len()).all(|i| i == axis || s[i] == first[i]),
+            "concatenate: {s:?} does not match {first:?} off axis {axis}"
+        );
         shape[axis] += s[axis];
     }
     shape
 }
 
-pub(crate) fn slice_any<T: Copy>(a: &NdArray<T>, start: &[usize], limit: &[usize], stride: &[usize]) -> NdArray<T> {
+pub(crate) fn slice_any<T: Copy>(
+    a: &NdArray<T>,
+    start: &[usize],
+    limit: &[usize],
+    stride: &[usize],
+) -> NdArray<T> {
     let shape = slice_shape(a.shape(), start, limit, stride);
     let mut v = a.view();
     for i in 0..shape.len() {
@@ -266,7 +358,12 @@ pub(crate) fn slice_any<T: Copy>(a: &NdArray<T>, start: &[usize], limit: &[usize
     v.to_owned()
 }
 
-pub(crate) fn pad_any<T: Copy + Default>(a: &NdArray<T>, low: &[usize], high: &[usize], interior: &[usize]) -> NdArray<T> {
+pub(crate) fn pad_any<T: Copy + Default>(
+    a: &NdArray<T>,
+    low: &[usize],
+    high: &[usize],
+    interior: &[usize],
+) -> NdArray<T> {
     let (from, n) = (a.shape(), a.ndim());
     let shape = pad_shape(from, low, high, interior);
     let mut strides = vec![1; n];
@@ -285,11 +382,17 @@ pub(crate) fn pad_any<T: Copy + Default>(a: &NdArray<T>, low: &[usize], high: &[
     let (row, step) = (from[n - 1], interior[n - 1] + 1);
     let mut index = [0usize; super::MAX_DIMS];
     for chunk in a.as_slice().chunks(row) {
-        let base = (0..n - 1).map(|i| (low[i] + index[i] * (interior[i] + 1)) * strides[i]).sum::<usize>() + low[n - 1];
+        let base = (0..n - 1)
+            .map(|i| (low[i] + index[i] * (interior[i] + 1)) * strides[i])
+            .sum::<usize>()
+            + low[n - 1];
         if step == 1 {
             out[base..base + row].copy_from_slice(chunk);
         } else {
-            chunk.iter().enumerate().for_each(|(j, &x)| out[base + j * step] = x);
+            chunk
+                .iter()
+                .enumerate()
+                .for_each(|(j, &x)| out[base + j * step] = x);
         }
         for i in (0..n - 1).rev() {
             index[i] += 1;
@@ -303,11 +406,21 @@ pub(crate) fn pad_any<T: Copy + Default>(a: &NdArray<T>, low: &[usize], high: &[
 }
 
 /// [`ArrayMath::frames`] by copying each window.
-pub(crate) fn frames_any<T: Copy + Default>(a: &NdArray<T>, length: usize, hop: usize) -> NdArray<T> {
+pub(crate) fn frames_any<T: Copy + Default>(
+    a: &NdArray<T>,
+    length: usize,
+    hop: usize,
+) -> NdArray<T> {
     let shape = a.shape();
     let (&n, lead) = shape.split_last().expect("frames: needs an axis");
-    assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
-    assert!(n >= length, "frames: {n} samples are fewer than one frame of {length}");
+    assert!(
+        length >= 1 && hop >= 1,
+        "frames: length and hop must be positive"
+    );
+    assert!(
+        n >= length,
+        "frames: {n} samples are fewer than one frame of {length}"
+    );
     let count = 1 + (n - length) / hop;
     let owned;
     let data = match a.view().as_slice() {
@@ -327,12 +440,19 @@ pub(crate) fn frames_any<T: Copy + Default>(a: &NdArray<T>, length: usize, hop: 
 }
 
 /// [`ArrayMath::overlap_add`] by adding each frame into place.
-pub(crate) fn overlap_add_any<T: Copy + Default + Add<Output = T>>(a: &NdArray<T>, n: usize, hop: usize) -> NdArray<T> {
+pub(crate) fn overlap_add_any<T: Copy + Default + Add<Output = T>>(
+    a: &NdArray<T>,
+    n: usize,
+    hop: usize,
+) -> NdArray<T> {
     let shape = a.shape();
     assert!(shape.len() >= 2, "overlap_add: needs [..., count, length]");
     let k = shape.len() - 2;
     let (count, length) = (shape[k], shape[k + 1]);
-    assert!(count >= 1 && hop >= 1 && n >= (count - 1) * hop + length, "overlap_add: {count} frames of {length}, {hop} apart, do not fit {n} samples");
+    assert!(
+        count >= 1 && hop >= 1 && n >= (count - 1) * hop + length,
+        "overlap_add: {count} frames of {length}, {hop} apart, do not fit {n} samples"
+    );
     let owned;
     let data = match a.view().as_slice() {
         Some(s) => s,
@@ -345,54 +465,99 @@ pub(crate) fn overlap_add_any<T: Copy + Default + Add<Output = T>>(a: &NdArray<T
     let mut out = vec![T::default(); lanes * n];
     for (frames, row) in data.chunks(count * length).zip(out.chunks_mut(n)) {
         for (f, frame) in frames.chunks(length).enumerate() {
-            row[f * hop..f * hop + length].iter_mut().zip(frame).for_each(|(o, &x)| *o = *o + x);
+            row[f * hop..f * hop + length]
+                .iter_mut()
+                .zip(frame)
+                .for_each(|(o, &x)| *o = *o + x);
         }
     }
     NdArray::from_vec(out, &[&shape[..k], &[n]].concat()).expect("valid shape")
 }
 
 pub(crate) fn concatenate_any<T: Copy + Default>(parts: &[NdArray<T>], axis: usize) -> NdArray<T> {
-    concat_shape(&parts.iter().map(|p| p.shape().to_vec()).collect::<Vec<_>>(), axis);
+    concat_shape(
+        &parts.iter().map(|p| p.shape().to_vec()).collect::<Vec<_>>(),
+        axis,
+    );
     super::concatenate(&parts.iter().map(|p| p.view()).collect::<Vec<_>>(), axis).expect("checked")
 }
 
 /// Sums over `axes` by plain accumulation, for element types without a pairwise kernel.
-pub(crate) fn sum_axes_any<T: Copy + Default + Add<Output = T>>(a: NdArray<T>, axes: &[usize]) -> NdArray<T> {
+pub(crate) fn sum_axes_any<T: Copy + Default + Add<Output = T>>(
+    a: NdArray<T>,
+    axes: &[usize],
+) -> NdArray<T> {
     sum_axes_with(a, axes, |s, x| s + x)
 }
 
 /// `select` for any element type: `if_true` where `mask` holds, else `if_false` (broadcast).
-pub(crate) fn select_any<T: Copy>(mask: &NdArray<bool>, if_true: &NdArray<T>, if_false: &NdArray<T>) -> NdArray<T> {
+pub(crate) fn select_any<T: Copy>(
+    mask: &NdArray<bool>,
+    if_true: &NdArray<T>,
+    if_false: &NdArray<T>,
+) -> NdArray<T> {
     let (s, n) = broadcast_shapes(if_true.shape(), if_false.shape()).expect("operands broadcast");
     let (shape, n) = broadcast_shapes(&s[..n], mask.shape()).expect("the mask broadcasts");
     let shape = &shape[..n];
     let m = mask.view().broadcast_to(shape).expect("broadcasts");
-    let (a, b) = (if_true.view().broadcast_to(shape).expect("broadcasts"), if_false.view().broadcast_to(shape).expect("broadcasts"));
-    Zip::from(m).and(a).expect("same shape").and(b).expect("same shape").map_collect(|&m, &x, &y| if m { x } else { y })
+    let (a, b) = (
+        if_true.view().broadcast_to(shape).expect("broadcasts"),
+        if_false.view().broadcast_to(shape).expect("broadcasts"),
+    );
+    Zip::from(m)
+        .and(a)
+        .expect("same shape")
+        .and(b)
+        .expect("same shape")
+        .map_collect(|&m, &x, &y| if m { x } else { y })
 }
 
 /// Sums over `axes` with an explicit addition (wrapping for integers).
-pub(crate) fn sum_axes_with<T: Copy + Default>(a: NdArray<T>, axes: &[usize], add: impl Fn(T, T) -> T) -> NdArray<T> {
+pub(crate) fn sum_axes_with<T: Copy + Default>(
+    a: NdArray<T>,
+    axes: &[usize],
+    add: impl Fn(T, T) -> T,
+) -> NdArray<T> {
     reduce_axes_with(a, axes, T::default(), add)
 }
 
 /// Folds `axes` (removed) with `f`, starting each fold from `init` (what an empty axis gives).
-pub(crate) fn reduce_axes_with<T: Copy>(a: NdArray<T>, axes: &[usize], init: T, f: impl Fn(T, T) -> T) -> NdArray<T> {
+pub(crate) fn reduce_axes_with<T: Copy>(
+    a: NdArray<T>,
+    axes: &[usize],
+    init: T,
+    f: impl Fn(T, T) -> T,
+) -> NdArray<T> {
     let shape = a.shape().to_vec();
     let mut axes = axes.to_vec();
     axes.sort_unstable();
     axes.dedup();
-    assert!(axes.iter().all(|&x| x < shape.len()), "reduction: axis out of range for {shape:?}");
-    let reduced: Vec<usize> = shape.iter().enumerate().filter(|(i, _)| !axes.contains(i)).map(|(_, &n)| n).collect();
+    assert!(
+        axes.iter().all(|&x| x < shape.len()),
+        "reduction: axis out of range for {shape:?}"
+    );
+    let reduced: Vec<usize> = shape
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !axes.contains(i))
+        .map(|(_, &n)| n)
+        .collect();
     // move the summed axes last, then add up each run
     let kept: Vec<usize> = (0..shape.len()).filter(|i| !axes.contains(i)).collect();
-    let perm: Vec<usize> = kept.iter().copied().chain(axes.iter().copied().filter(|x| *x < shape.len())).collect();
+    let perm: Vec<usize> = kept
+        .iter()
+        .copied()
+        .chain(axes.iter().copied().filter(|x| *x < shape.len()))
+        .collect();
     let moved = a.view().permute(&perm).expect("a permutation").to_vec();
     let run: usize = axes.iter().map(|&x| shape[x]).product();
     let out: Vec<T> = if run == 0 {
         vec![init; reduced.iter().product()]
     } else {
-        moved.chunks(run).map(|c| c.iter().fold(init, |s, &x| f(s, x))).collect()
+        moved
+            .chunks(run)
+            .map(|c| c.iter().fold(init, |s, &x| f(s, x)))
+            .collect()
     };
     NdArray::from_vec(out, &reduced).expect("valid shape")
 }
@@ -422,7 +587,11 @@ fn min_nan<T: Float>(a: T, b: T) -> T {
 pub(crate) fn reverse_any<T: Copy>(a: NdArray<T>, axes: &[usize]) -> NdArray<T> {
     let mut v = a.view();
     for &axis in axes {
-        assert!(axis < a.ndim(), "reverse: axis {axis} is out of range for {:?}", a.shape());
+        assert!(
+            axis < a.ndim(),
+            "reverse: axis {axis} is out of range for {:?}",
+            a.shape()
+        );
         v = v.flip(axis).expect("checked");
     }
     v.to_owned()
@@ -440,8 +609,15 @@ pub(crate) fn clamp_index(i: f64, n: usize) -> usize {
 
 /// Rows of `table` (along its first axis) at `indices` (any shape): the result is
 /// `[indices..., table's other axes...]`.
-pub(crate) fn take_any<T: Copy>(table: &NdArray<T>, indices: impl Iterator<Item = f64>, index_shape: &[usize]) -> NdArray<T> {
-    let (&n, rest) = table.shape().split_first().expect("take: the table needs an axis");
+pub(crate) fn take_any<T: Copy>(
+    table: &NdArray<T>,
+    indices: impl Iterator<Item = f64>,
+    index_shape: &[usize],
+) -> NdArray<T> {
+    let (&n, rest) = table
+        .shape()
+        .split_first()
+        .expect("take: the table needs an axis");
     assert!(n > 0, "take: the table is empty");
     let row: usize = rest.iter().product();
     let data = table.as_slice();
@@ -456,20 +632,40 @@ pub(crate) fn take_any<T: Copy>(table: &NdArray<T>, indices: impl Iterator<Item 
 /// `dot_general` as one matrix product of the permuted operands: `[free, contracted] ·
 /// [contracted, free]`. Returns the operands as matrices and the output shape.
 #[allow(clippy::type_complexity)]
-pub(crate) fn dot_operands<T: Copy>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize], cb: &[usize]) -> (Vec<T>, Vec<T>, usize, usize, usize, Vec<usize>) {
+pub(crate) fn dot_operands<T: Copy>(
+    a: &NdArray<T>,
+    b: &NdArray<T>,
+    ca: &[usize],
+    cb: &[usize],
+) -> (Vec<T>, Vec<T>, usize, usize, usize, Vec<usize>) {
     let (sa, sb) = (a.shape(), b.shape());
     assert_eq!(ca.len(), cb.len(), "dot_general: pair each contracted axis");
     for (&i, &j) in ca.iter().zip(cb) {
-        assert!(i < sa.len() && j < sb.len() && sa[i] == sb[j], "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}");
+        assert!(
+            i < sa.len() && j < sb.len() && sa[i] == sb[j],
+            "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}"
+        );
     }
     let fa: Vec<usize> = (0..sa.len()).filter(|x| !ca.contains(x)).collect();
     let fb: Vec<usize> = (0..sb.len()).filter(|x| !cb.contains(x)).collect();
-    let am = a.view().permute(&[fa.as_slice(), ca].concat()).expect("a permutation").to_vec();
-    let bm = b.view().permute(&[cb, fb.as_slice()].concat()).expect("a permutation").to_vec();
+    let am = a
+        .view()
+        .permute(&[fa.as_slice(), ca].concat())
+        .expect("a permutation")
+        .to_vec();
+    let bm = b
+        .view()
+        .permute(&[cb, fb.as_slice()].concat())
+        .expect("a permutation")
+        .to_vec();
     let m: usize = fa.iter().map(|&x| sa[x]).product();
     let k: usize = ca.iter().map(|&x| sa[x]).product();
     let n: usize = fb.iter().map(|&x| sb[x]).product();
-    let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
+    let shape: Vec<usize> = fa
+        .iter()
+        .map(|&x| sa[x])
+        .chain(fb.iter().map(|&x| sb[x]))
+        .collect();
     (am, bm, m, k, n, shape)
 }
 
@@ -477,9 +673,19 @@ pub(crate) fn dot_operands<T: Copy>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize]
 /// axes and its contracted axes are merged (always so for 2-D operands): `None` otherwise, or for
 /// element types the matrix product does not cover.
 #[cfg(feature = "faer")]
-fn dot_in_place<T: Copy + 'static>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize], cb: &[usize]) -> Option<NdArray<T>> {
+fn dot_in_place<T: Copy + 'static>(
+    a: &NdArray<T>,
+    b: &NdArray<T>,
+    ca: &[usize],
+    cb: &[usize],
+) -> Option<NdArray<T>> {
     let (sa, sb) = (a.shape(), b.shape());
-    if ca.len() != cb.len() || ca.iter().zip(cb).any(|(&i, &j)| i >= sa.len() || j >= sb.len() || sa[i] != sb[j]) {
+    if ca.len() != cb.len()
+        || ca
+            .iter()
+            .zip(cb)
+            .any(|(&i, &j)| i >= sa.len() || j >= sb.len() || sa[i] != sb[j])
+    {
         return None;
     }
     let fa: Vec<usize> = (0..sa.len()).filter(|x| !ca.contains(x)).collect();
@@ -489,7 +695,11 @@ fn dot_in_place<T: Copy + 'static>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize],
     let ma = merged(av.shape(), av.strides(), fa.len())?;
     let mb = merged(bv.shape(), bv.strides(), cb.len())?;
     let out = crate::gemm::gemm_strided(av.as_ptr(), ma, bv.as_ptr(), mb)?;
-    let shape: Vec<usize> = fa.iter().map(|&x| sa[x]).chain(fb.iter().map(|&x| sb[x])).collect();
+    let shape: Vec<usize> = fa
+        .iter()
+        .map(|&x| sa[x])
+        .chain(fb.iter().map(|&x| sb[x]))
+        .collect();
     NdArray::from_vec(out, &shape).ok()
 }
 
@@ -497,7 +707,11 @@ fn dot_in_place<T: Copy + 'static>(a: &NdArray<T>, b: &NdArray<T>, ca: &[usize],
 /// group steps through memory with one stride (axes of length 1 aside). `(rows, columns, row
 /// stride, column stride)`, strides in elements.
 #[cfg(feature = "faer")]
-fn merged(shape: &[usize], strides: &[isize], split: usize) -> Option<(usize, usize, isize, isize)> {
+fn merged(
+    shape: &[usize],
+    strides: &[isize],
+    split: usize,
+) -> Option<(usize, usize, isize, isize)> {
     fn group(shape: &[usize], strides: &[isize]) -> Option<(usize, isize)> {
         let mut stride: Option<isize> = None;
         let mut inner = 1usize;
@@ -520,7 +734,13 @@ fn merged(shape: &[usize], strides: &[isize], split: usize) -> Option<(usize, us
 }
 
 /// The triple-loop matrix product.
-pub(crate) fn matmul_naive<T: Copy + Default + Add<Output = T> + Mul<Output = T>>(a: &[T], b: &[T], m: usize, k: usize, n: usize) -> Vec<T> {
+pub(crate) fn matmul_naive<T: Copy + Default + Add<Output = T> + Mul<Output = T>>(
+    a: &[T],
+    b: &[T],
+    m: usize,
+    k: usize,
+    n: usize,
+) -> Vec<T> {
     let mut out = Vec::with_capacity(m * n);
     for i in 0..m {
         for j in 0..n {
@@ -584,7 +804,8 @@ impl<T: Float + Default> RealValued for NdArray<T> {
 
 impl<T: Float + Default> ArrayMath for NdArray<T> {
     fn array(values: &[f64], shape: &[usize]) -> Self {
-        NdArray::from_vec(values.iter().map(|&v| T::_lit(v)).collect(), shape).unwrap_or_else(|_| panic!("array: {} values do not fill {shape:?}", values.len()))
+        NdArray::from_vec(values.iter().map(|&v| T::_lit(v)).collect(), shape)
+            .unwrap_or_else(|_| panic!("array: {} values do not fill {shape:?}", values.len()))
     }
     fn shape(&self) -> Vec<usize> {
         NdArray::shape(self).to_vec()
@@ -605,11 +826,25 @@ impl<T: Float + Default> ArrayMath for NdArray<T> {
     fn sum_axes(self, axes: &[usize]) -> Self {
         // pairwise summation through sum_into: keep the summed axes at length 1, then drop them
         let shape = NdArray::shape(&self).to_vec();
-        assert!(axes.iter().all(|&a| a < shape.len()), "sum_axes: axis out of range for {shape:?}");
-        let kept: Vec<usize> = shape.iter().enumerate().map(|(i, &n)| if axes.contains(&i) { 1 } else { n }).collect();
+        assert!(
+            axes.iter().all(|&a| a < shape.len()),
+            "sum_axes: axis out of range for {shape:?}"
+        );
+        let kept: Vec<usize> = shape
+            .iter()
+            .enumerate()
+            .map(|(i, &n)| if axes.contains(&i) { 1 } else { n })
+            .collect();
         let mut out = NdArray::<T>::zeros(&kept).expect("valid shape");
-        self.view().sum_into(&mut out.view_mut()).expect("broadcasts to the input");
-        let reduced: Vec<usize> = shape.iter().enumerate().filter(|(i, _)| !axes.contains(i)).map(|(_, &n)| n).collect();
+        self.view()
+            .sum_into(&mut out.view_mut())
+            .expect("broadcasts to the input");
+        let reduced: Vec<usize> = shape
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !axes.contains(i))
+            .map(|(_, &n)| n)
+            .collect();
         NdArray::reshape(out, &reduced).expect("same element count")
     }
 
@@ -669,7 +904,14 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
         reduce_axes_with(self, axes, T::_INFINITY, min_nan)
     }
     fn take(self, indices: Self) -> Self {
-        take_any(&self, indices.as_slice().iter().map(|i| i.to_f64().unwrap_or(f64::NAN)), indices.shape())
+        take_any(
+            &self,
+            indices
+                .as_slice()
+                .iter()
+                .map(|i| i.to_f64().unwrap_or(f64::NAN)),
+            indices.shape(),
+        )
     }
     fn rfft_complex(self) -> NdArray<Complex<T>> {
         let mut shape = NdArray::shape(&self).to_vec();
@@ -678,7 +920,11 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
         let m = n / 2 + 1;
         let rows = self.len() / n;
         let mut out = vec![Complex::new(T::_ZERO, T::_ZERO); rows * m];
-        let input = if self.view().is_contiguous() { self } else { self.view().to_owned() };
+        let input = if self.view().is_contiguous() {
+            self
+        } else {
+            self.view().to_owned()
+        };
         with_plan(n, |fft: &mut RealFft<T>| {
             for (row, bins) in input.as_slice().chunks(n).zip(out.chunks_mut(m)) {
                 fft.forward(row, bins);
@@ -691,10 +937,17 @@ impl<T: Float + Default> RealArrayMath for NdArray<T> {
     fn irfft_complex(spectrum: NdArray<Complex<T>>, n: usize) -> Self {
         let mut shape = NdArray::shape(&spectrum).to_vec();
         let m = n / 2 + 1;
-        assert!(n >= 1 && shape.last() == Some(&m), "irfft: {n} samples need {m} bins, got {shape:?}");
+        assert!(
+            n >= 1 && shape.last() == Some(&m),
+            "irfft: {n} samples need {m} bins, got {shape:?}"
+        );
         let rows = spectrum.len() / m;
         let mut out = vec![T::_ZERO; rows * n];
-        let spectrum = if spectrum.view().is_contiguous() { spectrum } else { spectrum.view().to_owned() };
+        let spectrum = if spectrum.view().is_contiguous() {
+            spectrum
+        } else {
+            spectrum.view().to_owned()
+        };
         with_plan(n, |fft: &mut RealFft<T>| {
             for (bins, row) in spectrum.as_slice().chunks(m).zip(out.chunks_mut(n)) {
                 fft.inverse(bins, row);
@@ -734,8 +987,14 @@ impl<T: Float + Default> Elementwise for NdArray<Complex<T>> {
 
 impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
     fn array(values: &[f64], shape: &[usize]) -> Self {
-        NdArray::from_vec(values.iter().map(|&v| Complex::new(T::_lit(v), T::_ZERO)).collect(), shape)
-            .unwrap_or_else(|_| panic!("array: {} values do not fill {shape:?}", values.len()))
+        NdArray::from_vec(
+            values
+                .iter()
+                .map(|&v| Complex::new(T::_lit(v), T::_ZERO))
+                .collect(),
+            shape,
+        )
+        .unwrap_or_else(|_| panic!("array: {} values do not fill {shape:?}", values.len()))
     }
     fn shape(&self) -> Vec<usize> {
         NdArray::shape(self).to_vec()
@@ -761,14 +1020,28 @@ impl<T: Float + Default> ArrayMath for NdArray<Complex<T>> {
             shape[last] *= 2;
             let mut data = core::mem::ManuallyDrop::new(self.into_vec());
             // SAFETY: Complex<T> is repr(C) { re, im }: a Vec of n of them is a Vec of 2n T's
-            let reals = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast::<T>(), data.len() * 2, data.capacity() * 2) };
-            let sums = NdArray::from_vec(reals, &shape).expect("valid shape").sum_axes(axes);
+            let reals = unsafe {
+                Vec::from_raw_parts(
+                    data.as_mut_ptr().cast::<T>(),
+                    data.len() * 2,
+                    data.capacity() * 2,
+                )
+            };
+            let sums = NdArray::from_vec(reals, &shape)
+                .expect("valid shape")
+                .sum_axes(axes);
             let mut out_shape = sums.shape().to_vec();
             let n = out_shape.len();
             out_shape[n - 1] /= 2;
             let mut sums = core::mem::ManuallyDrop::new(sums.into_vec());
             // SAFETY: an even number of T's laid out as (re, im) pairs, as above
-            let pairs = unsafe { Vec::from_raw_parts(sums.as_mut_ptr().cast::<Complex<T>>(), sums.len() / 2, sums.capacity() / 2) };
+            let pairs = unsafe {
+                Vec::from_raw_parts(
+                    sums.as_mut_ptr().cast::<Complex<T>>(),
+                    sums.len() / 2,
+                    sums.capacity() / 2,
+                )
+            };
             return NdArray::from_vec(pairs, &out_shape).expect("valid shape");
         }
         sum_axes_any(self, axes)
@@ -815,7 +1088,15 @@ impl<T: Float + Default> ComplexArrayMath for NdArray<Complex<T>> {
 /// The DFT (or its inverse) of every row along the last axis, in f64.
 fn join_complex<T: Float + Default>(re: &NdArray<T>, im: &NdArray<T>) -> NdArray<Complex<T>> {
     assert_eq!(re.shape(), im.shape(), "complex parts differ in shape");
-    NdArray::from_vec(re.as_slice().iter().zip(im.as_slice()).map(|(&r, &i)| Complex::new(r, i)).collect(), re.shape()).expect("same shape")
+    NdArray::from_vec(
+        re.as_slice()
+            .iter()
+            .zip(im.as_slice())
+            .map(|(&r, &i)| Complex::new(r, i))
+            .collect(),
+        re.shape(),
+    )
+    .expect("same shape")
 }
 
 /// FFT plans (real or complex, by element type and length) kept per thread, so repeated
@@ -837,7 +1118,10 @@ fn with_plan<P: Plan + 'static, R>(n: usize, f: impl FnOnce(&mut P) -> R) -> R {
     }
     // taken out while in use, so a transform inside  (none today) could not alias it
     let key = (TypeId::of::<P>(), n);
-    let mut plan = PLANS.with(|p| p.borrow_mut().remove(&key)).and_then(|b| b.downcast::<P>().ok()).unwrap_or_else(|| Box::new(P::plan(n)));
+    let mut plan = PLANS
+        .with(|p| p.borrow_mut().remove(&key))
+        .and_then(|b| b.downcast::<P>().ok())
+        .unwrap_or_else(|| Box::new(P::plan(n)));
     let result = f(&mut plan);
     PLANS.with(|p| p.borrow_mut().insert(key, plan));
     result
@@ -861,7 +1145,11 @@ impl<T: Float + 'static> Plan for Fft<T> {
 fn complex_fft<T: Float + Default>(a: NdArray<Complex<T>>, inverse: bool) -> NdArray<Complex<T>> {
     let n = *a.shape().last().expect("fft: needs an axis");
     assert!(n >= 1, "fft: empty axis");
-    let mut out = if a.view().is_contiguous() { a } else { a.view().to_owned() };
+    let mut out = if a.view().is_contiguous() {
+        a
+    } else {
+        a.view().to_owned()
+    };
     with_plan(n, |fft: &mut Fft<T>| {
         for row in out.as_mut_slice().chunks_mut(n) {
             if inverse {
@@ -885,9 +1173,18 @@ mod tests {
     fn element_wise_broadcasts() {
         let a = arr(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
         let b = arr(&[10.0, 20.0, 30.0], &[3]);
-        assert_eq!((a.clone() + b.clone()).as_slice(), &[11.0, 22.0, 33.0, 14.0, 25.0, 36.0]);
-        assert_eq!((a.clone() * NdArray::lit(2.0)).as_slice(), &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0]);
-        assert_eq!(a.clone().maximum(arr(&[3.0], &[1])).as_slice(), &[3.0, 3.0, 3.0, 4.0, 5.0, 6.0]);
+        assert_eq!(
+            (a.clone() + b.clone()).as_slice(),
+            &[11.0, 22.0, 33.0, 14.0, 25.0, 36.0]
+        );
+        assert_eq!(
+            (a.clone() * NdArray::lit(2.0)).as_slice(),
+            &[2.0, 4.0, 6.0, 8.0, 10.0, 12.0]
+        );
+        assert_eq!(
+            a.clone().maximum(arr(&[3.0], &[1])).as_slice(),
+            &[3.0, 3.0, 3.0, 4.0, 5.0, 6.0]
+        );
         let picked = NdArray::select(a.clone().greater(arr(&[2.5], &[])), a, -b);
         assert_eq!(picked.as_slice(), &[-10.0, -20.0, 3.0, 4.0, 5.0, 6.0]);
     }
@@ -895,45 +1192,92 @@ mod tests {
     #[test]
     fn shapes_reductions_and_products() {
         let a = arr(&[1.0, 2.0, 3.0, 4.0, 5.0, 6.0], &[2, 3]);
-        assert_eq!(a.clone().transpose(&[1, 0]).as_slice(), &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+        assert_eq!(
+            a.clone().transpose(&[1, 0]).as_slice(),
+            &[1.0, 4.0, 2.0, 5.0, 3.0, 6.0]
+        );
         assert_eq!(a.clone().sum_axes(&[0]).as_slice(), &[5.0, 7.0, 9.0]);
         assert_eq!(a.clone().sum_axes(&[1]).as_slice(), &[6.0, 15.0]);
         assert_eq!(a.clone().mean_all().as_slice(), &[3.5]);
-        assert_eq!(arr(&[1.0, 2.0], &[2]).broadcast_in_dim(&[2, 3], &[0]).as_slice(), &[1.0, 1.0, 1.0, 2.0, 2.0, 2.0]);
+        assert_eq!(
+            arr(&[1.0, 2.0], &[2])
+                .broadcast_in_dim(&[2, 3], &[0])
+                .as_slice(),
+            &[1.0, 1.0, 1.0, 2.0, 2.0, 2.0]
+        );
         let x = arr(&[1.0, 0.0, -1.0], &[3]);
         assert_eq!(a.clone().dot(x).as_slice(), &[-2.0, -2.0]);
         let gram = a.clone().dot_general(a, &[0], &[0]);
         assert_eq!(ArrayMath::shape(&gram), vec![3, 3]);
-        assert_eq!(gram.as_slice(), &[17.0, 22.0, 27.0, 22.0, 29.0, 36.0, 27.0, 36.0, 45.0]);
+        assert_eq!(
+            gram.as_slice(),
+            &[17.0, 22.0, 27.0, 22.0, 29.0, 36.0, 27.0, 36.0, 45.0]
+        );
     }
 
     #[test]
     fn fft_round_trip() {
         for n in [8usize, 7] {
-            let x = arr(&(0..2 * n).map(|i| (i as f64 * 0.7).sin()).collect::<Vec<_>>(), &[2, n]);
+            let x = arr(
+                &(0..2 * n)
+                    .map(|i| (i as f64 * 0.7).sin())
+                    .collect::<Vec<_>>(),
+                &[2, n],
+            );
             let (re, im) = x.clone().rfft();
             let back = NdArray::irfft(re, im, n);
-            assert!(back.as_slice().iter().zip(x.as_slice()).all(|(a, b)| (a - b).abs() < 1e-12), "n = {n}");
+            assert!(
+                back.as_slice()
+                    .iter()
+                    .zip(x.as_slice())
+                    .all(|(a, b)| (a - b).abs() < 1e-12),
+                "n = {n}"
+            );
         }
     }
 
     #[test]
     fn complex_arrays() {
-        let z = NdArray::from_vec(vec![Complex::new(1.0f64, 0.0), Complex::new(0.0, 1.0), Complex::new(-1.0, 0.0), Complex::new(0.0, -1.0)], &[1, 4]).unwrap();
+        let z = NdArray::from_vec(
+            vec![
+                Complex::new(1.0f64, 0.0),
+                Complex::new(0.0, 1.0),
+                Complex::new(-1.0, 0.0),
+                Complex::new(0.0, -1.0),
+            ],
+            &[1, 4],
+        )
+        .unwrap();
         // the DFT of e^(iπn/2) is 4 at bin 1
         let f = z.clone().fft();
         assert!((f.as_slice()[1] - Complex::new(4.0, 0.0)).norm() < 1e-12);
-        assert!(f.as_slice().iter().enumerate().all(|(k, v)| k == 1 || v.norm() < 1e-12));
+        assert!(f
+            .as_slice()
+            .iter()
+            .enumerate()
+            .all(|(k, v)| k == 1 || v.norm() < 1e-12));
         let back = f.ifft();
-        assert!(back.as_slice().iter().zip(z.as_slice()).all(|(a, b)| (*a - *b).norm() < 1e-12));
+        assert!(back
+            .as_slice()
+            .iter()
+            .zip(z.as_slice())
+            .all(|(a, b)| (*a - *b).norm() < 1e-12));
         let s = z.clone().sum_all();
         assert!(s.as_slice()[0].norm() < 1e-12);
         let w = z.clone() * z.clone().conj(); // |z|² = 1
-        assert!(w.as_slice().iter().all(|v| (*v - Complex::new(1.0, 0.0)).norm() < 1e-12));
-        let e = NdArray::from_vec(vec![Complex::new(0.0, std::f64::consts::PI)], &[]).unwrap().exp();
+        assert!(w
+            .as_slice()
+            .iter()
+            .all(|v| (*v - Complex::new(1.0, 0.0)).norm() < 1e-12));
+        let e = NdArray::from_vec(vec![Complex::new(0.0, std::f64::consts::PI)], &[])
+            .unwrap()
+            .exp();
         assert!((e.as_slice()[0] - Complex::new(-1.0, 0.0)).norm() < 1e-12);
         let m = NdArray::from_vec(vec![Complex::new(0.0, 1.0); 4], &[2, 2]).unwrap();
         let p = m.clone().dot(m);
-        assert!(p.as_slice().iter().all(|v| (*v - Complex::new(-2.0, 0.0)).norm() < 1e-12));
+        assert!(p
+            .as_slice()
+            .iter()
+            .all(|v| (*v - Complex::new(-2.0, 0.0)).norm() < 1e-12));
     }
 }

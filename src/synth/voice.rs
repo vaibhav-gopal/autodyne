@@ -1,9 +1,9 @@
 //! [`SynthVoice`]: the subtractive voice (unison oscillators, a [`VoiceFilter`], envelopes) for
 //! [`Poly`](super::Poly).
 
+use super::{midi_to_hz, Voice};
 #[cfg(not(any(feature = "std", test)))]
 use crate::alloc_prelude::*;
-use super::{midi_to_hz, Voice};
 use crate::envelope::Adsr;
 use crate::filter::{Ladder, Svf, SvfMode};
 use alloc::sync::Arc;
@@ -31,9 +31,15 @@ pub enum VoiceFilter {
 
 impl VoiceFilter {
     /// Every filter, in parameter order.
-    pub const ALL: [VoiceFilter; 4] = [VoiceFilter::Lowpass12, VoiceFilter::Bandpass12, VoiceFilter::Highpass12, VoiceFilter::Ladder24];
+    pub const ALL: [VoiceFilter; 4] = [
+        VoiceFilter::Lowpass12,
+        VoiceFilter::Bandpass12,
+        VoiceFilter::Highpass12,
+        VoiceFilter::Ladder24,
+    ];
     /// Display names, in the order of [`ALL`](Self::ALL).
-    pub const NAMES: [&'static str; 4] = ["Low-pass 12", "Band-pass 12", "High-pass 12", "Ladder 24"];
+    pub const NAMES: [&'static str; 4] =
+        ["Low-pass 12", "Band-pass 12", "High-pass 12", "Ladder 24"];
 }
 
 /// A subtractive synth voice: up to [`MAX_UNISON`] detuned band-limited oscillators (classic
@@ -91,10 +97,14 @@ impl<T: Float> SynthVoice<T> {
         let top = lit(0.45) * sample_rate;
         let mut voice = Self {
             sample_rate,
-            oscs: core::array::from_fn(|i| Oscillator::new(Waveform::Saw, lit(440.0), sample_rate).with_phase(phases[i])),
+            oscs: core::array::from_fn(|i| {
+                Oscillator::new(Waveform::Saw, lit(440.0), sample_rate).with_phase(phases[i])
+            }),
             wt_oscs: {
                 let table = Wavetable::shared_classic();
-                core::array::from_fn(|i| WavetableOsc::new(table.clone(), lit(440.0), sample_rate).with_phase(phases[i]))
+                core::array::from_fn(|i| {
+                    WavetableOsc::new(table.clone(), lit(440.0), sample_rate).with_phase(phases[i])
+                })
             },
             wavetable: false,
             wt_position: T::_ZERO,
@@ -153,12 +163,16 @@ impl<T: Float> SynthVoice<T> {
     }
     /// The table the wavetable source plays (default: [`Wavetable::classic`], shared). Allocation-free.
     pub fn set_wavetable(&mut self, table: Arc<Wavetable<T>>) {
-        self.wt_oscs.iter_mut().for_each(|o| o.set_table(table.clone()));
+        self.wt_oscs
+            .iter_mut()
+            .for_each(|o| o.set_table(table.clone()));
     }
     /// Morph position across the table's frames, 0..1.
     pub fn set_wavetable_position(&mut self, position: T) {
         self.wt_position = position._clamp(T::_ZERO, T::_ONE);
-        self.wt_oscs.iter_mut().for_each(|o| o.set_position(self.wt_position));
+        self.wt_oscs
+            .iter_mut()
+            .for_each(|o| o.set_position(self.wt_position));
     }
     /// Wavetable morph position, 0..1.
     pub fn wavetable_position(&self) -> T {
@@ -168,7 +182,9 @@ impl<T: Float> SynthVoice<T> {
     pub fn set_pulse_width(&mut self, pulse_width: T) {
         self.pulse_width = pulse_width._clamp(T::_lit(0.01), T::_lit(0.99));
         if let Waveform::Pulse { .. } = self.waveform() {
-            self.set_waveform(Waveform::Pulse { pulse_width: self.pulse_width });
+            self.set_waveform(Waveform::Pulse {
+                pulse_width: self.pulse_width,
+            });
         }
     }
     /// Pulse duty cycle.
@@ -230,7 +246,8 @@ impl<T: Float> SynthVoice<T> {
     }
     /// The ladder's drive in dB (0 = clean at moderate levels).
     pub fn set_drive_db(&mut self, db: T) {
-        self.ladder.set_drive(T::_lit(10.0)._pow(db / T::_lit(20.0)));
+        self.ladder
+            .set_drive(T::_lit(10.0)._pow(db / T::_lit(20.0)));
     }
     /// The ladder's drive in dB.
     pub fn drive_db(&self) -> T {
@@ -295,7 +312,8 @@ impl<T: Float> SynthVoice<T> {
         self.note = note;
         self.target_pitch = T::_lit(note as f64);
         if glide && self.glide_seconds > T::_ZERO {
-            self.glide_per_sample = (self.target_pitch - self.pitch)._abs() / (self.glide_seconds * self.sample_rate);
+            self.glide_per_sample =
+                (self.target_pitch - self.pitch)._abs() / (self.glide_seconds * self.sample_rate);
         } else {
             self.pitch = self.target_pitch;
         }
@@ -307,7 +325,11 @@ impl<T: Float> SynthVoice<T> {
         if self.pitch != self.target_pitch {
             let step = self.glide_per_sample * T::_lit(samples as f64);
             let distance = self.target_pitch - self.pitch;
-            self.pitch = if distance._abs() <= step { self.target_pitch } else { self.pitch + step * distance._signum() };
+            self.pitch = if distance._abs() <= step {
+                self.target_pitch
+            } else {
+                self.pitch + step * distance._signum()
+            };
             self.pitch_dirty = true;
         }
         if self.pitch_dirty {
@@ -316,7 +338,11 @@ impl<T: Float> SynthVoice<T> {
             let spread = self.detune_cents.to_f64().unwrap_or(0.0) / 100.0;
             let n = self.unison;
             for i in 0..n {
-                let offset = if n > 1 { spread * (2.0 * i as f64 / (n - 1) as f64 - 1.0) } else { 0.0 };
+                let offset = if n > 1 {
+                    spread * (2.0 * i as f64 / (n - 1) as f64 - 1.0)
+                } else {
+                    0.0
+                };
                 let hz = T::_lit(midi_to_hz(center + offset));
                 if self.wavetable {
                     self.wt_oscs[i].set_frequency(hz, self.sample_rate);
@@ -328,12 +354,16 @@ impl<T: Float> SynthVoice<T> {
         let octaves = self.env_amount * self.filter_env.level()
             + self.pressure_octaves * self.pressure
             + self.timbre_octaves * (T::_lit(2.0) * self.timbre - T::_ONE);
-        let hz = (self.cutoff * T::_lit(2.0)._pow(octaves))._max(T::_lit(20.0))._min(T::_lit(0.45) * self.sample_rate);
+        let hz = (self.cutoff * T::_lit(2.0)._pow(octaves))
+            ._max(T::_lit(20.0))
+            ._min(T::_lit(0.45) * self.sample_rate);
         if hz != self.applied_cutoff {
             self.applied_cutoff = hz;
             match self.filter_type {
                 VoiceFilter::Ladder24 => self.ladder.set_cutoff(hz),
-                _ => self.svf.set_cutoff_and_q(hz, T::_lit(0.5) * T::_lit(50.0)._pow(self.resonance)),
+                _ => self
+                    .svf
+                    .set_cutoff_and_q(hz, T::_lit(0.5) * T::_lit(50.0)._pow(self.resonance)),
             }
         }
     }
@@ -411,7 +441,12 @@ impl<T: Float> Voice for SynthVoice<T> {
         self.filter_env.reset();
         self.svf.reset();
         self.ladder.reset();
-        for ((osc, wt), &phase) in self.oscs.iter_mut().zip(&mut self.wt_oscs).zip(&self.phases) {
+        for ((osc, wt), &phase) in self
+            .oscs
+            .iter_mut()
+            .zip(&mut self.wt_oscs)
+            .zip(&self.phases)
+        {
             *osc = osc.with_phase(phase);
             wt.set_phase(phase);
         }
@@ -421,8 +456,8 @@ impl<T: Float> Voice for SynthVoice<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal::{ComplexSignal, Signal};
     use crate::fft::{bin_frequency, Fft};
+    use crate::signal::{ComplexSignal, Signal};
     use crate::units::Complex;
 
     const FS: f64 = 48_000.0;
@@ -507,8 +542,13 @@ mod tests {
         for cents in [-50.0f64, 0.0, 50.0] {
             let expected = 440.0 * 2f64.powf(cents / 1_200.0);
             let k = (expected / bin).round() as usize;
-            let (best, mag) = (k - 3..=k + 3).map(|i| (i, mags[i])).fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
-            assert!(((best as f64 * bin) - expected).abs() < 2.0 * bin, "an oscillator at {expected:.1} Hz");
+            let (best, mag) = (k - 3..=k + 3)
+                .map(|i| (i, mags[i]))
+                .fold((0, 0.0), |a, b| if b.1 > a.1 { b } else { a });
+            assert!(
+                ((best as f64 * bin) - expected).abs() < 2.0 * bin,
+                "an oscillator at {expected:.1} Hz"
+            );
             assert!(mag > 0.3 * top, "{expected:.1} Hz is a real peak");
         }
         // equal loudness whatever the count
@@ -531,7 +571,11 @@ mod tests {
         render(&mut v, 4_800);
         v.note_on(72, 1.0); // still sounding: glides
         render(&mut v, 2_400); // 50 ms
-        assert!((v.current_pitch() - 66.0).abs() < 0.2, "halfway after half the time: {}", v.current_pitch());
+        assert!(
+            (v.current_pitch() - 66.0).abs() < 0.2,
+            "halfway after half the time: {}",
+            v.current_pitch()
+        );
         render(&mut v, 2_480);
         assert_eq!(v.current_pitch(), 72.0);
     }
@@ -544,11 +588,17 @@ mod tests {
         let sustain = v.amp_env().level();
         v.legato(67, 1.0);
         render(&mut v, 480);
-        assert!((v.amp_env().level() - sustain).abs() < 1e-9, "the envelope carries on");
+        assert!(
+            (v.amp_env().level() - sustain).abs() < 1e-9,
+            "the envelope carries on"
+        );
         assert_eq!(v.current_pitch(), 67.0, "no glide time: the pitch jumps");
         v.note_on(72, 1.0);
         render(&mut v, 480);
-        assert!(v.amp_env().level() > sustain + 0.1, "a retrigger restarts the attack");
+        assert!(
+            v.amp_env().level() > sustain + 0.1,
+            "a retrigger restarts the attack"
+        );
     }
 
     /// RMS of the first difference: grows with high-frequency content.
@@ -574,13 +624,32 @@ mod tests {
         };
         let low = tone(VoiceFilter::Lowpass12, 0.0, 0.5);
         let high = tone(VoiceFilter::Highpass12, 0.0, 0.5);
-        assert!(brightness(&high) > 3.0 * brightness(&low), "the high-pass keeps the edges, the low-pass the body");
+        assert!(
+            brightness(&high) > 3.0 * brightness(&low),
+            "the high-pass keeps the edges, the low-pass the body"
+        );
         let ladder = tone(VoiceFilter::Ladder24, 0.0, 0.5);
-        assert!(brightness(&ladder) < brightness(&low), "24 dB/octave is darker than 12");
-        assert!(brightness(&tone(VoiceFilter::Lowpass12, 1.0, 0.5)) > 2.0 * brightness(&low), "pressure opens the filter");
-        assert!(brightness(&tone(VoiceFilter::Lowpass12, 0.0, 1.0)) > 1.5 * brightness(&low), "timbre opens it");
-        assert!(brightness(&tone(VoiceFilter::Lowpass12, 0.0, 0.0)) < brightness(&low), "and closes it");
-        assert!(low.iter().chain(&high).chain(&ladder).all(|s| s.is_finite()));
+        assert!(
+            brightness(&ladder) < brightness(&low),
+            "24 dB/octave is darker than 12"
+        );
+        assert!(
+            brightness(&tone(VoiceFilter::Lowpass12, 1.0, 0.5)) > 2.0 * brightness(&low),
+            "pressure opens the filter"
+        );
+        assert!(
+            brightness(&tone(VoiceFilter::Lowpass12, 0.0, 1.0)) > 1.5 * brightness(&low),
+            "timbre opens it"
+        );
+        assert!(
+            brightness(&tone(VoiceFilter::Lowpass12, 0.0, 0.0)) < brightness(&low),
+            "and closes it"
+        );
+        assert!(low
+            .iter()
+            .chain(&high)
+            .chain(&ladder)
+            .all(|s| s.is_finite()));
     }
 
     #[test]
@@ -589,16 +658,34 @@ mod tests {
         v.set_wavetable_source(true);
         v.set_wavetable_position(0.0); // the classic table's first frame: a sine
         v.note_on(69, 1.0);
-        assert!((peak_hz(&mut v) - 440.0).abs() < FS / 8_192.0, "the right pitch");
+        assert!(
+            (peak_hz(&mut v) - 440.0).abs() < FS / 8_192.0,
+            "the right pitch"
+        );
         let pure = spectrum(&mut v);
-        let fundamental = pure[(440.0 * 32_768.0 / FS) as usize - 2..(440.0 * 32_768.0 / FS) as usize + 3].iter().cloned().fold(0.0, f64::max);
-        let second = pure[(880.0 * 32_768.0 / FS) as usize - 2..(880.0 * 32_768.0 / FS) as usize + 3].iter().cloned().fold(0.0, f64::max);
+        let fundamental = pure
+            [(440.0 * 32_768.0 / FS) as usize - 2..(440.0 * 32_768.0 / FS) as usize + 3]
+            .iter()
+            .cloned()
+            .fold(0.0, f64::max);
+        let second = pure
+            [(880.0 * 32_768.0 / FS) as usize - 2..(880.0 * 32_768.0 / FS) as usize + 3]
+            .iter()
+            .cloned()
+            .fold(0.0, f64::max);
         // (unwindowed FFT: leakage alone reaches about -60 dB here, a saw is at -6 dB)
         assert!(second < 1e-2 * fundamental, "position 0 is a sine");
         v.set_wavetable_position(2.0 / 3.0); // the saw frame
         let saw = spectrum(&mut v);
-        let second = saw[(880.0 * 32_768.0 / FS) as usize - 2..(880.0 * 32_768.0 / FS) as usize + 3].iter().cloned().fold(0.0, f64::max);
-        assert!(second > 0.3 * fundamental, "position 2/3 has a saw's harmonics");
+        let second = saw
+            [(880.0 * 32_768.0 / FS) as usize - 2..(880.0 * 32_768.0 / FS) as usize + 3]
+            .iter()
+            .cloned()
+            .fold(0.0, f64::max);
+        assert!(
+            second > 0.3 * fundamental,
+            "position 2/3 has a saw's harmonics"
+        );
         // unison works on the wavetable too
         v.set_unison(3);
         v.set_detune(50.0);

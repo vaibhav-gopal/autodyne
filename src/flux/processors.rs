@@ -3,11 +3,13 @@
 
 use super::optim::Optimizer;
 use super::*;
-use crate::testing::noise_f32 as noise;
 use crate::distortion::Shape;
 use crate::dynamics::{envelope_step, time_coeff, Compressor, CompressorCurve, EnvelopeFollower};
-use crate::filter::{Biquad, BiquadCoeffs, BiquadKind, Ladder, LadderCoeffs, Svf, SvfCoeffs, SvfMode};
+use crate::filter::{
+    Biquad, BiquadCoeffs, BiquadKind, Ladder, LadderCoeffs, Svf, SvfCoeffs, SvfMode,
+};
 use crate::signal::NdArray;
+use crate::testing::noise_f32 as noise;
 use crate::units::{Elementwise, RealValued};
 
 const FS: f64 = 48_000.0;
@@ -15,7 +17,10 @@ const FS: f64 = 48_000.0;
 fn close(a: &[f32], b: &[f32], tol: f32) {
     assert_eq!(a.len(), b.len());
     for (i, (x, y)) in a.iter().zip(b).enumerate() {
-        assert!((x - y).abs() <= tol * (1.0 + y.abs()), "sample {i}: {x} vs {y}");
+        assert!(
+            (x - y).abs() <= tol * (1.0 + y.abs()),
+            "sample {i}: {x} vs {y}"
+        );
     }
 }
 
@@ -28,7 +33,16 @@ fn run(scan: &Scan, params: &[f32], xs: &[f32], states: usize) -> Vec<f32> {
 #[test]
 fn every_biquad_kind_traces_like_the_filter() {
     let xs = noise(400, 1);
-    for kind in [BiquadKind::Lowpass, BiquadKind::Highpass, BiquadKind::Bandpass, BiquadKind::Notch, BiquadKind::Allpass, BiquadKind::Peaking, BiquadKind::LowShelf, BiquadKind::HighShelf] {
+    for kind in [
+        BiquadKind::Lowpass,
+        BiquadKind::Highpass,
+        BiquadKind::Bandpass,
+        BiquadKind::Notch,
+        BiquadKind::Allpass,
+        BiquadKind::Peaking,
+        BiquadKind::LowShelf,
+        BiquadKind::HighShelf,
+    ] {
         // params: frequency, q, gain_db
         let scan = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
             let c = BiquadCoeffs::design(kind, p[0], p[1], p[2], Tracer::lit(FS));
@@ -36,7 +50,13 @@ fn every_biquad_kind_traces_like_the_filter() {
             (next.to_vec(), y)
         });
         let traced = run(&scan, &[1_200.0, 0.9, 4.0], &xs, 2);
-        let mut f = Biquad::from_design(crate::filter::BiquadDesign { kind, frequency: 1_200.0f32, q: 0.9, gain_db: 4.0, sample_rate: FS as f32 });
+        let mut f = Biquad::from_design(crate::filter::BiquadDesign {
+            kind,
+            frequency: 1_200.0f32,
+            q: 0.9,
+            gain_db: 4.0,
+            sample_rate: FS as f32,
+        });
         let concrete: Vec<f32> = xs.iter().map(|&x| f.process_sample(x)).collect();
         close(&traced, &concrete, 1e-5);
     }
@@ -75,7 +95,12 @@ fn svf_ladder_shapes_and_dynamics_trace_like_the_processors() {
     }
     // envelope follower
     let scan = Scan::trace(&[&[], &[]], &[&[]], &[], |p, s, x| {
-        let e = envelope_step(time_coeff(p[0], Tracer::lit(FS)), time_coeff(p[1], Tracer::lit(FS)), s[0], x);
+        let e = envelope_step(
+            time_coeff(p[0], Tracer::lit(FS)),
+            time_coeff(p[1], Tracer::lit(FS)),
+            s[0],
+            x,
+        );
         (vec![e], e)
     });
     let mut env = EnvelopeFollower::new(0.002f32, 0.05, FS as f32);
@@ -83,7 +108,13 @@ fn svf_ladder_shapes_and_dynamics_trace_like_the_processors() {
     close(&run(&scan, &[0.002, 0.05], &xs, 1), &concrete, 1e-5);
     // compressor: threshold, slope, knee, attack, release (no makeup)
     let scan = Scan::trace(&[&[], &[], &[], &[], &[]], &[&[]], &[], |p, s, x| {
-        let curve = CompressorCurve { threshold_db: p[0], slope: p[1], knee_db: p[2], attack_coeff: time_coeff(p[3], Tracer::lit(FS)), release_coeff: time_coeff(p[4], Tracer::lit(FS)) };
+        let curve = CompressorCurve {
+            threshold_db: p[0],
+            slope: p[1],
+            knee_db: p[2],
+            attack_coeff: time_coeff(p[3], Tracer::lit(FS)),
+            release_coeff: time_coeff(p[4], Tracer::lit(FS)),
+        };
         let (reduction, gain) = curve.tick(s[0], x.abs());
         (vec![reduction], x * gain)
     });
@@ -94,14 +125,24 @@ fn svf_ladder_shapes_and_dynamics_trace_like_the_processors() {
     comp.set_attack(0.005);
     comp.set_release(0.08);
     let concrete: Vec<f32> = xs.iter().map(|&x| comp.process_sample(x)).collect();
-    close(&run(&scan, &[-12.0, 0.25, 6.0, 0.005, 0.08], &xs, 1), &concrete, 1e-4);
+    close(
+        &run(&scan, &[-12.0, 0.25, 6.0, 0.005, 0.08], &xs, 1),
+        &concrete,
+        1e-4,
+    );
 }
 
 #[test]
 fn a_filter_chain_fits_its_parameters_by_gradient() {
     // biquad low-pass then tanh drive: recover cutoff (log Hz), Q and drive from a target
     let chain = |p: &[Tracer], s: &[Tracer], x: Tracer| {
-        let c = BiquadCoeffs::design(BiquadKind::Lowpass, p[0].exp(), p[1], Tracer::lit(0.0), Tracer::lit(FS));
+        let c = BiquadCoeffs::design(
+            BiquadKind::Lowpass,
+            p[0].exp(),
+            p[1],
+            Tracer::lit(0.0),
+            Tracer::lit(FS),
+        );
         let ([s0, s1], y) = c.tick([s[0], s[1]], x);
         (vec![s0, s1], Shape::Tanh.apply(y * p[2]))
     };
@@ -121,5 +162,9 @@ fn a_filter_chain_fits_its_parameters_by_gradient() {
     assert!(last < first * 1e-3, "loss {first} -> {last}");
     let cutoff = params[0].as_slice()[0].exp();
     assert!((cutoff / 1_500.0 - 1.0).abs() < 0.05, "cutoff {cutoff}");
-    assert!((params[2].as_slice()[0] - 2.5).abs() < 0.1, "drive {}", params[2].as_slice()[0]);
+    assert!(
+        (params[2].as_slice()[0] - 2.5).abs() < 0.1,
+        "drive {}",
+        params[2].as_slice()[0]
+    );
 }

@@ -24,7 +24,11 @@ use crate::units::{Elementwise, RealValued};
 /// assert!((g.eval(&[scalar(x)])[0].as_slice()[0] - (x.cos() * x + x.sin())).abs() < 1e-6);
 /// ```
 pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tracer> {
-    assert_eq!(outputs.len(), cotangents.len(), "vjp: one cotangent per output");
+    assert_eq!(
+        outputs.len(),
+        cotangents.len(),
+        "vjp: one cotangent per output"
+    );
     let n = graph::len();
 
     // only nodes that depend on something in `wrt` need an adjoint
@@ -35,7 +39,10 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
     let lo = wrt.iter().map(|w| w.id as usize).min().unwrap_or(n);
     for id in lo..n {
         if !live[id] {
-            live[id] = graph::node(id as Id).op.operands().any(|a| live[a as usize]);
+            live[id] = graph::node(id as Id)
+                .op
+                .operands()
+                .any(|a| live[a as usize]);
         }
     }
 
@@ -153,7 +160,12 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                     let mut src = fa.clone();
                     let mut cb_sorted = cb.clone();
                     cb_sorted.sort_unstable();
-                    src.extend(cb_sorted.iter().map(|j| ca[cb.iter().position(|x| x == j).expect("contracted axes pair up")]));
+                    src.extend(cb_sorted.iter().map(|j| {
+                        ca[cb
+                            .iter()
+                            .position(|x| x == j)
+                            .expect("contracted axes pair up")]
+                    }));
                     acc(&mut adj, a, r.transpose(&order(&src)));
                 }
                 if live[b as usize] {
@@ -162,7 +174,15 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                     let r = t(a).conj().dot_general(g, &fa, &g_fa);
                     let mut ca_sorted = ca.clone();
                     ca_sorted.sort_unstable();
-                    let mut src: Vec<usize> = ca_sorted.iter().map(|i| cb[ca.iter().position(|x| x == i).expect("contracted axes pair up")]).collect();
+                    let mut src: Vec<usize> = ca_sorted
+                        .iter()
+                        .map(|i| {
+                            cb[ca
+                                .iter()
+                                .position(|x| x == i)
+                                .expect("contracted axes pair up")]
+                        })
+                        .collect();
                     src.extend(&fb);
                     acc(&mut adj, b, r.transpose(&order(&src)));
                 }
@@ -172,7 +192,11 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 // (they appear once in the full spectrum) and 1/2 on the others (twice)
                 let n = *shape_of(a).last().expect("the operand has a last axis");
                 let w = Tracer::constant(&weights(n, 1.0, 0.5));
-                acc(&mut adj, a, Tracer::lit(n as f64) * Tracer::irfft_complex(g * w, n));
+                acc(
+                    &mut adj,
+                    a,
+                    Tracer::lit(n as f64) * Tracer::irfft_complex(g * w, n),
+                );
             }
             Op::Irfft(a, n) => {
                 // transpose of the inverse: (s / n) * rfft(cotangent), s = 1 on bins 0 and n/2, else 2
@@ -183,30 +207,57 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
             // fft / n for the inverse
             Op::Fft(a, inverse) => {
                 let n = *shape_of(a).last().expect("the operand has a last axis") as f64;
-                acc(&mut adj, a, if inverse { g.fft() * Tracer::lit(1.0 / n) } else { g.ifft() * Tracer::lit(n) });
+                acc(
+                    &mut adj,
+                    a,
+                    if inverse {
+                        g.fft() * Tracer::lit(1.0 / n)
+                    } else {
+                        g.ifft() * Tracer::lit(n)
+                    },
+                );
             }
             Op::Complex(a, b) => {
                 acc(&mut adj, a, g.re());
                 acc(&mut adj, b, g.im());
             }
             Op::Re(a) => acc(&mut adj, a, g.to_complex()),
-            Op::Im(a) => acc(&mut adj, a, Tracer::complex(zero().broadcast_to(&g.shape()), g)),
+            Op::Im(a) => acc(
+                &mut adj,
+                a,
+                Tracer::complex(zero().broadcast_to(&g.shape()), g),
+            ),
             Op::Conj(a) => acc(&mut adj, a, g.conj()),
             Op::ToComplex(a) => acc(&mut adj, a, g.re()),
-            Op::Slice { a, start, stride, .. } => {
+            Op::Slice {
+                a, start, stride, ..
+            } => {
                 // scatter back: zeros around and between the kept elements
                 let (from, to) = (shape_of(a), shape_of(id));
                 if to.contains(&0) {
                     acc(&mut adj, a, zero().broadcast_to(&from));
                 } else {
-                    let high: Vec<usize> = (0..from.len()).map(|i| from[i] - (start[i] + (to[i] - 1) * stride[i] + 1)).collect();
+                    let high: Vec<usize> = (0..from.len())
+                        .map(|i| from[i] - (start[i] + (to[i] - 1) * stride[i] + 1))
+                        .collect();
                     let interior: Vec<usize> = stride.iter().map(|s| s - 1).collect();
                     acc(&mut adj, a, g.pad(&start, &high, &interior));
                 }
             }
-            Op::Pad { a, low, interior, .. } => {
+            Op::Pad {
+                a, low, interior, ..
+            } => {
                 let from = shape_of(a);
-                let limit: Vec<usize> = (0..from.len()).map(|i| low[i] + if from[i] == 0 { 0 } else { (from[i] - 1) * (interior[i] + 1) + 1 }).collect();
+                let limit: Vec<usize> = (0..from.len())
+                    .map(|i| {
+                        low[i]
+                            + if from[i] == 0 {
+                                0
+                            } else {
+                                (from[i] - 1) * (interior[i] + 1) + 1
+                            }
+                    })
+                    .collect();
                 let stride: Vec<usize> = interior.iter().map(|k| k + 1).collect();
                 acc(&mut adj, a, g.slice(&low, &limit, &stride));
             }
@@ -214,13 +265,18 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
             Op::Reduce(a, axes, r) => {
                 let from = shape_of(a);
                 let kept: Vec<usize> = (0..from.len()).filter(|x| !axes.contains(x)).collect();
-                let (gb, yb) = (g.broadcast_in_dim(&from, &kept), t(id).broadcast_in_dim(&from, &kept));
+                let (gb, yb) = (
+                    g.broadcast_in_dim(&from, &kept),
+                    t(id).broadcast_in_dim(&from, &kept),
+                );
                 match r {
                     // d/dx_i Π x = Π x / x_i (not defined where an element is zero)
                     Reduction::Prod => acc(&mut adj, a, gb * yb / t(a)),
                     // to the elements equal to the extreme, shared equally among ties (as in JAX)
                     Reduction::Max | Reduction::Min => {
-                        let hit = Tracer::select(t(a).compare(yb, Cmp::Eq), Tracer::lit(1.0), zero()).broadcast_to(&from);
+                        let hit =
+                            Tracer::select(t(a).compare(yb, Cmp::Eq), Tracer::lit(1.0), zero())
+                                .broadcast_to(&from);
                         let count = hit.sum_axes(&axes).broadcast_in_dim(&from, &kept);
                         acc(&mut adj, a, hit * gb / count);
                     }
@@ -241,7 +297,11 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
                 acc(&mut adj, a, g.slice_axis(last, 0, used).frames(length, hop));
             }
             // indices are piecewise constant: no gradient
-            Op::Take { table, indices } => acc(&mut adj, table, Tracer::scatter_add(&shape_of(table), t(indices), g)),
+            Op::Take { table, indices } => acc(
+                &mut adj,
+                table,
+                Tracer::scatter_add(&shape_of(table), t(indices), g),
+            ),
             Op::ScatterAdd { indices, updates } => acc(&mut adj, updates, g.take(t(indices))),
             Op::Concat(parts, axis) => {
                 let mut offset = 0;
@@ -253,7 +313,9 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
             }
         }
     }
-    wrt.iter().map(|w| adj[w.id as usize].unwrap_or_else(|| zero().broadcast_to(&w.shape()))).collect()
+    wrt.iter()
+        .map(|w| adj[w.id as usize].unwrap_or_else(|| zero().broadcast_to(&w.shape())))
+        .collect()
 }
 
 /// Jacobian-vector product (forward mode) inside a trace: for `outputs` as functions of `wrt`,
@@ -280,7 +342,16 @@ pub fn vjp(outputs: &[Tracer], cotangents: &[Tracer], wrt: &[Tracer]) -> Vec<Tra
 pub fn jvp(outputs: &[Tracer], wrt: &[Tracer], tangents: &[Tracer]) -> Vec<Tracer> {
     assert_eq!(wrt.len(), tangents.len(), "jvp: one tangent per input");
     // stand-in cotangents: their values never matter, only that the pullback is linear in them
-    let u: Vec<Tracer> = outputs.iter().map(|o| if o.is_complex() { Tracer::zeros(&o.shape()).to_complex() } else { Tracer::zeros(&o.shape()) }).collect();
+    let u: Vec<Tracer> = outputs
+        .iter()
+        .map(|o| {
+            if o.is_complex() {
+                Tracer::zeros(&o.shape()).to_complex()
+            } else {
+                Tracer::zeros(&o.shape())
+            }
+        })
+        .collect();
     let pulled = vjp(outputs, &u, wrt);
     let mut inner = Tracer::lit(0.0);
     for ((p, t), w) in pulled.iter().zip(tangents).zip(wrt) {
@@ -308,7 +379,14 @@ fn order(src: &[usize]) -> Vec<usize> {
 }
 
 /// Sends `g` to `a` where `mask` holds and to `b` elsewhere.
-fn route(adj: &mut Vec<Option<Tracer>>, acc: &mut impl FnMut(&mut Vec<Option<Tracer>>, Id, Tracer), mask: Mask, a: Id, b: Id, g: Tracer) {
+fn route(
+    adj: &mut Vec<Option<Tracer>>,
+    acc: &mut impl FnMut(&mut Vec<Option<Tracer>>, Id, Tracer),
+    mask: Mask,
+    a: Id,
+    b: Id,
+    g: Tracer,
+) {
     let zero = Tracer::lit(0.0);
     acc(adj, a, Tracer::select(mask, g, zero));
     acc(adj, b, Tracer::select(mask, zero, g));

@@ -44,8 +44,19 @@ pub enum DType {
 impl DType {
     /// Every element type, in declaration order.
     pub const ALL: [DType; 13] = [
-        DType::F32, DType::F64, DType::I8, DType::I16, DType::I24, DType::I32, DType::I64,
-        DType::U8, DType::U16, DType::U32, DType::U64, DType::ComplexF32, DType::ComplexF64,
+        DType::F32,
+        DType::F64,
+        DType::I8,
+        DType::I16,
+        DType::I24,
+        DType::I32,
+        DType::I64,
+        DType::U8,
+        DType::U16,
+        DType::U32,
+        DType::U64,
+        DType::ComplexF32,
+        DType::ComplexF64,
     ];
 
     /// Size of one element in bytes (3 for `I24`).
@@ -79,7 +90,9 @@ impl DType {
     }
     /// Parses a name produced by `name` (case-insensitive).
     pub fn from_name(name: &str) -> Option<DType> {
-        DType::ALL.into_iter().find(|d| d.name().eq_ignore_ascii_case(name))
+        DType::ALL
+            .into_iter()
+            .find(|d| d.name().eq_ignore_ascii_case(name))
     }
     /// `F32` or `F64`.
     pub const fn is_float(self) -> bool {
@@ -157,7 +170,12 @@ mod tests {
     fn dtypes_match_rust_types() {
         fn check<T: Reflection>() {
             if T::DTYPE != DType::I24 {
-                assert_eq!(T::DTYPE.size_bytes(), std::mem::size_of::<T>(), "{}", T::type_name());
+                assert_eq!(
+                    T::DTYPE.size_bytes(),
+                    std::mem::size_of::<T>(),
+                    "{}",
+                    T::type_name()
+                );
             }
         }
         check::<f32>();

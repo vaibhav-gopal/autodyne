@@ -17,7 +17,16 @@ use autodyne::wav::{self, Wav, WavFormat, WavLoop, WavLoopKind};
 
 const FS: u32 = 48_000;
 /// (start in seconds, MIDI note, velocity)
-const PHRASE: [(f64, u8, u8); 8] = [(0.0, 48, 50), (0.0, 60, 50), (0.5, 64, 70), (1.0, 67, 90), (1.5, 72, 120), (2.0, 76, 110), (2.0, 79, 110), (2.0, 84, 127)];
+const PHRASE: [(f64, u8, u8); 8] = [
+    (0.0, 48, 50),
+    (0.0, 60, 50),
+    (0.5, 64, 70),
+    (1.0, 67, 90),
+    (1.5, 72, 120),
+    (2.0, 76, 110),
+    (2.0, 79, 110),
+    (2.0, 84, 127),
+];
 const NOTE_LENGTH: f64 = 0.9;
 const TOTAL_SECONDS: f64 = 4.5;
 
@@ -43,12 +52,18 @@ fn record(brightness: f32) -> Wav<f32> {
         sample_rate: FS,
         channels: vec![audio],
         root_key: Some(60.0),
-        loops: vec![WavLoop { start: start as usize, end: end as usize, kind: WavLoopKind::Forward }],
+        loops: vec![WavLoop {
+            start: start as usize,
+            end: end as usize,
+            kind: WavLoopKind::Forward,
+        }],
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let out_dir = std::env::args().nth(1).unwrap_or_else(|| "target/examples-out".into());
+    let out_dir = std::env::args()
+        .nth(1)
+        .unwrap_or_else(|| "target/examples-out".into());
     std::fs::create_dir_all(&out_dir)?;
 
     // record and save two layers, then load them back as a sampler would
@@ -59,13 +74,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let sample = Sample::<f32>::from_wav(&std::fs::read(&path)?)?;
         let lp = sample.loop_points().expect("the smpl loop came back");
         // loop while the key is held, with a short crossfade, then play the recording's end
-        let sample = sample.with_loop(lp.start, lp.end, LoopMode::Sustain, 256).with_mipmaps(3);
-        println!("{name}: {} frames, root {}, loop {}..{}", sample.frames(), sample.root_key(), lp.start, lp.end);
+        let sample = sample
+            .with_loop(lp.start, lp.end, LoopMode::Sustain, 256)
+            .with_mipmaps(3);
+        println!(
+            "{name}: {} frames, root {}, loop {}..{}",
+            sample.frames(),
+            sample.root_key(),
+            lp.start,
+            lp.end
+        );
         layers.push(Arc::new(sample));
     }
     let map = Arc::new(SampleMap::new(vec![
         Zone::new(layers[0].clone()).velocities(0..=79).pan(-0.4),
-        Zone::new(layers[1].clone()).velocities(80..=127).pan(0.4).gain_db(-3.0),
+        Zone::new(layers[1].clone())
+            .velocities(80..=127)
+            .pan(0.4)
+            .gain_db(-3.0),
     ]));
 
     let mut events: Vec<TimedEvent> = PHRASE
@@ -74,8 +100,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let on = (start * FS as f64) as usize;
             let off = ((start + NOTE_LENGTH) * FS as f64) as usize;
             [
-                TimedEvent { offset: on, message: MidiMessage::NoteOn { channel: 0, note, velocity } },
-                TimedEvent { offset: off, message: MidiMessage::NoteOff { channel: 0, note, velocity: 0 } },
+                TimedEvent {
+                    offset: on,
+                    message: MidiMessage::NoteOn {
+                        channel: 0,
+                        note,
+                        velocity,
+                    },
+                },
+                TimedEvent {
+                    offset: off,
+                    message: MidiMessage::NoteOff {
+                        channel: 0,
+                        note,
+                        velocity: 0,
+                    },
+                },
             ]
         })
         .collect();
@@ -93,8 +133,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for s in left.iter_mut().chain(right.iter_mut()) {
         *s *= 0.3;
     }
-    let phrase = Wav { sample_rate: FS, channels: vec![left, right], ..Default::default() };
-    std::fs::write(Path::new(&out_dir).join("sampler_phrase.wav"), wav::write(&phrase, WavFormat::Float32))?;
+    let phrase = Wav {
+        sample_rate: FS,
+        channels: vec![left, right],
+        ..Default::default()
+    };
+    std::fs::write(
+        Path::new(&out_dir).join("sampler_phrase.wav"),
+        wav::write(&phrase, WavFormat::Float32),
+    )?;
     println!("rendered {TOTAL_SECONDS} s in {:.1} ms ({:.0}x real time); wrote sampler_phrase.wav to {out_dir}", elapsed * 1e3, TOTAL_SECONDS / elapsed);
     Ok(())
 }

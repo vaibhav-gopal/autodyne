@@ -21,7 +21,9 @@ pub(crate) struct Lazy<T> {
 impl<T> Lazy<T> {
     /// Empty: the value is made on first use.
     pub(crate) const fn new() -> Self {
-        Lazy { ptr: AtomicPtr::new(ptr::null_mut()) }
+        Lazy {
+            ptr: AtomicPtr::new(ptr::null_mut()),
+        }
     }
 
     /// The value, made by `init` if no thread has published one yet. Once made, one atomic load
@@ -40,7 +42,10 @@ impl<T> Lazy<T> {
     #[cold]
     fn init_slow(&self, init: impl FnOnce() -> T) -> &T {
         let made = Box::into_raw(Box::new(init()));
-        match self.ptr.compare_exchange(ptr::null_mut(), made, Ordering::AcqRel, Ordering::Acquire) {
+        match self
+            .ptr
+            .compare_exchange(ptr::null_mut(), made, Ordering::AcqRel, Ordering::Acquire)
+        {
             // SAFETY: just published from `Box::into_raw`; never freed (as above).
             Ok(_) => unsafe { &*made },
             Err(published) => {
@@ -72,7 +77,10 @@ mod tests {
             .into_iter()
             .map(|h| h.join().expect("thread"))
             .collect();
-        assert!(addresses.windows(2).all(|w| w[0] == w[1]), "one value is kept");
+        assert!(
+            addresses.windows(2).all(|w| w[0] == w[1]),
+            "one value is kept"
+        );
         assert_eq!(CELL.get_or_init(|| [0; 4]), &[1, 2, 3, 4]);
     }
 }

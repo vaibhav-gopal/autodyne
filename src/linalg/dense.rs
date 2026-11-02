@@ -18,7 +18,11 @@ pub(crate) struct Mat {
 
 impl Mat {
     pub(crate) fn zeros(rows: usize, cols: usize) -> Self {
-        Self { rows, cols, data: vec![0.0; rows * cols] }
+        Self {
+            rows,
+            cols,
+            data: vec![0.0; rows * cols],
+        }
     }
     pub(crate) fn identity(n: usize) -> Self {
         let mut m = Self::zeros(n, n);
@@ -29,7 +33,14 @@ impl Mat {
     }
     /// Entry `(i, j)` is `f(i, j)`, filled row by row.
     pub(crate) fn from_fn(rows: usize, cols: usize, f: impl Fn(usize, usize) -> f64) -> Self {
-        Self { rows, cols, data: (0..rows).flat_map(|i| (0..cols).map(move |j| (i, j))).map(|(i, j)| f(i, j)).collect() }
+        Self {
+            rows,
+            cols,
+            data: (0..rows)
+                .flat_map(|i| (0..cols).map(move |j| (i, j)))
+                .map(|(i, j)| f(i, j))
+                .collect(),
+        }
     }
     #[inline]
     pub(crate) fn at(&self, i: usize, j: usize) -> f64 {
@@ -44,9 +55,18 @@ impl Mat {
         let (rows, cols) = match v.shape() {
             &[r, c] => (r, c),
             &[r] => (r, 1),
-            s => return Err(LinalgError::Dims { expected: "1-D or 2-D", got: s.to_vec() }),
+            s => {
+                return Err(LinalgError::Dims {
+                    expected: "1-D or 2-D",
+                    got: s.to_vec(),
+                })
+            }
         };
-        Ok(Self { rows, cols, data: v.iter().map(|x| x.to_f64().unwrap_or(f64::NAN)).collect() })
+        Ok(Self {
+            rows,
+            cols,
+            data: v.iter().map(|x| x.to_f64().unwrap_or(f64::NAN)).collect(),
+        })
     }
     /// A square 2-D view.
     pub(crate) fn square<T: Float>(v: NdView<'_, T>) -> Result<Self, LinalgError> {
@@ -57,7 +77,11 @@ impl Mat {
         Ok(m)
     }
     pub(crate) fn to_array<T: Float + Default>(&self) -> NdArray<T> {
-        NdArray::from_vec(self.data.iter().map(|&v| T::_lit(v)).collect(), &[self.rows, self.cols]).expect("rows x cols")
+        NdArray::from_vec(
+            self.data.iter().map(|&v| T::_lit(v)).collect(),
+            &[self.rows, self.cols],
+        )
+        .expect("rows x cols")
     }
     fn faer(&self) -> FaerMat<f64> {
         FaerMat::from_fn(self.rows, self.cols, |i, j| self.at(i, j))
@@ -85,13 +109,35 @@ impl Mat {
         Self::from_faer((self.faer() * other.faer()).as_ref())
     }
     pub(crate) fn add(&self, other: &Mat) -> Self {
-        Self { rows: self.rows, cols: self.cols, data: self.data.iter().zip(&other.data).map(|(a, b)| a + b).collect() }
+        Self {
+            rows: self.rows,
+            cols: self.cols,
+            data: self
+                .data
+                .iter()
+                .zip(&other.data)
+                .map(|(a, b)| a + b)
+                .collect(),
+        }
     }
     pub(crate) fn sub(&self, other: &Mat) -> Self {
-        Self { rows: self.rows, cols: self.cols, data: self.data.iter().zip(&other.data).map(|(a, b)| a - b).collect() }
+        Self {
+            rows: self.rows,
+            cols: self.cols,
+            data: self
+                .data
+                .iter()
+                .zip(&other.data)
+                .map(|(a, b)| a - b)
+                .collect(),
+        }
     }
     pub(crate) fn scale(&self, s: f64) -> Self {
-        Self { rows: self.rows, cols: self.cols, data: self.data.iter().map(|v| v * s).collect() }
+        Self {
+            rows: self.rows,
+            cols: self.cols,
+            data: self.data.iter().map(|v| v * s).collect(),
+        }
     }
     /// `(m + mᵀ) / 2`.
     pub(crate) fn symmetrized(&self) -> Self {
@@ -120,6 +166,10 @@ impl Mat {
     /// The least-squares solution of `self x = b`.
     pub(crate) fn lstsq(&self, b: &Mat) -> Result<Self, LinalgError> {
         let fit = super::lstsq(self.to_array::<f64>().view(), b.to_array::<f64>().view())?;
-        Ok(Self { rows: self.cols, cols: b.cols, data: fit.solution.into_vec() })
+        Ok(Self {
+            rows: self.cols,
+            cols: b.cols,
+            data: fit.solution.into_vec(),
+        })
     }
 }

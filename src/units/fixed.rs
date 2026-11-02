@@ -23,7 +23,9 @@ use core::ops::{Add, Div, Mul, Neg, Rem, Sub};
 use super::{Elementwise, RealValued};
 
 /// The integer types fixed-point values are stored in.
-pub trait FixedStorage: Copy + Ord + Eq + core::hash::Hash + fmt::Debug + Default + Send + Sync + 'static {
+pub trait FixedStorage:
+    Copy + Ord + Eq + core::hash::Hash + fmt::Debug + Default + Send + Sync + 'static
+{
     /// Width in bits.
     const BITS: u32;
     /// The smallest value.
@@ -104,7 +106,13 @@ impl<I: FixedStorage, const FRAC: u32> Fixed<I, FRAC> {
             return Fixed(I::fixed_saturate(0));
         }
         let scaled = (v * Self::scale()).round();
-        Fixed(I::fixed_saturate(if scaled >= i128::MAX as f64 { i128::MAX } else if scaled <= i128::MIN as f64 { i128::MIN } else { scaled as i128 }))
+        Fixed(I::fixed_saturate(if scaled >= i128::MAX as f64 {
+            i128::MAX
+        } else if scaled <= i128::MIN as f64 {
+            i128::MIN
+        } else {
+            scaled as i128
+        }))
     }
     /// The value as `f64` (exact while the format has at most 53 significant bits).
     pub fn to_f64(self) -> f64 {
@@ -125,7 +133,11 @@ impl<I: FixedStorage, const FRAC: u32> Fixed<I, FRAC> {
             return p;
         }
         let half = 1i128 << (FRAC - 1);
-        if p >= 0 { (p + half) >> FRAC } else { -((-p + half) >> FRAC) }
+        if p >= 0 {
+            (p + half) >> FRAC
+        } else {
+            -((-p + half) >> FRAC)
+        }
     }
     /// The quotient's raw value, rounded toward zero; `None` for division by zero.
     fn div_raw(self, rhs: Self) -> Option<i128> {
@@ -214,7 +226,11 @@ impl<I: FixedStorage, const FRAC: u32> Rem for Fixed<I, FRAC> {
     type Output = Self;
     /// The remainder (the sign of the dividend); 0 for division by zero.
     fn rem(self, rhs: Self) -> Self {
-        if rhs.raw() == 0 { Fixed(I::fixed_saturate(0)) } else { Fixed(I::fixed_saturate(self.raw() % rhs.raw())) }
+        if rhs.raw() == 0 {
+            Fixed(I::fixed_saturate(0))
+        } else {
+            Fixed(I::fixed_saturate(self.raw() % rhs.raw()))
+        }
     }
 }
 impl<I: FixedStorage, const FRAC: u32> Neg for Fixed<I, FRAC> {
@@ -245,13 +261,21 @@ impl<I: FixedStorage, const FRAC: u32> fmt::Display for Fixed<I, FRAC> {
             }
         }
         let sign = if neg { "-" } else { "" };
-        if digits.is_empty() { write!(f, "{sign}{int}") } else { write!(f, "{sign}{int}.{digits}") }
+        if digits.is_empty() {
+            write!(f, "{sign}{int}")
+        } else {
+            write!(f, "{sign}{int}.{digits}")
+        }
     }
 }
 
 impl<I: FixedStorage, const FRAC: u32> fmt::Debug for Fixed<I, FRAC> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{self} (Q{}.{FRAC})", I::BITS - 1 - FRAC.min(I::BITS - 1))
+        write!(
+            f,
+            "{self} (Q{}.{FRAC})",
+            I::BITS - 1 - FRAC.min(I::BITS - 1)
+        )
     }
 }
 
@@ -286,7 +310,11 @@ impl<I: FixedStorage, const FRAC: u32> Elementwise for Fixed<I, FRAC> {
 impl<I: FixedStorage, const FRAC: u32> RealValued for Fixed<I, FRAC> {
     type Mask = bool;
     fn abs(self) -> Self {
-        if self.raw() < 0 { -self } else { self }
+        if self.raw() < 0 {
+            -self
+        } else {
+            self
+        }
     }
     fn minimum(self, other: Self) -> Self {
         self.min(other)
@@ -301,7 +329,11 @@ impl<I: FixedStorage, const FRAC: u32> RealValued for Fixed<I, FRAC> {
         self > other
     }
     fn select(mask: bool, if_true: Self, if_false: Self) -> Self {
-        if mask { if_true } else { if_false }
+        if mask {
+            if_true
+        } else {
+            if_false
+        }
     }
     fn floor(self) -> Self {
         // clear the fraction bits (arithmetic shift rounds toward negative infinity)
@@ -349,7 +381,11 @@ mod tests {
             let (b, yb) = float.tick(sd, x);
             sf = a;
             sd = b;
-            assert!((ya.to_f64() - yb).abs() < 1e-3, "sample {n}: {} vs {yb}", ya.to_f64());
+            assert!(
+                (ya.to_f64() - yb).abs() < 1e-3,
+                "sample {n}: {} vs {yb}",
+                ya.to_f64()
+            );
         }
     }
 }

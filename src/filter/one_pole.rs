@@ -20,7 +20,11 @@ impl<T: Real> OnePole<T> {
     /// A low-pass with its -3 dB point near `cutoff` Hz (exact well below Nyquist).
     pub fn lowpass(cutoff: T, sample_rate: T) -> Self {
         let pole = Self::pole(cutoff, sample_rate);
-        Self { a: T::lit(1.0) - pole, pole, state: T::lit(0.0) }
+        Self {
+            a: T::lit(1.0) - pole,
+            pole,
+            state: T::lit(0.0),
+        }
     }
 
     /// The pole `exp(-2π fc / fs)` for a cutoff.
@@ -98,6 +102,10 @@ mod tests {
         let w = std::f64::consts::TAU * fc / fs;
         let p = lp.pole;
         let mag = lp.a / (1.0 - 2.0 * p * w.cos() + p * p).sqrt();
-        assert!((20.0 * mag.log10() + 3.01).abs() < 0.05, "{}", 20.0 * mag.log10());
+        assert!(
+            (20.0 * mag.log10() + 3.01).abs() < 0.05,
+            "{}",
+            20.0 * mag.log10()
+        );
     }
 }

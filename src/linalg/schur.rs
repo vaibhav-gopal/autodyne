@@ -52,7 +52,11 @@ fn hessenberg(a: &Mat) -> (Mat, Mat) {
     let mut v = faer::Mat::<f64>::identity(n, n);
     let mut buf = MemBuffer::new(StackReq::any_of(&[
         hess::hessenberg_in_place_scratch::<f64>(n, bs, par, Default::default()),
-        householder::apply_block_householder_sequence_on_the_right_in_place_scratch::<f64>(n - 1, bs, n - 1),
+        householder::apply_block_householder_sequence_on_the_right_in_place_scratch::<f64>(
+            n - 1,
+            bs,
+            n - 1,
+        ),
     ]));
     let stack = MemStack::new(&mut buf);
     hess::hessenberg_in_place(h.as_mut(), factors.as_mut(), par, stack, Default::default());
@@ -182,9 +186,20 @@ impl Reflector {
         let (rows, rest) = data[k * cols..].split_at_mut(cols);
         let (next, after) = rest.split_at_mut(cols);
         let (r0, r1) = (&mut rows[from..], &mut next[from..]);
-        let Reflector { x, y, z, q, r, three } = *self;
+        let Reflector {
+            x,
+            y,
+            z,
+            q,
+            r,
+            three,
+        } = *self;
         if three {
-            for ((a, b), c) in r0.iter_mut().zip(r1.iter_mut()).zip(after[from..cols].iter_mut()) {
+            for ((a, b), c) in r0
+                .iter_mut()
+                .zip(r1.iter_mut())
+                .zip(after[from..cols].iter_mut())
+            {
                 let p = *a + q * *b + r * *c;
                 *c -= p * z;
                 *a -= p * x;
@@ -202,7 +217,14 @@ impl Reflector {
     /// From the right on one row's two or three entries.
     #[inline]
     fn right(&self, e: &mut [f64]) {
-        let Reflector { x, y, z, q, r, three } = *self;
+        let Reflector {
+            x,
+            y,
+            z,
+            q,
+            r,
+            three,
+        } = *self;
         let mut p = x * e[0] + y * e[1];
         if three {
             p += z * e[2];
@@ -216,7 +238,14 @@ impl Reflector {
     /// entries a row, strided, so four rows at a time with the arithmetic across rows.
     #[inline(always)]
     fn right_cols(&self, h: &mut [f64], nn: usize, k: usize, rows: Range<usize>) {
-        let Reflector { x, y, z, q, r, three } = *self;
+        let Reflector {
+            x,
+            y,
+            z,
+            q,
+            r,
+            three,
+        } = *self;
         let mut i = rows.start;
         if three {
             while i + 4 <= rows.end {
@@ -251,10 +280,22 @@ impl Reflector {
         let mut row = || rows.next().expect("four rows");
         let (row0, row1, row2, row3) = (row(), row(), row(), row());
         let Reflector { x, y, z, q, r, .. } = *self;
-        let Reflector { x: x2, y: y2, z: z2, q: q2, r: r2, three } = *next;
+        let Reflector {
+            x: x2,
+            y: y2,
+            z: z2,
+            q: q2,
+            r: r2,
+            three,
+        } = *next;
         let _ = three;
         debug_assert!(three, "pairs of three-index reflectors");
-        for (((a, b), c), d) in row0.iter_mut().zip(row1.iter_mut()).zip(row2.iter_mut()).zip(row3.iter_mut()) {
+        for (((a, b), c), d) in row0
+            .iter_mut()
+            .zip(row1.iter_mut())
+            .zip(row2.iter_mut())
+            .zip(row3.iter_mut())
+        {
             let p = x * *a + y * *b + z * *c;
             let (b1, c1) = (*b - p * q, *c - p * r);
             *a -= p;
@@ -271,9 +312,20 @@ impl Reflector {
     fn right_rows(&self, t: &mut [f64], cols: usize, k: usize) {
         let (rows, rest) = t[k * cols..].split_at_mut(cols);
         let (next, after) = rest.split_at_mut(cols);
-        let Reflector { x, y, z, q, r, three } = *self;
+        let Reflector {
+            x,
+            y,
+            z,
+            q,
+            r,
+            three,
+        } = *self;
         if three {
-            for ((a, b), c) in rows.iter_mut().zip(next.iter_mut()).zip(after[..cols].iter_mut()) {
+            for ((a, b), c) in rows
+                .iter_mut()
+                .zip(next.iter_mut())
+                .zip(after[..cols].iter_mut())
+            {
                 let p = x * *a + y * *b + z * *c;
                 *c -= p * r;
                 *a -= p;
@@ -337,7 +389,10 @@ fn real_schur_body(a: &Mat) -> Result<Schur, LinalgError> {
     let (mut h, mut vt) = hessenberg(a);
     // complex pairs found, by their upper index (their 2 x 2 blocks stay)
     let mut pair = vec![false; nn];
-    let mut steps = Steps { done: 0, limit: 30 * nn.max(10) };
+    let mut steps = Steps {
+        done: 0,
+        limit: 30 * nn.max(10),
+    };
     if nn >= AED_FROM {
         aed_qr(&mut h, &mut vt, &mut pair, &mut steps)?;
     } else if nn > 0 {
@@ -376,13 +431,26 @@ impl Steps {
 /// pairs found in `pair`, by their upper index.
 #[inline(always)]
 #[allow(clippy::needless_range_loop)]
-fn hqr_block(h: &mut Mat, vt: &mut Mat, lo: usize, hi: usize, pair: &mut [bool], steps: &mut Steps) -> Result<(), LinalgError> {
+fn hqr_block(
+    h: &mut Mat,
+    vt: &mut Mat,
+    lo: usize,
+    hi: usize,
+    pair: &mut [bool],
+    steps: &mut Steps,
+) -> Result<(), LinalgError> {
     let nn = h.rows;
     let eps = f64::EPSILON;
     let mut exshift = 0.0;
     let (mut p, mut q, mut r, mut s, mut z);
     let (mut w, mut x, mut y);
-    let norm: f64 = (lo..=hi).map(|i| (i.saturating_sub(1).max(lo)..=hi).map(|j| h.at(i, j).abs()).sum::<f64>()).sum();
+    let norm: f64 = (lo..=hi)
+        .map(|i| {
+            (i.saturating_sub(1).max(lo)..=hi)
+                .map(|j| h.at(i, j).abs())
+                .sum::<f64>()
+        })
+        .sum();
     let low = lo as isize;
     let mut n = hi as isize;
     let mut iter = 0;
@@ -535,7 +603,9 @@ fn double_step(h: &mut Mat, vt: &mut Mat, l: usize, nu: usize, x: f64, y: f64, w
         if m == l {
             break;
         }
-        if h.at(m, m - 1).abs() * (q.abs() + r.abs()) < eps * (p.abs() * (h.at(m - 1, m - 1).abs() + z.abs() + h.at(m + 1, m + 1).abs())) {
+        if h.at(m, m - 1).abs() * (q.abs() + r.abs())
+            < eps * (p.abs() * (h.at(m - 1, m - 1).abs() + z.abs() + h.at(m + 1, m + 1).abs()))
+        {
             break;
         }
         m -= 1;
@@ -574,14 +644,23 @@ fn double_step(h: &mut Mat, vt: &mut Mat, l: usize, nu: usize, x: f64, y: f64, w
                 h.set(k, k - 1, -h.at(k, k - 1));
             }
             p += s;
-            let reflector = Reflector { x: p / s, y: q / s, z: r / s, q: q / p, r: r / p, three: notlast };
+            let reflector = Reflector {
+                x: p / s,
+                y: q / s,
+                z: r / s,
+                q: q / p,
+                r: r / p,
+                three: notlast,
+            };
             // from the left on rows k.. of h (columns k..), from the right on its columns
             // k.. (rows up to k + 3) and on the Schur vectors (rows of vt)
             reflector.left(&mut h.data, nn, k, k);
             reflector.right_cols(&mut h.data, nn, k, 0..nu.min(k + 3) + 1);
             // the Schur vectors two reflectors at a time when the step before had one
             match pending.take() {
-                Some((j, prev)) if j + 1 == k && notlast => prev.right_rows_pair(&reflector, &mut vt.data, vt.cols, j),
+                Some((j, prev)) if j + 1 == k && notlast => {
+                    prev.right_rows_pair(&reflector, &mut vt.data, vt.cols, j)
+                }
                 prev => {
                     if let Some((j, prev)) = prev {
                         prev.right_rows(&mut vt.data, vt.cols, j);
@@ -619,7 +698,12 @@ fn shift_count(nh: usize) -> usize {
 /// plenty, the window's unconverged eigenvalues then go through the block as shifts, a pair per
 /// double-shift sweep. Active blocks of up to [`FINISH`] rows are finished whole.
 #[inline(always)]
-fn aed_qr(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], steps: &mut Steps) -> Result<(), LinalgError> {
+fn aed_qr(
+    h: &mut Mat,
+    vt: &mut Mat,
+    pair: &mut [bool],
+    steps: &mut Steps,
+) -> Result<(), LinalgError> {
     let nn = h.rows;
     let mut kbot = nn - 1;
     // rounds since the last deflation, and the last window size
@@ -660,7 +744,11 @@ fn aed_qr(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], steps: &mut Steps) -> Re
             // deflated plenty: look again before sweeping
             continue;
         }
-        let pairs = if stalled > 0 && stalled % 6 == 0 { exceptional_shifts(h, ktop, kbot, ns) } else { shift_pairs(h, ktop, kbot, &shifts, ns) };
+        let pairs = if stalled > 0 && stalled % 6 == 0 {
+            exceptional_shifts(h, ktop, kbot, ns)
+        } else {
+            shift_pairs(h, ktop, kbot, &shifts, ns)
+        };
         for (x, y, w) in pairs {
             steps.take()?;
             double_step(h, vt, ktop, kbot, x, y, w);
@@ -701,7 +789,14 @@ fn split(h: &mut Mat, ktop: usize, kbot: usize) -> bool {
 /// Finishes the active block `ktop..=kbot`: its Schur form on a copy, applied to the rest of the
 /// matrix at once ([`aed`] with the whole block as its window), or, should that copy's iteration
 /// fail, [`hqr_block`] in place.
-fn finish_block(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], ktop: usize, kbot: usize, steps: &mut Steps) -> Result<(), LinalgError> {
+fn finish_block(
+    h: &mut Mat,
+    vt: &mut Mat,
+    pair: &mut [bool],
+    ktop: usize,
+    kbot: usize,
+    steps: &mut Steps,
+) -> Result<(), LinalgError> {
     let nh = kbot + 1 - ktop;
     if aed(h, vt, pair, ktop, kbot, nh).0 < nh {
         hqr_block(h, vt, ktop, kbot, pair, steps)?;
@@ -715,7 +810,12 @@ fn eigenvalues(t: &Mat, ns: usize) -> Vec<(f64, f64)> {
     let mut j = 0;
     while j < ns {
         if j + 1 < ns && t.at(j + 1, j) != 0.0 {
-            let (a, b, c, d) = (t.at(j, j), t.at(j, j + 1), t.at(j + 1, j), t.at(j + 1, j + 1));
+            let (a, b, c, d) = (
+                t.at(j, j),
+                t.at(j, j + 1),
+                t.at(j + 1, j),
+                t.at(j + 1, j + 1),
+            );
             let p = 0.5 * (a - d);
             let disc = p * p + b * c;
             if disc < 0.0 {
@@ -724,7 +824,11 @@ fn eigenvalues(t: &Mat, ns: usize) -> Vec<(f64, f64)> {
             } else {
                 let r = disc.sqrt().copysign(p);
                 let big = d + p + r;
-                let small = if big != 0.0 { (a * d - b * c) / big } else { 0.0 };
+                let small = if big != 0.0 {
+                    (a * d - b * c) / big
+                } else {
+                    0.0
+                };
                 out.extend([(big, 0.0), (small, 0.0)]);
             }
             j += 2;
@@ -744,13 +848,24 @@ fn eigenvalues(t: &Mat, ns: usize) -> Vec<(f64, f64)> {
 /// returned as shifts. If any deflated, the window goes back as the deflated blocks below the rest
 /// returned to Hessenberg form, its transformation applied to the rest of `h` and to `vt`.
 /// Returns the number deflated (all of them with the whole block as the window) and the shifts.
-fn aed(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], ktop: usize, kbot: usize, nw: usize) -> (usize, Vec<(f64, f64)>) {
+fn aed(
+    h: &mut Mat,
+    vt: &mut Mat,
+    pair: &mut [bool],
+    ktop: usize,
+    kbot: usize,
+    nw: usize,
+) -> (usize, Vec<(f64, f64)>) {
     let nn = h.rows;
     let eps = f64::EPSILON;
     let smlnum = f64::MIN_POSITIVE * (nn as f64 / eps);
     let jw = nw.min(kbot + 1 - ktop);
     let kwtop = kbot + 1 - jw;
-    let s = if kwtop == ktop { 0.0 } else { h.at(kwtop, kwtop - 1) };
+    let s = if kwtop == ktop {
+        0.0
+    } else {
+        h.at(kwtop, kwtop - 1)
+    };
     if jw == 1 {
         if s.abs() <= smlnum.max(eps * h.at(kwtop, kwtop).abs()) {
             if kwtop > ktop {
@@ -761,9 +876,18 @@ fn aed(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], ktop: usize, kbot: usize, n
         return (0, vec![(h.at(kwtop, kwtop), 0.0)]);
     }
     // the window's Schur form on a copy, its Schur vectors transposed in qt
-    let mut t = Mat::from_fn(jw, jw, |i, j| if i > j + 1 { 0.0 } else { h.at(kwtop + i, kwtop + j) });
+    let mut t = Mat::from_fn(jw, jw, |i, j| {
+        if i > j + 1 {
+            0.0
+        } else {
+            h.at(kwtop + i, kwtop + j)
+        }
+    });
     let mut qt = Mat::identity(jw);
-    let mut steps = Steps { done: 0, limit: 30 * jw.max(10) };
+    let mut steps = Steps {
+        done: 0,
+        limit: 30 * jw.max(10),
+    };
     if hqr_block(&mut t, &mut qt, 0, jw - 1, &mut vec![false; jw], &mut steps).is_err() {
         // (rare) nothing learned this round
         return (0, Vec::new());
@@ -774,8 +898,15 @@ fn aed(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], ktop: usize, kbot: usize, n
         let two = ns >= 2 && t.at(ns - 1, ns - 2) != 0.0;
         // (LAPACK's foo: the size of the block's eigenvalues)
         let (size, magnitude, spike) = if two {
-            let magnitude = t.at(ns - 1, ns - 1).abs() + t.at(ns - 1, ns - 2).abs().sqrt() * t.at(ns - 2, ns - 1).abs().sqrt();
-            (2, magnitude, (s * qt.at(ns - 1, 0)).abs().max((s * qt.at(ns - 2, 0)).abs()))
+            let magnitude = t.at(ns - 1, ns - 1).abs()
+                + t.at(ns - 1, ns - 2).abs().sqrt() * t.at(ns - 2, ns - 1).abs().sqrt();
+            (
+                2,
+                magnitude,
+                (s * qt.at(ns - 1, 0))
+                    .abs()
+                    .max((s * qt.at(ns - 2, 0)).abs()),
+            )
         } else {
             (1, t.at(ns - 1, ns - 1).abs(), (s * qt.at(ns - 1, 0)).abs())
         };
@@ -806,7 +937,15 @@ fn aed(h: &mut Mat, vt: &mut Mat, pair: &mut [bool], ktop: usize, kbot: usize, n
         let q1 = q11t.mul(&Mat::from_fn(ns, jw, |i, j| qt.at(i, j)));
         for i in 0..ns {
             for j in 0..jw {
-                t.set(i, j, if j < ns { h11.at(i, j) } else { t12.at(i, j - ns) });
+                t.set(
+                    i,
+                    j,
+                    if j < ns {
+                        h11.at(i, j)
+                    } else {
+                        t12.at(i, j - ns)
+                    },
+                );
                 qt.set(i, j, q1.at(i, j));
             }
         }
@@ -840,41 +979,94 @@ fn apply_window(h: &mut Mat, vt: &mut Mat, qt: &Mat, kwtop: usize, kbot: usize) 
     if kwtop > 0 {
         let a = Mat::from_fn(kwtop, jw, |i, j| h.at(i, kwtop + j));
         let dst = block_mut(h, 0, kwtop, kwtop, jw);
-        matmul(dst, Accum::Replace, MatRef::from_row_major_slice(&a.data, kwtop, jw), q.transpose(), 1.0, super::product_parallelism(kwtop, jw, jw));
+        matmul(
+            dst,
+            Accum::Replace,
+            MatRef::from_row_major_slice(&a.data, kwtop, jw),
+            q.transpose(),
+            1.0,
+            super::product_parallelism(kwtop, jw, jw),
+        );
     }
     if kbot + 1 < nn {
         let c = nn - kbot - 1;
         let b = Mat::from_fn(jw, c, |i, j| h.at(kwtop + i, kbot + 1 + j));
         let dst = block_mut(h, kwtop, kbot + 1, jw, c);
-        matmul(dst, Accum::Replace, q, MatRef::from_row_major_slice(&b.data, jw, c), 1.0, super::product_parallelism(jw, c, jw));
+        matmul(
+            dst,
+            Accum::Replace,
+            q,
+            MatRef::from_row_major_slice(&b.data, jw, c),
+            1.0,
+            super::product_parallelism(jw, c, jw),
+        );
     }
     let z = Mat::from_fn(jw, vt.cols, |i, j| vt.at(kwtop + i, j));
     let cols = vt.cols;
-    let dst = MatMut::from_row_major_slice_mut(&mut vt.data[kwtop * cols..(kbot + 1) * cols], jw, cols);
-    matmul(dst, Accum::Replace, q, MatRef::from_row_major_slice(&z.data, jw, cols), 1.0, super::product_parallelism(jw, cols, jw));
+    let dst =
+        MatMut::from_row_major_slice_mut(&mut vt.data[kwtop * cols..(kbot + 1) * cols], jw, cols);
+    matmul(
+        dst,
+        Accum::Replace,
+        q,
+        MatRef::from_row_major_slice(&z.data, jw, cols),
+        1.0,
+        super::product_parallelism(jw, cols, jw),
+    );
 }
 
 /// The `rows` x `cols` block of `m` from `(r0, c0)` as a faer view. (faer 0.24's
 /// `from_row_major_slice_with_stride_mut` swaps the two strides; the column-major view, transposed.)
 fn block_mut(m: &mut Mat, r0: usize, c0: usize, rows: usize, cols: usize) -> faer::MatMut<'_, f64> {
     let n = m.cols;
-    faer::MatMut::from_column_major_slice_with_stride_mut(&mut m.data[r0 * n + c0..], cols, rows, n).transpose_mut()
+    faer::MatMut::from_column_major_slice_with_stride_mut(&mut m.data[r0 * n + c0..], cols, rows, n)
+        .transpose_mut()
 }
 
 /// Up to `ns` of the shifts from [`aed`], the bottom ones, as `(x, y, w)` pairs for
 /// [`double_step`]: complex conjugate pairs together, real shifts two by two. With fewer than two,
 /// the eigenvalues of the block's trailing `ns` x `ns` corner, or failing that its trailing 2 x 2
 /// one (Wilkinson's double shift).
-fn shift_pairs(h: &Mat, ktop: usize, kbot: usize, shifts: &[(f64, f64)], ns: usize) -> Vec<(f64, f64, f64)> {
+fn shift_pairs(
+    h: &Mat,
+    ktop: usize,
+    kbot: usize,
+    shifts: &[(f64, f64)],
+    ns: usize,
+) -> Vec<(f64, f64, f64)> {
     let mut shifts = shifts.to_vec();
     if shifts.len() < 2 {
         let k = ns.min(kbot + 1 - ktop);
         let lo = kbot + 1 - k;
-        let mut t = Mat::from_fn(k, k, |i, j| if i > j + 1 { 0.0 } else { h.at(lo + i, lo + j) });
-        let mut steps = Steps { done: 0, limit: 30 * k.max(10) };
-        shifts = if hqr_block(&mut t, &mut Mat::identity(k), 0, k - 1, &mut vec![false; k], &mut steps).is_ok() { eigenvalues(&t, k) } else { Vec::new() };
+        let mut t = Mat::from_fn(
+            k,
+            k,
+            |i, j| if i > j + 1 { 0.0 } else { h.at(lo + i, lo + j) },
+        );
+        let mut steps = Steps {
+            done: 0,
+            limit: 30 * k.max(10),
+        };
+        shifts = if hqr_block(
+            &mut t,
+            &mut Mat::identity(k),
+            0,
+            k - 1,
+            &mut vec![false; k],
+            &mut steps,
+        )
+        .is_ok()
+        {
+            eigenvalues(&t, k)
+        } else {
+            Vec::new()
+        };
         if shifts.len() < 2 {
-            return vec![(h.at(kbot, kbot), h.at(kbot - 1, kbot - 1), h.at(kbot, kbot - 1) * h.at(kbot - 1, kbot))];
+            return vec![(
+                h.at(kbot, kbot),
+                h.at(kbot - 1, kbot - 1),
+                h.at(kbot, kbot - 1) * h.at(kbot - 1, kbot),
+            )];
         }
     }
     // the bottom ns, a complex pair not split
@@ -930,18 +1122,37 @@ mod tests {
         let s = real_schur(a).unwrap_or_else(|e| panic!("{what}: {e}"));
         // (relative to the largest entry, so that huge matrices' norms do not overflow)
         let big = a.data.iter().fold(f64::MIN_POSITIVE, |m, v| m.max(v.abs()));
-        let res = s.z.mul(&s.t.scale(1.0 / big)).mul(&s.z.t()).sub(&a.scale(1.0 / big)).norm() / a.scale(1.0 / big).norm().max(f64::MIN_POSITIVE);
+        let res =
+            s.z.mul(&s.t.scale(1.0 / big))
+                .mul(&s.z.t())
+                .sub(&a.scale(1.0 / big))
+                .norm()
+                / a.scale(1.0 / big).norm().max(f64::MIN_POSITIVE);
         let orth = s.z.t().mul(&s.z).sub(&Mat::identity(n)).norm();
         let tol = 1e-14 * (n as f64).max(4.0);
-        assert!(res < tol && orth < tol, "{what}: residual {res:e}, orthogonality {orth:e}");
+        assert!(
+            res < tol && orth < tol,
+            "{what}: residual {res:e}, orthogonality {orth:e}"
+        );
         for i in 1..n {
             for j in 0..i - 1 {
                 assert_eq!(s.t.at(i, j), 0.0, "{what}: t[{i}][{j}]");
             }
             if s.t.at(i, i - 1) != 0.0 {
-                assert!(i + 1 == n || s.t.at(i + 1, i) == 0.0, "{what}: 2 x 2 blocks overlap at {i}");
-                let (a, b, c, d) = (s.t.at(i - 1, i - 1) / big, s.t.at(i - 1, i) / big, s.t.at(i, i - 1) / big, s.t.at(i, i) / big);
-                assert!(((a - d) / 2.0).powi(2) + b * c < 0.0, "{what}: a 2 x 2 block with real eigenvalues at {i}");
+                assert!(
+                    i + 1 == n || s.t.at(i + 1, i) == 0.0,
+                    "{what}: 2 x 2 blocks overlap at {i}"
+                );
+                let (a, b, c, d) = (
+                    s.t.at(i - 1, i - 1) / big,
+                    s.t.at(i - 1, i) / big,
+                    s.t.at(i, i - 1) / big,
+                    s.t.at(i, i) / big,
+                );
+                assert!(
+                    ((a - d) / 2.0).powi(2) + b * c < 0.0,
+                    "{what}: a 2 x 2 block with real eigenvalues at {i}"
+                );
             }
         }
     }
@@ -960,13 +1171,31 @@ mod tests {
             check(&a, &format!("random {n}"));
             check(&a.add(&a.t()), &format!("symmetric {n}"));
             // graded: entries spanning twenty orders of magnitude
-            let g = Mat::from_fn(n, n, |i, j| a.at(i, j) * 10f64.powf(10.0 * (j as f64 - i as f64) / n as f64));
+            let g = Mat::from_fn(n, n, |i, j| {
+                a.at(i, j) * 10f64.powf(10.0 * (j as f64 - i as f64) / n as f64)
+            });
             check(&g, &format!("graded {n}"));
             // a companion matrix (roots spread around a circle: complex pairs throughout)
-            let c = Mat::from_fn(n, n, |i, j| if i == 0 { a.at(0, j) } else if i == j + 1 { 1.0 } else { 0.0 });
+            let c = Mat::from_fn(n, n, |i, j| {
+                if i == 0 {
+                    a.at(0, j)
+                } else if i == j + 1 {
+                    1.0
+                } else {
+                    0.0
+                }
+            });
             check(&c, &format!("companion {n}"));
             // a Jordan block, slightly perturbed (eigenvalues that are very sensitive)
-            let jb = Mat::from_fn(n, n, |i, j| if i == j { 2.0 } else if j == i + 1 { 1.0 } else { 1e-14 * a.at(i, j) });
+            let jb = Mat::from_fn(n, n, |i, j| {
+                if i == j {
+                    2.0
+                } else if j == i + 1 {
+                    1.0
+                } else {
+                    1e-14 * a.at(i, j)
+                }
+            });
             check(&jb, &format!("jordan {n}"));
             // rotations: every eigenvalue in a complex pair of modulus one
             let rot = Mat::from_fn(n, n, |i, j| match (i / 2 == j / 2, i % 2, j % 2) {
@@ -977,7 +1206,10 @@ mod tests {
             });
             check(&rot.add(&a.scale(1e-3)), &format!("rotations {n}"));
             check(&Mat::zeros(n, n), &format!("zero {n}"));
-            check(&Mat::from_fn(n, n, |i, j| if j >= i { a.at(i, j) } else { 0.0 }), &format!("triangular {n}"));
+            check(
+                &Mat::from_fn(n, n, |i, j| if j >= i { a.at(i, j) } else { 0.0 }),
+                &format!("triangular {n}"),
+            );
             check(&a.scale(1e250), &format!("huge {n}"));
             check(&a.scale(1e-250), &format!("tiny {n}"));
         }

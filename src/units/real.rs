@@ -16,7 +16,14 @@ use super::{Complex, Float};
 /// Ordering (comparisons, `select`, `abs`, `minimum` / `maximum`) is [`RealValued`]; per-sample
 /// code uses [`Real`] (the `Copy` real types); array code uses
 /// [`ArrayMath`](crate::signal::ArrayMath), which adds shapes, reductions, products and FFTs.
-pub trait Elementwise: Clone + Add<Output = Self> + Sub<Output = Self> + Mul<Output = Self> + Div<Output = Self> + Neg<Output = Self> {
+pub trait Elementwise:
+    Clone
+    + Add<Output = Self>
+    + Sub<Output = Self>
+    + Mul<Output = Self>
+    + Div<Output = Self>
+    + Neg<Output = Self>
+{
     /// A constant (sample rates, frequencies, coefficients), rounded to this type. For arrays, a
     /// scalar that broadcasts against any shape.
     fn lit(v: f64) -> Self;
@@ -188,7 +195,11 @@ impl<T: Float> Elementwise for Complex<T> {
     }
     fn powf(self, e: Self) -> Self {
         if self.re == T::_ZERO && self.im == T::_ZERO {
-            return if e.re == T::_ZERO && e.im == T::_ZERO { Complex::one() } else { Complex::zero() };
+            return if e.re == T::_ZERO && e.im == T::_ZERO {
+                Complex::one()
+            } else {
+                Complex::zero()
+            };
         }
         (e * Complex::ln(self)).exp()
     }

@@ -6,12 +6,19 @@ use super::*;
 /// Greatest common divisor (Euclid).
 #[cfg(feature = "dsp")]
 pub(crate) fn gcd(a: usize, b: usize) -> usize {
-    if b == 0 { a } else { gcd(b, a % b) }
+    if b == 0 {
+        a
+    } else {
+        gcd(b, a % b)
+    }
 }
 
 /// A primitive integer: totally ordered, bounded, with bit operations, integer powers and checked
 /// casts.
-pub trait Integer: Unit + OrderedReflexive + Bounded + Bitwise + ExpPowDynamic<u32> + CastPrimitive {}
+pub trait Integer:
+    Unit + OrderedReflexive + Bounded + Bitwise + ExpPowDynamic<u32> + CastPrimitive
+{
+}
 
 macro_rules! impl_integer {
     ($SrcT:ident) => {
@@ -31,7 +38,7 @@ macro_rules! impl_integer {
                 $SrcT::pow(self, rhs)
             }
         }
-    }
+    };
 }
 
 impl_integer!(u8);
@@ -92,7 +99,7 @@ macro_rules! impl_basic_unit_bounds {
                 $SrcT::to_ne_bytes(self)
             }
         }
-    }
+    };
 }
 
 impl_basic_unit_bounds!(u8, u8);
@@ -126,7 +133,7 @@ macro_rules! impl_properties {
             const _MIN: Self = $SrcT::MIN;
             const _MAX: Self = $SrcT::MAX;
         }
-    }
+    };
 }
 
 impl_properties!(u8);
@@ -163,7 +170,7 @@ macro_rules! impl_properties_signed {
         impl BoundedSigned for $SrcT {
             const _MIN_POSITIVE: Self = $SrcT::_ZERO;
         }
-    }
+    };
 }
 
 impl_properties_signed!(i8);

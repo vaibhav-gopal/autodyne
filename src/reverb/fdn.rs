@@ -11,7 +11,9 @@ use crate::units::*;
 const LINES: usize = 8;
 /// Line lengths in samples at 44.1 kHz and size 1 (the classic Freeverb comb lengths: spread out and
 /// sharing no common factors, so their echoes don't line up into audible patterns).
-const LENGTHS_44K: [f64; LINES] = [1_116.0, 1_188.0, 1_277.0, 1_356.0, 1_422.0, 1_491.0, 1_557.0, 1_617.0];
+const LENGTHS_44K: [f64; LINES] = [
+    1_116.0, 1_188.0, 1_277.0, 1_356.0, 1_422.0, 1_491.0, 1_557.0, 1_617.0,
+];
 /// Input diffusers (all-pass lengths at 44.1 kHz): smear transients into a dense wash before the network.
 const DIFFUSERS_44K: [f64; 4] = [225.0, 341.0, 441.0, 556.0];
 const MAX_SIZE: f64 = 2.0;
@@ -111,12 +113,17 @@ impl<T: Float> Reverb<T> {
     pub fn new(sample_rate: T) -> Self {
         let fs = sample_rate.to_f64().unwrap_or(48_000.0);
         let scale = fs / 44_100.0;
-        let smoothed = |v: f64| SmoothedValue::new(T::_lit(v)).with_ramp_seconds(T::_lit(0.02), sample_rate);
+        let smoothed =
+            |v: f64| SmoothedValue::new(T::_lit(v)).with_ramp_seconds(T::_lit(0.02), sample_rate);
         let mut reverb = Self {
             sample_rate,
             lines: LENGTHS_44K
                 .iter()
-                .map(|&l| DelayLine::new((l * scale * MAX_SIZE + MAX_MOD_48K * fs / 48_000.0).ceil() as usize + 2))
+                .map(|&l| {
+                    DelayLine::new(
+                        (l * scale * MAX_SIZE + MAX_MOD_48K * fs / 48_000.0).ceil() as usize + 2,
+                    )
+                })
                 .collect(),
             lengths: [1; LINES],
             gains: [T::_ZERO; LINES],
@@ -134,7 +141,10 @@ impl<T: Float> Reverb<T> {
                 .iter()
                 .map(|&l| {
                     let delay = ((l * scale).round() as usize).max(1);
-                    Diffuser { line: DelayLine::new(delay), delay }
+                    Diffuser {
+                        line: DelayLine::new(delay),
+                        delay,
+                    }
                 })
                 .collect(),
             predelay_line: DelayLine::new((MAX_PREDELAY * fs).ceil() as usize + 1),
@@ -156,7 +166,8 @@ impl<T: Float> Reverb<T> {
         let size = self.size.to_f64().unwrap_or(1.0);
         let decay = self.decay.to_f64().unwrap_or(1.0);
         for (i, &base) in LENGTHS_44K.iter().enumerate() {
-            let len = ((base * fs / 44_100.0 * size).round() as usize).clamp(1, self.lines[i].max_delay());
+            let len = ((base * fs / 44_100.0 * size).round() as usize)
+                .clamp(1, self.lines[i].max_delay());
             self.lengths[i] = len;
             // a line of `len` samples is traversed decay*fs/len times per `decay` seconds; together
             // those passes must attenuate by 60 dB
@@ -165,7 +176,11 @@ impl<T: Float> Reverb<T> {
         let fc = self.damping.to_f64().unwrap_or(20_000.0);
         // at the top of the range the low-pass is bypassed (coefficient 1) rather than left slightly
         // closed: even a mild loss per pass adds up over the many passes of a long decay
-        self.damping_coeff = if fc >= 0.45 * fs { T::_ONE } else { T::_lit(1.0 - (-core::f64::consts::TAU * fc / fs).exp()) };
+        self.damping_coeff = if fc >= 0.45 * fs {
+            T::_ONE
+        } else {
+            T::_lit(1.0 - (-core::f64::consts::TAU * fc / fs).exp())
+        };
         self.mod_depth = self.modulation * T::_lit(MAX_MOD_48K * fs / 48_000.0);
         let predelay = (self.predelay_seconds.to_f64().unwrap_or(0.0) * fs).round() as usize;
         self.predelay = predelay.min(self.predelay_line.max_delay());
@@ -287,20 +302,26 @@ impl<T: Float> Reverb<T> {
                 // the fractional part goes through a first-order all-pass interpolator, whose magnitude
                 // response is exactly flat, so the loop loses no energy to interpolation and the decay
                 // time stays exact (linear or cubic interpolation dull the highs a little every pass)
-                let (x0, x1) = (self.lines[i].read(self.mod_whole[i]), self.lines[i].read(self.mod_whole[i] + 1));
+                let (x0, x1) = (
+                    self.lines[i].read(self.mod_whole[i]),
+                    self.lines[i].read(self.mod_whole[i] + 1),
+                );
                 let y = (self.mod_eta[i] * (x0 - self.allpass_state[i]) + x1)._flush_denormal();
                 self.allpass_state[i] = y;
                 y
             };
             left = left + T::_lit(LEFT_SIGNS[i]) * out;
             right = right + T::_lit(RIGHT_SIGNS[i]) * out;
-            self.lowpass[i] = (self.lowpass[i] + self.damping_coeff * (out - self.lowpass[i]))._flush_denormal();
+            self.lowpass[i] =
+                (self.lowpass[i] + self.damping_coeff * (out - self.lowpass[i]))._flush_denormal();
             state[i] = self.lowpass[i] * self.gains[i];
         }
         hadamard(&mut state);
         let input_gain = T::_lit(1.0 / (LINES as f64).sqrt());
         // computed as a whole array first (vectorizes) rather than interleaved with the line writes
-        let writes: [T; LINES] = core::array::from_fn(|i| (state[i] + x * T::_lit(INPUT_SIGNS[i]) * input_gain)._flush_denormal());
+        let writes: [T; LINES] = core::array::from_fn(|i| {
+            (state[i] + x * T::_lit(INPUT_SIGNS[i]) * input_gain)._flush_denormal()
+        });
         for (line, w) in self.lines.iter_mut().zip(writes) {
             line.push(w);
         }
@@ -336,8 +357,8 @@ impl<T: Float> MultiProcessor<T> for Reverb<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::signal::Signal;
     use crate::fft::RealFft;
+    use crate::signal::Signal;
 
     const FS: f64 = 48_000.0;
 
@@ -396,7 +417,10 @@ mod tests {
     fn modulation_smears_modal_peaks() {
         let (static_delays, modulated) = (modal_peakiness(0.0), modal_peakiness(1.0));
         println!("modal peakiness: {static_delays:.1} static, {modulated:.1} modulated");
-        assert!(modulated < 0.5 * static_delays, "static {static_delays:.1} vs modulated {modulated:.1}");
+        assert!(
+            modulated < 0.5 * static_delays,
+            "static {static_delays:.1} vs modulated {modulated:.1}"
+        );
     }
 
     #[test]
@@ -420,7 +444,10 @@ mod tests {
             let (l, _) = impulse_response(&mut reverb, rt60 * 1.5);
             let measured = measured_rt60(&l);
             println!("RT60 set {rt60} s, measured {measured:.3} s");
-            assert!((measured / rt60 - 1.0).abs() < 0.05, "set {rt60} s, measured {measured:.3} s");
+            assert!(
+                (measured / rt60 - 1.0).abs() < 0.05,
+                "set {rt60} s, measured {measured:.3} s"
+            );
         }
     }
 
@@ -434,11 +461,19 @@ mod tests {
             let mut fft = RealFft::new(8_192);
             let mut spectrum = vec![Complex::zero(); fft.spectrum_len()];
             fft.forward(tail, &mut spectrum);
-            let (weighted, total) = spectrum.iter().enumerate().fold((0.0, 0.0), |(w, t), (k, z)| (w + k as f64 * z.norm_sqr(), t + z.norm_sqr()));
+            let (weighted, total) = spectrum
+                .iter()
+                .enumerate()
+                .fold((0.0, 0.0), |(w, t), (k, z)| {
+                    (w + k as f64 * z.norm_sqr(), t + z.norm_sqr())
+                });
             weighted / total * FS / 8_192.0
         };
         let (bright, dark) = (centroid(20_000.0), centroid(2_000.0));
-        assert!(dark < 0.6 * bright, "spectral centroid {dark:.0} Hz with damping vs {bright:.0} Hz without");
+        assert!(
+            dark < 0.6 * bright,
+            "spectral centroid {dark:.0} Hz with damping vs {bright:.0} Hz without"
+        );
     }
 
     #[test]
@@ -455,9 +490,15 @@ mod tests {
         l[1..1_000].fill(f32::MIN_POSITIVE / 2.0);
         reverb.process_stereo(&mut l, &mut r);
         // not a single subnormal sample, anywhere: not from the tail, nor passed through from the input
-        assert!(l.iter().chain(&r).all(|s| !s.is_subnormal()), "no subnormal output");
+        assert!(
+            l.iter().chain(&r).all(|s| !s.is_subnormal()),
+            "no subnormal output"
+        );
         let last = n - fs as usize / 10;
-        assert!(l[last..].iter().chain(&r[last..]).all(|&s| s == 0.0), "the tail ends in exact silence");
+        assert!(
+            l[last..].iter().chain(&r[last..]).all(|&s| s == 0.0),
+            "the tail ends in exact silence"
+        );
     }
 
     #[test]
@@ -466,7 +507,10 @@ mod tests {
         let (l, r) = impulse_response(&mut reverb, 0.5);
         let (tl, tr) = (&l[4_800..], &r[4_800..]);
         let correlation = tl.inner(tr).unwrap() / (tl.norm_l2() * tr.norm_l2());
-        assert!(correlation.abs() < 0.3, "left/right correlation {correlation:.3}");
+        assert!(
+            correlation.abs() < 0.3,
+            "left/right correlation {correlation:.3}"
+        );
 
         let mut mono = Reverb::new(FS);
         mono.set_width(0.0);
@@ -482,7 +526,11 @@ mod tests {
         let input: Vec<f64> = crate::osc::Noise::new(2).take(240_000).collect(); // 5 s of noise
         let (mut l, mut r) = (input.clone(), input.clone());
         reverb.process_stereo(&mut l, &mut r);
-        assert!(l.iter().chain(&r).all(|s| s.is_finite()) && l.peak() < 20.0, "peak {}", l.peak());
+        assert!(
+            l.iter().chain(&r).all(|s| s.is_finite()) && l.peak() < 20.0,
+            "peak {}",
+            l.peak()
+        );
 
         let mut dry = Reverb::new(FS);
         dry.set_mix(0.0);

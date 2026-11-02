@@ -72,9 +72,7 @@ pub trait ToPrimitive: Copy {
 
 /// Checked conversion both ways between a type and every primitive number type.
 pub trait CastPrimitive: FromPrimitive + ToPrimitive {}
-impl<T> CastPrimitive for T
-where T:
-    FromPrimitive + ToPrimitive {}
+impl<T> CastPrimitive for T where T: FromPrimitive + ToPrimitive {}
 
 macro_rules! impl_to_primitive_int_to_int {
     ($SrcT:ident : $( $(#[$cfg:meta])* fn $method:ident -> $DstT:ident ; )*) => {$(

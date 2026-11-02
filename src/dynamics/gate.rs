@@ -1,8 +1,8 @@
 //! Noise gate and downward expander.
 
+use super::{time_coeff, GainComputer};
 #[cfg(not(any(feature = "std", test)))]
 use crate::alloc_prelude::*;
-use super::{time_coeff, GainComputer};
 
 use crate::units::*;
 
@@ -121,7 +121,10 @@ impl<T: Float> Gate<T> {
     /// How long the gate stays open after the level falls below the closing threshold.
     pub fn set_hold(&mut self, seconds: T) {
         self.hold_seconds = seconds._max(T::_ZERO);
-        self.hold_samples = (self.hold_seconds * self.sample_rate).to_f64().unwrap_or(0.0).round() as usize;
+        self.hold_samples = (self.hold_seconds * self.sample_rate)
+            .to_f64()
+            .unwrap_or(0.0)
+            .round() as usize;
     }
     /// Hold time in seconds.
     pub fn hold(&self) -> T {
@@ -155,7 +158,11 @@ impl<T: Float> Gate<T> {
     #[inline]
     pub fn gain_for_level(&mut self, level: T) -> T {
         // peak detector: instant rise, short release
-        self.level = if level > self.level { level } else { level + (self.level - level) * self.detector_coeff };
+        self.level = if level > self.level {
+            level
+        } else {
+            level + (self.level - level) * self.detector_coeff
+        };
         let level_db = gain_to_db(self.level._max(T::_lit(1e-10)));
         if level_db >= self.threshold_db {
             self.open = true;
@@ -171,10 +178,18 @@ impl<T: Float> Gate<T> {
             T::_ZERO
         } else {
             let below = level_db - self.threshold_db; // negative
-            let reduction = if self.ratio._is_finite() { below * (self.ratio - T::_ONE) } else { self.range_db };
+            let reduction = if self.ratio._is_finite() {
+                below * (self.ratio - T::_ONE)
+            } else {
+                self.range_db
+            };
             reduction._max(self.range_db)._min(T::_ZERO)
         };
-        let coeff = if target > self.gain_db { self.attack_coeff } else { self.release_coeff };
+        let coeff = if target > self.gain_db {
+            self.attack_coeff
+        } else {
+            self.release_coeff
+        };
         self.gain_db = (target + (self.gain_db - target) * coeff)._flush_denormal();
         db_to_gain(self.gain_db)
     }
@@ -214,7 +229,10 @@ mod tests {
     #[test]
     fn gates_the_gaps_between_notes() {
         // 100 ms tone bursts at -10 dB with -60 dB noise between them
-        let mut x: Vec<f64> = Noise::<f64>::new(3).take(48_000).map(|n| 1e-3 * n).collect();
+        let mut x: Vec<f64> = Noise::<f64>::new(3)
+            .take(48_000)
+            .map(|n| 1e-3 * n)
+            .collect();
         let mut tone = Sine::new(440.0, FS);
         for burst in [4_800, 19_200, 33_600] {
             for s in &mut x[burst..burst + 4_800] {
@@ -259,14 +277,20 @@ mod tests {
     fn expander_scales_the_level_below_the_threshold() {
         // a steady tone 10 dB under the threshold comes out 10 dB lower still at 2:1
         let mut exp = Gate::expander(-20.0, 2.0, FS);
-        let x: Vec<f64> = Sine::new(1_000.0, FS).take(48_000).map(|s| s * 10f64.powf(-30.0 / 20.0)).collect();
+        let x: Vec<f64> = Sine::new(1_000.0, FS)
+            .take(48_000)
+            .map(|s| s * 10f64.powf(-30.0 / 20.0))
+            .collect();
         let mut y = x.clone();
         exp.process(&mut y);
         let change = rms_db(&y[24_000..]) - rms_db(&x[24_000..]);
         assert!((change + 10.0).abs() < 0.3, "{change} dB");
         // above the threshold: untouched
         let mut exp = Gate::expander(-20.0, 2.0, FS);
-        let loud: Vec<f64> = Sine::new(1_000.0, FS).take(9_600).map(|s| 0.5 * s).collect();
+        let loud: Vec<f64> = Sine::new(1_000.0, FS)
+            .take(9_600)
+            .map(|s| 0.5 * s)
+            .collect();
         let mut y = loud.clone();
         exp.process(&mut y);
         assert!((rms_db(&y[4_800..]) - rms_db(&loud[4_800..])).abs() < 1e-6);

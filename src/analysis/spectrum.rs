@@ -1,8 +1,8 @@
 //! A running spectrum for analyzers and GUIs.
 
 use crate::alloc_prelude::*;
-use crate::processor::Processor;
 use crate::fft::RealFft;
+use crate::processor::Processor;
 use crate::units::*;
 
 /// Analysis window: trades frequency resolution (main-lobe width) against leakage (side lobes).
@@ -34,7 +34,9 @@ impl Window {
             .map(|n| {
                 let x = core::f64::consts::TAU * n as f64 / len as f64;
                 // a0 - a1 cos x + a2 cos 2x - a3 cos 3x
-                let w = terms.iter().enumerate().fold(0.0, |acc, (k, a)| acc + if k % 2 == 0 { *a } else { -*a } * (k as f64 * x).cos());
+                let w = terms.iter().enumerate().fold(0.0, |acc, (k, a)| {
+                    acc + if k % 2 == 0 { *a } else { -*a } * (k as f64 * x).cos()
+                });
                 T::_lit(w)
             })
             .collect()
@@ -146,7 +148,11 @@ impl<T: Float> SpectrumAnalyzer<T> {
     pub fn set_release(&mut self, seconds: T) {
         self.release_seconds = seconds._max(T::_ZERO);
         let frame_seconds = T::_lit(self.hop as f64) / self.sample_rate;
-        self.release_coef = if self.release_seconds > T::_ZERO { (-frame_seconds / self.release_seconds)._exp() } else { T::_ZERO };
+        self.release_coef = if self.release_seconds > T::_ZERO {
+            (-frame_seconds / self.release_seconds)._exp()
+        } else {
+            T::_ZERO
+        };
     }
     /// How fast the peak trace falls, in dB per second.
     pub fn set_peak_fall(&mut self, db_per_second: T) {
@@ -155,7 +161,10 @@ impl<T: Float> SpectrumAnalyzer<T> {
     /// Lowest level reported, in dB (silence reads this).
     pub fn set_floor_db(&mut self, db: T) {
         self.floor_db = db;
-        self.levels.iter_mut().chain(self.peaks.iter_mut()).for_each(|l| *l = l._max(db));
+        self.levels
+            .iter_mut()
+            .chain(self.peaks.iter_mut())
+            .for_each(|l| *l = l._max(db));
     }
     /// Frames computed so far: a GUI can redraw when this changes.
     pub fn frames(&self) -> u64 {
@@ -175,7 +184,10 @@ impl<T: Float> SpectrumAnalyzer<T> {
         self.write = 0;
         self.since_frame = 0;
         let floor = self.floor_db;
-        self.levels.iter_mut().chain(self.peaks.iter_mut()).for_each(|l| *l = floor);
+        self.levels
+            .iter_mut()
+            .chain(self.peaks.iter_mut())
+            .for_each(|l| *l = floor);
     }
 
     /// Feeds samples; returns how many new frames were computed.
@@ -204,10 +216,23 @@ impl<T: Float> SpectrumAnalyzer<T> {
         let power_scale = self.scale * self.scale;
         let fall = self.peak_fall_db_per_s * T::_lit(self.hop as f64) / self.sample_rate;
         let (floor, coef) = (self.floor_db, self.release_coef);
-        for ((z, level), peak) in self.spectrum.iter().zip(self.levels.iter_mut()).zip(self.peaks.iter_mut()) {
+        for ((z, level), peak) in self
+            .spectrum
+            .iter()
+            .zip(self.levels.iter_mut())
+            .zip(self.peaks.iter_mut())
+        {
             let power = z.norm_sqr() * power_scale;
-            let db = if power > T::_ZERO { (T::_lit(10.0) * power._log10())._max(floor) } else { floor };
-            *level = if db >= *level { db } else { db + (*level - db) * coef };
+            let db = if power > T::_ZERO {
+                (T::_lit(10.0) * power._log10())._max(floor)
+            } else {
+                floor
+            };
+            *level = if db >= *level {
+                db
+            } else {
+                db + (*level - db) * coef
+            };
             *peak = (*peak - fall)._max(db)._max(floor);
         }
         self.frames += 1;
@@ -239,14 +264,26 @@ fn band_levels<T: Float>(levels: &[T], sample_rate: T, low_hz: T, high_hz: T, ou
     for (b, o) in out.iter_mut().enumerate() {
         let edge = |i: usize| low * (ratio * T::_lit(i as f64))._exp() / hz_per_bin;
         let (start, end) = (edge(b), edge(b + 1));
-        let (first, past) = (start._ceil().to_f64().unwrap_or(0.0), end._floor().to_f64().unwrap_or(0.0));
+        let (first, past) = (
+            start._ceil().to_f64().unwrap_or(0.0),
+            end._floor().to_f64().unwrap_or(0.0),
+        );
         *o = if past >= first {
             // whole bins inside the band: the loudest
-            let (i0, i1) = (first.clamp(0.0, last) as usize, past.clamp(0.0, last) as usize);
-            levels[i0..=i1].iter().fold(T::_NEG_INFINITY, |m, &l| m._max(l))
+            let (i0, i1) = (
+                first.clamp(0.0, last) as usize,
+                past.clamp(0.0, last) as usize,
+            );
+            levels[i0..=i1]
+                .iter()
+                .fold(T::_NEG_INFINITY, |m, &l| m._max(l))
         } else {
             // narrower than a bin: interpolate at the band's (geometric) center
-            let center = (start * end)._sqrt().to_f64().unwrap_or(0.0).clamp(0.0, last);
+            let center = (start * end)
+                ._sqrt()
+                .to_f64()
+                .unwrap_or(0.0)
+                .clamp(0.0, last);
             let i = (center.floor() as usize).min(bins - 2);
             let frac = T::_lit(center - i as f64);
             levels[i] + (levels[i + 1] - levels[i]) * frac
@@ -284,7 +321,12 @@ mod tests {
             assert!(levels[bin].abs() < 0.01, "{window:?}: {} dB", levels[bin]);
             if window == Window::BlackmanHarris {
                 // far from the tone only the side lobes remain
-                let leak = levels.iter().enumerate().filter(|(k, _)| k.abs_diff(bin) > 4).map(|(_, &l)| l).fold(f64::MIN, f64::max);
+                let leak = levels
+                    .iter()
+                    .enumerate()
+                    .filter(|(k, _)| k.abs_diff(bin) > 4)
+                    .map(|(_, &l)| l)
+                    .fold(f64::MIN, f64::max);
                 assert!(leak < -90.0, "side lobes {leak} dB");
             }
         }
@@ -322,8 +364,15 @@ mod tests {
         let mut a = SpectrumAnalyzer::new(2048, FS);
         a.push(&Sine::new(1_000.0, FS).take(8192).collect::<Vec<f64>>());
         a.bands_db(20.0, 20_000.0, &mut bands);
-        let loudest = bands.iter().enumerate().fold((0, f64::MIN), |m, (i, &b)| if b > m.1 { (i, b) } else { m }).0;
+        let loudest = bands
+            .iter()
+            .enumerate()
+            .fold((0, f64::MIN), |m, (i, &b)| if b > m.1 { (i, b) } else { m })
+            .0;
         let center = 20.0 * 1000f64.powf((loudest as f64 + 0.5) / 96.0);
-        assert!((center / 1_000.0).log2().abs() < 0.1, "loudest band at {center} Hz");
+        assert!(
+            (center / 1_000.0).log2().abs() < 0.1,
+            "loudest band at {center} Hz"
+        );
     }
 }

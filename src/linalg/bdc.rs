@@ -28,9 +28,17 @@ struct Solved {
 /// The SVD of the n x n upper bidiagonal matrix with diagonal `d` and superdiagonal `e` (n - 1):
 /// singular values descending into `d`, left vectors into `u` and right vectors into `v` (both
 /// n x n, column-major, one vector per column), so `B = U diag(d) V^T`.
-pub(crate) fn bidiagonal_svd(d: &mut [f64], e: &[f64], u: &mut [f64], v: &mut [f64]) -> Result<(), NoConvergence> {
+pub(crate) fn bidiagonal_svd(
+    d: &mut [f64],
+    e: &[f64],
+    u: &mut [f64],
+    v: &mut [f64],
+) -> Result<(), NoConvergence> {
     let n = d.len();
-    assert!(e.len() + 1 == n.max(1) && u.len() == n * n && v.len() == n * n, "bidiagonal_svd: n diagonal, n - 1 superdiagonal, n x n vectors");
+    assert!(
+        e.len() + 1 == n.max(1) && u.len() == n * n && v.len() == n * n,
+        "bidiagonal_svd: n diagonal, n - 1 superdiagonal, n x n vectors"
+    );
     if n == 0 {
         return Ok(());
     }
@@ -40,8 +48,14 @@ pub(crate) fn bidiagonal_svd(d: &mut [f64], e: &[f64], u: &mut [f64], v: &mut [f
         return Err(NoConvergence);
     }
     let solved = if scale == 0.0 {
-        let eye: Vec<f64> = (0..n * n).map(|k| if k % (n + 1) == 0 { 1.0 } else { 0.0 }).collect();
-        Solved { s: vec![0.0; n], u: eye.clone(), v: eye }
+        let eye: Vec<f64> = (0..n * n)
+            .map(|k| if k % (n + 1) == 0 { 1.0 } else { 0.0 })
+            .collect();
+        Solved {
+            s: vec![0.0; n],
+            u: eye.clone(),
+            v: eye,
+        }
     } else {
         let ds: Vec<f64> = d.iter().map(|x| x / scale).collect();
         let es: Vec<f64> = e.iter().map(|x| x / scale).collect();
@@ -79,12 +93,24 @@ fn solve(d: &[f64], e: &[f64], sqre: usize) -> Result<Solved, NoConvergence> {
 fn dense(d: &[f64], e: &[f64], sqre: usize) -> Result<Solved, NoConvergence> {
     let n = d.len();
     let m = n + sqre;
-    let b = Mat::<f64>::from_fn(n, m, |i, j| if i == j { d[i] } else if j == i + 1 { e[i] } else { 0.0 });
+    let b = Mat::<f64>::from_fn(n, m, |i, j| {
+        if i == j {
+            d[i]
+        } else if j == i + 1 {
+            e[i]
+        } else {
+            0.0
+        }
+    });
     let svd = b.svd().map_err(|_| NoConvergence)?;
     let (u, v) = (svd.U(), svd.V());
     let s = (0..n).map(|i| svd.S()[i]).collect();
-    let u = (0..n).flat_map(|j| (0..n).map(move |i| u[(i, j)])).collect();
-    let v = (0..m).flat_map(|j| (0..m).map(move |i| v[(i, j)])).collect();
+    let u = (0..n)
+        .flat_map(|j| (0..n).map(move |i| u[(i, j)]))
+        .collect();
+    let v = (0..m)
+        .flat_map(|j| (0..m).map(move |i| v[(i, j)]))
+        .collect();
     Ok(Solved { s, u, v })
 }
 
@@ -114,7 +140,17 @@ fn by_block(kept: &[usize], blocks: &[Block]) -> (Vec<usize>, Vec<usize>, [usize
 }
 
 #[allow(clippy::too_many_arguments)]
-fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta: f64, top: Solved, bottom: Solved) -> Result<Solved, NoConvergence> {
+fn merge(
+    n: usize,
+    m: usize,
+    nl: usize,
+    nr: usize,
+    sqre: usize,
+    alpha: f64,
+    beta: f64,
+    top: Solved,
+    bottom: Solved,
+) -> Result<Solved, NoConvergence> {
     let (m1, m2) = (nl + 1, nr + sqre);
     // the broken arrow's entries: value, coupling in the middle row, and the left (n) and right
     // (m) basis vectors they stand for, as columns of `lw` and `rw`
@@ -126,9 +162,20 @@ fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta
     let mut rblock = vec![Block::Top; n];
     // entry 0: the null directions (V1's last column, and V2's last with sqre) combined into the
     // one carrying all their coupling, value 0; the other combination couples nothing (B's null)
-    let (za, zb) = (alpha * top.v[nl * m1 + nl], if sqre == 1 { beta * bottom.v[nr * m2] } else { 0.0 });
+    let (za, zb) = (
+        alpha * top.v[nl * m1 + nl],
+        if sqre == 1 {
+            beta * bottom.v[nr * m2]
+        } else {
+            0.0
+        },
+    );
     let r = za.hypot(zb);
-    let (c, s) = if r == 0.0 { (1.0, 0.0) } else { (za / r, zb / r) };
+    let (c, s) = if r == 0.0 {
+        (1.0, 0.0)
+    } else {
+        (za / r, zb / r)
+    };
     z[0] = r;
     lw[nl] = 1.0;
     lblock[0] = Block::Middle;
@@ -238,7 +285,15 @@ fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta
     let mut delta = vec![0.0; k * k];
     let mut sigma = vec![0.0; k];
     for i in 0..k {
-        let (o, tau) = secular(k, &z2, rho, i, |o| dk.iter().map(|&v| (v - dk[o]) * (v + dk[o])).collect(), |i| (dk[i + 1] - dk[i]) * (dk[i + 1] + dk[i]), &mut delta[i * k..(i + 1) * k])?;
+        let (o, tau) = secular(
+            k,
+            &z2,
+            rho,
+            i,
+            |o| dk.iter().map(|&v| (v - dk[o]) * (v + dk[o])).collect(),
+            |i| (dk[i + 1] - dk[i]) * (dk[i + 1] + dk[i]),
+            &mut delta[i * k..(i + 1) * k],
+        )?;
         sigma[i] = (dk[o] * dk[o] + tau).max(0.0).sqrt();
     }
     // Gu & Eisenstat: the coupling for which the computed values are exact (where rounding leaves
@@ -247,12 +302,24 @@ fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta
     for j in 0..k {
         let row = &delta[j * k..(j + 1) * k];
         for (range_w, range_d) in [(0..j, 0..j), (j + 1..k, j + 1..k)] {
-            for ((w, &dl), &di) in w[range_w].iter_mut().zip(&row[range_d.clone()]).zip(&dk[range_d]) {
+            for ((w, &dl), &di) in w[range_w]
+                .iter_mut()
+                .zip(&row[range_d.clone()])
+                .zip(&dk[range_d])
+            {
                 *w *= dl / ((di - dk[j]) * (di + dk[j]));
             }
         }
     }
-    let zhat: Vec<f64> = (0..k).map(|i| if -w[i] > 0.0 && w[i].is_finite() { (-w[i]).sqrt().copysign(zk[i]) } else { zk[i] }).collect();
+    let zhat: Vec<f64> = (0..k)
+        .map(|i| {
+            if -w[i] > 0.0 && w[i].is_finite() {
+                (-w[i]).sqrt().copysign(zk[i])
+            } else {
+                zk[i]
+            }
+        })
+        .collect();
 
     // the kept entries in block order, separately for the left and right bases, so each half's rows
     // come from a contiguous run of them
@@ -269,7 +336,9 @@ fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta
             vc[i] = zhat[i] / row[i];
             uc[i] = if i == 0 { -1.0 } else { dk[i] * vc[i] };
         }
-        let nearest = (0..k).min_by(|&a, &b| row[a].abs().total_cmp(&row[b].abs())).unwrap_or(0);
+        let nearest = (0..k)
+            .min_by(|&a, &b| row[a].abs().total_cmp(&row[b].abs()))
+            .unwrap_or(0);
         normalize(&mut vc, nearest);
         normalize(&mut uc, nearest);
         for i in 0..k {
@@ -279,22 +348,60 @@ fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta
     }
     // back to the full spaces, block by block: a half's rows come from its own and the mixed
     // vectors; the middle row of the left vectors from entry 0 alone
-    let gather = |w: &[f64], len: usize, idx: &[usize], cols: &std::ops::Range<usize>, rows: &std::ops::Range<usize>| -> Vec<f64> {
-        idx[cols.clone()].iter().flat_map(|&i| w[kept[i] * len + rows.start..kept[i] * len + rows.end].iter().copied()).collect()
+    let gather = |w: &[f64],
+                  len: usize,
+                  idx: &[usize],
+                  cols: &std::ops::Range<usize>,
+                  rows: &std::ops::Range<usize>|
+     -> Vec<f64> {
+        idx[cols.clone()]
+            .iter()
+            .flat_map(|&i| {
+                w[kept[i] * len + rows.start..kept[i] * len + rows.end]
+                    .iter()
+                    .copied()
+            })
+            .collect()
     };
     let mut u_out = vec![0.0; n * k];
     let mut v_out = vec![0.0; m * k];
-    for (rows, cols) in [(0..nl, 0..left_top + left_mixed), (nl + 1..n, left_top..left_top + left_mixed + left_bottom)] {
+    for (rows, cols) in [
+        (0..nl, 0..left_top + left_mixed),
+        (nl + 1..n, left_top..left_top + left_mixed + left_bottom),
+    ] {
         let a = gather(&lw, n, &left_idx, &cols, &rows);
-        product_into(&a, rows.len(), &um, k, cols.start, cols.len(), &mut u_out, n, rows.start);
+        product_into(
+            &a,
+            rows.len(),
+            &um,
+            k,
+            cols.start,
+            cols.len(),
+            &mut u_out,
+            n,
+            rows.start,
+        );
     }
     let middle = left_pos[0];
     for j in 0..k {
         u_out[j * n + nl] = um[j * k + middle];
     }
-    for (rows, cols) in [(0..m1, 0..right_top + right_mixed), (m1..m, right_top..right_top + right_mixed + right_bottom)] {
+    for (rows, cols) in [
+        (0..m1, 0..right_top + right_mixed),
+        (m1..m, right_top..right_top + right_mixed + right_bottom),
+    ] {
         let a = gather(&rw, m, &right_idx, &cols, &rows);
-        product_into(&a, rows.len(), &vm, k, cols.start, cols.len(), &mut v_out, m, rows.start);
+        product_into(
+            &a,
+            rows.len(),
+            &vm,
+            k,
+            cols.start,
+            cols.len(),
+            &mut v_out,
+            m,
+            rows.start,
+        );
     }
 
     let mut s = sigma;
@@ -317,14 +424,25 @@ fn merge(n: usize, m: usize, nl: usize, nr: usize, sqre: usize, alpha: f64, beta
 /// `out[r0..r0 + rows, :] = a (rows x nc) * b[c0..c0 + nc, :]`, `b` k x k column-major and `out`
 /// column-major with leading dimension `ld`.
 #[allow(clippy::too_many_arguments)]
-fn product_into(a: &[f64], rows: usize, b: &[f64], k: usize, c0: usize, nc: usize, out: &mut [f64], ld: usize, r0: usize) {
+fn product_into(
+    a: &[f64],
+    rows: usize,
+    b: &[f64],
+    k: usize,
+    c0: usize,
+    nc: usize,
+    out: &mut [f64],
+    ld: usize,
+    r0: usize,
+) {
     if rows == 0 || nc == 0 {
         return;
     }
     let a = MatRef::from_column_major_slice(a, rows, nc);
     let b = MatRef::from_column_major_slice(b, k, k).subrows(c0, nc);
     // SAFETY: rows r0..r0 + rows of the ld x k column-major `out`
-    let c = unsafe { MatMut::from_raw_parts_mut(out.as_mut_ptr().add(r0), rows, k, 1, ld as isize) };
+    let c =
+        unsafe { MatMut::from_raw_parts_mut(out.as_mut_ptr().add(r0), rows, k, 1, ld as isize) };
     faer::linalg::matmul::matmul(c, Accum::Replace, a, b, 1.0, Par::Seq);
 }
 
@@ -349,13 +467,21 @@ mod tests {
     fn check(d: &[f64], e: &[f64], what: &str) {
         let n = d.len();
         let (mut s, mut u, mut v) = (d.to_vec(), vec![0.0; n * n], vec![0.0; n * n]);
-        bidiagonal_svd(&mut s, e, &mut u, &mut v).unwrap_or_else(|_| panic!("{what}: no convergence"));
+        bidiagonal_svd(&mut s, e, &mut u, &mut v)
+            .unwrap_or_else(|_| panic!("{what}: no convergence"));
         let mut want = d.to_vec();
         super::super::values::bidiagonal_singular_values(&mut want, e).unwrap();
-        let norm = d.iter().chain(e).fold(0.0f64, |m, x| m.max(x.abs())).max(f64::MIN_POSITIVE);
+        let norm = d
+            .iter()
+            .chain(e)
+            .fold(0.0f64, |m, x| m.max(x.abs()))
+            .max(f64::MIN_POSITIVE);
         let tol = 1e-13 * (n as f64).max(1.0);
         for (a, b) in s.iter().zip(&want) {
-            assert!((a - b).abs() <= tol * norm, "{what}: singular value {a} vs {b}");
+            assert!(
+                (a - b).abs() <= tol * norm,
+                "{what}: singular value {a} vs {b}"
+            );
         }
         assert!(s.windows(2).all(|w| w[0] >= w[1]), "{what}: not descending");
         for (name, q) in [("U", &u), ("V", &v)] {
@@ -363,7 +489,10 @@ mod tests {
                 for j in 0..n {
                     let dot: f64 = (0..n).map(|r| q[i * n + r] * q[j * n + r]).sum();
                     let want = if i == j { 1.0 } else { 0.0 };
-                    assert!((dot - want).abs() <= tol, "{what}: {name} columns {i}, {j}: {dot}");
+                    assert!(
+                        (dot - want).abs() <= tol,
+                        "{what}: {name} columns {i}, {j}: {dot}"
+                    );
                 }
             }
         }
@@ -373,15 +502,25 @@ mod tests {
                 if r + 1 < n {
                     bv += e[r] * v[j * n + r + 1];
                 }
-                assert!((bv - s[j] * u[j * n + r]).abs() <= tol * norm, "{what}: residual at {j}, {r}");
+                assert!(
+                    (bv - s[j] * u[j * n + r]).abs() <= tol * norm,
+                    "{what}: residual at {j}, {r}"
+                );
             }
         }
     }
 
     #[test]
     fn random_bidiagonals_of_many_sizes() {
-        for (k, n) in [1, 2, 3, 24, 25, 26, 27, 40, 51, 52, 53, 77, 100, 150].into_iter().enumerate() {
-            check(&random(n, 10 + k as u64), &random(n.saturating_sub(1), 100 + k as u64), &format!("random {n}"));
+        for (k, n) in [1, 2, 3, 24, 25, 26, 27, 40, 51, 52, 53, 77, 100, 150]
+            .into_iter()
+            .enumerate()
+        {
+            check(
+                &random(n, 10 + k as u64),
+                &random(n.saturating_sub(1), 100 + k as u64),
+                &format!("random {n}"),
+            );
         }
     }
 
@@ -392,9 +531,23 @@ mod tests {
         let r = random(n * 2, 77);
         let a = faer::Mat::<f64>::from_fn(n, n, |i, j| r[i * 2 + j % 2]);
         let bs = faer::linalg::qr::no_pivoting::factor::recommended_block_size::<f64>(n, n);
-        let (mut bid, mut hl, mut hr) = (a.clone(), faer::Mat::<f64>::zeros(bs, n), faer::Mat::<f64>::zeros(bs, n - 1));
-        let mut buf = faer::dyn_stack::MemBuffer::new(faer::linalg::svd::bidiag::bidiag_in_place_scratch::<f64>(n, n, Par::Seq, Default::default()));
-        faer::linalg::svd::bidiag::bidiag_in_place(bid.as_mut(), hl.as_mut(), hr.as_mut(), Par::Seq, faer::dyn_stack::MemStack::new(&mut buf), Default::default());
+        let (mut bid, mut hl, mut hr) = (
+            a.clone(),
+            faer::Mat::<f64>::zeros(bs, n),
+            faer::Mat::<f64>::zeros(bs, n - 1),
+        );
+        let mut buf =
+            faer::dyn_stack::MemBuffer::new(faer::linalg::svd::bidiag::bidiag_in_place_scratch::<
+                f64,
+            >(n, n, Par::Seq, Default::default()));
+        faer::linalg::svd::bidiag::bidiag_in_place(
+            bid.as_mut(),
+            hl.as_mut(),
+            hr.as_mut(),
+            Par::Seq,
+            faer::dyn_stack::MemStack::new(&mut buf),
+            Default::default(),
+        );
         let d: Vec<f64> = (0..n).map(|i| bid[(i, i)]).collect();
         let e: Vec<f64> = (0..n - 1).map(|i| bid[(i, i + 1)]).collect();
         check(&d, &e, "rank 2");
@@ -407,7 +560,9 @@ mod tests {
         check(&random(n, 3), &vec![0.0; n - 1], "diagonal");
         check(&vec![1.0; n], &vec![1.0; n - 1], "ones");
         let d: Vec<f64> = (0..n).map(|i| (i % 3) as f64).collect();
-        let e: Vec<f64> = (0..n - 1).map(|i| if i % 10 == 9 { 0.0 } else { 1e-3 }).collect();
+        let e: Vec<f64> = (0..n - 1)
+            .map(|i| if i % 10 == 9 { 0.0 } else { 1e-3 })
+            .collect();
         check(&d, &e, "repeated with zeros");
         let d: Vec<f64> = (0..60).map(|i| 10f64.powi(-i / 4)).collect();
         let e: Vec<f64> = (0..59).map(|i| 10f64.powi(-i / 4 - 1)).collect();
@@ -415,6 +570,10 @@ mod tests {
         let mut d = random(80, 5);
         d[40] = 0.0;
         check(&d, &random(79, 6), "a zero on the diagonal");
-        check(&random(80, 7).iter().map(|x| x * 1e300).collect::<Vec<_>>(), &random(79, 8).iter().map(|x| x * 1e300).collect::<Vec<_>>(), "huge");
+        check(
+            &random(80, 7).iter().map(|x| x * 1e300).collect::<Vec<_>>(),
+            &random(79, 8).iter().map(|x| x * 1e300).collect::<Vec<_>>(),
+            "huge",
+        );
     }
 }

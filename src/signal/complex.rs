@@ -15,7 +15,9 @@ pub trait ComplexSignal {
 
     /// Sum of |z|^2.
     fn energy(&self) -> Self::Real {
-        self.samples().iter().fold(Self::Real::_ZERO, |s, z| s + z.norm_sqr())
+        self.samples()
+            .iter()
+            .fold(Self::Real::_ZERO, |s, z| s + z.norm_sqr())
     }
     /// Mean of |z|^2.
     fn power(&self) -> Option<Self::Real> {
@@ -28,12 +30,20 @@ pub trait ComplexSignal {
     }
     /// Largest magnitude (0 for an empty signal).
     fn peak(&self) -> Self::Real {
-        self.samples().iter().fold(Self::Real::_ZERO, |m, z| m._max(z.norm()))
+        self.samples()
+            .iter()
+            .fold(Self::Real::_ZERO, |m, z| m._max(z.norm()))
     }
     /// Index of the sample with the largest magnitude, e.g. the strongest FFT bin.
     fn argmax_magnitude(&self) -> Option<usize> {
         let x = self.samples();
-        (0..x.len()).reduce(|best, i| if x[i].norm_sqr() > x[best].norm_sqr() { i } else { best })
+        (0..x.len()).reduce(|best, i| {
+            if x[i].norm_sqr() > x[best].norm_sqr() {
+                i
+            } else {
+                best
+            }
+        })
     }
     /// Hermitian inner product: `sum of a[n] * conj(b[n])`.
     fn inner(&self, other: &[Complex<Self::Real>]) -> Result<Complex<Self::Real>, SignalError> {
@@ -41,7 +51,9 @@ pub trait ComplexSignal {
         if x.len() != other.len() {
             return Err(SignalError::LengthMismatch(x.len(), other.len()));
         }
-        Ok(x.iter().zip(other).fold(Complex::zero(), |s, (&a, &b)| s + a * b.conj()))
+        Ok(x.iter()
+            .zip(other)
+            .fold(Complex::zero(), |s, (&a, &b)| s + a * b.conj()))
     }
     /// Conjugates every sample in place (mirrors a spectrum, reverses rotation direction).
     fn conj_in_place(&mut self) {
@@ -68,7 +80,11 @@ pub trait ComplexSignal {
         self.map_into(out, |z| z.im)
     }
     /// f(z) per sample into `out`. Errors unless lengths match.
-    fn map_into(&self, out: &mut [Self::Real], f: impl Fn(Complex<Self::Real>) -> Self::Real) -> Result<(), SignalError> {
+    fn map_into(
+        &self,
+        out: &mut [Self::Real],
+        f: impl Fn(Complex<Self::Real>) -> Self::Real,
+    ) -> Result<(), SignalError> {
         let x = self.samples();
         if x.len() != out.len() {
             return Err(SignalError::LengthMismatch(x.len(), out.len()));

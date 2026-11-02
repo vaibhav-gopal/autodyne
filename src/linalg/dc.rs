@@ -18,9 +18,16 @@ const EPS: f64 = f64::EPSILON / 2.0;
 /// The eigenvalues (ascending, into `d`) and orthonormal eigenvectors (the columns of `q`, n x n,
 /// column-major) of the symmetric tridiagonal matrix with diagonal `d` (n) and off-diagonal `e`
 /// (n - 1).
-pub(crate) fn tridiagonal_eigen(d: &mut [f64], e: &[f64], q: &mut [f64]) -> Result<(), NoConvergence> {
+pub(crate) fn tridiagonal_eigen(
+    d: &mut [f64],
+    e: &[f64],
+    q: &mut [f64],
+) -> Result<(), NoConvergence> {
     let n = d.len();
-    assert!(e.len() + 1 == n.max(1) && q.len() == n * n, "tridiagonal_eigen: n diagonal, n - 1 off-diagonal, n x n vectors");
+    assert!(
+        e.len() + 1 == n.max(1) && q.len() == n * n,
+        "tridiagonal_eigen: n diagonal, n - 1 off-diagonal, n x n vectors"
+    );
     q.fill(0.0);
     if n == 0 {
         return Ok(());
@@ -62,13 +69,28 @@ fn solve(d: &mut [f64], e: &mut [f64], q: &mut [f64], ld: usize) -> Result<(), N
 
 /// Merges two solved halves (eigenvalues `d[..m]`, `d[m..]` ascending; vectors in the diagonal
 /// blocks of `q`) under the rank-one update `beta v v^T`.
-fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64) -> Result<(), NoConvergence> {
+fn merge(
+    d: &mut [f64],
+    q: &mut [f64],
+    ld: usize,
+    m: usize,
+    beta: f64,
+    sign: f64,
+) -> Result<(), NoConvergence> {
     let n = d.len();
     let col = |q: &[f64], j: usize| q[j * ld..j * ld + n].to_vec();
     // z = Q^T v: the last row of Q1 and (signed) the first row of Q2; |v| = sqrt 2, so z / sqrt 2 and
     // rho = 2 beta
     let s2 = std::f64::consts::FRAC_1_SQRT_2;
-    let z: Vec<f64> = (0..n).map(|j| if j < m { q[j * ld + m - 1] * s2 } else { sign * q[j * ld + m] * s2 }).collect();
+    let z: Vec<f64> = (0..n)
+        .map(|j| {
+            if j < m {
+                q[j * ld + m - 1] * s2
+            } else {
+                sign * q[j * ld + m] * s2
+            }
+        })
+        .collect();
     let rho = 2.0 * beta;
     // the two halves' eigenvalues in one ascending order
     let mut order: Vec<usize> = (0..n).collect();
@@ -118,7 +140,10 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
     }
 
     let k = kept.len();
-    let mut pairs: Vec<(f64, Vec<f64>)> = deflated.iter().map(|&j| (ds[j], std::mem::take(&mut qs[j]))).collect();
+    let mut pairs: Vec<(f64, Vec<f64>)> = deflated
+        .iter()
+        .map(|&j| (ds[j], std::mem::take(&mut qs[j])))
+        .collect();
     if k > 0 {
         let dk: Vec<f64> = kept.iter().map(|&j| ds[j]).collect();
         let zk: Vec<f64> = kept.iter().map(|&j| zs[j]).collect();
@@ -127,7 +152,15 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
         let mut delta = vec![0.0; k * k];
         let mut lambda = vec![0.0; k];
         for i in 0..k {
-            let (origin, tau) = secular(k, &z2k, rho, i, |o| dk.iter().map(|&v| v - dk[o]).collect(), |i| dk[i + 1] - dk[i], &mut delta[i * k..(i + 1) * k])?;
+            let (origin, tau) = secular(
+                k,
+                &z2k,
+                rho,
+                i,
+                |o| dk.iter().map(|&v| v - dk[o]).collect(),
+                |i| dk[i + 1] - dk[i],
+                &mut delta[i * k..(i + 1) * k],
+            )?;
             lambda[i] = dk[origin] + tau;
         }
         // Gu & Eisenstat: the z for which the computed eigenvalues are exact
@@ -136,13 +169,25 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
             let row = &delta[j * k..(j + 1) * k];
             // i != j, as two branch-free runs
             for (range_w, range_d) in [(0..j, 0..j), (j + 1..k, j + 1..k)] {
-                for ((w, &dl), &di) in w[range_w].iter_mut().zip(&row[range_d.clone()]).zip(&dk[range_d]) {
+                for ((w, &dl), &di) in w[range_w]
+                    .iter_mut()
+                    .zip(&row[range_d.clone()])
+                    .zip(&dk[range_d])
+                {
                     *w *= dl / (di - dk[j]);
                 }
             }
         }
         // (where rounding leaves no positive square, the coupling as it was)
-        let zhat: Vec<f64> = (0..k).map(|i| if -w[i] > 0.0 && w[i].is_finite() { (-w[i]).sqrt().copysign(zk[i]) } else { zk[i] }).collect();
+        let zhat: Vec<f64> = (0..k)
+            .map(|i| {
+                if -w[i] > 0.0 && w[i].is_finite() {
+                    (-w[i]).sqrt().copysign(zk[i])
+                } else {
+                    zk[i]
+                }
+            })
+            .collect();
         // A column from the first half is zero in the second half's rows and the other way round
         // (only rotated columns mix them): the kept columns in the order first half only, mixed,
         // second half only, so the top rows of the result come from a leading block of them and
@@ -181,7 +226,9 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
                 column.iter_mut().for_each(|v| *v *= scale);
             } else {
                 // collapsed: the nearest pole's direction
-                let nearest = (0..k).min_by(|&a, &b| row[a].abs().total_cmp(&row[b].abs())).unwrap_or(0);
+                let nearest = (0..k)
+                    .min_by(|&a, &b| row[a].abs().total_cmp(&row[b].abs()))
+                    .unwrap_or(0);
                 column.fill(0.0);
                 column[pos[nearest]] = 1.0;
             }
@@ -195,13 +242,19 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
             if nr == 0 || nc == 0 {
                 continue;
             }
-            let qa: Vec<f64> = ordered[cols.clone()].iter().flat_map(|&j| qs[j][rows.clone()].iter().copied()).collect();
+            let qa: Vec<f64> = ordered[cols.clone()]
+                .iter()
+                .flat_map(|&j| qs[j][rows.clone()].iter().copied())
+                .collect();
             let a = MatRef::from_column_major_slice(&qa, nr, nc);
             let b = MatRef::from_column_major_slice(&u, k, k).subrows(cols.start, nc);
             // SAFETY: rows r0..r0 + nr of the n x k column-major `out`
-            let c = unsafe { MatMut::from_raw_parts_mut(out.as_mut_ptr().add(r0), nr, k, 1, n as isize) };
+            let c = unsafe {
+                MatMut::from_raw_parts_mut(out.as_mut_ptr().add(r0), nr, k, 1, n as isize)
+            };
             faer::linalg::matmul::matmul(c, Accum::Replace, a, b, 1.0, Par::Seq);
-        }        for (j, &l) in lambda.iter().enumerate() {
+        }
+        for (j, &l) in lambda.iter().enumerate() {
             pairs.push((l, out[j * n..(j + 1) * n].to_vec()));
         }
     }
@@ -218,7 +271,15 @@ fn merge(d: &mut [f64], q: &mut [f64], ld: usize, m: usize, beta: f64, sign: f64
 /// The poles enter through `offsets(o)`, every `p_j - p_o` (computed accurately by the caller), and
 /// `gap(i) = p_{i+1} - p_i`. Returns the origin `o`, the pole nearer the root, and `tau = x - p_o`;
 /// writes `p_j - x` into `delta`, so the differences keep their relative accuracy.
-pub(crate) fn secular(k: usize, z2: &[f64], rho: f64, i: usize, offsets: impl Fn(usize) -> Vec<f64>, gap: impl Fn(usize) -> f64, delta: &mut [f64]) -> Result<(usize, f64), NoConvergence> {
+pub(crate) fn secular(
+    k: usize,
+    z2: &[f64],
+    rho: f64,
+    i: usize,
+    offsets: impl Fn(usize) -> Vec<f64>,
+    gap: impl Fn(usize) -> f64,
+    delta: &mut [f64],
+) -> Result<(usize, f64), NoConvergence> {
     let rho_inv = 1.0 / rho;
     let last = i + 1 == k;
     if k == 1 {
@@ -233,7 +294,11 @@ pub(crate) fn secular(k: usize, z2: &[f64], rho: f64, i: usize, offsets: impl Fn
         let half = gap(i) / 2.0;
         let from_i = offsets(i);
         let f: f64 = rho_inv + (0..k).map(|j| z2[j] / (from_i[j] - half)).sum::<f64>();
-        if f >= 0.0 { (i, 0.0, half, from_i) } else { (i + 1, -half, 0.0, offsets(i + 1)) }
+        if f >= 0.0 {
+            (i, 0.0, half, from_i)
+        } else {
+            (i + 1, -half, 0.0, offsets(i + 1))
+        }
     };
     // the poles either side of the root (for the last root: the last two, both to its left)
     let (p, r) = if last { (k - 2, k - 1) } else { (i, i + 1) };
@@ -243,7 +308,11 @@ pub(crate) fn secular(k: usize, z2: &[f64], rho: f64, i: usize, offsets: impl Fn
         // (positive); two branch-free loops, one division a term
         let side = |range: std::ops::Range<usize>, delta: &mut [f64]| {
             let (mut sum, mut slope) = (0.0, 0.0);
-            for ((dl, &d), &w) in delta[range.clone()].iter_mut().zip(&dd[range.clone()]).zip(&z2[range]) {
+            for ((dl, &d), &w) in delta[range.clone()]
+                .iter_mut()
+                .zip(&dd[range.clone()])
+                .zip(&z2[range])
+            {
                 let dj = d - tau;
                 *dl = dj;
                 let inv = 1.0 / dj;
@@ -258,7 +327,9 @@ pub(crate) fn secular(k: usize, z2: &[f64], rho: f64, i: usize, offsets: impl Fn
         let bound = phi - psi;
         let f = rho_inv + psi + phi;
         // f's rounding error, as dlaed4 bounds it (the terms, 1 / rho, and tau's own error)
-        if f == 0.0 || f.abs() <= EPS * (8.0 * bound + 2.0 * rho_inv + 3.0 * tau.abs() * (dpsi + dphi)) {
+        if f == 0.0
+            || f.abs() <= EPS * (8.0 * bound + 2.0 * rho_inv + 3.0 * tau.abs() * (dpsi + dphi))
+        {
             return Ok((origin, tau));
         }
         if f < 0.0 {
@@ -273,21 +344,35 @@ pub(crate) fn secular(k: usize, z2: &[f64], rho: f64, i: usize, offsets: impl Fn
         let b = dpsi * pp * pp;
         let c = dphi * rr * rr;
         let cst = rho_inv + (psi - b / pp) + (phi - c / rr);
-        let (a2, a1, a0) = (cst, cst * (pp + rr) + b + c, cst * pp * rr + b * rr + c * pp);
+        let (a2, a1, a0) = (
+            cst,
+            cst * (pp + rr) + b + c,
+            cst * pp * rr + b * rr + c * pp,
+        );
         let eta = if a2 == 0.0 {
             a0 / a1
         } else {
             let sq = (a1 * a1 - 4.0 * a2 * a0).max(0.0).sqrt();
-            let (r1, r2) = if a1 >= 0.0 { ((a1 + sq) / (2.0 * a2), 2.0 * a0 / (a1 + sq)) } else { (2.0 * a0 / (a1 - sq), (a1 - sq) / (2.0 * a2)) };
+            let (r1, r2) = if a1 >= 0.0 {
+                ((a1 + sq) / (2.0 * a2), 2.0 * a0 / (a1 + sq))
+            } else {
+                (2.0 * a0 / (a1 - sq), (a1 - sq) / (2.0 * a2))
+            };
             // between the two poles, or past both for the last root
             let fits = |eta: f64| if last { eta > rr } else { eta > pp && eta < rr };
-            if fits(r1) { r1 } else { r2 }
+            if fits(r1) {
+                r1
+            } else {
+                r2
+            }
         };
         let mut next = tau + eta;
         if !(next > lo && next < hi) || !next.is_finite() {
             next = (lo + hi) / 2.0;
         }
-        if (next - tau).abs() <= 2.0 * EPS * next.abs().max(f64::MIN_POSITIVE) || hi - lo <= 4.0 * EPS * tau.abs().max(f64::MIN_POSITIVE) {
+        if (next - tau).abs() <= 2.0 * EPS * next.abs().max(f64::MIN_POSITIVE)
+            || hi - lo <= 4.0 * EPS * tau.abs().max(f64::MIN_POSITIVE)
+        {
             for j in 0..k {
                 delta[j] = dd[j] - next;
             }
@@ -379,7 +464,10 @@ fn ql(d: &mut [f64], e: &[f64], q: &mut [f64], ld: usize) -> Result<(), NoConver
     let mut order: Vec<usize> = (0..n).collect();
     order.sort_by(|&a, &b| d[a].total_cmp(&d[b]));
     let values: Vec<f64> = order.iter().map(|&i| d[i]).collect();
-    let vectors: Vec<Vec<f64>> = order.iter().map(|&i| q[i * ld..i * ld + n].to_vec()).collect();
+    let vectors: Vec<Vec<f64>> = order
+        .iter()
+        .map(|&i| q[i * ld..i * ld + n].to_vec())
+        .collect();
     for (j, (v, x)) in values.into_iter().zip(vectors).enumerate() {
         d[j] = v;
         q[j * ld..j * ld + n].copy_from_slice(&x);
@@ -397,15 +485,23 @@ mod tests {
         let n = d.len();
         let mut values = d.to_vec();
         let mut q = vec![0.0; n * n];
-        tridiagonal_eigen(&mut values, e, &mut q).unwrap_or_else(|_| panic!("{what}: no convergence"));
+        tridiagonal_eigen(&mut values, e, &mut q)
+            .unwrap_or_else(|_| panic!("{what}: no convergence"));
         let mut want = d.to_vec();
         super::super::values::tridiagonal_eigenvalues(&mut want, e).unwrap();
-        let norm = d.iter().chain(e).fold(0.0f64, |m, v| m.max(v.abs())).max(f64::MIN_POSITIVE);
+        let norm = d
+            .iter()
+            .chain(e)
+            .fold(0.0f64, |m, v| m.max(v.abs()))
+            .max(f64::MIN_POSITIVE);
         let tol = 1e-13 * (n as f64).max(1.0);
         for (a, b) in values.iter().zip(&want) {
             assert!((a - b).abs() <= tol * norm, "{what}: eigenvalue {a} vs {b}");
         }
-        assert!(values.windows(2).all(|w| w[0] <= w[1]), "{what}: not ascending");
+        assert!(
+            values.windows(2).all(|w| w[0] <= w[1]),
+            "{what}: not ascending"
+        );
         for i in 0..n {
             for j in 0..n {
                 let dot: f64 = (0..n).map(|r| q[i * n + r] * q[j * n + r]).sum();
@@ -422,7 +518,11 @@ mod tests {
                 if r + 1 < n {
                     t += e[r] * x[r + 1];
                 }
-                assert!((t - values[i] * x[r]).abs() <= tol * norm, "{what}: residual {} at {i}, {r}", t - values[i] * x[r]);
+                assert!(
+                    (t - values[i] * x[r]).abs() <= tol * norm,
+                    "{what}: residual {} at {i}, {r}",
+                    t - values[i] * x[r]
+                );
             }
         }
     }
@@ -442,13 +542,23 @@ mod tests {
         let (mut v, mut q) = (d.clone(), vec![0.0; n * n]);
         let t = std::time::Instant::now();
         ql(&mut v, &e, &mut q, n).unwrap();
-        eprintln!("TIMING d&c {best:.3} ms | ql on all {:.3} ms", t.elapsed().as_secs_f64() * 1e3);
+        eprintln!(
+            "TIMING d&c {best:.3} ms | ql on all {:.3} ms",
+            t.elapsed().as_secs_f64() * 1e3
+        );
     }
 
     #[test]
     fn random_tridiagonals_of_many_sizes() {
-        for (k, n) in [1, 2, 3, 5, 24, 25, 26, 27, 50, 51, 64, 100, 131, 200].into_iter().enumerate() {
-            check(&random(n, 10 + k as u64), &random(n.saturating_sub(1), 100 + k as u64), &format!("random {n}"));
+        for (k, n) in [1, 2, 3, 5, 24, 25, 26, 27, 50, 51, 64, 100, 131, 200]
+            .into_iter()
+            .enumerate()
+        {
+            check(
+                &random(n, 10 + k as u64),
+                &random(n.saturating_sub(1), 100 + k as u64),
+                &format!("random {n}"),
+            );
         }
     }
 
@@ -461,7 +571,9 @@ mod tests {
         check(&random(n, 3), &vec![0.0; n - 1], "diagonal");
         // repeated eigenvalues (the 1-2-1 Laplacian's spectrum is simple; this one is not)
         let d: Vec<f64> = (0..n).map(|i| (i % 3) as f64).collect();
-        let e: Vec<f64> = (0..n - 1).map(|i| if i % 10 == 9 { 0.0 } else { 1e-3 }).collect();
+        let e: Vec<f64> = (0..n - 1)
+            .map(|i| if i % 10 == 9 { 0.0 } else { 1e-3 })
+            .collect();
         check(&d, &e, "repeated");
         // the Laplacian
         check(&vec![2.0; n], &vec![-1.0; n - 1], "laplacian");
@@ -474,7 +586,18 @@ mod tests {
         let e: Vec<f64> = (0..59).map(|i| 10f64.powi(-i / 4 - 1)).collect();
         check(&d, &e, "graded");
         // huge and tiny scales
-        check(&random(80, 7).iter().map(|v| v * 1e300).collect::<Vec<_>>(), &random(79, 8).iter().map(|v| v * 1e300).collect::<Vec<_>>(), "huge");
-        check(&random(80, 9).iter().map(|v| v * 1e-300).collect::<Vec<_>>(), &random(79, 10).iter().map(|v| v * 1e-300).collect::<Vec<_>>(), "tiny");
+        check(
+            &random(80, 7).iter().map(|v| v * 1e300).collect::<Vec<_>>(),
+            &random(79, 8).iter().map(|v| v * 1e300).collect::<Vec<_>>(),
+            "huge",
+        );
+        check(
+            &random(80, 9).iter().map(|v| v * 1e-300).collect::<Vec<_>>(),
+            &random(79, 10)
+                .iter()
+                .map(|v| v * 1e-300)
+                .collect::<Vec<_>>(),
+            "tiny",
+        );
     }
 }

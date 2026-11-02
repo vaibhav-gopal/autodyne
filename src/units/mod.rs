@@ -5,10 +5,10 @@
 //!
 //! tend: Core / units
 
+mod cast;
 pub(crate) mod fastmath;
 pub(crate) mod float_math;
 pub(crate) mod lazy;
-mod cast;
 pub use cast::*;
 
 mod properties;
@@ -21,9 +21,9 @@ mod unit;
 pub use unit::*;
 
 mod integer;
-pub use integer::*;
 #[cfg(feature = "dsp")]
 pub(crate) use integer::gcd;
+pub use integer::*;
 
 mod float;
 pub use float::*;

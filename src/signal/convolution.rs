@@ -222,7 +222,9 @@ fn direct_kernel<T: Float>(padded: &[T], reversed: &[T], out: &mut [T]) {
     for (b, block) in out.as_chunks_mut::<BLOCK>().0.iter_mut().enumerate() {
         let mut acc = [T::_ZERO; BLOCK];
         for (m, &r) in reversed.iter().enumerate() {
-            let run = padded[b * BLOCK + m..].first_chunk::<BLOCK>().expect("padded past the last block");
+            let run = padded[b * BLOCK + m..]
+                .first_chunk::<BLOCK>()
+                .expect("padded past the last block");
             for t in 0..BLOCK {
                 acc[t] = acc[t] + r * run[t];
             }
@@ -238,7 +240,10 @@ fn fft<T: Float>(a: &[T], b: &[T]) -> Vec<T> {
     let mut plan = RealFft::<T>::new(size);
     // one buffer holds each padded input in turn, then the result
     let mut buf = vec![T::_ZERO; size];
-    let (mut product, mut other) = (vec![Complex::zero(); plan.spectrum_len()], vec![Complex::zero(); plan.spectrum_len()]);
+    let (mut product, mut other) = (
+        vec![Complex::zero(); plan.spectrum_len()],
+        vec![Complex::zero(); plan.spectrum_len()],
+    );
     buf[..a.len()].copy_from_slice(a);
     plan.forward(&buf, &mut product);
     buf[..b.len()].copy_from_slice(b);
@@ -301,17 +306,39 @@ mod tests {
 
     fn max_diff(a: &[f64], b: &[f64]) -> f64 {
         assert_eq!(a.len(), b.len());
-        a.iter().zip(b).map(|(x, y)| (x - y).abs()).fold(0.0, f64::max)
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0.0, f64::max)
     }
 
     #[test]
     fn every_method_matches_the_definition() {
-        for (n, k) in [(1, 1), (5, 1), (1, 5), (7, 3), (3, 7), (100, 33), (33, 100), (1000, 129), (4097, 300), (2000, 2000)] {
+        for (n, k) in [
+            (1, 1),
+            (5, 1),
+            (1, 5),
+            (7, 3),
+            (3, 7),
+            (100, 33),
+            (33, 100),
+            (1000, 129),
+            (4097, 300),
+            (2000, 2000),
+        ] {
             let (a, b) = (noise_f64(n, n as u64), noise_f64(k, 7 + k as u64));
             let want = reference(&a, &b);
-            for method in [ConvMethod::Direct, ConvMethod::Fft, ConvMethod::OverlapAdd, ConvMethod::Auto] {
+            for method in [
+                ConvMethod::Direct,
+                ConvMethod::Fft,
+                ConvMethod::OverlapAdd,
+                ConvMethod::Auto,
+            ] {
                 let got = convolve_with(&a, &b, ConvMode::Full, method);
-                assert!(max_diff(&got, &want) < 1e-10 * (n.min(k) as f64).sqrt().max(1.0), "{method:?} n {n} k {k}");
+                assert!(
+                    max_diff(&got, &want) < 1e-10 * (n.min(k) as f64).sqrt().max(1.0),
+                    "{method:?} n {n} k {k}"
+                );
             }
         }
     }
@@ -320,34 +347,74 @@ mod tests {
     fn modes_slice_the_full_output_as_scipy_does() {
         // scipy.signal.convolve([1, 2, 3, 4], [1, 1, 1], mode): full [1 3 6 9 7 4], same [3 6 9 7], valid [6 9]
         let (a, b) = ([1.0, 2.0, 3.0, 4.0], [1.0, 1.0, 1.0]);
-        assert_eq!(convolve_with(&a, &b, ConvMode::Full, ConvMethod::Direct), [1.0, 3.0, 6.0, 9.0, 7.0, 4.0]);
-        assert_eq!(convolve_with(&a, &b, ConvMode::Same, ConvMethod::Direct), [3.0, 6.0, 9.0, 7.0]);
-        assert_eq!(convolve_with(&a, &b, ConvMode::Valid, ConvMethod::Direct), [6.0, 9.0]);
+        assert_eq!(
+            convolve_with(&a, &b, ConvMode::Full, ConvMethod::Direct),
+            [1.0, 3.0, 6.0, 9.0, 7.0, 4.0]
+        );
+        assert_eq!(
+            convolve_with(&a, &b, ConvMode::Same, ConvMethod::Direct),
+            [3.0, 6.0, 9.0, 7.0]
+        );
+        assert_eq!(
+            convolve_with(&a, &b, ConvMode::Valid, ConvMethod::Direct),
+            [6.0, 9.0]
+        );
         // a shorter first input: same keeps its length, valid is symmetric
-        assert_eq!(convolve_with(&b, &a, ConvMode::Same, ConvMethod::Direct), [3.0, 6.0, 9.0]);
-        assert_eq!(convolve_with(&b, &a, ConvMode::Valid, ConvMethod::Direct), [6.0, 9.0]);
+        assert_eq!(
+            convolve_with(&b, &a, ConvMode::Same, ConvMethod::Direct),
+            [3.0, 6.0, 9.0]
+        );
+        assert_eq!(
+            convolve_with(&b, &a, ConvMode::Valid, ConvMethod::Direct),
+            [6.0, 9.0]
+        );
         // even kernel: scipy.signal.convolve([1, 2, 3], [1, 1], "same") == [1, 3, 5]
-        assert_eq!(convolve_with(&[1.0, 2.0, 3.0], &[1.0, 1.0], ConvMode::Same, ConvMethod::Direct), [1.0, 3.0, 5.0]);
+        assert_eq!(
+            convolve_with(
+                &[1.0, 2.0, 3.0],
+                &[1.0, 1.0],
+                ConvMode::Same,
+                ConvMethod::Direct
+            ),
+            [1.0, 3.0, 5.0]
+        );
     }
 
     #[test]
     fn correlation_lags_match_scipy() {
         // scipy.signal.correlate([1, 2, 3], [0, 1, 0.5]): [0.5, 2, 3.5, 3, 0]
-        let c = correlate_with(&[1.0, 2.0, 3.0], &[0.0, 1.0, 0.5], ConvMode::Full, ConvMethod::Auto);
+        let c = correlate_with(
+            &[1.0, 2.0, 3.0],
+            &[0.0, 1.0, 0.5],
+            ConvMode::Full,
+            ConvMethod::Auto,
+        );
         assert_eq!(c, [0.5, 2.0, 3.5, 3.0, 0.0]);
         let long = noise_f64(5000, 3);
-        let delayed: Vec<f64> = std::iter::repeat_n(0.0, 37).chain(long.iter().copied()).collect();
+        let delayed: Vec<f64> = std::iter::repeat_n(0.0, 37)
+            .chain(long.iter().copied())
+            .collect();
         let c = correlate_with(&delayed, &long, ConvMode::Full, ConvMethod::Auto);
-        let peak = c.iter().enumerate().fold((0, f64::MIN), |m, (i, &v)| if v > m.1 { (i, v) } else { m }).0;
+        let peak = c
+            .iter()
+            .enumerate()
+            .fold((0, f64::MIN), |m, (i, &v)| if v > m.1 { (i, v) } else { m })
+            .0;
         assert_eq!(peak as isize - (long.len() as isize - 1), 37);
     }
 
     #[test]
     fn f32_inputs_stay_accurate() {
         let (a, b) = (noise_f32(3000, 1), noise_f32(400, 2));
-        let want = reference(&a.iter().map(|&x| x as f64).collect::<Vec<_>>(), &b.iter().map(|&x| x as f64).collect::<Vec<_>>());
+        let want = reference(
+            &a.iter().map(|&x| x as f64).collect::<Vec<_>>(),
+            &b.iter().map(|&x| x as f64).collect::<Vec<_>>(),
+        );
         for method in [ConvMethod::Direct, ConvMethod::Fft, ConvMethod::OverlapAdd] {
-            let got: Vec<f64> = convolve_with(&a, &b, ConvMode::Full, method).iter().map(|&x| x as f64).collect();
+            let got: Vec<f64> = convolve_with(&a, &b, ConvMode::Full, method)
+                .iter()
+                .map(|&x| x as f64)
+                .collect();
             assert!(max_diff(&got, &want) < 1e-3, "{method:?}");
         }
     }

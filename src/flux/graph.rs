@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use super::runtime::{HostArray, HostRef};
 use super::FluxError;
-use crate::signal::{NdArray, MAX_DIMS};
 use crate::signal::{ArrayMath, RealArrayMath};
+use crate::signal::{NdArray, MAX_DIMS};
 use crate::units::{DType, Elementwise, Float, RealValued};
 
 /// The element types traced programs compute in: `f32` and `f64`. A trace has no precision of its
@@ -252,8 +252,22 @@ impl Op {
         }
         let (a, b, c) = match *self {
             Op::Input(_) | Op::Const(_) | Op::Literal(_) => (None, None, None),
-            Op::Neg(a) | Op::Exp(a) | Op::Log(a) | Op::Sin(a) | Op::Cos(a) | Op::Tanh(a) | Op::Sqrt(a) | Op::Abs(a) | Op::Floor(a) => (Some(a), None, None),
-            Op::Rfft(a) | Op::Irfft(a, _) | Op::Fft(a, _) | Op::Re(a) | Op::Im(a) | Op::Conj(a) | Op::ToComplex(a) => (Some(a), None, None),
+            Op::Neg(a)
+            | Op::Exp(a)
+            | Op::Log(a)
+            | Op::Sin(a)
+            | Op::Cos(a)
+            | Op::Tanh(a)
+            | Op::Sqrt(a)
+            | Op::Abs(a)
+            | Op::Floor(a) => (Some(a), None, None),
+            Op::Rfft(a)
+            | Op::Irfft(a, _)
+            | Op::Fft(a, _)
+            | Op::Re(a)
+            | Op::Im(a)
+            | Op::Conj(a)
+            | Op::ToComplex(a) => (Some(a), None, None),
             Op::Broadcast(a, _)
             | Op::Reshape(a)
             | Op::Transpose(a, _)
@@ -263,19 +277,33 @@ impl Op {
             | Op::Reduce(a, ..)
             | Op::Reverse(a, _)
             | Op::Frames { a, .. }
-            | Op::OverlapAdd { a, .. } => {
-                (Some(a), None, None)
+            | Op::OverlapAdd { a, .. } => (Some(a), None, None),
+            Op::Add(a, b)
+            | Op::Sub(a, b)
+            | Op::Mul(a, b)
+            | Op::Div(a, b)
+            | Op::Pow(a, b)
+            | Op::Min(a, b)
+            | Op::Max(a, b)
+            | Op::Compare(_, a, b) => (Some(a), Some(b), None),
+            Op::Dot { a, b, .. }
+            | Op::Complex(a, b)
+            | Op::Take {
+                table: a,
+                indices: b,
             }
-            Op::Add(a, b) | Op::Sub(a, b) | Op::Mul(a, b) | Op::Div(a, b) | Op::Pow(a, b) | Op::Min(a, b) | Op::Max(a, b) | Op::Compare(_, a, b) => {
-                (Some(a), Some(b), None)
-            }
-            Op::Dot { a, b, .. } | Op::Complex(a, b) | Op::Take { table: a, indices: b } | Op::ScatterAdd { indices: a, updates: b } => {
-                (Some(a), Some(b), None)
-            }
+            | Op::ScatterAdd {
+                indices: a,
+                updates: b,
+            } => (Some(a), Some(b), None),
             Op::Select(c, a, b) => (Some(c), Some(a), Some(b)),
             Op::Concat(..) => unreachable!("handled above"),
         };
-        [a, b, c].into_iter().flatten().collect::<Vec<_>>().into_iter()
+        [a, b, c]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .into_iter()
     }
 
     /// The same operation on other operands (`f` maps each operand id).
@@ -304,7 +332,12 @@ impl Op {
             Op::Reshape(a) => Op::Reshape(f(a)),
             Op::Transpose(a, perm) => Op::Transpose(f(a), perm),
             Op::Sum(a, axes) => Op::Sum(f(a), axes),
-            Op::Dot { a, b, ca, cb } => Op::Dot { a: f(a), b: f(b), ca, cb },
+            Op::Dot { a, b, ca, cb } => Op::Dot {
+                a: f(a),
+                b: f(b),
+                ca,
+                cb,
+            },
             Op::Rfft(a) => Op::Rfft(f(a)),
             Op::Irfft(a, n) => Op::Irfft(f(a), n),
             Op::Fft(a, inverse) => Op::Fft(f(a), inverse),
@@ -313,14 +346,44 @@ impl Op {
             Op::Im(a) => Op::Im(f(a)),
             Op::Conj(a) => Op::Conj(f(a)),
             Op::ToComplex(a) => Op::ToComplex(f(a)),
-            Op::Slice { a, start, limit, stride } => Op::Slice { a: f(a), start, limit, stride },
-            Op::Pad { a, low, high, interior } => Op::Pad { a: f(a), low, high, interior },
+            Op::Slice {
+                a,
+                start,
+                limit,
+                stride,
+            } => Op::Slice {
+                a: f(a),
+                start,
+                limit,
+                stride,
+            },
+            Op::Pad {
+                a,
+                low,
+                high,
+                interior,
+            } => Op::Pad {
+                a: f(a),
+                low,
+                high,
+                interior,
+            },
             Op::Concat(parts, axis) => Op::Concat(parts.into_iter().map(f).collect(), axis),
             Op::Reduce(a, axes, r) => Op::Reduce(f(a), axes, r),
             Op::Reverse(a, axes) => Op::Reverse(f(a), axes),
-            Op::Take { table, indices } => Op::Take { table: f(table), indices: f(indices) },
-            Op::ScatterAdd { indices, updates } => Op::ScatterAdd { indices: f(indices), updates: f(updates) },
-            Op::Frames { a, length, hop } => Op::Frames { a: f(a), length, hop },
+            Op::Take { table, indices } => Op::Take {
+                table: f(table),
+                indices: f(indices),
+            },
+            Op::ScatterAdd { indices, updates } => Op::ScatterAdd {
+                indices: f(indices),
+                updates: f(updates),
+            },
+            Op::Frames { a, length, hop } => Op::Frames {
+                a: f(a),
+                length,
+                hop,
+            },
             Op::OverlapAdd { a, n, hop } => Op::OverlapAdd { a: f(a), n, hop },
         }
     }
@@ -360,7 +423,8 @@ impl PartialEq for Graph {
 impl Graph {
     /// The interpreter's fusion plan (made once).
     pub(crate) fn fusion(&self) -> &super::fuse::Fusion {
-        self.fusion.get_or_init(|| std::sync::Arc::new(super::fuse::Fusion::plan(self)))
+        self.fusion
+            .get_or_init(|| std::sync::Arc::new(super::fuse::Fusion::plan(self)))
     }
     /// Every node, in topological order.
     pub fn nodes(&self) -> &[Node] {
@@ -372,7 +436,10 @@ impl Graph {
     }
     /// The shape of each output.
     pub fn output_shapes(&self) -> Vec<Vec<usize>> {
-        self.outputs.iter().map(|&o| self.nodes[o as usize].shape.clone()).collect()
+        self.outputs
+            .iter()
+            .map(|&o| self.nodes[o as usize].shape.clone())
+            .collect()
     }
     /// Number of outputs.
     pub fn outputs(&self) -> usize {
@@ -382,9 +449,17 @@ impl Graph {
     /// Replays this graph into the current trace with `args` as its inputs; returns its outputs.
     /// This is how one traced function calls another (the call is inlined).
     pub fn call(&self, args: &[Tracer]) -> Vec<Tracer> {
-        assert_eq!(args.len(), self.inputs.len(), "Graph::call: wrong number of arguments");
+        assert_eq!(
+            args.len(),
+            self.inputs.len(),
+            "Graph::call: wrong number of arguments"
+        );
         for (k, (a, s)) in args.iter().zip(&self.inputs).enumerate() {
-            assert_eq!(&a.shape(), s, "Graph::call: argument {k} has the wrong shape");
+            assert_eq!(
+                &a.shape(),
+                s,
+                "Graph::call: argument {k} has the wrong shape"
+            );
         }
         let mut ids: Vec<Id> = Vec::with_capacity(self.nodes.len());
         for node in &self.nodes {
@@ -395,7 +470,13 @@ impl Graph {
             ids.push(id);
         }
         let trace = current_trace();
-        self.outputs.iter().map(|&o| Tracer { id: ids[o as usize], trace }).collect()
+        self.outputs
+            .iter()
+            .map(|&o| Tracer {
+                id: ids[o as usize],
+                trace,
+            })
+            .collect()
     }
 }
 
@@ -448,12 +529,25 @@ pub fn trace(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> G
 }
 
 /// [`trace`] keeping every recorded node, so ids match what the closure saw.
-pub(crate) fn trace_unpruned(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> Vec<Tracer>) -> Graph {
+pub(crate) fn trace_unpruned(
+    inputs: &[&[usize]],
+    f: impl FnOnce(&[Tracer]) -> Vec<Tracer>,
+) -> Graph {
     for s in inputs {
         assert!(s.len() <= MAX_DIMS, "flux::trace: at most {MAX_DIMS} axes");
     }
-    let nodes = (0..inputs.len()).map(|n| Node { op: Op::Input(n as u32), shape: inputs[n].to_vec(), kind: Kind::Real }).collect();
-    let graph = Graph { nodes, inputs: inputs.iter().map(|s| s.to_vec()).collect(), ..Graph::default() };
+    let nodes = (0..inputs.len())
+        .map(|n| Node {
+            op: Op::Input(n as u32),
+            shape: inputs[n].to_vec(),
+            kind: Kind::Real,
+        })
+        .collect();
+    let graph = Graph {
+        nodes,
+        inputs: inputs.iter().map(|s| s.to_vec()).collect(),
+        ..Graph::default()
+    };
     let trace = NEXT_TRACE.with(|n| {
         let t = n.get();
         n.set(t.wrapping_add(1));
@@ -472,12 +566,19 @@ pub(crate) fn trace_unpruned(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> V
         }
     }
     let reset = Reset;
-    let args: Vec<Tracer> = (0..inputs.len() as Id).map(|id| Tracer { id, trace }).collect();
+    let args: Vec<Tracer> = (0..inputs.len() as Id)
+        .map(|id| Tracer { id, trace })
+        .collect();
     let outs = f(&args);
     for t in &outs {
-        assert_eq!(t.trace, trace, "flux::trace: output belongs to another trace");
+        assert_eq!(
+            t.trace, trace,
+            "flux::trace: output belongs to another trace"
+        );
     }
-    let (_, mut graph) = GRAPH.with(|g| g.borrow_mut().take()).expect("flux::trace: graph missing");
+    let (_, mut graph) = GRAPH
+        .with(|g| g.borrow_mut().take())
+        .expect("flux::trace: graph missing");
     drop(reset);
     graph.outputs = outs.iter().map(|t| t.id).collect();
     graph
@@ -485,7 +586,10 @@ pub(crate) fn trace_unpruned(inputs: &[&[usize]], f: impl FnOnce(&[Tracer]) -> V
 
 /// Records `node` again in the current trace, its operands mapped by `map`.
 pub(crate) fn replay(node: &Node, map: impl Fn(Id) -> Id) -> Tracer {
-    Tracer { id: push(node.op.map(map), node.shape.clone(), node.kind), trace: current_trace() }
+    Tracer {
+        id: push(node.op.map(map), node.shape.clone(), node.kind),
+        trace: current_trace(),
+    }
 }
 
 impl Graph {
@@ -512,11 +616,16 @@ impl Graph {
         for (i, node) in std::mem::take(&mut self.nodes).into_iter().enumerate() {
             if needed[i] {
                 new_id[i] = nodes.len() as Id;
-                nodes.push(Node { op: node.op.map(|a| new_id[a as usize]), ..node });
+                nodes.push(Node {
+                    op: node.op.map(|a| new_id[a as usize]),
+                    ..node
+                });
             }
         }
         self.nodes = nodes;
-        self.outputs.iter_mut().for_each(|o| *o = new_id[*o as usize]);
+        self.outputs
+            .iter_mut()
+            .for_each(|o| *o = new_id[*o as usize]);
     }
 }
 
@@ -531,11 +640,22 @@ pub fn vector(v: &[f32]) -> NdArray<f32> {
 }
 
 fn with_graph<R>(f: impl FnOnce(&mut Graph) -> R) -> R {
-    GRAPH.with(|g| f(&mut g.borrow_mut().as_mut().expect("flux: tracer used outside flux::trace").1))
+    GRAPH.with(|g| {
+        f(&mut g
+            .borrow_mut()
+            .as_mut()
+            .expect("flux: tracer used outside flux::trace")
+            .1)
+    })
 }
 
 fn current_trace() -> u32 {
-    GRAPH.with(|g| g.borrow().as_ref().map(|(t, _)| *t).expect("flux: tracer used outside flux::trace"))
+    GRAPH.with(|g| {
+        g.borrow()
+            .as_ref()
+            .map(|(t, _)| *t)
+            .expect("flux: tracer used outside flux::trace")
+    })
 }
 
 /// Node `id` of the current trace.
@@ -559,10 +679,18 @@ fn push(op: Op, shape: Vec<usize>, kind: Kind) -> Id {
 fn kind_of(op: &Op) -> Kind {
     let of = |i: Id| with_graph(|g| g.nodes[i as usize].kind);
     match *op {
-        Op::Input(_) | Op::Const(_) | Op::Literal(_) | Op::Abs(_) | Op::Re(_) | Op::Im(_) | Op::Irfft(..) => Kind::Real,
+        Op::Input(_)
+        | Op::Const(_)
+        | Op::Literal(_)
+        | Op::Abs(_)
+        | Op::Re(_)
+        | Op::Im(_)
+        | Op::Irfft(..) => Kind::Real,
         Op::Compare(..) => Kind::Mask,
         Op::Rfft(_) | Op::ToComplex(_) | Op::Complex(..) => Kind::Complex,
-        Op::Select(_, a, _) | Op::Take { table: a, .. } | Op::ScatterAdd { updates: a, .. } => of(a),
+        Op::Select(_, a, _) | Op::Take { table: a, .. } | Op::ScatterAdd { updates: a, .. } => {
+            of(a)
+        }
         Op::Concat(ref parts, _) => of(parts[0]),
         ref op => of(op.operands().next().expect("an operand")),
     }
@@ -571,7 +699,13 @@ fn kind_of(op: &Op) -> Kind {
 /// NumPy broadcasting: the shape both operands stretch to, if any.
 fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
     let n = a.len().max(b.len());
-    let at = |s: &[usize], i: usize| if i + s.len() >= n { s[i + s.len() - n] } else { 1 };
+    let at = |s: &[usize], i: usize| {
+        if i + s.len() >= n {
+            s[i + s.len() - n]
+        } else {
+            1
+        }
+    };
     (0..n)
         .map(|i| match (at(a, i), at(b, i)) {
             (x, y) if x == y => Some(x),
@@ -585,18 +719,28 @@ fn broadcast_shapes(a: &[usize], b: &[usize]) -> Option<Vec<usize>> {
 impl Tracer {
     /// The tracer for node `id` of the current trace.
     pub(crate) fn node(id: Id) -> Tracer {
-        Tracer { id, trace: current_trace() }
+        Tracer {
+            id,
+            trace: current_trace(),
+        }
     }
 
     fn check(self) -> Id {
-        assert_eq!(self.trace, current_trace(), "flux: tracer used outside the trace that created it");
+        assert_eq!(
+            self.trace,
+            current_trace(),
+            "flux: tracer used outside the trace that created it"
+        );
         self.id
     }
 
     fn new(op: Op, shape: Vec<usize>) -> Tracer {
         assert!(shape.len() <= MAX_DIMS, "flux: at most {MAX_DIMS} axes");
         let kind = kind_of(&op);
-        Tracer { id: push(op, shape, kind), trace: current_trace() }
+        Tracer {
+            id: push(op, shape, kind),
+            trace: current_trace(),
+        }
     }
 
     /// What the elements are: real or complex.
@@ -611,7 +755,10 @@ impl Tracer {
     }
 
     fn real_only(self, what: &str) -> Tracer {
-        assert!(!self.is_complex(), "flux: {what} needs real values, not complex ones");
+        assert!(
+            !self.is_complex(),
+            "flux: {what} needs real values, not complex ones"
+        );
         self
     }
 
@@ -624,27 +771,52 @@ impl Tracer {
 
     /// The real part (a real value is its own).
     pub fn re(self) -> Tracer {
-        if self.is_complex() { self.unary(Op::Re) } else { self }
+        if self.is_complex() {
+            self.unary(Op::Re)
+        } else {
+            self
+        }
     }
 
     /// The imaginary part (zero for a real value).
     pub fn im(self) -> Tracer {
-        if self.is_complex() { self.unary(Op::Im) } else { Tracer::zeros(&self.shape()) }
+        if self.is_complex() {
+            self.unary(Op::Im)
+        } else {
+            Tracer::zeros(&self.shape())
+        }
     }
 
     /// The value as complex numbers (a complex value is unchanged).
     pub fn to_complex(self) -> Tracer {
-        if self.is_complex() { self } else { self.unary(Op::ToComplex) }
+        if self.is_complex() {
+            self
+        } else {
+            self.unary(Op::ToComplex)
+        }
     }
 
     /// Both operands of one kind: a real one becomes complex beside a complex one.
     fn promote(self, rhs: Tracer) -> (Tracer, Tracer) {
-        if self.is_complex() == rhs.is_complex() { (self, rhs) } else { (self.to_complex(), rhs.to_complex()) }
+        if self.is_complex() == rhs.is_complex() {
+            (self, rhs)
+        } else {
+            (self.to_complex(), rhs.to_complex())
+        }
     }
 
     /// A constant array (of `f32` or `f64`).
     pub fn constant<T: FluxFloat>(value: &NdArray<T>) -> Tracer {
-        Tracer::new(Op::Literal(value.as_slice().iter().map(|v| v.to_f64().unwrap_or(f64::NAN)).collect()), value.shape().to_vec())
+        Tracer::new(
+            Op::Literal(
+                value
+                    .as_slice()
+                    .iter()
+                    .map(|v| v.to_f64().unwrap_or(f64::NAN))
+                    .collect(),
+            ),
+            value.shape().to_vec(),
+        )
     }
 
     /// Zeros of `shape` (initial states, padding).
@@ -660,14 +832,18 @@ impl Tracer {
     /// Both operands broadcast to a common shape.
     fn align(self, rhs: Tracer) -> (Tracer, Tracer, Vec<usize>) {
         let (sa, sb) = (self.shape(), rhs.shape());
-        let shape = broadcast_shapes(&sa, &sb).unwrap_or_else(|| panic!("flux: shapes {sa:?} and {sb:?} do not broadcast"));
+        let shape = broadcast_shapes(&sa, &sb)
+            .unwrap_or_else(|| panic!("flux: shapes {sa:?} and {sb:?} do not broadcast"));
         (self.broadcast_to(&shape), rhs.broadcast_to(&shape), shape)
     }
 
     fn complex_fft(self, inverse: bool) -> Tracer {
         let z = self.to_complex();
         let shape = z.shape();
-        assert!(shape.last().is_some_and(|&n| n >= 1), "fft: needs a non-empty axis");
+        assert!(
+            shape.last().is_some_and(|&n| n >= 1),
+            "fft: needs a non-empty axis"
+        );
         Tracer::new(Op::Fft(z.check(), inverse), shape)
     }
 
@@ -677,11 +853,17 @@ impl Tracer {
         let mut axes = axes.to_vec();
         axes.sort_unstable();
         axes.dedup();
-        assert!(axes.iter().all(|&a| a < own.len()), "reduction: axis out of range for {own:?}");
+        assert!(
+            axes.iter().all(|&a| a < own.len()),
+            "reduction: axis out of range for {own:?}"
+        );
         if axes.is_empty() {
             return self;
         }
-        let shape = (0..own.len()).filter(|a| !axes.contains(a)).map(|a| own[a]).collect();
+        let shape = (0..own.len())
+            .filter(|a| !axes.contains(a))
+            .map(|a| own[a])
+            .collect();
         Tracer::new(Op::Reduce(self.check(), axes, r), shape)
     }
 
@@ -689,9 +871,22 @@ impl Tracer {
     /// at the row its index names (rounded down, clamped): the transpose of [`take`](RealArrayMath::take).
     pub fn scatter_add(shape: &[usize], indices: Tracer, updates: Tracer) -> Tracer {
         let (is, us) = (indices.shape(), updates.shape());
-        assert!(!shape.is_empty() && shape[0] > 0, "scatter_add: needs a non-empty first axis");
-        assert_eq!(us, [is.as_slice(), &shape[1..]].concat(), "scatter_add: updates must be [indices..., rows...]");
-        Tracer::new(Op::ScatterAdd { indices: indices.check(), updates: updates.check() }, shape.to_vec())
+        assert!(
+            !shape.is_empty() && shape[0] > 0,
+            "scatter_add: needs a non-empty first axis"
+        );
+        assert_eq!(
+            us,
+            [is.as_slice(), &shape[1..]].concat(),
+            "scatter_add: updates must be [indices..., rows...]"
+        );
+        Tracer::new(
+            Op::ScatterAdd {
+                indices: indices.check(),
+                updates: updates.check(),
+            },
+            shape.to_vec(),
+        )
     }
 
     fn binary(self, rhs: Tracer, f: fn(Id, Id) -> Op) -> Tracer {
@@ -706,15 +901,25 @@ impl Tracer {
     }
 
     pub(crate) fn compare(self, rhs: Tracer, c: Cmp) -> Mask {
-        let (a, b, shape) = self.real_only("comparison").align(rhs.real_only("comparison"));
-        Mask { id: push(Op::Compare(c, a.check(), b.check()), shape, Kind::Mask), trace: self.trace }
+        let (a, b, shape) = self
+            .real_only("comparison")
+            .align(rhs.real_only("comparison"));
+        Mask {
+            id: push(Op::Compare(c, a.check(), b.check()), shape, Kind::Mask),
+            trace: self.trace,
+        }
     }
 }
 
 /// Array operations record nodes; see [`ArrayMath`] for what each computes.
 impl ArrayMath for Tracer {
     fn array(values: &[f64], shape: &[usize]) -> Tracer {
-        assert_eq!(values.len(), shape.iter().product::<usize>(), "array: {} values do not fill {shape:?}", values.len());
+        assert_eq!(
+            values.len(),
+            shape.iter().product::<usize>(),
+            "array: {} values do not fill {shape:?}",
+            values.len()
+        );
         Tracer::new(Op::Literal(values.into()), shape.to_vec())
     }
     fn shape(&self) -> Vec<usize> {
@@ -727,24 +932,41 @@ impl ArrayMath for Tracer {
         if own == shape {
             return self;
         }
-        assert!(own.len() <= shape.len(), "flux: cannot broadcast {own:?} to {shape:?}");
+        assert!(
+            own.len() <= shape.len(),
+            "flux: cannot broadcast {own:?} to {shape:?}"
+        );
         let offset = shape.len() - own.len();
         self.broadcast_in_dim(shape, &(offset..shape.len()).collect::<Vec<_>>())
     }
 
     fn broadcast_in_dim(self, shape: &[usize], dims: &[usize]) -> Tracer {
         let own = self.shape();
-        assert_eq!(own.len(), dims.len(), "broadcast_in_dim: one result axis per operand axis");
-        assert!(dims.windows(2).all(|w| w[0] < w[1]), "broadcast_in_dim: dims must increase");
+        assert_eq!(
+            own.len(),
+            dims.len(),
+            "broadcast_in_dim: one result axis per operand axis"
+        );
+        assert!(
+            dims.windows(2).all(|w| w[0] < w[1]),
+            "broadcast_in_dim: dims must increase"
+        );
         for (&d, &n) in dims.iter().zip(&own) {
-            assert!(d < shape.len() && (n == 1 || n == shape[d]), "flux: cannot broadcast {own:?} to {shape:?} along {dims:?}");
+            assert!(
+                d < shape.len() && (n == 1 || n == shape[d]),
+                "flux: cannot broadcast {own:?} to {shape:?} along {dims:?}"
+            );
         }
         Tracer::new(Op::Broadcast(self.check(), dims.to_vec()), shape.to_vec())
     }
 
     fn reshape(self, shape: &[usize]) -> Tracer {
         let own = self.shape();
-        assert_eq!(own.iter().product::<usize>(), shape.iter().product::<usize>(), "reshape: {own:?} to {shape:?} changes the element count");
+        assert_eq!(
+            own.iter().product::<usize>(),
+            shape.iter().product::<usize>(),
+            "reshape: {own:?} to {shape:?} changes the element count"
+        );
         if own == shape {
             return self;
         }
@@ -756,12 +978,18 @@ impl ArrayMath for Tracer {
         let mut seen = vec![false; own.len()];
         assert_eq!(perm.len(), own.len(), "transpose: one entry per axis");
         for &p in perm {
-            assert!(p < own.len() && !std::mem::replace(&mut seen[p], true), "transpose: {perm:?} is not a permutation");
+            assert!(
+                p < own.len() && !std::mem::replace(&mut seen[p], true),
+                "transpose: {perm:?} is not a permutation"
+            );
         }
         if perm.iter().enumerate().all(|(i, &p)| i == p) {
             return self;
         }
-        Tracer::new(Op::Transpose(self.check(), perm.to_vec()), perm.iter().map(|&p| own[p]).collect())
+        Tracer::new(
+            Op::Transpose(self.check(), perm.to_vec()),
+            perm.iter().map(|&p| own[p]).collect(),
+        )
     }
 
     fn sum_axes(self, axes: &[usize]) -> Tracer {
@@ -769,11 +997,17 @@ impl ArrayMath for Tracer {
         let mut axes = axes.to_vec();
         axes.sort_unstable();
         axes.dedup();
-        assert!(axes.iter().all(|&a| a < own.len()), "sum_axes: axis out of range for {own:?}");
+        assert!(
+            axes.iter().all(|&a| a < own.len()),
+            "sum_axes: axis out of range for {own:?}"
+        );
         if axes.is_empty() {
             return self;
         }
-        let shape = (0..own.len()).filter(|a| !axes.contains(a)).map(|a| own[a]).collect();
+        let shape = (0..own.len())
+            .filter(|a| !axes.contains(a))
+            .map(|a| own[a])
+            .collect();
         Tracer::new(Op::Sum(self.check(), axes), shape)
     }
 
@@ -781,13 +1015,31 @@ impl ArrayMath for Tracer {
         let (sa, sb) = (self.shape(), rhs.shape());
         assert_eq!(ca.len(), cb.len(), "dot_general: pair each contracted axis");
         for (&i, &j) in ca.iter().zip(cb) {
-            assert!(i < sa.len() && j < sb.len() && sa[i] == sb[j], "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}");
+            assert!(
+                i < sa.len() && j < sb.len() && sa[i] == sb[j],
+                "dot_general: cannot contract {sa:?} axis {i} with {sb:?} axis {j}"
+            );
         }
         let distinct = |c: &[usize]| c.iter().enumerate().all(|(k, x)| !c[..k].contains(x));
-        assert!(distinct(ca) && distinct(cb), "dot_general: an axis is contracted twice");
-        let shape = (0..sa.len()).filter(|a| !ca.contains(a)).map(|a| sa[a]).chain((0..sb.len()).filter(|b| !cb.contains(b)).map(|b| sb[b])).collect();
+        assert!(
+            distinct(ca) && distinct(cb),
+            "dot_general: an axis is contracted twice"
+        );
+        let shape = (0..sa.len())
+            .filter(|a| !ca.contains(a))
+            .map(|a| sa[a])
+            .chain((0..sb.len()).filter(|b| !cb.contains(b)).map(|b| sb[b]))
+            .collect();
         let (a, b) = self.promote(rhs);
-        Tracer::new(Op::Dot { a: a.check(), b: b.check(), ca: ca.to_vec(), cb: cb.to_vec() }, shape)
+        Tracer::new(
+            Op::Dot {
+                a: a.check(),
+                b: b.check(),
+                ca: ca.to_vec(),
+                cb: cb.to_vec(),
+            },
+            shape,
+        )
     }
 
     fn slice(self, start: &[usize], limit: &[usize], stride: &[usize]) -> Tracer {
@@ -796,7 +1048,15 @@ impl ArrayMath for Tracer {
         if shape == own {
             return self;
         }
-        Tracer::new(Op::Slice { a: self.check(), start: start.to_vec(), limit: limit.to_vec(), stride: stride.to_vec() }, shape)
+        Tracer::new(
+            Op::Slice {
+                a: self.check(),
+                start: start.to_vec(),
+                limit: limit.to_vec(),
+                stride: stride.to_vec(),
+            },
+            shape,
+        )
     }
 
     fn pad(self, low: &[usize], high: &[usize], interior: &[usize]) -> Tracer {
@@ -805,16 +1065,37 @@ impl ArrayMath for Tracer {
         if shape == own {
             return self;
         }
-        Tracer::new(Op::Pad { a: self.check(), low: low.to_vec(), high: high.to_vec(), interior: interior.to_vec() }, shape)
+        Tracer::new(
+            Op::Pad {
+                a: self.check(),
+                low: low.to_vec(),
+                high: high.to_vec(),
+                interior: interior.to_vec(),
+            },
+            shape,
+        )
     }
 
     fn frames(self, length: usize, hop: usize) -> Tracer {
         let own = self.shape();
         let (&n, lead) = own.split_last().expect("frames: needs an axis");
-        assert!(length >= 1 && hop >= 1, "frames: length and hop must be positive");
-        assert!(n >= length, "frames: {n} samples are fewer than one frame of {length}");
+        assert!(
+            length >= 1 && hop >= 1,
+            "frames: length and hop must be positive"
+        );
+        assert!(
+            n >= length,
+            "frames: {n} samples are fewer than one frame of {length}"
+        );
         let count = 1 + (n - length) / hop;
-        Tracer::new(Op::Frames { a: self.check(), length, hop }, [lead, &[count, length]].concat())
+        Tracer::new(
+            Op::Frames {
+                a: self.check(),
+                length,
+                hop,
+            },
+            [lead, &[count, length]].concat(),
+        )
     }
 
     fn overlap_add(self, n: usize, hop: usize) -> Tracer {
@@ -822,8 +1103,18 @@ impl ArrayMath for Tracer {
         assert!(own.len() >= 2, "overlap_add: needs [..., count, length]");
         let k = own.len() - 2;
         let (count, length) = (own[k], own[k + 1]);
-        assert!(count >= 1 && hop >= 1 && n >= (count - 1) * hop + length, "overlap_add: {count} frames of {length}, {hop} apart, do not fit {n} samples");
-        Tracer::new(Op::OverlapAdd { a: self.check(), n, hop }, [&own[..k], &[n]].concat())
+        assert!(
+            count >= 1 && hop >= 1 && n >= (count - 1) * hop + length,
+            "overlap_add: {count} frames of {length}, {hop} apart, do not fit {n} samples"
+        );
+        Tracer::new(
+            Op::OverlapAdd {
+                a: self.check(),
+                n,
+                hop,
+            },
+            [&own[..k], &[n]].concat(),
+        )
     }
 
     fn prod_axes(self, axes: &[usize]) -> Tracer {
@@ -835,7 +1126,10 @@ impl ArrayMath for Tracer {
         let mut axes = axes.to_vec();
         axes.sort_unstable();
         axes.dedup();
-        assert!(axes.iter().all(|&a| a < own.len()), "reverse: axis out of range for {own:?}");
+        assert!(
+            axes.iter().all(|&a| a < own.len()),
+            "reverse: axis out of range for {own:?}"
+        );
         if axes.iter().all(|&a| own[a] <= 1) {
             return self;
         }
@@ -843,12 +1137,28 @@ impl ArrayMath for Tracer {
     }
 
     fn concatenate(parts: &[Tracer], axis: usize) -> Tracer {
-        let shape = crate::signal::concat_shape(&parts.iter().map(|p| p.shape()).collect::<Vec<_>>(), axis);
+        let shape =
+            crate::signal::concat_shape(&parts.iter().map(|p| p.shape()).collect::<Vec<_>>(), axis);
         if parts.len() == 1 {
             return parts[0];
         }
         let complex = parts.iter().any(Tracer::is_complex);
-        Tracer::new(Op::Concat(parts.iter().map(|p| if complex { p.to_complex().check() } else { p.check() }).collect(), axis), shape)
+        Tracer::new(
+            Op::Concat(
+                parts
+                    .iter()
+                    .map(|p| {
+                        if complex {
+                            p.to_complex().check()
+                        } else {
+                            p.check()
+                        }
+                    })
+                    .collect(),
+                axis,
+            ),
+            shape,
+        )
     }
 }
 
@@ -867,7 +1177,11 @@ impl RealArrayMath for Tracer {
     fn irfft_complex(spectrum: Tracer, n: usize) -> Tracer {
         let z = spectrum.to_complex();
         let mut shape = z.shape();
-        assert!(n >= 1 && shape.last() == Some(&(n / 2 + 1)), "irfft: {n} samples need {} bins, got {shape:?}", n / 2 + 1);
+        assert!(
+            n >= 1 && shape.last() == Some(&(n / 2 + 1)),
+            "irfft: {n} samples need {} bins, got {shape:?}",
+            n / 2 + 1
+        );
         *shape.last_mut().expect("the shape has a last axis") = n;
         Tracer::new(Op::Irfft(z.check(), n), shape)
     }
@@ -897,16 +1211,34 @@ impl RealArrayMath for Tracer {
     }
 
     fn take(self, indices: Tracer) -> Tracer {
-        let (table, is) = (self.real_only("take").shape(), indices.real_only("take").shape());
-        assert!(!table.is_empty() && table[0] > 0, "take: the table needs a non-empty first axis");
-        assert!(is.len() + table.len() - 1 <= MAX_DIMS, "flux: at most {MAX_DIMS} axes");
-        Tracer::new(Op::Take { table: self.check(), indices: indices.check() }, [is.as_slice(), &table[1..]].concat())
+        let (table, is) = (
+            self.real_only("take").shape(),
+            indices.real_only("take").shape(),
+        );
+        assert!(
+            !table.is_empty() && table[0] > 0,
+            "take: the table needs a non-empty first axis"
+        );
+        assert!(
+            is.len() + table.len() - 1 <= MAX_DIMS,
+            "flux: at most {MAX_DIMS} axes"
+        );
+        Tracer::new(
+            Op::Take {
+                table: self.check(),
+                indices: indices.check(),
+            },
+            [is.as_slice(), &table[1..]].concat(),
+        )
     }
 }
 
 impl Mask {
     pub(crate) fn node(id: Id) -> Mask {
-        Mask { id, trace: current_trace() }
+        Mask {
+            id,
+            trace: current_trace(),
+        }
     }
 
     fn broadcast_to(self, shape: &[usize]) -> Mask {
@@ -916,7 +1248,10 @@ impl Mask {
         }
         let offset = shape.len() - own.len();
         let dims = (offset..shape.len()).collect();
-        Mask { id: push(Op::Broadcast(self.id, dims), shape.to_vec(), Kind::Mask), trace: self.trace }
+        Mask {
+            id: push(Op::Broadcast(self.id, dims), shape.to_vec(), Kind::Mask),
+            trace: self.trace,
+        }
     }
 }
 
@@ -929,7 +1264,11 @@ impl crate::signal::ComplexArrayMath for Tracer {
         self.complex_fft(true)
     }
     fn conj(self) -> Tracer {
-        if self.is_complex() { self.unary(Op::Conj) } else { self }
+        if self.is_complex() {
+            self.unary(Op::Conj)
+        } else {
+            self
+        }
     }
 }
 
@@ -1001,12 +1340,21 @@ impl RealValued for Tracer {
         self.real_only("floor").unary(Op::Floor)
     }
     fn select(mask: Mask, if_true: Self, if_false: Self) -> Self {
-        assert_eq!(mask.trace, current_trace(), "flux: mask used outside the trace that created it");
+        assert_eq!(
+            mask.trace,
+            current_trace(),
+            "flux: mask used outside the trace that created it"
+        );
         let ms = with_graph(|g| g.nodes[mask.id as usize].shape.clone());
         let (a, b) = if_true.promote(if_false);
         let (a, b, shape) = a.align(b);
-        let shape = broadcast_shapes(&shape, &ms).unwrap_or_else(|| panic!("flux: mask {ms:?} does not broadcast with {shape:?}"));
-        let (a, b, m) = (a.broadcast_to(&shape), b.broadcast_to(&shape), mask.broadcast_to(&shape));
+        let shape = broadcast_shapes(&shape, &ms)
+            .unwrap_or_else(|| panic!("flux: mask {ms:?} does not broadcast with {shape:?}"));
+        let (a, b, m) = (
+            a.broadcast_to(&shape),
+            b.broadcast_to(&shape),
+            mask.broadcast_to(&shape),
+        );
         Tracer::new(Op::Select(m.id, a.check(), b.check()), shape)
     }
 }
