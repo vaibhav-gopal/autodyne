@@ -61,7 +61,13 @@ fn method(name: &str) -> PyResult<QuantileMethod> {
 
 /// Quantiles along `axis`, which they replace (one per `q`).
 #[pyfunction]
-fn quantile(py: Python<'_>, x: &Bound<'_, PyAny>, q: Vec<f64>, axis: isize, method_by: &str) -> PyResult<Obj> {
+fn quantile(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    q: Vec<f64>,
+    axis: isize,
+    method_by: &str,
+) -> PyResult<Obj> {
     let m = method(method_by)?;
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
@@ -86,7 +92,13 @@ fn skew(py: Python<'_>, x: &Bound<'_, PyAny>, axis: isize, bias: bool) -> PyResu
 }
 
 #[pyfunction]
-fn kurtosis(py: Python<'_>, x: &Bound<'_, PyAny>, axis: isize, fisher: bool, bias: bool) -> PyResult<Obj> {
+fn kurtosis(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    axis: isize,
+    fisher: bool,
+    bias: bool,
+) -> PyResult<Obj> {
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
         numpy_array(py, stats::kurtosis_axis(v, axis, fisher, bias).map_err(value_error)?)
@@ -125,13 +137,22 @@ fn bins_of(bins: &Bound<'_, PyAny>) -> PyResult<Bins> {
     if let Ok(n) = bins.extract::<usize>() {
         return Ok(Bins::Count(n));
     }
-    Ok(Bins::Edges(bins.extract::<Vec<f64>>().map_err(|_| PyTypeError::new_err("bins must be an int, a rule name or a sequence of edges"))?))
+    Ok(Bins::Edges(bins.extract::<Vec<f64>>().map_err(|_| {
+        PyTypeError::new_err("bins must be an int, a rule name or a sequence of edges")
+    })?))
 }
 
 /// `(values, edges)` of a 1-D sample.
 #[pyfunction]
 #[pyo3(signature = (x, bins, range=None, weights=None, density=false))]
-fn histogram(py: Python<'_>, x: &Bound<'_, PyAny>, bins: &Bound<'_, PyAny>, range: Option<(f64, f64)>, weights: Option<Vec<f64>>, density: bool) -> PyResult<Obj> {
+fn histogram(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    bins: &Bound<'_, PyAny>,
+    range: Option<(f64, f64)>,
+    weights: Option<Vec<f64>>,
+    density: bool,
+) -> PyResult<Obj> {
     let bins = bins_of(bins)?;
     let (h, e) = with_samples!(x, s => stats::histogram(s, &bins, range, weights.as_deref(), density).map_err(value_error))?;
     tuple(py, vec![vec_out(py, h)?, vec_out(py, e)?])
@@ -139,9 +160,17 @@ fn histogram(py: Python<'_>, x: &Bound<'_, PyAny>, bins: &Bound<'_, PyAny>, rang
 
 #[pyfunction]
 #[pyo3(signature = (x, bins, range=None))]
-fn histogram_bin_edges(py: Python<'_>, x: &Bound<'_, PyAny>, bins: &Bound<'_, PyAny>, range: Option<(f64, f64)>) -> PyResult<Obj> {
+fn histogram_bin_edges(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    bins: &Bound<'_, PyAny>,
+    range: Option<(f64, f64)>,
+) -> PyResult<Obj> {
     let bins = bins_of(bins)?;
-    vec_out(py, with_samples!(x, s => stats::histogram_bin_edges(s, &bins, range).map_err(value_error))?)
+    vec_out(
+        py,
+        with_samples!(x, s => stats::histogram_bin_edges(s, &bins, range).map_err(value_error))?,
+    )
 }
 
 #[pyfunction]
@@ -163,40 +192,79 @@ fn yw(name: &str) -> PyResult<YuleWalker> {
 }
 
 #[pyfunction]
-fn acovf(py: Python<'_>, x: &Bound<'_, PyAny>, nlag: usize, adjusted: bool, demean: bool) -> PyResult<Obj> {
-    vec_out(py, with_samples!(x, s => stats::acovf(s, nlag, adjusted, demean).map_err(value_error))?)
+fn acovf(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    nlag: usize,
+    adjusted: bool,
+    demean: bool,
+) -> PyResult<Obj> {
+    vec_out(
+        py,
+        with_samples!(x, s => stats::acovf(s, nlag, adjusted, demean).map_err(value_error))?,
+    )
 }
 
 #[pyfunction]
 fn acf(py: Python<'_>, x: &Bound<'_, PyAny>, nlags: usize, adjusted: bool) -> PyResult<Obj> {
-    vec_out(py, with_samples!(x, s => stats::acf(s, nlags, adjusted).map_err(value_error))?)
+    vec_out(
+        py,
+        with_samples!(x, s => stats::acf(s, nlags, adjusted).map_err(value_error))?,
+    )
 }
 
 #[pyfunction]
 fn pacf(py: Python<'_>, x: &Bound<'_, PyAny>, nlags: usize, method_by: &str) -> PyResult<Obj> {
-    vec_out(py, with_samples!(x, s => stats::pacf(s, nlags, yw(method_by)?).map_err(value_error))?)
+    vec_out(
+        py,
+        with_samples!(x, s => stats::pacf(s, nlags, yw(method_by)?).map_err(value_error))?,
+    )
 }
 
 /// `(ar, sigma2)` of a Yule-Walker fit.
 #[pyfunction]
-fn yule_walker(py: Python<'_>, x: &Bound<'_, PyAny>, order: usize, method_by: &str) -> PyResult<Obj> {
+fn yule_walker(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    order: usize,
+    method_by: &str,
+) -> PyResult<Obj> {
     let method = yw(method_by)?;
     let fit = with_samples!(x, s => stats::yule_walker(s, order, method).map_err(value_error))?;
-    tuple(py, vec![vec_out(py, fit.ar)?, fit.sigma2.into_pyobject(py)?.into_any().unbind()])
+    tuple(
+        py,
+        vec![
+            vec_out(py, fit.ar)?,
+            fit.sigma2.into_pyobject(py)?.into_any().unbind(),
+        ],
+    )
 }
 
 /// `(ar, sigma2)` of a Burg fit.
 #[pyfunction]
 fn burg(py: Python<'_>, x: &Bound<'_, PyAny>, order: usize) -> PyResult<Obj> {
     let fit = with_samples!(x, s => stats::burg(s, order).map_err(value_error))?;
-    tuple(py, vec![vec_out(py, fit.ar)?, fit.sigma2.into_pyobject(py)?.into_any().unbind()])
+    tuple(
+        py,
+        vec![
+            vec_out(py, fit.ar)?,
+            fit.sigma2.into_pyobject(py)?.into_any().unbind(),
+        ],
+    )
 }
 
 /// `(sigma2, ar, pacf)` from autocovariances.
 #[pyfunction]
 fn levinson_durbin(py: Python<'_>, acov: Vec<f64>, order: usize) -> PyResult<Obj> {
     let fit = stats::levinson_durbin(&acov, order).map_err(value_error)?;
-    tuple(py, vec![fit.sigma2.into_pyobject(py)?.into_any().unbind(), vec_out(py, fit.ar)?, vec_out(py, fit.pacf)?])
+    tuple(
+        py,
+        vec![
+            fit.sigma2.into_pyobject(py)?.into_any().unbind(),
+            vec_out(py, fit.ar)?,
+            vec_out(py, fit.pacf)?,
+        ],
+    )
 }
 
 pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
@@ -223,4 +291,3 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     }
     m.add_submodule(&s)
 }
-

@@ -8,26 +8,39 @@ use std::cell::RefCell;
 use autodyne::distortion::Shape;
 use autodyne::dynamics::{envelope_step, time_coeff, CompressorCurve};
 use autodyne::filter::{BiquadCoeffs, BiquadKind, LadderCoeffs, OnePole, SvfCoeffs, SvfMode};
-use autodyne::flux::{self as fx, Backend, Emit, Executable, ExecutableExt, FluxFloat, Graph, Iree, IreeTarget, Loss, Mask, Pjrt, PjrtOption, Program, Scan, StftResolution, Tracer, Xla};
+use autodyne::flux::{
+    self as fx, Backend, Emit, Executable, ExecutableExt, FluxFloat, Graph, Iree, IreeTarget, Loss,
+    Mask, Pjrt, PjrtOption, Program, Scan, StftResolution, Tracer, Xla,
+};
 use autodyne::signal::{ArrayMath, ComplexArrayMath, NdArray, NdView, RealArrayMath};
 use autodyne::units::*;
 use pyo3::exceptions::{PyIndexError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList, PySlice, PyTuple};
 
-use crate::{input, numpy_array, typed, runtime_error, value_error, Input};
+use crate::{input, numpy_array, runtime_error, typed, value_error, Input};
 
 type Obj = Py<PyAny>;
 
 // TRACERS =========================================================================================
 
 /// A traced array: operations on it are recorded (only valid inside the trace that made it).
-#[pyclass(name = "Tracer", module = "autodyne.flux", unsendable, skip_from_py_object)]
+#[pyclass(
+    name = "Tracer",
+    module = "autodyne.flux",
+    unsendable,
+    skip_from_py_object
+)]
 #[derive(Clone, Copy)]
 struct PyTracer(Tracer);
 
 /// A traced comparison, for `flux.where`.
-#[pyclass(name = "Mask", module = "autodyne.flux", unsendable, skip_from_py_object)]
+#[pyclass(
+    name = "Mask",
+    module = "autodyne.flux",
+    unsendable,
+    skip_from_py_object
+)]
 #[derive(Clone, Copy)]
 struct PyMask(Mask);
 
@@ -44,7 +57,9 @@ fn tr(x: &Bound<'_, PyAny>) -> PyResult<Tracer> {
         return Ok(Tracer::lit(v));
     }
     if x.is_instance_of::<pyo3::types::PyString>() {
-        return Err(PyTypeError::new_err("expected a tracer, a number or an array, not a string"));
+        return Err(PyTypeError::new_err(
+            "expected a tracer, a number or an array, not a string",
+        ));
     }
     let (a, _) = host(x)?;
     Ok(Tracer::constant(&a))
@@ -166,13 +181,22 @@ impl PyTracer {
 
     #[pyo3(signature = (*shape))]
     fn reshape(&self, shape: &Bound<'_, PyTuple>) -> PyResult<Self> {
-        let shape: Vec<usize> = if shape.len() == 1 && shape.get_item(0)?.extract::<usize>().is_err() { shape.get_item(0)?.extract()? } else { shape.extract()? };
+        let shape: Vec<usize> =
+            if shape.len() == 1 && shape.get_item(0)?.extract::<usize>().is_err() {
+                shape.get_item(0)?.extract()?
+            } else {
+                shape.extract()?
+            };
         Ok(PyTracer(self.0.reshape(&shape)))
     }
     #[pyo3(signature = (*perm))]
     fn transpose(&self, perm: Vec<usize>) -> Self {
         let n = self.0.shape().len();
-        let perm = if perm.is_empty() { (0..n).rev().collect() } else { perm };
+        let perm = if perm.is_empty() {
+            (0..n).rev().collect()
+        } else {
+            perm
+        };
         PyTracer(self.0.transpose(&perm))
     }
     #[getter(T)]
@@ -263,32 +287,47 @@ impl PyTracer {
             Err(_) => vec![key.clone()],
         };
         if items.len() > shape.len() {
-            return Err(PyIndexError::new_err(format!("too many indices for shape {shape:?}")));
+            return Err(PyIndexError::new_err(format!(
+                "too many indices for shape {shape:?}"
+            )));
         }
-        let (mut start, mut limit, mut stride) = (vec![0; shape.len()], shape.clone(), vec![1; shape.len()]);
+        let (mut start, mut limit, mut stride) =
+            (vec![0; shape.len()], shape.clone(), vec![1; shape.len()]);
         let mut dropped = Vec::new();
         for (axis, item) in items.iter().enumerate() {
             let n = shape[axis] as isize;
             if let Ok(s) = item.cast::<PySlice>() {
                 let ix = s.indices(n)?;
                 if ix.step <= 0 {
-                    return Err(PyValueError::new_err("only positive slice steps (use reverse())"));
+                    return Err(PyValueError::new_err(
+                        "only positive slice steps (use reverse())",
+                    ));
                 }
                 start[axis] = ix.start as usize;
                 limit[axis] = (ix.stop.max(ix.start)) as usize;
                 stride[axis] = ix.step as usize;
             } else {
-                let i: isize = item.extract().map_err(|_| PyTypeError::new_err("indices must be integers or slices"))?;
+                let i: isize = item
+                    .extract()
+                    .map_err(|_| PyTypeError::new_err("indices must be integers or slices"))?;
                 let i = if i < 0 { i + n } else { i };
                 if i < 0 || i >= n {
-                    return Err(PyIndexError::new_err(format!("index out of range for axis {axis} of {shape:?}")));
+                    return Err(PyIndexError::new_err(format!(
+                        "index out of range for axis {axis} of {shape:?}"
+                    )));
                 }
                 (start[axis], limit[axis]) = (i as usize, i as usize + 1);
                 dropped.push(axis);
             }
         }
         let sliced = self.0.slice(&start, &limit, &stride);
-        let kept: Vec<usize> = sliced.shape().iter().enumerate().filter(|(a, _)| !dropped.contains(a)).map(|(_, &d)| d).collect();
+        let kept: Vec<usize> = sliced
+            .shape()
+            .iter()
+            .enumerate()
+            .filter(|(a, _)| !dropped.contains(a))
+            .map(|(_, &d)| d)
+            .collect();
         Ok(PyTracer(sliced.reshape(&kept)))
     }
 }
@@ -297,8 +336,16 @@ impl PyTracer {
 
 /// `if_true` where `mask` holds, else `if_false`.
 #[pyfunction(name = "where")]
-fn where_(mask: PyRef<'_, PyMask>, if_true: &Bound<'_, PyAny>, if_false: &Bound<'_, PyAny>) -> PyResult<PyTracer> {
-    Ok(PyTracer(Tracer::select(mask.0, tr(if_true)?, tr(if_false)?)))
+fn where_(
+    mask: PyRef<'_, PyMask>,
+    if_true: &Bound<'_, PyAny>,
+    if_false: &Bound<'_, PyAny>,
+) -> PyResult<PyTracer> {
+    Ok(PyTracer(Tracer::select(
+        mask.0,
+        tr(if_true)?,
+        tr(if_false)?,
+    )))
 }
 
 /// Joins tracers along `axis` (`numpy.concatenate`).
@@ -338,8 +385,16 @@ fn complex(re: &Bound<'_, PyAny>, im: &Bound<'_, PyAny>) -> PyResult<PyTracer> {
 /// The complex DFT along the last axis of `re + i im`: `(real parts, imaginary parts)`.
 #[pyfunction]
 #[pyo3(signature = (re, im, inverse=false))]
-fn fft(re: &Bound<'_, PyAny>, im: &Bound<'_, PyAny>, inverse: bool) -> PyResult<(PyTracer, PyTracer)> {
-    let (a, b) = if inverse { Tracer::ifft_parts(tr(re)?, tr(im)?) } else { Tracer::fft_parts(tr(re)?, tr(im)?) };
+fn fft(
+    re: &Bound<'_, PyAny>,
+    im: &Bound<'_, PyAny>,
+    inverse: bool,
+) -> PyResult<(PyTracer, PyTracer)> {
+    let (a, b) = if inverse {
+        Tracer::ifft_parts(tr(re)?, tr(im)?)
+    } else {
+        Tracer::fft_parts(tr(re)?, tr(im)?)
+    };
     Ok((PyTracer(a), PyTracer(b)))
 }
 
@@ -356,34 +411,67 @@ fn frames(x: &Bound<'_, PyAny>, length: usize, hop: usize) -> PyResult<PyTracer>
 }
 
 fn resolutions(r: Option<Vec<(usize, usize, usize)>>) -> Vec<StftResolution> {
-    r.map(|r| r.into_iter().map(|(n, h, w)| StftResolution::new(n, h, w)).collect()).unwrap_or_else(|| StftResolution::DEFAULT.to_vec())
+    r.map(|r| {
+        r.into_iter()
+            .map(|(n, h, w)| StftResolution::new(n, h, w))
+            .collect()
+    })
+    .unwrap_or_else(|| StftResolution::DEFAULT.to_vec())
 }
 
 /// STFT magnitudes along the last axis: Hann frames of `window` samples, `hop` apart, zero-padded to `n_fft`.
 #[pyfunction]
-fn stft_magnitude(x: &Bound<'_, PyAny>, n_fft: usize, hop: usize, window: usize) -> PyResult<PyTracer> {
-    Ok(PyTracer(fx::stft_magnitude(tr(x)?, StftResolution::new(n_fft, hop, window))))
+fn stft_magnitude(
+    x: &Bound<'_, PyAny>,
+    n_fft: usize,
+    hop: usize,
+    window: usize,
+) -> PyResult<PyTracer> {
+    Ok(PyTracer(fx::stft_magnitude(
+        tr(x)?,
+        StftResolution::new(n_fft, hop, window),
+    )))
 }
 
 /// The multi-resolution STFT loss; `resolutions` are `(n_fft, hop, window)` triples.
 #[pyfunction]
 #[pyo3(signature = (y, target, resolutions=None))]
-fn multi_resolution_stft(y: &Bound<'_, PyAny>, target: &Bound<'_, PyAny>, resolutions: Option<Vec<(usize, usize, usize)>>) -> PyResult<PyTracer> {
-    Ok(PyTracer(fx::multi_resolution_stft(tr(y)?, tr(target)?, &self::resolutions(resolutions))))
+fn multi_resolution_stft(
+    y: &Bound<'_, PyAny>,
+    target: &Bound<'_, PyAny>,
+    resolutions: Option<Vec<(usize, usize, usize)>>,
+) -> PyResult<PyTracer> {
+    Ok(PyTracer(fx::multi_resolution_stft(
+        tr(y)?,
+        tr(target)?,
+        &self::resolutions(resolutions),
+    )))
 }
 
 // PROCESSOR STEPS =================================================================================
 
 fn parse<T: Copy>(name: &str, table: &[(&str, T)]) -> PyResult<T> {
-    table.iter().find(|(n, _)| *n == name).map(|&(_, v)| v).ok_or_else(|| {
-        PyValueError::new_err(format!("unknown kind {name:?}; expected one of {}", table.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")))
-    })
+    table
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|&(_, v)| v)
+        .ok_or_else(|| {
+            PyValueError::new_err(format!(
+                "unknown kind {name:?}; expected one of {}",
+                table.iter().map(|(n, _)| *n).collect::<Vec<_>>().join(", ")
+            ))
+        })
 }
 
 /// One sample of a one-pole low-pass: `(next state, output)`.
 #[pyfunction]
 #[pyo3(signature = (cutoff, state, x, sample_rate=48_000.0))]
-fn one_pole(cutoff: &Bound<'_, PyAny>, state: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, sample_rate: f64) -> PyResult<(PyTracer, PyTracer)> {
+fn one_pole(
+    cutoff: &Bound<'_, PyAny>,
+    state: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    sample_rate: f64,
+) -> PyResult<(PyTracer, PyTracer)> {
     let (s, y) = OnePole::lowpass(tr(cutoff)?, Tracer::lit(sample_rate)).tick(tr(state)?, tr(x)?);
     Ok((PyTracer(s), PyTracer(y)))
 }
@@ -414,7 +502,13 @@ fn biquad(
             ("highshelf", BiquadKind::HighShelf),
         ],
     )?;
-    let c = BiquadCoeffs::design(kind, tr(frequency)?, tr(q)?, tr(gain_db)?, Tracer::lit(sample_rate));
+    let c = BiquadCoeffs::design(
+        kind,
+        tr(frequency)?,
+        tr(q)?,
+        tr(gain_db)?,
+        Tracer::lit(sample_rate),
+    );
     let ([a, b], y) = c.tick([tr(&state.0)?, tr(&state.1)?], tr(x)?);
     Ok(((PyTracer(a), PyTracer(b)), PyTracer(y)))
 }
@@ -423,10 +517,24 @@ fn biquad(
 /// allpass): `((state, state), output)`.
 #[pyfunction]
 #[pyo3(signature = (mode, cutoff, q, state, x, sample_rate=48_000.0))]
-fn svf(mode: &str, cutoff: &Bound<'_, PyAny>, q: &Bound<'_, PyAny>, state: (Bound<'_, PyAny>, Bound<'_, PyAny>), x: &Bound<'_, PyAny>, sample_rate: f64) -> PyResult<((PyTracer, PyTracer), PyTracer)> {
+fn svf(
+    mode: &str,
+    cutoff: &Bound<'_, PyAny>,
+    q: &Bound<'_, PyAny>,
+    state: (Bound<'_, PyAny>, Bound<'_, PyAny>),
+    x: &Bound<'_, PyAny>,
+    sample_rate: f64,
+) -> PyResult<((PyTracer, PyTracer), PyTracer)> {
     let mode = parse(
         mode,
-        &[("lowpass", SvfMode::Lowpass), ("bandpass", SvfMode::Bandpass), ("highpass", SvfMode::Highpass), ("notch", SvfMode::Notch), ("peak", SvfMode::Peak), ("allpass", SvfMode::Allpass)],
+        &[
+            ("lowpass", SvfMode::Lowpass),
+            ("bandpass", SvfMode::Bandpass),
+            ("highpass", SvfMode::Highpass),
+            ("notch", SvfMode::Notch),
+            ("peak", SvfMode::Peak),
+            ("allpass", SvfMode::Allpass),
+        ],
     )?;
     let c = SvfCoeffs::new(tr(cutoff)?, tr(q)?, Tracer::lit(sample_rate));
     let ([a, b], o) = c.tick([tr(&state.0)?, tr(&state.1)?], tr(x)?);
@@ -446,8 +554,16 @@ fn ladder(
     compensate: bool,
 ) -> PyResult<(Vec<PyTracer>, PyTracer)> {
     let s: Vec<Tracer> = state.iter().map(tr).collect::<PyResult<_>>()?;
-    let s: [Tracer; 4] = s.try_into().map_err(|_| PyValueError::new_err("the ladder's state is four values"))?;
-    let c = LadderCoeffs::new(tr(cutoff)?, tr(resonance)?, tr(drive)?, compensate, Tracer::lit(sample_rate));
+    let s: [Tracer; 4] = s
+        .try_into()
+        .map_err(|_| PyValueError::new_err("the ladder's state is four values"))?;
+    let c = LadderCoeffs::new(
+        tr(cutoff)?,
+        tr(resonance)?,
+        tr(drive)?,
+        compensate,
+        Tracer::lit(sample_rate),
+    );
     let (next, y) = c.tick(s, tr(x)?);
     Ok((next.into_iter().map(PyTracer).collect(), PyTracer(y)))
 }
@@ -455,16 +571,35 @@ fn ladder(
 /// A waveshaper (`kind`: tanh, softclip, hardclip, fold).
 #[pyfunction]
 fn shape(kind: &str, x: &Bound<'_, PyAny>) -> PyResult<PyTracer> {
-    let s = parse(kind, &[("tanh", Shape::Tanh), ("softclip", Shape::SoftClip), ("hardclip", Shape::HardClip), ("fold", Shape::Fold)])?;
+    let s = parse(
+        kind,
+        &[
+            ("tanh", Shape::Tanh),
+            ("softclip", Shape::SoftClip),
+            ("hardclip", Shape::HardClip),
+            ("fold", Shape::Fold),
+        ],
+    )?;
     Ok(PyTracer(s.apply(tr(x)?)))
 }
 
 /// One sample of a peak envelope follower (attack and release in seconds): the next envelope.
 #[pyfunction]
 #[pyo3(signature = (attack, release, envelope, x, sample_rate=48_000.0))]
-fn envelope(attack: &Bound<'_, PyAny>, release: &Bound<'_, PyAny>, envelope: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, sample_rate: f64) -> PyResult<PyTracer> {
+fn envelope(
+    attack: &Bound<'_, PyAny>,
+    release: &Bound<'_, PyAny>,
+    envelope: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    sample_rate: f64,
+) -> PyResult<PyTracer> {
     let fs = Tracer::lit(sample_rate);
-    Ok(PyTracer(envelope_step(time_coeff(tr(attack)?, fs), time_coeff(tr(release)?, fs), tr(envelope)?, tr(x)?)))
+    Ok(PyTracer(envelope_step(
+        time_coeff(tr(attack)?, fs),
+        time_coeff(tr(release)?, fs),
+        tr(envelope)?,
+        tr(x)?,
+    )))
 }
 
 /// One sample of a compressor's gain computer on a level (`|x|`): `(next gain reduction in dB,
@@ -483,7 +618,13 @@ fn compressor(
     sample_rate: f64,
 ) -> PyResult<(PyTracer, PyTracer)> {
     let fs = Tracer::lit(sample_rate);
-    let curve = CompressorCurve { threshold_db: tr(threshold_db)?, slope: tr(slope)?, knee_db: tr(knee_db)?, attack_coeff: time_coeff(tr(attack)?, fs), release_coeff: time_coeff(tr(release)?, fs) };
+    let curve = CompressorCurve {
+        threshold_db: tr(threshold_db)?,
+        slope: tr(slope)?,
+        knee_db: tr(knee_db)?,
+        attack_coeff: time_coeff(tr(attack)?, fs),
+        release_coeff: time_coeff(tr(release)?, fs),
+    };
     let (r, g) = curve.tick(tr(reduction)?, tr(level)?);
     Ok((PyTracer(r), PyTracer(g)))
 }
@@ -496,7 +637,11 @@ fn host(x: &Bound<'_, PyAny>) -> PyResult<(NdArray<f64>, Option<DType>)> {
         return Ok((NdArray::from_vec(vec![v], &[]).map_err(value_error)?, None));
     }
     let numpy = x.py().import("numpy")?;
-    let array = if x.hasattr("__dlpack__")? { x.clone() } else { numpy.call_method1("asarray", (x, "float64"))? };
+    let array = if x.hasattr("__dlpack__")? {
+        x.clone()
+    } else {
+        numpy.call_method1("asarray", (x, "float64"))?
+    };
     let input = input(&array)?;
     crate::with_float_input!(input, T, view => {
         let dtype = if std::mem::size_of::<T>() == 8 { DType::F64 } else { DType::F32 };
@@ -515,16 +660,27 @@ fn batch(items: &[Bound<'_, PyAny>], force: Option<DType>) -> PyResult<Batch> {
     let hosts = items.iter().map(host).collect::<PyResult<Vec<_>>>()?;
     let wide = match force {
         Some(d) => d == DType::F64,
-        None => hosts.iter().any(|(_, d)| *d == Some(DType::F64)) || !hosts.iter().any(|(_, d)| *d == Some(DType::F32)),
+        None => {
+            hosts.iter().any(|(_, d)| *d == Some(DType::F64))
+                || !hosts.iter().any(|(_, d)| *d == Some(DType::F32))
+        }
     };
     Ok(if wide {
         Batch::F64(hosts.into_iter().map(|(a, _)| a).collect())
     } else {
-        Batch::F32(hosts.into_iter().map(|(a, _)| a.map(|&v| v as f32)).collect())
+        Batch::F32(
+            hosts
+                .into_iter()
+                .map(|(a, _)| a.map(|&v| v as f32))
+                .collect(),
+        )
     })
 }
 
-fn numpy_list<T: FluxFloat + numpy::Element>(py: Python<'_>, arrays: Vec<NdArray<T>>) -> PyResult<Vec<Obj>> {
+fn numpy_list<T: FluxFloat + numpy::Element>(
+    py: Python<'_>,
+    arrays: Vec<NdArray<T>>,
+) -> PyResult<Vec<Obj>> {
     arrays.into_iter().map(|a| numpy_array(py, a)).collect()
 }
 
@@ -536,9 +692,14 @@ fn outputs(result: &Bound<'_, PyAny>) -> PyResult<Vec<Tracer>> {
         return Ok(vec![t.borrow().0]);
     }
     if result.is_instance_of::<pyo3::types::PyString>() {
-        return Err(PyTypeError::new_err("a traced function must return tracers, not a string"));
+        return Err(PyTypeError::new_err(
+            "a traced function must return tracers, not a string",
+        ));
     }
-    let items: Vec<Bound<'_, PyAny>> = result.try_iter().map_err(|_| PyTypeError::new_err("a traced function must return tracers"))?.collect::<PyResult<_>>()?;
+    let items: Vec<Bound<'_, PyAny>> = result
+        .try_iter()
+        .map_err(|_| PyTypeError::new_err("a traced function must return tracers"))?
+        .collect::<PyResult<_>>()?;
     items.iter().map(tr).collect()
 }
 
@@ -576,8 +737,17 @@ impl PyGraph {
     /// points if given (see `Backend.max_fft`), written for `backend` if given (its FFT limit, and
     /// f64 maths out of arithmetic where it has none).
     #[pyo3(signature = (dtype="float32", max_fft=None, backend=None))]
-    fn program(&self, dtype: &str, max_fft: Option<usize>, backend: Option<PyRef<'_, PyBackend>>) -> PyResult<PyProgram> {
-        Ok(PyProgram(self.0.program_with(&emit(dtype, max_fft, backend.as_deref())?)))
+    fn program(
+        &self,
+        dtype: &str,
+        max_fft: Option<usize>,
+        backend: Option<PyRef<'_, PyBackend>>,
+    ) -> PyResult<PyProgram> {
+        Ok(PyProgram(self.0.program_with(&emit(
+            dtype,
+            max_fft,
+            backend.as_deref(),
+        )?)))
     }
     #[getter]
     fn input_shapes(&self) -> Vec<Vec<usize>> {
@@ -595,14 +765,22 @@ impl PyGraph {
 impl PyGraph {
     fn check(&self, inputs: &[Bound<'_, PyAny>]) -> PyResult<()> {
         if inputs.len() != self.0.inputs().len() {
-            return Err(PyValueError::new_err(format!("the graph takes {} inputs, got {}", self.0.inputs().len(), inputs.len())));
+            return Err(PyValueError::new_err(format!(
+                "the graph takes {} inputs, got {}",
+                self.0.inputs().len(),
+                inputs.len()
+            )));
         }
         Ok(())
     }
 }
 
 fn emit(dtype: &str, max_fft: Option<usize>, backend: Option<&PyBackend>) -> PyResult<Emit> {
-    let e = if wide(dtype)? { Emit::f64() } else { Emit::f32() };
+    let e = if wide(dtype)? {
+        Emit::f64()
+    } else {
+        Emit::f32()
+    };
     let e = match max_fft {
         Some(n) if n < 2 => return Err(PyValueError::new_err("max_fft must be at least 2")),
         Some(n) => e.max_fft(n),
@@ -618,7 +796,9 @@ fn wide(dtype: &str) -> PyResult<bool> {
     match dtype {
         "float32" | "f32" => Ok(false),
         "float64" | "f64" => Ok(true),
-        other => Err(PyValueError::new_err(format!("dtype must be float32 or float64, not {other:?}"))),
+        other => Err(PyValueError::new_err(format!(
+            "dtype must be float32 or float64, not {other:?}"
+        ))),
     }
 }
 
@@ -627,7 +807,13 @@ fn wide(dtype: &str) -> PyResult<bool> {
 fn trace(py: Python<'_>, f: &Bound<'_, PyAny>, shapes: Vec<Vec<usize>>) -> PyResult<PyGraph> {
     let refs: Vec<&[usize]> = shapes.iter().map(Vec::as_slice).collect();
     let error = RefCell::new(None);
-    let graph = fx::trace(&refs, |v| traced(&error, || outputs(&f.call1(PyTuple::new(py, tracers(py, v)?)?)?), Vec::new()));
+    let graph = fx::trace(&refs, |v| {
+        traced(
+            &error,
+            || outputs(&f.call1(PyTuple::new(py, tracers(py, v)?)?)?),
+            Vec::new(),
+        )
+    });
     match error.into_inner() {
         Some(e) => Err(e),
         None => Ok(PyGraph(graph)),
@@ -638,7 +824,12 @@ fn trace(py: Python<'_>, f: &Bound<'_, PyAny>, shapes: Vec<Vec<usize>>) -> PyRes
 /// the inputs numbered in `argnums` (all by default).
 #[pyfunction]
 #[pyo3(signature = (f, shapes, argnums=None))]
-fn value_and_grad(py: Python<'_>, f: &Bound<'_, PyAny>, shapes: Vec<Vec<usize>>, argnums: Option<Vec<usize>>) -> PyResult<PyGraph> {
+fn value_and_grad(
+    py: Python<'_>,
+    f: &Bound<'_, PyAny>,
+    shapes: Vec<Vec<usize>>,
+    argnums: Option<Vec<usize>>,
+) -> PyResult<PyGraph> {
     let refs: Vec<&[usize]> = shapes.iter().map(Vec::as_slice).collect();
     let error = RefCell::new(None);
     let graph = fx::trace(&refs, |v| {
@@ -646,12 +837,26 @@ fn value_and_grad(py: Python<'_>, f: &Bound<'_, PyAny>, shapes: Vec<Vec<usize>>,
             &error,
             || {
                 let out = outputs(&f.call1(PyTuple::new(py, tracers(py, v)?)?)?)?;
-                let [value] = out[..] else { return Err(PyValueError::new_err("value_and_grad: the function must return one scalar")) };
+                let [value] = out[..] else {
+                    return Err(PyValueError::new_err(
+                        "value_and_grad: the function must return one scalar",
+                    ));
+                };
                 if !value.shape().is_empty() {
-                    return Err(PyValueError::new_err(format!("value_and_grad: the function must return a scalar, not {:?}", value.shape())));
+                    return Err(PyValueError::new_err(format!(
+                        "value_and_grad: the function must return a scalar, not {:?}",
+                        value.shape()
+                    )));
                 }
                 let wrt: Vec<Tracer> = match &argnums {
-                    Some(a) => a.iter().map(|&i| v.get(i).copied().ok_or_else(|| PyIndexError::new_err(format!("argnum {i} out of range")))).collect::<PyResult<_>>()?,
+                    Some(a) => a
+                        .iter()
+                        .map(|&i| {
+                            v.get(i).copied().ok_or_else(|| {
+                                PyIndexError::new_err(format!("argnum {i} out of range"))
+                            })
+                        })
+                        .collect::<PyResult<_>>()?,
                     None => v.to_vec(),
                 };
                 let grads = fx::vjp(&[value], &[Tracer::lit(1.0)], &wrt);
@@ -689,16 +894,25 @@ impl PyLoss {
     /// `f(output, *aux)`, returning a scalar tracer.
     #[staticmethod]
     #[pyo3(name = "trace")]
-    fn trace_fn(py: Python<'_>, f: &Bound<'_, PyAny>, output: Vec<usize>, aux: Vec<Vec<usize>>) -> PyResult<Self> {
+    fn trace_fn(
+        py: Python<'_>,
+        f: &Bound<'_, PyAny>,
+        output: Vec<usize>,
+        aux: Vec<Vec<usize>>,
+    ) -> PyResult<Self> {
         let refs: Vec<&[usize]> = aux.iter().map(Vec::as_slice).collect();
         let error = RefCell::new(None);
         let loss = Loss::trace(&output, &refs, |y, a| {
             traced(
                 &error,
                 || {
-                    let args: Vec<Obj> = std::iter::once(wrap(py, y)).chain(a.iter().map(|&t| wrap(py, t))).collect::<PyResult<_>>()?;
+                    let args: Vec<Obj> = std::iter::once(wrap(py, y))
+                        .chain(a.iter().map(|&t| wrap(py, t)))
+                        .collect::<PyResult<_>>()?;
                     let out = outputs(&f.call1(PyTuple::new(py, args)?)?)?;
-                    out.first().copied().ok_or_else(|| PyValueError::new_err("the loss must return a scalar"))
+                    out.first()
+                        .copied()
+                        .ok_or_else(|| PyValueError::new_err("the loss must return a scalar"))
                 },
                 Tracer::lit(0.0),
             )
@@ -710,7 +924,12 @@ impl PyLoss {
     }
     /// `(loss, d loss / d output)`.
     #[pyo3(signature = (output, *aux))]
-    fn grad(&self, py: Python<'_>, output: &Bound<'_, PyAny>, aux: Vec<Bound<'_, PyAny>>) -> PyResult<(f64, Obj)> {
+    fn grad(
+        &self,
+        py: Python<'_>,
+        output: &Bound<'_, PyAny>,
+        aux: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<(f64, Obj)> {
         let items: Vec<Bound<'_, PyAny>> = std::iter::once(output.clone()).chain(aux).collect();
         match batch(&items, None)? {
             Batch::F32(mut a) => {
@@ -731,15 +950,29 @@ impl PyLoss {
 #[pyclass(name = "Scan", module = "autodyne.flux", unsendable)]
 struct PyScan(Scan);
 
-fn scan_args<'py>(params: &[Bound<'py, PyAny>], xs: &Bound<'py, PyAny>, s0: &[Bound<'py, PyAny>], extra: &[Bound<'py, PyAny>]) -> Vec<Bound<'py, PyAny>> {
-    params.iter().cloned().chain([xs.clone()]).chain(s0.iter().cloned()).chain(extra.iter().cloned()).collect()
+fn scan_args<'py>(
+    params: &[Bound<'py, PyAny>],
+    xs: &Bound<'py, PyAny>,
+    s0: &[Bound<'py, PyAny>],
+    extra: &[Bound<'py, PyAny>],
+) -> Vec<Bound<'py, PyAny>> {
+    params
+        .iter()
+        .cloned()
+        .chain([xs.clone()])
+        .chain(s0.iter().cloned())
+        .chain(extra.iter().cloned())
+        .collect()
 }
 
 macro_rules! split {
     ($a:expr, $p:expr, $s:expr) => {{
         let mut a = $a;
         let rest = a.split_off($p);
-        let (xs, rest) = rest.split_first().map(|(x, r)| (x.clone(), r.to_vec())).expect("xs");
+        let (xs, rest) = rest
+            .split_first()
+            .map(|(x, r)| (x.clone(), r.to_vec()))
+            .expect("xs");
         let (s0, extra) = rest.split_at($s);
         (a, xs, s0.to_vec(), extra.to_vec())
     }};
@@ -749,20 +982,38 @@ macro_rules! split {
 impl PyScan {
     /// `step(params, state, x)` receives lists of tracers (and `x`) and returns `(state list, y)`.
     #[new]
-    fn new(py: Python<'_>, params: Vec<Vec<usize>>, states: Vec<Vec<usize>>, sample: Vec<usize>, step: &Bound<'_, PyAny>) -> PyResult<Self> {
-        let (p, s): (Vec<&[usize]>, Vec<&[usize]>) = (params.iter().map(Vec::as_slice).collect(), states.iter().map(Vec::as_slice).collect());
+    fn new(
+        py: Python<'_>,
+        params: Vec<Vec<usize>>,
+        states: Vec<Vec<usize>>,
+        sample: Vec<usize>,
+        step: &Bound<'_, PyAny>,
+    ) -> PyResult<Self> {
+        let (p, s): (Vec<&[usize]>, Vec<&[usize]>) = (
+            params.iter().map(Vec::as_slice).collect(),
+            states.iter().map(Vec::as_slice).collect(),
+        );
         let n = states.len();
         let error = RefCell::new(None);
         let scan = Scan::trace(&p, &s, &sample, |p, s, x| {
             traced(
                 &error,
                 || {
-                    let args = (PyList::new(py, tracers(py, p)?)?, PyList::new(py, tracers(py, s)?)?, wrap(py, x)?);
+                    let args = (
+                        PyList::new(py, tracers(py, p)?)?,
+                        PyList::new(py, tracers(py, s)?)?,
+                        wrap(py, x)?,
+                    );
                     let result = step.call1(args)?;
-                    let (next, y): (Bound<'_, PyAny>, Bound<'_, PyAny>) = result.extract().map_err(|_| PyTypeError::new_err("step must return (state, y)"))?;
+                    let (next, y): (Bound<'_, PyAny>, Bound<'_, PyAny>) = result
+                        .extract()
+                        .map_err(|_| PyTypeError::new_err("step must return (state, y)"))?;
                     let next = outputs(&next)?;
                     if next.len() != n {
-                        return Err(PyValueError::new_err(format!("step returned {} state values, expected {n}", next.len())));
+                        return Err(PyValueError::new_err(format!(
+                            "step returned {} state values, expected {n}",
+                            next.len()
+                        )));
                     }
                     Ok((next, tr(&y)?))
                 },
@@ -776,7 +1027,13 @@ impl PyScan {
     }
 
     /// Runs over `xs` (`[len, sample...]`) from `s0`: `(ys, final state list)`.
-    fn run(&self, py: Python<'_>, params: Vec<Bound<'_, PyAny>>, xs: &Bound<'_, PyAny>, s0: Vec<Bound<'_, PyAny>>) -> PyResult<(Obj, Vec<Obj>)> {
+    fn run(
+        &self,
+        py: Python<'_>,
+        params: Vec<Bound<'_, PyAny>>,
+        xs: &Bound<'_, PyAny>,
+        s0: Vec<Bound<'_, PyAny>>,
+    ) -> PyResult<(Obj, Vec<Obj>)> {
         let (np, ns) = (params.len(), s0.len());
         match batch(&scan_args(&params, xs, &s0, &[]), None)? {
             Batch::F32(a) => {
@@ -795,7 +1052,15 @@ impl PyScan {
     /// The loss of the outputs and its gradient: a dict of `loss`, `params`, `state` and `input`
     /// (the gradients). Without `loss`, the mean squared error against `aux[0]`.
     #[pyo3(signature = (params, xs, s0, aux, loss=None))]
-    fn grad(&self, py: Python<'_>, params: Vec<Bound<'_, PyAny>>, xs: &Bound<'_, PyAny>, s0: Vec<Bound<'_, PyAny>>, aux: Vec<Bound<'_, PyAny>>, loss: Option<PyRef<'_, PyLoss>>) -> PyResult<Obj> {
+    fn grad(
+        &self,
+        py: Python<'_>,
+        params: Vec<Bound<'_, PyAny>>,
+        xs: &Bound<'_, PyAny>,
+        s0: Vec<Bound<'_, PyAny>>,
+        aux: Vec<Bound<'_, PyAny>>,
+        loss: Option<PyRef<'_, PyLoss>>,
+    ) -> PyResult<Obj> {
         let (np, ns) = (params.len(), s0.len());
         let dict = PyDict::new(py);
         macro_rules! go {
@@ -805,7 +1070,9 @@ impl PyScan {
                 let loss = match &loss {
                     Some(l) => &l.0,
                     None => {
-                        let target = aux.first().ok_or_else(|| PyValueError::new_err("without a loss, aux must hold the targets"))?;
+                        let target = aux.first().ok_or_else(|| {
+                            PyValueError::new_err("without a loss, aux must hold the targets")
+                        })?;
                         mse = Loss::mse(target.shape());
                         &mse
                     }
@@ -827,8 +1094,17 @@ impl PyScan {
     /// The forward program over `len` steps: `(params..., xs, s0...) -> (ys, final state...)`,
     /// written for `backend` if given (IREE's loops run 32 steps per iteration).
     #[pyo3(signature = (len, dtype="float32", max_fft=None, backend=None))]
-    fn forward_program(&self, len: usize, dtype: &str, max_fft: Option<usize>, backend: Option<PyRef<'_, PyBackend>>) -> PyResult<PyProgram> {
-        Ok(PyProgram(self.0.forward_program_with(len, &emit(dtype, max_fft, backend.as_deref())?)))
+    fn forward_program(
+        &self,
+        len: usize,
+        dtype: &str,
+        max_fft: Option<usize>,
+        backend: Option<PyRef<'_, PyBackend>>,
+    ) -> PyResult<PyProgram> {
+        Ok(PyProgram(self.0.forward_program_with(
+            len,
+            &emit(dtype, max_fft, backend.as_deref())?,
+        )))
     }
 
     /// The same scan with gradients that recompute each step (`True`: the least memory) or save the
@@ -854,7 +1130,14 @@ impl PyScan {
     /// d s0..., d xs)`; mean squared error against a target without `loss`. Written for `backend`
     /// if given, as `forward_program` is.
     #[pyo3(signature = (len, loss=None, dtype="float32", max_fft=None, backend=None))]
-    fn grad_program(&self, len: usize, loss: Option<PyRef<'_, PyLoss>>, dtype: &str, max_fft: Option<usize>, backend: Option<PyRef<'_, PyBackend>>) -> PyResult<PyProgram> {
+    fn grad_program(
+        &self,
+        len: usize,
+        loss: Option<PyRef<'_, PyLoss>>,
+        dtype: &str,
+        max_fft: Option<usize>,
+        backend: Option<PyRef<'_, PyBackend>>,
+    ) -> PyResult<PyProgram> {
         let mse;
         let loss = match &loss {
             Some(l) => &l.0,
@@ -863,7 +1146,11 @@ impl PyScan {
                 &mse
             }
         };
-        Ok(PyProgram(self.0.grad_program_with(len, loss, &emit(dtype, max_fft, backend.as_deref())?)))
+        Ok(PyProgram(self.0.grad_program_with(
+            len,
+            loss,
+            &emit(dtype, max_fft, backend.as_deref())?,
+        )))
     }
 }
 
@@ -889,7 +1176,11 @@ impl PyProgram {
     }
     #[getter]
     fn dtype(&self) -> &'static str {
-        if self.0.dtype == DType::F64 { "float64" } else { "float32" }
+        if self.0.dtype == DType::F64 {
+            "float64"
+        } else {
+            "float32"
+        }
     }
     fn __str__(&self) -> String {
         self.0.text.clone()
@@ -908,8 +1199,14 @@ impl PyBackend {
     #[staticmethod]
     #[pyo3(signature = (target="cpu"))]
     fn iree(target: &str) -> PyResult<Self> {
-        let iree = Iree::find().ok_or_else(|| runtime_error("IREE tools not found (set AUTODYNE_IREE_DIR or put iree-compile on PATH)"))?;
-        let (api, arch) = target.split_once(':').map_or((target, None), |(a, b)| (a, Some(b.to_string())));
+        let iree = Iree::find().ok_or_else(|| {
+            runtime_error(
+                "IREE tools not found (set AUTODYNE_IREE_DIR or put iree-compile on PATH)",
+            )
+        })?;
+        let (api, arch) = target
+            .split_once(':')
+            .map_or((target, None), |(a, b)| (a, Some(b.to_string())));
         let target = match (api, arch) {
             ("cpu", None) => IreeTarget::Cpu,
             ("vulkan", target) => IreeTarget::Vulkan { target },
@@ -917,7 +1214,11 @@ impl PyBackend {
             ("cuda", Some(target)) => IreeTarget::Cuda { target },
             ("rocm", Some(target)) => IreeTarget::Rocm { target },
             ("metal", None) => IreeTarget::Metal,
-            _ => return Err(PyValueError::new_err(format!("unknown IREE target {target:?}"))),
+            _ => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown IREE target {target:?}"
+                )))
+            }
         };
         Ok(PyBackend(Box::new(iree.with_target(target))))
     }
@@ -943,7 +1244,9 @@ impl PyBackend {
             };
             opts.push((k.extract::<String>()?, value));
         }
-        Ok(PyBackend(Box::new(Pjrt::load_with_options(&path, &opts).map_err(flux_error)?)))
+        Ok(PyBackend(Box::new(
+            Pjrt::load_with_options(&path, &opts).map_err(flux_error)?,
+        )))
     }
     #[getter]
     fn name(&self) -> &'static str {
@@ -955,7 +1258,9 @@ impl PyBackend {
         self.0.max_fft()
     }
     fn compile(&self, program: PyRef<'_, PyProgram>) -> PyResult<PyExecutable> {
-        Ok(PyExecutable(self.0.compile(&program.0).map_err(flux_error)?))
+        Ok(PyExecutable(
+            self.0.compile(&program.0).map_err(flux_error)?,
+        ))
     }
 }
 

@@ -23,22 +23,46 @@ fn read_npy(path: &Path) -> (Vec<f64>, Vec<usize>) {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let len = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
     let header = std::str::from_utf8(&bytes[10..10 + len]).unwrap();
-    assert!(header.contains("'<f8'") && header.contains("'fortran_order': False"), "{}: expected C-order f64", path.display());
-    let dims = header.split("'shape': (").nth(1).unwrap().split(')').next().unwrap();
-    let shape: Vec<usize> = dims.split(',').map(str::trim).filter(|d| !d.is_empty()).map(|d| d.parse().unwrap()).collect();
-    let data = bytes[10 + len..].as_chunks::<8>().0.iter().map(|&b| f64::from_le_bytes(b)).collect();
+    assert!(
+        header.contains("'<f8'") && header.contains("'fortran_order': False"),
+        "{}: expected C-order f64",
+        path.display()
+    );
+    let dims = header
+        .split("'shape': (")
+        .nth(1)
+        .unwrap()
+        .split(')')
+        .next()
+        .unwrap();
+    let shape: Vec<usize> = dims
+        .split(',')
+        .map(str::trim)
+        .filter(|d| !d.is_empty())
+        .map(|d| d.parse().unwrap())
+        .collect();
+    let data = bytes[10 + len..]
+        .as_chunks::<8>()
+        .0
+        .iter()
+        .map(|&b| f64::from_le_bytes(b))
+        .collect();
     (data, shape)
 }
 
 fn write_npy(path: &Path, data: &[f64]) {
-    let mut header = format!("{{'descr': '<f8', 'fortran_order': False, 'shape': ({},), }}", data.len());
+    let mut header = format!(
+        "{{'descr': '<f8', 'fortran_order': False, 'shape': ({},), }}",
+        data.len()
+    );
     let total = (10 + header.len() + 1).div_ceil(64) * 64;
     header.extend(std::iter::repeat_n(' ', total - 10 - header.len() - 1));
     header.push('\n');
     let mut out = b"\x93NUMPY\x01\x00".to_vec();
     out.extend_from_slice(&(header.len() as u16).to_le_bytes());
     out.extend_from_slice(header.as_bytes());
-    data.iter().for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
+    data.iter()
+        .for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
     std::fs::write(path, out).unwrap();
 }
 
@@ -120,7 +144,9 @@ fn faer_mat(data: &[f64], n: usize, m: usize) -> Mat<f64> {
 }
 
 fn faer_rows(m: faer::MatRef<'_, f64>) -> Vec<f64> {
-    (0..m.nrows()).flat_map(|i| (0..m.ncols()).map(move |j| m[(i, j)])).collect()
+    (0..m.nrows())
+        .flat_map(|i| (0..m.ncols()).map(move |j| m[(i, j)]))
+        .collect()
 }
 
 fn nalgebra_mat(data: &[f64], n: usize, m: usize) -> DMatrix<f64> {
@@ -128,11 +154,16 @@ fn nalgebra_mat(data: &[f64], n: usize, m: usize) -> DMatrix<f64> {
 }
 
 fn nalgebra_rows(m: &DMatrix<f64>) -> Vec<f64> {
-    (0..m.nrows()).flat_map(|i| (0..m.ncols()).map(move |j| m[(i, j)])).collect()
+    (0..m.nrows())
+        .flat_map(|i| (0..m.ncols()).map(move |j| m[(i, j)]))
+        .collect()
 }
 
 fn burn_mat(data: &[f64], shape: &[usize]) -> Tensor<Burn, 2> {
-    Tensor::from_data(TensorData::new(data.to_vec(), shape.to_vec()), &Default::default())
+    Tensor::from_data(
+        TensorData::new(data.to_vec(), shape.to_vec()),
+        &Default::default(),
+    )
 }
 
 fn main() {
@@ -144,14 +175,29 @@ fn main() {
 
     // matrix products
     for n in [64usize, 512] {
-        let ((a, _), (b, _)) = (load(&format!("matmul_{n}_a")), load(&format!("matmul_{n}_b")));
+        let ((a, _), (b, _)) = (
+            load(&format!("matmul_{n}_a")),
+            load(&format!("matmul_{n}_b")),
+        );
         let op = format!("matmul {n}");
-        let (av, bv) = (autodyne::signal::NdArray::from_vec(a.clone(), &[n, n]).unwrap(), autodyne::signal::NdArray::from_vec(b.clone(), &[n, n]).unwrap());
+        let (av, bv) = (
+            autodyne::signal::NdArray::from_vec(a.clone(), &[n, n]).unwrap(),
+            autodyne::signal::NdArray::from_vec(b.clone(), &[n, n]).unwrap(),
+        );
         let (t, c) = best(|| autodyne::linalg::matmul(av.view(), bv.view()).unwrap());
         run.record("autodyne", &op, t, c.as_slice());
         let (fa, fb) = (faer_mat(&a, n, n), faer_mat(&b, n, n));
         let mut fc = Mat::<f64>::zeros(n, n);
-        let (t, _) = best(|| faer_matmul(fc.as_mut(), Accum::Replace, fa.as_ref(), fb.as_ref(), 1.0, Par::Seq));
+        let (t, _) = best(|| {
+            faer_matmul(
+                fc.as_mut(),
+                Accum::Replace,
+                fa.as_ref(),
+                fb.as_ref(),
+                1.0,
+                Par::Seq,
+            )
+        });
         run.record("faer", &op, t, &faer_rows(fc.as_ref()));
         let (na, nb) = (nalgebra_mat(&a, n, n), nalgebra_mat(&b, n, n));
         let (t, c) = best(|| &na * &nb);
@@ -164,7 +210,10 @@ fn main() {
     // a linear system and a determinant
     let ((a, _), (b, _)) = (load("solve_512_a"), load("solve_512_b"));
     let n = 512;
-    let (av, bv) = (autodyne::signal::NdArray::from_vec(a.clone(), &[n, n]).unwrap(), autodyne::signal::NdArray::from_vec(b.clone(), &[n]).unwrap());
+    let (av, bv) = (
+        autodyne::signal::NdArray::from_vec(a.clone(), &[n, n]).unwrap(),
+        autodyne::signal::NdArray::from_vec(b.clone(), &[n]).unwrap(),
+    );
     let (t, x) = best(|| autodyne::linalg::solve(av.view(), bv.view()).unwrap());
     run.record("autodyne", "solve 512", t, x.as_slice());
     let (fa, fb) = (faer_mat(&a, n, n), Mat::from_fn(n, 1, |i, _| b[i]));
@@ -194,7 +243,15 @@ fn main() {
     let (t, s) = best(|| fa.singular_values().unwrap());
     run.record("faer", "svdvals 300", t, &s);
     let (t, s) = best(|| na.clone().singular_values());
-    run.record("nalgebra", "svdvals 300", t, &sorted(s.as_slice().to_vec()).into_iter().rev().collect::<Vec<_>>());
+    run.record(
+        "nalgebra",
+        "svdvals 300",
+        t,
+        &sorted(s.as_slice().to_vec())
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>(),
+    );
 
     let (t, r) = best(|| autodyne::linalg::svd(av.view(), true).unwrap());
     let res = svd_residual(&a, r.u.as_slice(), &r.s, r.vt.as_slice(), n);
@@ -205,15 +262,57 @@ fn main() {
     run.record("faer", "svd 300", t, &[s, vec![res]].concat());
     let (t, r) = best(|| na.clone().svd(true, true));
     let (u, vt) = (r.u.as_ref().unwrap(), r.v_t.as_ref().unwrap());
-    let res = svd_residual(&a, &nalgebra_rows(u), r.singular_values.as_slice(), &nalgebra_rows(vt), n);
-    run.record("nalgebra", "svd 300", t, &[sorted(r.singular_values.as_slice().to_vec()).into_iter().rev().collect(), vec![res]].concat());
+    let res = svd_residual(
+        &a,
+        &nalgebra_rows(u),
+        r.singular_values.as_slice(),
+        &nalgebra_rows(vt),
+        n,
+    );
+    run.record(
+        "nalgebra",
+        "svd 300",
+        t,
+        &[
+            sorted(r.singular_values.as_slice().to_vec())
+                .into_iter()
+                .rev()
+                .collect(),
+            vec![res],
+        ]
+        .concat(),
+    );
 
     let (t, w) = best(|| autodyne::linalg::eigvals(av.view()).unwrap());
-    run.record("autodyne", "eigvals 300", t, &eig_key(w.iter().map(|z| z.re).collect(), w.iter().map(|z| z.im).collect()));
+    run.record(
+        "autodyne",
+        "eigvals 300",
+        t,
+        &eig_key(
+            w.iter().map(|z| z.re).collect(),
+            w.iter().map(|z| z.im).collect(),
+        ),
+    );
     let (t, w) = best(|| fa.eigenvalues().unwrap());
-    run.record("faer", "eigvals 300", t, &eig_key(w.iter().map(|z| z.re).collect(), w.iter().map(|z| z.im).collect()));
+    run.record(
+        "faer",
+        "eigvals 300",
+        t,
+        &eig_key(
+            w.iter().map(|z| z.re).collect(),
+            w.iter().map(|z| z.im).collect(),
+        ),
+    );
     let (t, w) = best(|| na.clone().complex_eigenvalues());
-    run.record("nalgebra", "eigvals 300", t, &eig_key(w.iter().map(|z| z.re).collect(), w.iter().map(|z| z.im).collect()));
+    run.record(
+        "nalgebra",
+        "eigvals 300",
+        t,
+        &eig_key(
+            w.iter().map(|z| z.re).collect(),
+            w.iter().map(|z| z.im).collect(),
+        ),
+    );
 
     // a symmetric matrix: eigenvalues with and without vectors
     let (s, _) = load("symmetric_300");
@@ -231,15 +330,36 @@ fn main() {
     order.sort_by(|&i, &j| e.eigenvalues[i].partial_cmp(&e.eigenvalues[j]).unwrap());
     let w: Vec<f64> = order.iter().map(|&i| e.eigenvalues[i]).collect();
     let vectors = &e.eigenvectors;
-    let v: Vec<f64> = (0..n).flat_map(|r| order.iter().map(move |&c| vectors[(r, c)])).collect();
-    run.record("nalgebra", "eigh 300", t, &[w, vec![eigh_residual(&s, &order.iter().map(|&i| e.eigenvalues[i]).collect::<Vec<_>>(), &v, n)]].concat());
+    let v: Vec<f64> = (0..n)
+        .flat_map(|r| order.iter().map(move |&c| vectors[(r, c)]))
+        .collect();
+    run.record(
+        "nalgebra",
+        "eigh 300",
+        t,
+        &[
+            w,
+            vec![eigh_residual(
+                &s,
+                &order.iter().map(|&i| e.eigenvalues[i]).collect::<Vec<_>>(),
+                &v,
+                n,
+            )],
+        ]
+        .concat(),
+    );
 
     let (t, w) = best(|| autodyne::linalg::eigvalsh(sv.view()).unwrap());
     run.record("autodyne", "eigvalsh 300", t, &w);
     let (t, w) = best(|| fs.self_adjoint_eigenvalues(Side::Lower).unwrap());
     run.record("faer", "eigvalsh 300", t, &w);
     let (t, w) = best(|| ns.clone().symmetric_eigenvalues());
-    run.record("nalgebra", "eigvalsh 300", t, &sorted(w.as_slice().to_vec()));
+    run.record(
+        "nalgebra",
+        "eigvalsh 300",
+        t,
+        &sorted(w.as_slice().to_vec()),
+    );
 
     // faer's phases: the reductions to bidiagonal / tridiagonal form, the rest is the iteration
     phases(&run, &fa, &fs);
@@ -254,16 +374,36 @@ fn phases(run: &Run, a: &Mat<f64>, s: &Mat<f64>) {
     use faer::linalg::svd::bidiag::{bidiag_in_place, bidiag_in_place_scratch};
     let n = a.nrows();
     let bs = recommended_block_size::<f64>(n, n);
-    let mut buf = MemBuffer::new(StackReq::any_of(&[bidiag_in_place_scratch::<f64>(n, n, Par::Seq, Default::default()), tridiag_in_place_scratch::<f64>(n, Par::Seq, Default::default())]));
+    let mut buf = MemBuffer::new(StackReq::any_of(&[
+        bidiag_in_place_scratch::<f64>(n, n, Par::Seq, Default::default()),
+        tridiag_in_place_scratch::<f64>(n, Par::Seq, Default::default()),
+    ]));
     let (t, _) = best(|| {
-        let (mut m, mut hl, mut hr) = (a.clone(), Mat::<f64>::zeros(bs, n), Mat::<f64>::zeros(bs, n - 1));
-        bidiag_in_place(m.as_mut(), hl.as_mut(), hr.as_mut(), Par::Seq, MemStack::new(&mut buf), Default::default());
+        let (mut m, mut hl, mut hr) = (
+            a.clone(),
+            Mat::<f64>::zeros(bs, n),
+            Mat::<f64>::zeros(bs, n - 1),
+        );
+        bidiag_in_place(
+            m.as_mut(),
+            hl.as_mut(),
+            hr.as_mut(),
+            Par::Seq,
+            MemStack::new(&mut buf),
+            Default::default(),
+        );
         m
     });
     run.record("faer", "phase: bidiagonalization 300", t, &[]);
     let (t, _) = best(|| {
         let (mut m, mut h) = (s.clone(), Mat::<f64>::zeros(bs, n - 1));
-        tridiag_in_place(m.as_mut(), h.as_mut(), Par::Seq, MemStack::new(&mut buf), Default::default());
+        tridiag_in_place(
+            m.as_mut(),
+            h.as_mut(),
+            Par::Seq,
+            MemStack::new(&mut buf),
+            Default::default(),
+        );
         m
     });
     run.record("faer", "phase: tridiagonalization 300", t, &[]);

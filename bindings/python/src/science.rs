@@ -2,13 +2,18 @@
 //! FFTs. Arguments follow SciPy's names; the Python wrappers in `autodyne.linalg`,
 //! `autodyne.signal` and `autodyne.fft` supply its defaults.
 
+use autodyne::fft::Fft;
 use autodyne::filter::design::{self, Band, BesselNorm, Design, IirKind, RemezType};
 use autodyne::filter::{self, Pad, SavgolMode};
 use autodyne::linalg::{self, LinalgFloat};
 use autodyne::resample;
-use autodyne::signal::{self, convolve_with, correlate_with, Bounds, ConvMethod, ConvMode, NdArray, NdView, PeakOptions};
-use autodyne::fft::Fft;
-use autodyne::spectral::{self, Average, Boundary, Detrend, IstftOptions, Scaling, Segments, SpectrogramMode, StftOptions, WindowSpec};
+use autodyne::signal::{
+    self, convolve_with, correlate_with, Bounds, ConvMethod, ConvMode, NdArray, NdView, PeakOptions,
+};
+use autodyne::spectral::{
+    self, Average, Boundary, Detrend, IstftOptions, Scaling, Segments, SpectrogramMode,
+    StftOptions, WindowSpec,
+};
 use autodyne::systems::{self, Domain, Pairing, Zpk, C64};
 use autodyne::units::*;
 use numpy::PyReadonlyArrayDyn;
@@ -16,7 +21,9 @@ use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 
-use crate::{axis_index, import, input, numpy_array, numpy_complex, numpy_out, typed, value_error, Input};
+use crate::{
+    axis_index, import, input, numpy_array, numpy_complex, numpy_out, typed, value_error, Input,
+};
 
 type Obj = Py<PyAny>;
 
@@ -52,7 +59,9 @@ fn sos_in(obj: &Bound<'_, PyAny>) -> PyResult<Vec<[f64; 6]>> {
     if v.ndim() != 2 || v.shape()[1] != 6 {
         return Err(PyValueError::new_err("sos must have shape (n_sections, 6)"));
     }
-    Ok(v.outer_iter().map(|row| [row[0], row[1], row[2], row[3], row[4], row[5]]).collect())
+    Ok(v.outer_iter()
+        .map(|row| [row[0], row[1], row[2], row[3], row[4], row[5]])
+        .collect())
 }
 
 fn sos_out(py: Python<'_>, sos: &[[f64; 6]]) -> PyResult<Obj> {
@@ -69,14 +78,20 @@ pub(crate) fn window_spec(obj: &Bound<'_, PyAny>) -> PyResult<WindowSpec> {
     if let Ok(name) = obj.extract::<String>() {
         return name.parse::<WindowSpec>().map_err(value_error);
     }
-    let t: (String, f64) = obj.extract().map_err(|_| PyTypeError::new_err("window must be a name or a (name, parameter) tuple"))?;
+    let t: (String, f64) = obj
+        .extract()
+        .map_err(|_| PyTypeError::new_err("window must be a name or a (name, parameter) tuple"))?;
     Ok(match t.0.as_str() {
         "kaiser" | "ksr" => WindowSpec::Kaiser { beta: t.1 },
         "gaussian" | "gauss" | "gss" => WindowSpec::Gaussian { std: t.1 },
         "tukey" | "tuk" => WindowSpec::Tukey { alpha: t.1 },
         "exponential" | "poisson" => WindowSpec::Exponential { tau: t.1 },
         "chebwin" | "cheb" => WindowSpec::Chebwin { attenuation: t.1 },
-        other => return Err(PyValueError::new_err(format!("unknown parameterized window {other:?}"))),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown parameterized window {other:?}"
+            )))
+        }
     })
 }
 
@@ -92,7 +107,10 @@ macro_rules! float_view {
 
 /// Calls `f` with the second of two float inputs as a view of the first's dtype: read in place when
 /// it already has that dtype, else converted once.
-fn with_pair<T: LinalgFloat + DynElementBridge + 'static, R>(b: &Bound<'_, PyAny>, f: impl FnOnce(NdView<'_, T>) -> PyResult<R>) -> PyResult<R> {
+fn with_pair<T: LinalgFloat + DynElementBridge + 'static, R>(
+    b: &Bound<'_, PyAny>,
+    f: impl FnOnce(NdView<'_, T>) -> PyResult<R>,
+) -> PyResult<R> {
     let held = input(b)?;
     crate::with_float_input!(held, U, v => {
         if std::any::TypeId::of::<U>() == std::any::TypeId::of::<T>() {
@@ -114,7 +132,9 @@ impl DynElementBridge for f64 {}
 /// Matrix product of 1-D or 2-D arrays, `numpy.matmul` style (lists and integer arrays become float64).
 #[pyfunction]
 fn matmul<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, b: &Bound<'py, PyAny>) -> PyResult<Obj> {
-    let float = |x: &Bound<'_, PyAny>| x.cast::<numpy::PyArrayDyn<f64>>().is_ok() || x.cast::<numpy::PyArrayDyn<f32>>().is_ok();
+    let float = |x: &Bound<'_, PyAny>| {
+        x.cast::<numpy::PyArrayDyn<f64>>().is_ok() || x.cast::<numpy::PyArrayDyn<f32>>().is_ok()
+    };
     if float(a) && float(b) {
         return matmul_floats(py, a, b);
     }
@@ -126,7 +146,11 @@ fn matmul<'py>(py: Python<'py>, a: &Bound<'py, PyAny>, b: &Bound<'py, PyAny>) ->
         }
         let arr = np.call_method1("asarray", (x,))?;
         let kind: String = arr.getattr("dtype")?.getattr("kind")?.extract()?;
-        if kind == "f" { Ok(arr) } else { np.call_method1("asarray", (x, "float64")) }
+        if kind == "f" {
+            Ok(arr)
+        } else {
+            np.call_method1("asarray", (x, "float64"))
+        }
     };
     matmul_floats(py, &convert(a)?, &convert(b)?)
 }
@@ -256,14 +280,29 @@ fn roots(py: Python<'_>, p: &Bound<'_, PyAny>) -> PyResult<Obj> {
 /// `zpk` in SciPy's requested `output` form.
 fn design_out(py: Python<'_>, zpk: Zpk, output: &str) -> PyResult<Obj> {
     match output {
-        "zpk" => tuple(py, vec![complex_vec_out(py, zpk.zeros.clone())?, complex_vec_out(py, zpk.poles.clone())?, zpk.gain.into_pyobject(py)?.into_any().unbind()]),
+        "zpk" => tuple(
+            py,
+            vec![
+                complex_vec_out(py, zpk.zeros.clone())?,
+                complex_vec_out(py, zpk.poles.clone())?,
+                zpk.gain.into_pyobject(py)?.into_any().unbind(),
+            ],
+        ),
         "ba" => {
             let tf = zpk.to_tf();
             tuple(py, vec![vec_out(py, tf.num)?, vec_out(py, tf.den)?])
         }
         "sos" => {
-            let pairing = if zpk.domain.is_discrete() { Pairing::Nearest } else { Pairing::Minimal };
-            sos_out(py, &systems::zpk2sos(&zpk.zeros, &zpk.poles, zpk.gain, pairing, zpk.domain).map_err(value_error)?)
+            let pairing = if zpk.domain.is_discrete() {
+                Pairing::Nearest
+            } else {
+                Pairing::Minimal
+            };
+            sos_out(
+                py,
+                &systems::zpk2sos(&zpk.zeros, &zpk.poles, zpk.gain, pairing, zpk.domain)
+                    .map_err(value_error)?,
+            )
         }
         other => Err(PyValueError::new_err(format!("unknown output {other:?}"))),
     }
@@ -274,7 +313,19 @@ fn design_out(py: Python<'_>, zpk: Zpk, output: &str) -> PyResult<Obj> {
 #[pyfunction]
 #[pyo3(signature = (n, wn, rp=None, rs=None, btype="bandpass", analog=false, ftype="butter", output="ba", fs=None, norm="phase"))]
 #[allow(clippy::too_many_arguments)]
-fn iirfilter(py: Python<'_>, n: usize, wn: &Bound<'_, PyAny>, rp: Option<f64>, rs: Option<f64>, btype: &str, analog: bool, ftype: &str, output: &str, fs: Option<f64>, norm: &str) -> PyResult<Obj> {
+fn iirfilter(
+    py: Python<'_>,
+    n: usize,
+    wn: &Bound<'_, PyAny>,
+    rp: Option<f64>,
+    rs: Option<f64>,
+    btype: &str,
+    analog: bool,
+    ftype: &str,
+    output: &str,
+    fs: Option<f64>,
+    norm: &str,
+) -> PyResult<Obj> {
     let edges = coeffs(wn)?;
     // digital edges normalized to Nyquist are Hz at fs = 2
     let fs = fs.unwrap_or(2.0);
@@ -283,40 +334,106 @@ fn iirfilter(py: Python<'_>, n: usize, wn: &Bound<'_, PyAny>, rp: Option<f64>, r
         ("highpass" | "high", [w]) => Band::Highpass(*w),
         ("bandpass" | "band" | "pass", [a, b]) => Band::Bandpass(*a, *b),
         ("bandstop" | "stop", [a, b]) => Band::Bandstop(*a, *b),
-        _ => return Err(PyValueError::new_err(format!("btype {btype:?} does not fit {} edge(s)", edges.len()))),
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "btype {btype:?} does not fit {} edge(s)",
+                edges.len()
+            )))
+        }
     };
-    let need = |v: Option<f64>, name: &str| v.ok_or_else(|| PyValueError::new_err(format!("{ftype} needs {name}")));
+    let need = |v: Option<f64>, name: &str| {
+        v.ok_or_else(|| PyValueError::new_err(format!("{ftype} needs {name}")))
+    };
     let kind = match ftype {
         "butter" | "butterworth" => IirKind::Butterworth,
-        "cheby1" => IirKind::Chebyshev1 { rp: need(rp, "rp")? },
-        "cheby2" => IirKind::Chebyshev2 { rs: need(rs, "rs")? },
-        "ellip" | "elliptic" => IirKind::Elliptic { rp: need(rp, "rp")?, rs: need(rs, "rs")? },
+        "cheby1" => IirKind::Chebyshev1 {
+            rp: need(rp, "rp")?,
+        },
+        "cheby2" => IirKind::Chebyshev2 {
+            rs: need(rs, "rs")?,
+        },
+        "ellip" | "elliptic" => IirKind::Elliptic {
+            rp: need(rp, "rp")?,
+            rs: need(rs, "rs")?,
+        },
         "bessel" => IirKind::Bessel {
             norm: match norm {
                 "phase" => BesselNorm::Phase,
                 "delay" => BesselNorm::Delay,
                 "mag" => BesselNorm::Mag,
-                other => return Err(PyValueError::new_err(format!("unknown Bessel norm {other:?}"))),
+                other => {
+                    return Err(PyValueError::new_err(format!(
+                        "unknown Bessel norm {other:?}"
+                    )))
+                }
             },
         },
         other => return Err(PyValueError::new_err(format!("unknown ftype {other:?}"))),
     };
-    let design = if analog { Design::Analog } else { Design::Digital { fs } };
-    design_out(py, design::iirfilter(n, band, kind, design).map_err(value_error)?, output)
+    let design = if analog {
+        Design::Analog
+    } else {
+        Design::Digital { fs }
+    };
+    design_out(
+        py,
+        design::iirfilter(n, band, kind, design).map_err(value_error)?,
+        output,
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (numtaps, cutoff, window, pass_zero, scale, fs))]
-fn firwin(py: Python<'_>, numtaps: usize, cutoff: &Bound<'_, PyAny>, window: &Bound<'_, PyAny>, pass_zero: bool, scale: bool, fs: f64) -> PyResult<Obj> {
-    vec_out(py, design::firwin(numtaps, &coeffs(cutoff)?, window_spec(window)?, pass_zero, scale, fs).map_err(value_error)?)
+fn firwin(
+    py: Python<'_>,
+    numtaps: usize,
+    cutoff: &Bound<'_, PyAny>,
+    window: &Bound<'_, PyAny>,
+    pass_zero: bool,
+    scale: bool,
+    fs: f64,
+) -> PyResult<Obj> {
+    vec_out(
+        py,
+        design::firwin(
+            numtaps,
+            &coeffs(cutoff)?,
+            window_spec(window)?,
+            pass_zero,
+            scale,
+            fs,
+        )
+        .map_err(value_error)?,
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (numtaps, freq, gain, nfreqs, window, antisymmetric, fs))]
 #[allow(clippy::too_many_arguments)]
-fn firwin2(py: Python<'_>, numtaps: usize, freq: &Bound<'_, PyAny>, gain: &Bound<'_, PyAny>, nfreqs: Option<usize>, window: Option<&Bound<'_, PyAny>>, antisymmetric: bool, fs: f64) -> PyResult<Obj> {
+fn firwin2(
+    py: Python<'_>,
+    numtaps: usize,
+    freq: &Bound<'_, PyAny>,
+    gain: &Bound<'_, PyAny>,
+    nfreqs: Option<usize>,
+    window: Option<&Bound<'_, PyAny>>,
+    antisymmetric: bool,
+    fs: f64,
+) -> PyResult<Obj> {
     let window = window.map(window_spec).transpose()?;
-    vec_out(py, design::firwin2(numtaps, &coeffs(freq)?, &coeffs(gain)?, nfreqs, window, antisymmetric, fs).map_err(value_error)?)
+    vec_out(
+        py,
+        design::firwin2(
+            numtaps,
+            &coeffs(freq)?,
+            &coeffs(gain)?,
+            nfreqs,
+            window,
+            antisymmetric,
+            fs,
+        )
+        .map_err(value_error)?,
+    )
 }
 
 fn pairs(v: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
@@ -328,15 +445,42 @@ fn pairs(v: Vec<f64>) -> PyResult<Vec<(f64, f64)>> {
 
 #[pyfunction]
 #[pyo3(signature = (numtaps, bands, desired, weight, fs))]
-fn firls(py: Python<'_>, numtaps: usize, bands: &Bound<'_, PyAny>, desired: &Bound<'_, PyAny>, weight: Option<&Bound<'_, PyAny>>, fs: f64) -> PyResult<Obj> {
+fn firls(
+    py: Python<'_>,
+    numtaps: usize,
+    bands: &Bound<'_, PyAny>,
+    desired: &Bound<'_, PyAny>,
+    weight: Option<&Bound<'_, PyAny>>,
+    fs: f64,
+) -> PyResult<Obj> {
     let weight = weight.map(coeffs).transpose()?;
-    vec_out(py, design::firls(numtaps, &pairs(coeffs(bands)?)?, &pairs(coeffs(desired)?)?, weight.as_deref(), fs).map_err(value_error)?)
+    vec_out(
+        py,
+        design::firls(
+            numtaps,
+            &pairs(coeffs(bands)?)?,
+            &pairs(coeffs(desired)?)?,
+            weight.as_deref(),
+            fs,
+        )
+        .map_err(value_error)?,
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (numtaps, bands, desired, weight, kind, maxiter, grid_density, fs))]
 #[allow(clippy::too_many_arguments)]
-fn remez(py: Python<'_>, numtaps: usize, bands: &Bound<'_, PyAny>, desired: &Bound<'_, PyAny>, weight: Option<&Bound<'_, PyAny>>, kind: &str, maxiter: usize, grid_density: usize, fs: f64) -> PyResult<Obj> {
+fn remez(
+    py: Python<'_>,
+    numtaps: usize,
+    bands: &Bound<'_, PyAny>,
+    desired: &Bound<'_, PyAny>,
+    weight: Option<&Bound<'_, PyAny>>,
+    kind: &str,
+    maxiter: usize,
+    grid_density: usize,
+    fs: f64,
+) -> PyResult<Obj> {
     let kind = match kind {
         "bandpass" => RemezType::Bandpass,
         "differentiator" => RemezType::Differentiator,
@@ -344,7 +488,20 @@ fn remez(py: Python<'_>, numtaps: usize, bands: &Bound<'_, PyAny>, desired: &Bou
         other => return Err(PyValueError::new_err(format!("unknown type {other:?}"))),
     };
     let weight = weight.map(coeffs).transpose()?;
-    vec_out(py, design::remez(numtaps, &pairs(coeffs(bands)?)?, &coeffs(desired)?, weight.as_deref(), kind, maxiter, grid_density, fs).map_err(value_error)?)
+    vec_out(
+        py,
+        design::remez(
+            numtaps,
+            &pairs(coeffs(bands)?)?,
+            &coeffs(desired)?,
+            weight.as_deref(),
+            kind,
+            maxiter,
+            grid_density,
+            fs,
+        )
+        .map_err(value_error)?,
+    )
 }
 
 #[pyfunction]
@@ -354,44 +511,94 @@ fn kaiserord(ripple: f64, width: f64) -> PyResult<(usize, f64)> {
 
 #[pyfunction]
 #[pyo3(signature = (window, nx, fftbins=true))]
-fn get_window(py: Python<'_>, window: &Bound<'_, PyAny>, nx: usize, fftbins: bool) -> PyResult<Obj> {
+fn get_window(
+    py: Python<'_>,
+    window: &Bound<'_, PyAny>,
+    nx: usize,
+    fftbins: bool,
+) -> PyResult<Obj> {
     vec_out(py, spectral::get_window(window_spec(window)?, nx, fftbins))
 }
 
 #[pyfunction]
 #[pyo3(signature = (z, p, k, pairing="nearest", analog=false))]
-fn zpk2sos(py: Python<'_>, z: &Bound<'_, PyAny>, p: &Bound<'_, PyAny>, k: f64, pairing: &str, analog: bool) -> PyResult<Obj> {
+fn zpk2sos(
+    py: Python<'_>,
+    z: &Bound<'_, PyAny>,
+    p: &Bound<'_, PyAny>,
+    k: f64,
+    pairing: &str,
+    analog: bool,
+) -> PyResult<Obj> {
     let pairing = match pairing {
         "nearest" => Pairing::Nearest,
         "keep_odd" => Pairing::KeepOdd,
         "minimal" => Pairing::Minimal,
         other => return Err(PyValueError::new_err(format!("unknown pairing {other:?}"))),
     };
-    let domain = if analog { Domain::Continuous } else { Domain::Discrete { dt: 1.0 } };
-    sos_out(py, &systems::zpk2sos(&complexes(z)?, &complexes(p)?, k, pairing, domain).map_err(value_error)?)
+    let domain = if analog {
+        Domain::Continuous
+    } else {
+        Domain::Discrete { dt: 1.0 }
+    };
+    sos_out(
+        py,
+        &systems::zpk2sos(&complexes(z)?, &complexes(p)?, k, pairing, domain)
+            .map_err(value_error)?,
+    )
 }
 
 #[pyfunction]
 fn tf2zpk(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
     let (z, p, k) = systems::tf2zpk(&coeffs(b)?, &coeffs(a)?).map_err(value_error)?;
-    tuple(py, vec![complex_vec_out(py, z)?, complex_vec_out(py, p)?, k.into_pyobject(py)?.into_any().unbind()])
+    tuple(
+        py,
+        vec![
+            complex_vec_out(py, z)?,
+            complex_vec_out(py, p)?,
+            k.into_pyobject(py)?.into_any().unbind(),
+        ],
+    )
 }
 
 // FREQUENCY RESPONSE ===============================================================================
 
 #[pyfunction]
-fn freqz(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, freqs: &Bound<'_, PyAny>, fs: f64) -> PyResult<Obj> {
-    complex_vec_out(py, systems::freqz(&coeffs(b)?, &coeffs(a)?, &coeffs(freqs)?, fs))
+fn freqz(
+    py: Python<'_>,
+    b: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyAny>,
+    freqs: &Bound<'_, PyAny>,
+    fs: f64,
+) -> PyResult<Obj> {
+    complex_vec_out(
+        py,
+        systems::freqz(&coeffs(b)?, &coeffs(a)?, &coeffs(freqs)?, fs),
+    )
 }
 
 #[pyfunction]
-fn sosfreqz(py: Python<'_>, sos: &Bound<'_, PyAny>, freqs: &Bound<'_, PyAny>, fs: f64) -> PyResult<Obj> {
+fn sosfreqz(
+    py: Python<'_>,
+    sos: &Bound<'_, PyAny>,
+    freqs: &Bound<'_, PyAny>,
+    fs: f64,
+) -> PyResult<Obj> {
     complex_vec_out(py, systems::sosfreqz(&sos_in(sos)?, &coeffs(freqs)?, fs))
 }
 
 #[pyfunction]
-fn group_delay(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, freqs: &Bound<'_, PyAny>, fs: f64) -> PyResult<Obj> {
-    vec_out(py, systems::group_delay(&coeffs(b)?, &coeffs(a)?, &coeffs(freqs)?, fs))
+fn group_delay(
+    py: Python<'_>,
+    b: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyAny>,
+    freqs: &Bound<'_, PyAny>,
+    fs: f64,
+) -> PyResult<Obj> {
+    vec_out(
+        py,
+        systems::group_delay(&coeffs(b)?, &coeffs(a)?, &coeffs(freqs)?, fs),
+    )
 }
 
 // FILTERING =======================================================================================
@@ -404,7 +611,14 @@ fn state_as<T: Float + Default>(obj: &Bound<'_, PyAny>) -> PyResult<NdArray<T>> 
 
 #[pyfunction]
 #[pyo3(signature = (b, a, x, axis=-1, zi=None))]
-fn lfilter(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axis: isize, zi: Option<&Bound<'_, PyAny>>) -> PyResult<Obj> {
+fn lfilter(
+    py: Python<'_>,
+    b: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    axis: isize,
+    zi: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Obj> {
     let (b, a) = (coeffs(b)?, coeffs(a)?);
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
@@ -421,12 +635,21 @@ fn lfilter(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Bound
 
 #[pyfunction]
 fn lfilter_zi(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>) -> PyResult<Obj> {
-    vec_out(py, filter::lfilter_zi(&coeffs(b)?, &coeffs(a)?).map_err(value_error)?)
+    vec_out(
+        py,
+        filter::lfilter_zi(&coeffs(b)?, &coeffs(a)?).map_err(value_error)?,
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (sos, x, axis=-1, zi=None))]
-fn sosfilt(py: Python<'_>, sos: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axis: isize, zi: Option<&Bound<'_, PyAny>>) -> PyResult<Obj> {
+fn sosfilt(
+    py: Python<'_>,
+    sos: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    axis: isize,
+    zi: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Obj> {
     let sos = sos_in(sos)?;
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
@@ -461,7 +684,15 @@ fn pad(padtype: Option<&str>, padlen: Option<usize>) -> PyResult<Pad> {
 #[pyfunction]
 #[pyo3(signature = (b, a, x, axis=-1, padtype=Some("odd"), padlen=None))]
 #[allow(clippy::too_many_arguments)]
-fn filtfilt(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axis: isize, padtype: Option<&str>, padlen: Option<usize>) -> PyResult<Obj> {
+fn filtfilt(
+    py: Python<'_>,
+    b: &Bound<'_, PyAny>,
+    a: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    axis: isize,
+    padtype: Option<&str>,
+    padlen: Option<usize>,
+) -> PyResult<Obj> {
     let (b, a, pad) = (coeffs(b)?, coeffs(a)?, pad(padtype, padlen)?);
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
@@ -471,7 +702,14 @@ fn filtfilt(py: Python<'_>, b: &Bound<'_, PyAny>, a: &Bound<'_, PyAny>, x: &Boun
 
 #[pyfunction]
 #[pyo3(signature = (sos, x, axis=-1, padtype=Some("odd"), padlen=None))]
-fn sosfiltfilt(py: Python<'_>, sos: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, axis: isize, padtype: Option<&str>, padlen: Option<usize>) -> PyResult<Obj> {
+fn sosfiltfilt(
+    py: Python<'_>,
+    sos: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    axis: isize,
+    padtype: Option<&str>,
+    padlen: Option<usize>,
+) -> PyResult<Obj> {
     let (sos, pad) = (sos_in(sos)?, pad(padtype, padlen)?);
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
@@ -484,7 +722,9 @@ fn conv_mode(mode: &str) -> PyResult<ConvMode> {
         "full" => Ok(ConvMode::Full),
         "same" => Ok(ConvMode::Same),
         "valid" => Ok(ConvMode::Valid),
-        other => Err(PyValueError::new_err(format!("unknown mode {other:?} (full, same or valid)"))),
+        other => Err(PyValueError::new_err(format!(
+            "unknown mode {other:?} (full, same or valid)"
+        ))),
     }
 }
 
@@ -494,7 +734,9 @@ fn conv_method(method: &str) -> PyResult<ConvMethod> {
         "direct" => Ok(ConvMethod::Direct),
         "fft" => Ok(ConvMethod::Fft),
         "oa" | "overlap-add" => Ok(ConvMethod::OverlapAdd),
-        other => Err(PyValueError::new_err(format!("unknown method {other:?} (auto, direct, fft or oa)"))),
+        other => Err(PyValueError::new_err(format!(
+            "unknown method {other:?} (auto, direct, fft or oa)"
+        ))),
     }
 }
 
@@ -502,7 +744,10 @@ fn conv_method(method: &str) -> PyResult<ConvMethod> {
 fn samples_as<T: Float + Default>(obj: &Bound<'_, PyAny>) -> PyResult<Vec<T>> {
     let a = state_as::<T>(obj)?;
     if a.ndim() != 1 {
-        return Err(PyValueError::new_err(format!("expected a 1-D array, got {} dimensions", a.ndim())));
+        return Err(PyValueError::new_err(format!(
+            "expected a 1-D array, got {} dimensions",
+            a.ndim()
+        )));
     }
     Ok(a.into_vec())
 }
@@ -511,7 +756,14 @@ fn samples_as<T: Float + Default>(obj: &Bound<'_, PyAny>) -> PyResult<Vec<T>> {
 /// input's dtype.
 #[pyfunction]
 #[pyo3(signature = (in1, in2, mode="full", method="auto", correlate=false))]
-fn convolve(py: Python<'_>, in1: &Bound<'_, PyAny>, in2: &Bound<'_, PyAny>, mode: &str, method: &str, correlate: bool) -> PyResult<Obj> {
+fn convolve(
+    py: Python<'_>,
+    in1: &Bound<'_, PyAny>,
+    in2: &Bound<'_, PyAny>,
+    mode: &str,
+    method: &str,
+    correlate: bool,
+) -> PyResult<Obj> {
     let (mode, method) = (conv_mode(mode)?, conv_method(method)?);
     float_view!(in1, T, v => {
         if v.ndim() != 1 {
@@ -535,14 +787,34 @@ fn choose_conv_method(n: usize, k: usize) -> &'static str {
 
 #[pyfunction]
 #[pyo3(signature = (window_length, polyorder, deriv=0, delta=1.0, pos=None))]
-fn savgol_coeffs(py: Python<'_>, window_length: usize, polyorder: usize, deriv: usize, delta: f64, pos: Option<f64>) -> PyResult<Obj> {
-    vec_out(py, design::savgol_coeffs(window_length, polyorder, deriv, delta, pos).map_err(value_error)?)
+fn savgol_coeffs(
+    py: Python<'_>,
+    window_length: usize,
+    polyorder: usize,
+    deriv: usize,
+    delta: f64,
+    pos: Option<f64>,
+) -> PyResult<Obj> {
+    vec_out(
+        py,
+        design::savgol_coeffs(window_length, polyorder, deriv, delta, pos).map_err(value_error)?,
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (x, window_length, polyorder, deriv=0, delta=1.0, axis=-1, mode="interp", cval=0.0))]
 #[allow(clippy::too_many_arguments)]
-fn savgol_filter(py: Python<'_>, x: &Bound<'_, PyAny>, window_length: usize, polyorder: usize, deriv: usize, delta: f64, axis: isize, mode: &str, cval: f64) -> PyResult<Obj> {
+fn savgol_filter(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    window_length: usize,
+    polyorder: usize,
+    deriv: usize,
+    delta: f64,
+    axis: isize,
+    mode: &str,
+    cval: f64,
+) -> PyResult<Obj> {
     let mode = match mode {
         "interp" => SavgolMode::Interp,
         "mirror" => SavgolMode::Mirror,
@@ -568,7 +840,14 @@ fn hilbert(py: Python<'_>, x: &Bound<'_, PyAny>, n: Option<usize>, axis: isize) 
 
 #[pyfunction]
 #[pyo3(signature = (h, x, up=1, down=1, axis=-1))]
-fn upfirdn(py: Python<'_>, h: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, up: usize, down: usize, axis: isize) -> PyResult<Obj> {
+fn upfirdn(
+    py: Python<'_>,
+    h: &Bound<'_, PyAny>,
+    x: &Bound<'_, PyAny>,
+    up: usize,
+    down: usize,
+    axis: isize,
+) -> PyResult<Obj> {
     let h = coeffs(h)?;
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
@@ -578,7 +857,14 @@ fn upfirdn(py: Python<'_>, h: &Bound<'_, PyAny>, x: &Bound<'_, PyAny>, up: usize
 
 #[pyfunction]
 #[pyo3(signature = (x, up, down, axis=-1, window=None))]
-fn resample_poly(py: Python<'_>, x: &Bound<'_, PyAny>, up: usize, down: usize, axis: isize, window: Option<&Bound<'_, PyAny>>) -> PyResult<Obj> {
+fn resample_poly(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    up: usize,
+    down: usize,
+    axis: isize,
+    window: Option<&Bound<'_, PyAny>>,
+) -> PyResult<Obj> {
     let window = match window {
         Some(w) => window_spec(w)?,
         None => WindowSpec::Kaiser { beta: 5.0 },
@@ -625,8 +911,28 @@ fn index_out(py: Python<'_>, v: &[usize]) -> PyResult<Obj> {
 #[pyfunction]
 #[pyo3(signature = (x, height=None, threshold=None, distance=None, prominence=None, width=None, wlen=None, rel_height=0.5, plateau_size=None))]
 #[allow(clippy::too_many_arguments)]
-fn find_peaks(py: Python<'_>, x: &Bound<'_, PyAny>, height: Range, threshold: Range, distance: Option<f64>, prominence: Range, width: Range, wlen: Option<usize>, rel_height: f64, plateau_size: Range) -> PyResult<Obj> {
-    let options = PeakOptions { height: bounds(height), threshold: bounds(threshold), distance, prominence: bounds(prominence), width: bounds(width), wlen, rel_height, plateau_size: bounds(plateau_size) };
+fn find_peaks(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    height: Range,
+    threshold: Range,
+    distance: Option<f64>,
+    prominence: Range,
+    width: Range,
+    wlen: Option<usize>,
+    rel_height: f64,
+    plateau_size: Range,
+) -> PyResult<Obj> {
+    let options = PeakOptions {
+        height: bounds(height),
+        threshold: bounds(threshold),
+        distance,
+        prominence: bounds(prominence),
+        width: bounds(width),
+        wlen,
+        rel_height,
+        plateau_size: bounds(plateau_size),
+    };
     let p = with_samples!(x, s => signal::find_peaks(s, &options).map_err(value_error))?;
     let props = pyo3::types::PyDict::new(py);
     if let Some(t) = &p.plateaus {
@@ -634,7 +940,11 @@ fn find_peaks(py: Python<'_>, x: &Bound<'_, PyAny>, height: Range, threshold: Ra
         props.set_item("left_edges", index_out(py, &t.left_edges)?)?;
         props.set_item("right_edges", index_out(py, &t.right_edges)?)?;
     }
-    for (key, v) in [("peak_heights", &p.peak_heights), ("left_thresholds", &p.left_thresholds), ("right_thresholds", &p.right_thresholds)] {
+    for (key, v) in [
+        ("peak_heights", &p.peak_heights),
+        ("left_thresholds", &p.left_thresholds),
+        ("right_thresholds", &p.right_thresholds),
+    ] {
         if let Some(v) = v {
             props.set_item(key, vec_out(py, v.clone())?)?;
         }
@@ -650,37 +960,79 @@ fn find_peaks(py: Python<'_>, x: &Bound<'_, PyAny>, height: Range, threshold: Ra
         props.set_item("left_ips", vec_out(py, w.left_ips.clone())?)?;
         props.set_item("right_ips", vec_out(py, w.right_ips.clone())?)?;
     }
-    tuple(py, vec![index_out(py, &p.indices)?, props.into_any().unbind()])
+    tuple(
+        py,
+        vec![index_out(py, &p.indices)?, props.into_any().unbind()],
+    )
 }
 
 fn peak_indices(obj: &Bound<'_, PyAny>) -> PyResult<Vec<usize>> {
     let v: Vec<i64> = obj.extract()?;
-    v.into_iter().map(|i| usize::try_from(i).map_err(|_| PyValueError::new_err(format!("peak index {i} is negative")))).collect()
+    v.into_iter()
+        .map(|i| {
+            usize::try_from(i)
+                .map_err(|_| PyValueError::new_err(format!("peak index {i} is negative")))
+        })
+        .collect()
 }
 
 #[pyfunction]
 #[pyo3(signature = (x, peaks, wlen=None))]
-fn peak_prominences(py: Python<'_>, x: &Bound<'_, PyAny>, peaks: &Bound<'_, PyAny>, wlen: Option<usize>) -> PyResult<Obj> {
+fn peak_prominences(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    peaks: &Bound<'_, PyAny>,
+    wlen: Option<usize>,
+) -> PyResult<Obj> {
     let peaks = peak_indices(peaks)?;
     let q = with_samples!(x, s => signal::peak_prominences(s, &peaks, wlen).map_err(value_error))?;
-    tuple(py, vec![vec_out(py, q.prominences)?, index_out(py, &q.left_bases)?, index_out(py, &q.right_bases)?])
+    tuple(
+        py,
+        vec![
+            vec_out(py, q.prominences)?,
+            index_out(py, &q.left_bases)?,
+            index_out(py, &q.right_bases)?,
+        ],
+    )
 }
 
 #[pyfunction]
 #[pyo3(signature = (x, peaks, rel_height=0.5, wlen=None))]
-fn peak_widths(py: Python<'_>, x: &Bound<'_, PyAny>, peaks: &Bound<'_, PyAny>, rel_height: f64, wlen: Option<usize>) -> PyResult<Obj> {
+fn peak_widths(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    peaks: &Bound<'_, PyAny>,
+    rel_height: f64,
+    wlen: Option<usize>,
+) -> PyResult<Obj> {
     let peaks = peak_indices(peaks)?;
     let w = with_samples!(x, s => {
         let q = signal::peak_prominences(s, &peaks, wlen).map_err(value_error)?;
         signal::peak_widths(s, &peaks, rel_height, &q).map_err(value_error)
     })?;
-    tuple(py, vec![vec_out(py, w.widths)?, vec_out(py, w.width_heights)?, vec_out(py, w.left_ips)?, vec_out(py, w.right_ips)?])
+    tuple(
+        py,
+        vec![
+            vec_out(py, w.widths)?,
+            vec_out(py, w.width_heights)?,
+            vec_out(py, w.left_ips)?,
+            vec_out(py, w.right_ips)?,
+        ],
+    )
 }
 
 // SPECTRAL ESTIMATION =============================================================================
 
 #[allow(clippy::too_many_arguments)]
-fn segments(window: &Bound<'_, PyAny>, nperseg: Option<usize>, noverlap: Option<usize>, nfft: Option<usize>, detrend: &str, onesided: bool, scaling: &str) -> PyResult<Segments> {
+fn segments(
+    window: &Bound<'_, PyAny>,
+    nperseg: Option<usize>,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    detrend: &str,
+    onesided: bool,
+    scaling: &str,
+) -> PyResult<Segments> {
     Ok(Segments {
         window: window_spec(window)?,
         nperseg,
@@ -716,8 +1068,29 @@ fn spectral_error(e: spectral::SpectralError) -> PyErr {
 #[pyfunction]
 #[pyo3(signature = (x, fs, window, nperseg, noverlap, nfft, detrend, return_onesided, scaling, axis, average_by))]
 #[allow(clippy::too_many_arguments)]
-fn welch(py: Python<'_>, x: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny>, nperseg: Option<usize>, noverlap: Option<usize>, nfft: Option<usize>, detrend: &str, return_onesided: bool, scaling: &str, axis: isize, average_by: &str) -> PyResult<Obj> {
-    let seg = segments(window, nperseg, noverlap, nfft, detrend, return_onesided, scaling)?;
+fn welch(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    fs: f64,
+    window: &Bound<'_, PyAny>,
+    nperseg: Option<usize>,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    detrend: &str,
+    return_onesided: bool,
+    scaling: &str,
+    axis: isize,
+    average_by: &str,
+) -> PyResult<Obj> {
+    let seg = segments(
+        window,
+        nperseg,
+        noverlap,
+        nfft,
+        detrend,
+        return_onesided,
+        scaling,
+    )?;
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
         let (f, p) = spectral::welch(v, fs, axis, &seg, average(average_by)?).map_err(spectral_error)?;
@@ -728,8 +1101,30 @@ fn welch(py: Python<'_>, x: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny
 #[pyfunction]
 #[pyo3(signature = (x, y, fs, window, nperseg, noverlap, nfft, detrend, return_onesided, scaling, axis, average_by))]
 #[allow(clippy::too_many_arguments)]
-fn csd(py: Python<'_>, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny>, nperseg: Option<usize>, noverlap: Option<usize>, nfft: Option<usize>, detrend: &str, return_onesided: bool, scaling: &str, axis: isize, average_by: &str) -> PyResult<Obj> {
-    let seg = segments(window, nperseg, noverlap, nfft, detrend, return_onesided, scaling)?;
+fn csd(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    y: &Bound<'_, PyAny>,
+    fs: f64,
+    window: &Bound<'_, PyAny>,
+    nperseg: Option<usize>,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    detrend: &str,
+    return_onesided: bool,
+    scaling: &str,
+    axis: isize,
+    average_by: &str,
+) -> PyResult<Obj> {
+    let seg = segments(
+        window,
+        nperseg,
+        noverlap,
+        nfft,
+        detrend,
+        return_onesided,
+        scaling,
+    )?;
     float_view!(x, T, v => {
         let other = state_as::<T>(y)?;
         let axis = axis_index(axis, v.ndim())?;
@@ -741,7 +1136,18 @@ fn csd(py: Python<'_>, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, fs: f64, wind
 #[pyfunction]
 #[pyo3(signature = (x, y, fs, window, nperseg, noverlap, nfft, detrend, axis))]
 #[allow(clippy::too_many_arguments)]
-fn coherence(py: Python<'_>, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny>, nperseg: Option<usize>, noverlap: Option<usize>, nfft: Option<usize>, detrend: &str, axis: isize) -> PyResult<Obj> {
+fn coherence(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    y: &Bound<'_, PyAny>,
+    fs: f64,
+    window: &Bound<'_, PyAny>,
+    nperseg: Option<usize>,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    detrend: &str,
+    axis: isize,
+) -> PyResult<Obj> {
     let seg = segments(window, nperseg, noverlap, nfft, detrend, true, "density")?;
     float_view!(x, T, v => {
         let other = state_as::<T>(y)?;
@@ -754,8 +1160,29 @@ fn coherence(py: Python<'_>, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, fs: f64
 #[pyfunction]
 #[pyo3(signature = (x, fs, window, nperseg, noverlap, nfft, detrend, return_onesided, scaling, axis, mode))]
 #[allow(clippy::too_many_arguments)]
-fn spectrogram(py: Python<'_>, x: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny>, nperseg: Option<usize>, noverlap: Option<usize>, nfft: Option<usize>, detrend: &str, return_onesided: bool, scaling: &str, axis: isize, mode: &str) -> PyResult<Obj> {
-    let seg = segments(window, nperseg, noverlap, nfft, detrend, return_onesided, scaling)?;
+fn spectrogram(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    fs: f64,
+    window: &Bound<'_, PyAny>,
+    nperseg: Option<usize>,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    detrend: &str,
+    return_onesided: bool,
+    scaling: &str,
+    axis: isize,
+    mode: &str,
+) -> PyResult<Obj> {
+    let seg = segments(
+        window,
+        nperseg,
+        noverlap,
+        nfft,
+        detrend,
+        return_onesided,
+        scaling,
+    )?;
     let mode = match mode {
         "psd" => SpectrogramMode::Psd,
         "magnitude" => SpectrogramMode::Magnitude,
@@ -784,9 +1211,34 @@ fn boundary(name: Option<&str>) -> PyResult<Boundary> {
 #[pyfunction]
 #[pyo3(signature = (x, fs, window, nperseg, noverlap, nfft, detrend, return_onesided, boundary_by, padded, axis, scaling))]
 #[allow(clippy::too_many_arguments)]
-fn stft(py: Python<'_>, x: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny>, nperseg: usize, noverlap: Option<usize>, nfft: Option<usize>, detrend: &str, return_onesided: bool, boundary_by: Option<&str>, padded: bool, axis: isize, scaling: &str) -> PyResult<Obj> {
-    let seg = segments(window, Some(nperseg), noverlap, nfft, detrend, return_onesided, scaling)?;
-    let options = StftOptions { boundary: boundary(boundary_by)?, padded };
+fn stft(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    fs: f64,
+    window: &Bound<'_, PyAny>,
+    nperseg: usize,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    detrend: &str,
+    return_onesided: bool,
+    boundary_by: Option<&str>,
+    padded: bool,
+    axis: isize,
+    scaling: &str,
+) -> PyResult<Obj> {
+    let seg = segments(
+        window,
+        Some(nperseg),
+        noverlap,
+        nfft,
+        detrend,
+        return_onesided,
+        scaling,
+    )?;
+    let options = StftOptions {
+        boundary: boundary(boundary_by)?,
+        padded,
+    };
     float_view!(x, T, v => {
         let axis = axis_index(axis, v.ndim())?;
         let (f, t, z) = spectral::stft(v, fs, axis, &seg, options).map_err(spectral_error)?;
@@ -799,24 +1251,47 @@ fn complex_input(obj: &Bound<'_, PyAny>) -> PyResult<NdArray<Complex<f64>>> {
     let tensor = import(obj)?;
     match tensor.dtype() {
         DType::ComplexF64 => Ok(typed::<Complex<f64>>(&tensor)?.to_owned()),
-        DType::ComplexF32 => Ok(typed::<Complex<f32>>(&tensor)?.map(|z| Complex::new(z.re as f64, z.im as f64))),
+        DType::ComplexF32 => {
+            Ok(typed::<Complex<f32>>(&tensor)?.map(|z| Complex::new(z.re as f64, z.im as f64)))
+        }
         DType::F64 => Ok(typed::<f64>(&tensor)?.map(|&x| Complex::new(x, 0.0))),
         DType::F32 => Ok(typed::<f32>(&tensor)?.map(|&x| Complex::new(x as f64, 0.0))),
-        d => Err(PyTypeError::new_err(format!("expected complex or float values, got {d}"))),
+        d => Err(PyTypeError::new_err(format!(
+            "expected complex or float values, got {d}"
+        ))),
     }
 }
 
 #[pyfunction]
 #[pyo3(signature = (zxx, fs, window, nperseg, noverlap, nfft, input_onesided, boundary_by, scaling))]
 #[allow(clippy::too_many_arguments)]
-fn istft(py: Python<'_>, zxx: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyAny>, nperseg: Option<usize>, noverlap: Option<usize>, nfft: Option<usize>, input_onesided: bool, boundary_by: bool, scaling: &str) -> PyResult<Obj> {
+fn istft(
+    py: Python<'_>,
+    zxx: &Bound<'_, PyAny>,
+    fs: f64,
+    window: &Bound<'_, PyAny>,
+    nperseg: Option<usize>,
+    noverlap: Option<usize>,
+    nfft: Option<usize>,
+    input_onesided: bool,
+    boundary_by: bool,
+    scaling: &str,
+) -> PyResult<Obj> {
     let z = complex_input(zxx)?;
     let scaling = match scaling {
         "spectrum" => Scaling::Spectrum,
         "psd" | "density" => Scaling::Density,
         other => return Err(PyValueError::new_err(format!("unknown scaling {other:?}"))),
     };
-    let options = IstftOptions { window: window_spec(window)?, nperseg, noverlap, nfft, onesided: input_onesided, boundary: boundary_by, scaling };
+    let options = IstftOptions {
+        window: window_spec(window)?,
+        nperseg,
+        noverlap,
+        nfft,
+        onesided: input_onesided,
+        boundary: boundary_by,
+        scaling,
+    };
     let (t, x) = spectral::istft(z.view(), fs, options).map_err(spectral_error)?;
     tuple(py, vec![vec_out(py, t)?, numpy_array(py, x)?])
 }
@@ -828,13 +1303,20 @@ fn istft(py: Python<'_>, zxx: &Bound<'_, PyAny>, fs: f64, window: &Bound<'_, PyA
 #[pyo3(signature = (x, inverse=false))]
 fn fft(py: Python<'_>, x: &Bound<'_, PyAny>, inverse: bool) -> PyResult<Obj> {
     let mut z = complex_input(x)?;
-    let n = *z.shape().last().ok_or_else(|| PyValueError::new_err("fft needs at least one axis"))?;
+    let n = *z
+        .shape()
+        .last()
+        .ok_or_else(|| PyValueError::new_err("fft needs at least one axis"))?;
     if n == 0 {
         return Err(PyValueError::new_err("fft needs a non-empty last axis"));
     }
     let mut plan = Fft::<f64>::new(n);
     for row in z.as_mut_slice().chunks_mut(n) {
-        if inverse { plan.inverse(row) } else { plan.forward(row) }
+        if inverse {
+            plan.inverse(row)
+        } else {
+            plan.forward(row)
+        }
     }
     numpy_complex(py, z)
 }
@@ -844,10 +1326,15 @@ fn fft(py: Python<'_>, x: &Bound<'_, PyAny>, inverse: bool) -> PyResult<Obj> {
 #[pyo3(signature = (x, n=None))]
 fn irfft(py: Python<'_>, x: &Bound<'_, PyAny>, n: Option<usize>) -> PyResult<Obj> {
     let z = complex_input(x)?;
-    let m = *z.shape().last().ok_or_else(|| PyValueError::new_err("irfft needs at least one axis"))?;
+    let m = *z
+        .shape()
+        .last()
+        .ok_or_else(|| PyValueError::new_err("irfft needs at least one axis"))?;
     let n = n.unwrap_or(2 * m.saturating_sub(1));
     if n == 0 {
-        return Err(PyValueError::new_err("irfft needs at least one output sample"));
+        return Err(PyValueError::new_err(
+            "irfft needs at least one output sample",
+        ));
     }
     let bins = n / 2 + 1;
     let mut plan = autodyne::fft::RealFft::<f64>::new(n);

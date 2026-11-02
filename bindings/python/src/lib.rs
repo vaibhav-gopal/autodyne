@@ -11,16 +11,16 @@ use std::ffi::{c_void, CStr};
 
 use autodyne::dlpack::{DLManagedTensor, DLManagedTensorVersioned, DlpackTensor, DL_CPU};
 use autodyne::dynamic::{BinaryOp, CastMode, DynArray, DynElement, Promotion};
+use autodyne::fft::RealFft;
 use autodyne::filter::{Biquad, BUTTERWORTH_Q};
 use autodyne::signal::{NdArray, NdView, Zip};
-use autodyne::fft::RealFft;
 use autodyne::units::*;
+use numpy::ndarray::{ArrayD, IxDyn, ShapeBuilder};
+use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 use pyo3::exceptions::{PyBufferError, PyTypeError, PyValueError};
 use pyo3::ffi;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
-use numpy::ndarray::{ArrayD, IxDyn, ShapeBuilder};
-use numpy::{PyArray, PyArrayDyn, PyArrayMethods, PyReadonlyArrayDyn};
 
 mod control;
 mod flux;
@@ -65,7 +65,8 @@ pub(crate) fn import(obj: &Bound<'_, PyAny>) -> PyResult<DlpackTensor> {
     // DLPack tensor that, once renamed "used", belongs to us (the DLPack Python protocol)
     unsafe {
         if ffi::PyCapsule_IsValid(cap, VERSIONED.as_ptr()) == 1 {
-            let tensor = ffi::PyCapsule_GetPointer(cap, VERSIONED.as_ptr()).cast::<DLManagedTensorVersioned>();
+            let tensor = ffi::PyCapsule_GetPointer(cap, VERSIONED.as_ptr())
+                .cast::<DLManagedTensorVersioned>();
             if tensor.is_null() || ffi::PyCapsule_SetName(cap, USED_VERSIONED.as_ptr()) != 0 {
                 return Err(PyErr::fetch(py));
             }
@@ -77,7 +78,9 @@ pub(crate) fn import(obj: &Bound<'_, PyAny>) -> PyResult<DlpackTensor> {
             }
             DlpackTensor::from_raw_legacy(tensor).map_err(value_error)
         } else {
-            Err(PyTypeError::new_err("__dlpack__ did not return a DLPack capsule"))
+            Err(PyTypeError::new_err(
+                "__dlpack__ did not return a DLPack capsule",
+            ))
         }
     }
 }
@@ -87,7 +90,8 @@ unsafe extern "C" fn drop_versioned_capsule(cap: *mut ffi::PyObject) {
     // SAFETY: called by Python with the capsule being destroyed
     unsafe {
         if ffi::PyCapsule_IsValid(cap, VERSIONED.as_ptr()) == 1 {
-            let tensor = ffi::PyCapsule_GetPointer(cap, VERSIONED.as_ptr()).cast::<DLManagedTensorVersioned>();
+            let tensor = ffi::PyCapsule_GetPointer(cap, VERSIONED.as_ptr())
+                .cast::<DLManagedTensorVersioned>();
             if let Some(deleter) = (*tensor).deleter {
                 deleter(tensor);
             }
@@ -144,18 +148,33 @@ impl Array {
                 return Err(PyBufferError::new_err("autodyne arrays live in CPU memory"));
             }
         }
-        let array = self.inner.take().ok_or_else(|| PyBufferError::new_err("this array was already exported"))?;
+        let array = self
+            .inner
+            .take()
+            .ok_or_else(|| PyBufferError::new_err("this array was already exported"))?;
         // SAFETY: the capsule takes the exported tensor; its destructor deletes it unless a consumer
         // renamed (took) it first
         let capsule = unsafe {
             if let Some(axes) = &self.axes {
                 // permuted strides need a versioned consumer (legacy ones get a contiguous export
                 // below only when no permutation is needed)
-                ffi::PyCapsule_New(array.into_dlpack_permuted(axes).cast::<c_void>(), VERSIONED.as_ptr(), Some(drop_versioned_capsule))
+                ffi::PyCapsule_New(
+                    array.into_dlpack_permuted(axes).cast::<c_void>(),
+                    VERSIONED.as_ptr(),
+                    Some(drop_versioned_capsule),
+                )
             } else if max_version.is_some_and(|(major, _)| major >= 1) {
-                ffi::PyCapsule_New(array.into_dlpack().cast::<c_void>(), VERSIONED.as_ptr(), Some(drop_versioned_capsule))
+                ffi::PyCapsule_New(
+                    array.into_dlpack().cast::<c_void>(),
+                    VERSIONED.as_ptr(),
+                    Some(drop_versioned_capsule),
+                )
             } else {
-                ffi::PyCapsule_New(array.into_dlpack_legacy().cast::<c_void>(), LEGACY.as_ptr(), Some(drop_legacy_capsule))
+                ffi::PyCapsule_New(
+                    array.into_dlpack_legacy().cast::<c_void>(),
+                    LEGACY.as_ptr(),
+                    Some(drop_legacy_capsule),
+                )
             }
         };
         if capsule.is_null() {
@@ -168,14 +187,25 @@ impl Array {
         (DL_CPU, 0)
     }
     fn __repr__(&self) -> String {
-        format!("autodyne.Array(shape={:?}, dtype={}{})", self.shape, self.dtype, if self.inner.is_none() { ", exported" } else { "" })
+        format!(
+            "autodyne.Array(shape={:?}, dtype={}{})",
+            self.shape,
+            self.dtype,
+            if self.inner.is_none() {
+                ", exported"
+            } else {
+                ""
+            }
+        )
     }
 }
 
 pub(crate) fn axis_index(axis: isize, ndim: usize) -> PyResult<usize> {
     let a = if axis < 0 { axis + ndim as isize } else { axis };
     if a < 0 || a as usize >= ndim {
-        return Err(PyValueError::new_err(format!("axis {axis} is out of range for {ndim} dimensions")));
+        return Err(PyValueError::new_err(format!(
+            "axis {axis} is out of range for {ndim} dimensions"
+        )));
     }
     Ok(a as usize)
 }
@@ -195,7 +225,9 @@ macro_rules! float_dispatch {
                 type $T = f64;
                 $body
             }
-            d => Err(PyTypeError::new_err(format!("expected float32 or float64, got {d}"))),
+            d => Err(PyTypeError::new_err(format!(
+                "expected float32 or float64, got {d}"
+            ))),
         }
     };
 }
@@ -253,7 +285,12 @@ macro_rules! with_float_input {
 
 /// A NumPy array that owns `data` (no copy), with `shape`, row-major, or exported through the
 /// inverse of `order` (a result computed in an input's memory order goes back with its strides).
-pub(crate) fn numpy_out<T: numpy::Element>(py: Python<'_>, data: Vec<T>, shape: &[usize], order: Option<&[usize]>) -> PyResult<Py<PyAny>> {
+pub(crate) fn numpy_out<T: numpy::Element>(
+    py: Python<'_>,
+    data: Vec<T>,
+    shape: &[usize],
+    order: Option<&[usize]>,
+) -> PyResult<Py<PyAny>> {
     let array = match order {
         None => ArrayD::from_shape_vec(IxDyn(shape), data),
         Some(order) => {
@@ -277,20 +314,27 @@ pub(crate) fn numpy_out<T: numpy::Element>(py: Python<'_>, data: Vec<T>, shape: 
     Ok(PyArray::from_owned_array(py, array).into_any().unbind())
 }
 
-pub(crate) fn numpy_array<T: numpy::Element>(py: Python<'_>, array: NdArray<T>) -> PyResult<Py<PyAny>> {
+pub(crate) fn numpy_array<T: numpy::Element>(
+    py: Python<'_>,
+    array: NdArray<T>,
+) -> PyResult<Py<PyAny>> {
     let shape = array.shape().to_vec();
     numpy_out(py, array.into_vec(), &shape, None)
 }
 
 /// Complex results: autodyne's and num-complex's `Complex` are both `repr(C) { re, im }`.
-pub(crate) fn numpy_complex<T: Float>(py: Python<'_>, array: NdArray<Complex<T>>) -> PyResult<Py<PyAny>>
+pub(crate) fn numpy_complex<T: Float>(
+    py: Python<'_>,
+    array: NdArray<Complex<T>>,
+) -> PyResult<Py<PyAny>>
 where
     num_complex::Complex<T>: numpy::Element,
 {
     let shape = array.shape().to_vec();
     let mut data = std::mem::ManuallyDrop::new(array.into_vec());
     // SAFETY: identical layout (repr(C) { re: T, im: T }), so the allocation is reused as is
-    let data: Vec<num_complex::Complex<T>> = unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast(), data.len(), data.capacity()) };
+    let data: Vec<num_complex::Complex<T>> =
+        unsafe { Vec::from_raw_parts(data.as_mut_ptr().cast(), data.len(), data.capacity()) };
     numpy_out(py, data, &shape, None)
 }
 
@@ -329,7 +373,13 @@ fn axpb(py: Python<'_>, x: &Bound<'_, PyAny>, a: f64, b: f64) -> PyResult<Py<PyA
 /// `scipy.signal.sosfilt(butter(2, cutoff, fs=sample_rate, output="sos"), x, axis)`.
 #[pyfunction]
 #[pyo3(signature = (x, cutoff, sample_rate, axis=-1))]
-fn lowpass(py: Python<'_>, x: &Bound<'_, PyAny>, cutoff: f64, sample_rate: f64, axis: isize) -> PyResult<Py<PyAny>> {
+fn lowpass(
+    py: Python<'_>,
+    x: &Bound<'_, PyAny>,
+    cutoff: f64,
+    sample_rate: f64,
+    axis: isize,
+) -> PyResult<Py<PyAny>> {
     let input = input(x)?;
     with_float_input!(input, T, view => {
         let axis = axis_index(axis, view.ndim())?;
@@ -375,14 +425,29 @@ fn rfft(py: Python<'_>, x: &Bound<'_, PyAny>) -> PyResult<Py<PyAny>> {
 /// Wraps a runtime-typed result.
 fn wrap_dyn(py: Python<'_>, array: DynArray) -> PyResult<Py<PyAny>> {
     let (shape, dtype) = (array.shape().to_vec(), array.dtype());
-    Ok(Py::new(py, Array { inner: Some(array), shape, dtype, axes: None })?.into_any())
+    Ok(Py::new(
+        py,
+        Array {
+            inner: Some(array),
+            shape,
+            dtype,
+            axes: None,
+        },
+    )?
+    .into_any())
 }
 
 /// `x op y` for any two numeric dtypes, broadcast, with autodyne's promotion: NumPy's table with
 /// every conversion checked (`keep_float=False`), or floats keeping their width against integers.
 #[pyfunction]
 #[pyo3(signature = (op, x, y, keep_float=false))]
-fn binary(py: Python<'_>, op: &str, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, keep_float: bool) -> PyResult<Py<PyAny>> {
+fn binary(
+    py: Python<'_>,
+    op: &str,
+    x: &Bound<'_, PyAny>,
+    y: &Bound<'_, PyAny>,
+    keep_float: bool,
+) -> PyResult<Py<PyAny>> {
     let op = match op {
         "add" => BinaryOp::Add,
         "sub" => BinaryOp::Sub,
@@ -390,11 +455,23 @@ fn binary(py: Python<'_>, op: &str, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, 
         "div" => BinaryOp::Div,
         "min" => BinaryOp::Min,
         "max" => BinaryOp::Max,
-        other => return Err(PyValueError::new_err(format!("unknown operation {other:?}"))),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown operation {other:?}"
+            )))
+        }
     };
     let (a, b) = (import(x)?, import(y)?);
-    let policy = if keep_float { Promotion::KeepFloat } else { Promotion::Standard };
-    let result = a.view().map_err(value_error)?.binary(&b.view().map_err(value_error)?, op, policy).map_err(value_error)?;
+    let policy = if keep_float {
+        Promotion::KeepFloat
+    } else {
+        Promotion::Standard
+    };
+    let result = a
+        .view()
+        .map_err(value_error)?
+        .binary(&b.view().map_err(value_error)?, op, policy)
+        .map_err(value_error)?;
     wrap_dyn(py, result)
 }
 
@@ -403,15 +480,27 @@ fn binary(py: Python<'_>, op: &str, x: &Bound<'_, PyAny>, y: &Bound<'_, PyAny>, 
 #[pyfunction]
 #[pyo3(signature = (x, dtype, mode="checked"))]
 fn cast(py: Python<'_>, x: &Bound<'_, PyAny>, dtype: &str, mode: &str) -> PyResult<Py<PyAny>> {
-    let dtype = DType::from_name(dtype).ok_or_else(|| PyValueError::new_err(format!("unknown dtype {dtype:?}")))?;
+    let dtype = DType::from_name(dtype)
+        .ok_or_else(|| PyValueError::new_err(format!("unknown dtype {dtype:?}")))?;
     let mode = match mode {
         "checked" => CastMode::Checked,
         "saturating" => CastMode::Saturating,
         "wrapping" => CastMode::Wrapping,
-        other => return Err(PyValueError::new_err(format!("unknown cast mode {other:?}"))),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown cast mode {other:?}"
+            )))
+        }
     };
     let tensor = import(x)?;
-    wrap_dyn(py, tensor.view().map_err(value_error)?.cast(dtype, mode).map_err(value_error)?)
+    wrap_dyn(
+        py,
+        tensor
+            .view()
+            .map_err(value_error)?
+            .cast(dtype, mode)
+            .map_err(value_error)?,
+    )
 }
 
 #[pymodule]

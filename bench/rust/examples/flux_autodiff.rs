@@ -30,8 +30,18 @@ const FS: f64 = 48_000.0;
 fn read_npy(path: &Path) -> Vec<f32> {
     let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let header = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
-    assert!(std::str::from_utf8(&bytes[10..10 + header]).unwrap().contains("'<f4'"), "f32 arrays");
-    bytes[10 + header..].as_chunks::<4>().0.iter().map(|&c| f32::from_le_bytes(c)).collect()
+    assert!(
+        std::str::from_utf8(&bytes[10..10 + header])
+            .unwrap()
+            .contains("'<f4'"),
+        "f32 arrays"
+    );
+    bytes[10 + header..]
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&c| f32::from_le_bytes(c))
+        .collect()
 }
 
 /// The median of runs filling about a second (at least 3, at most 50).
@@ -62,11 +72,21 @@ fn fmt(d: Duration) -> String {
 /// The largest difference relative to the largest value of `want`.
 fn error(got: &[f32], want: &[f32]) -> f64 {
     assert_eq!(got.len(), want.len());
-    let top = want.iter().fold(0f64, |m, &v| m.max(v.abs() as f64)).max(1e-30);
-    got.iter().zip(want).fold(0f64, |m, (&g, &w)| m.max((g as f64 - w as f64).abs())) / top
+    let top = want
+        .iter()
+        .fold(0f64, |m, &v| m.max(v.abs() as f64))
+        .max(1e-30);
+    got.iter()
+        .zip(want)
+        .fold(0f64, |m, (&g, &w)| m.max((g as f64 - w as f64).abs()))
+        / top
 }
 
-fn tensor<B: Backend, const D: usize>(v: &[f32], shape: [usize; D], device: &B::Device) -> Tensor<B, D> {
+fn tensor<B: Backend, const D: usize>(
+    v: &[f32],
+    shape: [usize; D],
+    device: &B::Device,
+) -> Tensor<B, D> {
     Tensor::from_data(TensorData::new(v.to_vec(), shape), device)
 }
 
@@ -77,7 +97,11 @@ fn values<B: Backend, const D: usize>(t: Tensor<B, D>) -> Vec<f32> {
 // THE MODELS, IN BURN =============================================================================
 
 /// The one-pole low-pass, one tensor op chain per sample: the outputs, `[n]`.
-fn burn_one_pole<B: Backend>(cutoff: Tensor<B, 1>, xs: Tensor<B, 1>, s0: Tensor<B, 1>) -> Tensor<B, 1> {
+fn burn_one_pole<B: Backend>(
+    cutoff: Tensor<B, 1>,
+    xs: Tensor<B, 1>,
+    s0: Tensor<B, 1>,
+) -> Tensor<B, 1> {
     let n = xs.dims()[0];
     // a = 1 - exp(-2π fc / fs)
     let a = cutoff.mul_scalar(-TAU / FS).exp().neg().add_scalar(1.0);
@@ -91,7 +115,13 @@ fn burn_one_pole<B: Backend>(cutoff: Tensor<B, 1>, xs: Tensor<B, 1>, s0: Tensor<
 }
 
 /// The one-pole's MSE against `targets` and its gradient: (loss, d cutoff, d s0, d xs).
-fn burn_one_pole_grad<B: AutodiffBackend>(cutoff: &[f32], xs: &[f32], targets: &[f32], s0: &[f32], device: &B::Device) -> [Vec<f32>; 4] {
+fn burn_one_pole_grad<B: AutodiffBackend>(
+    cutoff: &[f32],
+    xs: &[f32],
+    targets: &[f32],
+    s0: &[f32],
+    device: &B::Device,
+) -> [Vec<f32>; 4] {
     let n = xs.len();
     let cutoff = tensor::<B, 1>(cutoff, [1], device).require_grad();
     let xs = tensor::<B, 1>(xs, [n], device).require_grad();
@@ -128,7 +158,14 @@ fn dft_matrices(len: usize) -> [Vec<f32>; 4] {
 
 /// rfft -> per-bin gain -> irfft -> dense -> tanh, the mean energy and its gradient with respect to
 /// the gain and the dense weights: (loss, d gain, d w).
-fn burn_spectral_grad<B: AutodiffBackend>(x: &[f32], gain: &[f32], w: &[f32], dft: &[Tensor<B, 2>; 4], dims: [usize; 3], device: &B::Device) -> [Vec<f32>; 3] {
+fn burn_spectral_grad<B: AutodiffBackend>(
+    x: &[f32],
+    gain: &[f32],
+    w: &[f32],
+    dft: &[Tensor<B, 2>; 4],
+    dims: [usize; 3],
+    device: &B::Device,
+) -> [Vec<f32>; 3] {
     let [batch, len, width] = dims;
     let bins = len / 2 + 1;
     let x = tensor::<B, 2>(x, [batch, len], device);
@@ -142,12 +179,20 @@ fn burn_spectral_grad<B: AutodiffBackend>(x: &[f32], gain: &[f32], w: &[f32], df
     let h = y.matmul(w.clone()).tanh();
     let loss = (h.clone() * h).mean();
     let grads = loss.backward();
-    [values(loss.inner()), values(gain.grad(&grads).expect("a gradient")), values(w.grad(&grads).expect("a gradient"))]
+    [
+        values(loss.inner()),
+        values(gain.grad(&grads).expect("a gradient")),
+        values(w.grad(&grads).expect("a gradient")),
+    ]
 }
 
 // THE MODELS, IN CANDLE ===========================================================================
 
-fn candle_one_pole(cutoff: &candle_core::Tensor, xs: &candle_core::Tensor, s0: &candle_core::Tensor) -> candle_core::Result<candle_core::Tensor> {
+fn candle_one_pole(
+    cutoff: &candle_core::Tensor,
+    xs: &candle_core::Tensor,
+    s0: &candle_core::Tensor,
+) -> candle_core::Result<candle_core::Tensor> {
     let n = xs.dims1()?;
     // a = 1 - exp(-2π fc / fs)
     let a = cutoff.affine(-TAU / FS, 0.0)?.exp()?.affine(-1.0, 1.0)?;
@@ -165,38 +210,88 @@ fn candle_rows(dir: &Path, rows: &mut Vec<Row>) -> candle_core::Result<()> {
     let device = Device::Cpu;
     let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
     let name = "candle (autodiff)".to_string();
-    let get = |t: &T| -> Vec<f32> { t.flatten_all().and_then(|t| t.to_vec1::<f32>()).expect("f32 values") };
+    let get = |t: &T| -> Vec<f32> {
+        t.flatten_all()
+            .and_then(|t| t.to_vec1::<f32>())
+            .expect("f32 values")
+    };
 
-    let (cutoff, xs, s0) = (load("one_pole_forward", "in0"), load("one_pole_forward", "in1"), load("one_pole_forward", "in2"));
+    let (cutoff, xs, s0) = (
+        load("one_pole_forward", "in0"),
+        load("one_pole_forward", "in1"),
+        load("one_pole_forward", "in2"),
+    );
     let want = load("one_pole_forward", "out0");
     let n = xs.len();
-    let (tc, tx, ts) = (T::from_slice(&cutoff, 1, &device)?, T::from_slice(&xs, n, &device)?, T::from_slice(&s0, 1, &device)?);
+    let (tc, tx, ts) = (
+        T::from_slice(&cutoff, 1, &device)?,
+        T::from_slice(&xs, n, &device)?,
+        T::from_slice(&s0, 1, &device)?,
+    );
     let run = || get(&candle_one_pole(&tc, &tx, &ts).expect("forward"));
     let e = error(&run(), &want);
-    rows.push(Row { model: "one-pole low-pass, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+    rows.push(Row {
+        model: "one-pole low-pass, 48k samples",
+        library: name.clone(),
+        time: time(run),
+        error: Some(e),
+    });
 
-    let ins: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("in{k}"))).collect();
-    let want: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("out{k}"))).collect();
+    let ins: Vec<Vec<f32>> = (0..4)
+        .map(|k| load("one_pole_grad", &format!("in{k}")))
+        .collect();
+    let want: Vec<Vec<f32>> = (0..4)
+        .map(|k| load("one_pole_grad", &format!("out{k}")))
+        .collect();
     let run = || -> [Vec<f32>; 4] {
         let c = Var::from_slice(&ins[0], 1, &device).unwrap();
         let x = Var::from_slice(&ins[1], n, &device).unwrap();
         let s = Var::from_slice(&ins[3], 1, &device).unwrap();
         let t = T::from_slice(&ins[2], n, &device).unwrap();
-        let loss = (candle_one_pole(c.as_tensor(), x.as_tensor(), s.as_tensor()).unwrap() - t).unwrap().sqr().unwrap().mean_all().unwrap();
+        let loss = (candle_one_pole(c.as_tensor(), x.as_tensor(), s.as_tensor()).unwrap() - t)
+            .unwrap()
+            .sqr()
+            .unwrap()
+            .mean_all()
+            .unwrap();
         let g = loss.backward().unwrap();
-        [get(&loss), get(g.get(c.as_tensor()).unwrap()), get(g.get(s.as_tensor()).unwrap()), get(g.get(x.as_tensor()).unwrap())]
+        [
+            get(&loss),
+            get(g.get(c.as_tensor()).unwrap()),
+            get(g.get(s.as_tensor()).unwrap()),
+            get(g.get(x.as_tensor()).unwrap()),
+        ]
     };
-    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
-    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+    let e = run()
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| error(g, w))
+        .fold(0.0, f64::max);
+    rows.push(Row {
+        model: "one-pole MSE gradient, 48k samples",
+        library: name.clone(),
+        time: time(run),
+        error: Some(e),
+    });
 
-    let ins: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("in{k}"))).collect();
-    let want: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("out{k}"))).collect();
+    let ins: Vec<Vec<f32>> = (0..3)
+        .map(|k| load("spectral_model_grad", &format!("in{k}")))
+        .collect();
+    let want: Vec<Vec<f32>> = (0..3)
+        .map(|k| load("spectral_model_grad", &format!("out{k}")))
+        .collect();
     let bins = ins[1].len();
     let len = (bins - 1) * 2;
     let (batch, width) = (ins[0].len() / len, ins[2].len() / len);
     let [a, b, c, d] = dft_matrices(len);
-    let (fr, fi) = (T::from_slice(&a, (len, bins), &device)?, T::from_slice(&b, (len, bins), &device)?);
-    let (ir, ii) = (T::from_slice(&c, (bins, len), &device)?, T::from_slice(&d, (bins, len), &device)?);
+    let (fr, fi) = (
+        T::from_slice(&a, (len, bins), &device)?,
+        T::from_slice(&b, (len, bins), &device)?,
+    );
+    let (ir, ii) = (
+        T::from_slice(&c, (bins, len), &device)?,
+        T::from_slice(&d, (bins, len), &device)?,
+    );
     let x = T::from_slice(&ins[0], (batch, len), &device)?;
     let run = || -> [Vec<f32>; 3] {
         let gain = Var::from_slice(&ins[1], bins, &device).unwrap();
@@ -208,10 +303,23 @@ fn candle_rows(dir: &Path, rows: &mut Vec<Row>) -> candle_core::Result<()> {
         let h = y.matmul(w.as_tensor()).unwrap().tanh().unwrap();
         let loss = h.sqr().unwrap().mean_all().unwrap();
         let grads = loss.backward().unwrap();
-        [get(&loss), get(grads.get(gain.as_tensor()).unwrap()), get(grads.get(w.as_tensor()).unwrap())]
+        [
+            get(&loss),
+            get(grads.get(gain.as_tensor()).unwrap()),
+            get(grads.get(w.as_tensor()).unwrap()),
+        ]
     };
-    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
-    rows.push(Row { model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", library: name, time: time(run), error: Some(e) });
+    let e = run()
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| error(g, w))
+        .fold(0.0, f64::max);
+    rows.push(Row {
+        model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024",
+        library: name,
+        time: time(run),
+        error: Some(e),
+    });
     Ok(())
 }
 
@@ -254,7 +362,11 @@ fn dfdx_rows(dir: &Path, rows: &mut Vec<Row>) {
     let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
     let name = "dfdx (autodiff)".to_string();
 
-    let (cutoff, xs, s0) = (load("one_pole_forward", "in0"), load("one_pole_forward", "in1"), load("one_pole_forward", "in2"));
+    let (cutoff, xs, s0) = (
+        load("one_pole_forward", "in0"),
+        load("one_pole_forward", "in1"),
+        load("one_pole_forward", "in2"),
+    );
     let want = load("one_pole_forward", "out0");
     let n = xs.len();
     let run = || {
@@ -264,10 +376,19 @@ fn dfdx_rows(dir: &Path, rows: &mut Vec<Row>) {
         dfdx_one_pole(c, x, s).as_vec()
     };
     let e = error(&run(), &want);
-    rows.push(Row { model: "one-pole low-pass, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+    rows.push(Row {
+        model: "one-pole low-pass, 48k samples",
+        library: name.clone(),
+        time: time(run),
+        error: Some(e),
+    });
 
-    let ins: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("in{k}"))).collect();
-    let want: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("out{k}"))).collect();
+    let ins: Vec<Vec<f32>> = (0..4)
+        .map(|k| load("one_pole_grad", &format!("in{k}")))
+        .collect();
+    let want: Vec<Vec<f32>> = (0..4)
+        .map(|k| load("one_pole_grad", &format!("out{k}")))
+        .collect();
     let run = || -> [Vec<f32>; 4] {
         let c: Tensor<(), f32, Cpu> = dev.tensor(ins[0][0]);
         let x: Tensor<(usize,), f32, Cpu> = dev.tensor_from_vec(ins[1].clone(), (n,));
@@ -277,13 +398,31 @@ fn dfdx_rows(dir: &Path, rows: &mut Vec<Row>) {
         let loss = (ys - t).square().mean();
         let value = loss.array();
         let g = loss.backward();
-        [vec![value], vec![g.get(&c).array()], vec![g.get(&s).array()], g.get(&x).as_vec()]
+        [
+            vec![value],
+            vec![g.get(&c).array()],
+            vec![g.get(&s).array()],
+            g.get(&x).as_vec(),
+        ]
     };
-    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
-    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: name.clone(), time: time(run), error: Some(e) });
+    let e = run()
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| error(g, w))
+        .fold(0.0, f64::max);
+    rows.push(Row {
+        model: "one-pole MSE gradient, 48k samples",
+        library: name.clone(),
+        time: time(run),
+        error: Some(e),
+    });
 
-    let ins: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("in{k}"))).collect();
-    let want: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("out{k}"))).collect();
+    let ins: Vec<Vec<f32>> = (0..3)
+        .map(|k| load("spectral_model_grad", &format!("in{k}")))
+        .collect();
+    let want: Vec<Vec<f32>> = (0..3)
+        .map(|k| load("spectral_model_grad", &format!("out{k}")))
+        .collect();
     let bins = ins[1].len();
     let len = (bins - 1) * 2;
     let (batch, width) = (ins[0].len() / len, ins[2].len() / len);
@@ -297,18 +436,34 @@ fn dfdx_rows(dir: &Path, rows: &mut Vec<Row>) {
         let gain: Tensor<(usize,), f32, Cpu> = dev.tensor_from_vec(ins[1].clone(), (bins,));
         let w: Tensor<(usize, usize), f32, Cpu> = dev.tensor_from_vec(ins[2].clone(), (len, width));
         let g = gain.leaky_trace();
-        let gb = g.retaped::<OwnedTape<f32, Cpu>>().broadcast_like::<_, Axis<0>>(&(batch, bins));
-        let re = x.retaped::<OwnedTape<f32, Cpu>>().matmul(fr.clone()) * g.broadcast_like::<_, Axis<0>>(&(batch, bins));
+        let gb = g
+            .retaped::<OwnedTape<f32, Cpu>>()
+            .broadcast_like::<_, Axis<0>>(&(batch, bins));
+        let re = x.retaped::<OwnedTape<f32, Cpu>>().matmul(fr.clone())
+            * g.broadcast_like::<_, Axis<0>>(&(batch, bins));
         let im = x.retaped::<OwnedTape<f32, Cpu>>().matmul(fi.clone()) * gb;
         let y = re.matmul(ir.clone()) + im.matmul(ii.clone());
         let h = y.matmul(w.leaky_trace()).tanh();
         let loss = h.square().mean();
         let value = loss.array();
         let grads = loss.backward();
-        [vec![value], grads.get(&gain).as_vec(), grads.get(&w).as_vec()]
+        [
+            vec![value],
+            grads.get(&gain).as_vec(),
+            grads.get(&w).as_vec(),
+        ]
     };
-    let e = run().iter().zip(&want).map(|(g, w)| error(g, w)).fold(0.0, f64::max);
-    rows.push(Row { model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", library: name, time: time(run), error: Some(e) });
+    let e = run()
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| error(g, w))
+        .fold(0.0, f64::max);
+    rows.push(Row {
+        model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024",
+        library: name,
+        time: time(run),
+        error: Some(e),
+    });
 }
 
 // THE COMPARISON ==================================================================================
@@ -325,46 +480,102 @@ fn burn_rows<B: AutodiffBackend>(name: &str, dir: &Path, rows: &mut Vec<Row>) {
     let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
 
     // the one-pole forward (no tape: the inner backend)
-    let (cutoff, xs, s0) = (load("one_pole_forward", "in0"), load("one_pole_forward", "in1"), load("one_pole_forward", "in2"));
+    let (cutoff, xs, s0) = (
+        load("one_pole_forward", "in0"),
+        load("one_pole_forward", "in1"),
+        load("one_pole_forward", "in2"),
+    );
     let want = load("one_pole_forward", "out0");
     let n = xs.len();
-    let run = || values(burn_one_pole::<B::InnerBackend>(tensor(&cutoff, [1], &device), tensor(&xs, [n], &device), tensor(&s0, [1], &device)));
+    let run = || {
+        values(burn_one_pole::<B::InnerBackend>(
+            tensor(&cutoff, [1], &device),
+            tensor(&xs, [n], &device),
+            tensor(&s0, [1], &device),
+        ))
+    };
     let error = error(&run(), &want);
-    rows.push(Row { model: "one-pole low-pass, 48k samples", library: name.to_string(), time: time(run), error: Some(error) });
+    rows.push(Row {
+        model: "one-pole low-pass, 48k samples",
+        library: name.to_string(),
+        time: time(run),
+        error: Some(error),
+    });
 
     // its MSE gradient
-    let ins: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("in{k}"))).collect();
-    let want: Vec<Vec<f32>> = (0..4).map(|k| load("one_pole_grad", &format!("out{k}"))).collect();
+    let ins: Vec<Vec<f32>> = (0..4)
+        .map(|k| load("one_pole_grad", &format!("in{k}")))
+        .collect();
+    let want: Vec<Vec<f32>> = (0..4)
+        .map(|k| load("one_pole_grad", &format!("out{k}")))
+        .collect();
     let run = || burn_one_pole_grad::<B>(&ins[0], &ins[1], &ins[2], &ins[3], &device);
-    let error = run().iter().zip(&want).map(|(g, w)| self::error(g, w)).fold(0.0, f64::max);
-    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: name.to_string(), time: time(run), error: Some(error) });
+    let error = run()
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| self::error(g, w))
+        .fold(0.0, f64::max);
+    rows.push(Row {
+        model: "one-pole MSE gradient, 48k samples",
+        library: name.to_string(),
+        time: time(run),
+        error: Some(error),
+    });
 
     // the spectral model's gradient, transforms as DFT matrix products
-    let ins: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("in{k}"))).collect();
-    let want: Vec<Vec<f32>> = (0..3).map(|k| load("spectral_model_grad", &format!("out{k}"))).collect();
+    let ins: Vec<Vec<f32>> = (0..3)
+        .map(|k| load("spectral_model_grad", &format!("in{k}")))
+        .collect();
+    let want: Vec<Vec<f32>> = (0..3)
+        .map(|k| load("spectral_model_grad", &format!("out{k}")))
+        .collect();
     let bins = ins[1].len();
     let len = (bins - 1) * 2;
     let dims = [ins[0].len() / len, len, ins[2].len() / len];
     let [a, b, c, d] = dft_matrices(len);
-    let dft = [tensor(&a, [len, bins], &device), tensor(&b, [len, bins], &device), tensor(&c, [bins, len], &device), tensor(&d, [bins, len], &device)];
+    let dft = [
+        tensor(&a, [len, bins], &device),
+        tensor(&b, [len, bins], &device),
+        tensor(&c, [bins, len], &device),
+        tensor(&d, [bins, len], &device),
+    ];
     let run = || burn_spectral_grad::<B>(&ins[0], &ins[1], &ins[2], &dft, dims, &device);
-    let error = run().iter().zip(&want).map(|(g, w)| self::error(g, w)).fold(0.0, f64::max);
-    rows.push(Row { model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", library: name.to_string(), time: time(run), error: Some(error) });
+    let error = run()
+        .iter()
+        .zip(&want)
+        .map(|(g, w)| self::error(g, w))
+        .fold(0.0, f64::max);
+    rows.push(Row {
+        model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024",
+        library: name.to_string(),
+        time: time(run),
+        error: Some(error),
+    });
 }
 
 fn main() {
     // candle's backward pass recurses through the graph: 48k steps deep for the scans
-    std::thread::Builder::new().stack_size(1 << 30).spawn(run).unwrap().join().unwrap();
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(run)
+        .unwrap()
+        .join()
+        .unwrap();
 }
 
 fn run() {
-    let dir = std::env::args().nth(1).expect("usage: flux_autodiff <dir written by flux_programs>");
+    let dir = std::env::args()
+        .nth(1)
+        .expect("usage: flux_autodiff <dir written by flux_programs>");
     let dir = Path::new(&dir);
     let load = |case: &str, k: &str| read_npy(&dir.join(format!("{case}_{k}.npy")));
     let mut rows = Vec::new();
 
     // autodyne's core: the filter itself, no tracing
-    let (cutoff, xs) = (load("one_pole_forward", "in0")[0], load("one_pole_forward", "in1"));
+    let (cutoff, xs) = (
+        load("one_pole_forward", "in0")[0],
+        load("one_pole_forward", "in1"),
+    );
     let want = load("one_pole_forward", "out0");
     let run = || {
         let mut f = OnePole::lowpass(cutoff, FS as f32);
@@ -373,7 +584,12 @@ fn run() {
         ys
     };
     let e = error(&run(), &want);
-    rows.push(Row { model: "one-pole low-pass, 48k samples", library: "autodyne core (OnePole)".into(), time: time(run), error: Some(e) });
+    rows.push(Row {
+        model: "one-pole low-pass, 48k samples",
+        library: "autodyne core (OnePole)".into(),
+        time: time(run),
+        error: Some(e),
+    });
 
     // flux's interpreter: the traced graphs evaluated in Rust, no compiler
     let scan = Scan::trace(&[&[]], &[&[]], &[], |p, s, x| {
@@ -381,37 +597,97 @@ fn run() {
         (vec![s], y)
     });
     let xs_nd = vector(&xs);
-    rows.push(Row { model: "one-pole low-pass, 48k samples", library: "flux interpreter".into(), time: time(|| scan.run(&[scalar(cutoff)], &xs_nd, &[scalar(0.0)])), error: None });
+    rows.push(Row {
+        model: "one-pole low-pass, 48k samples",
+        library: "flux interpreter".into(),
+        time: time(|| scan.run(&[scalar(cutoff)], &xs_nd, &[scalar(0.0)])),
+        error: None,
+    });
     let targets = NdArray::from_vec(load("one_pole_grad", "in2"), &[xs.len()]).unwrap();
-    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: "flux interpreter".into(), time: time(|| scan.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])), error: None });
+    rows.push(Row {
+        model: "one-pole MSE gradient, 48k samples",
+        library: "flux interpreter".into(),
+        time: time(|| scan.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])),
+        error: None,
+    });
     // with fused multiply-adds (results differ from the interpreter's in the last bits)
     let fused = scan.clone().contracted(true);
     let want_grad = load("one_pole_grad", "out3");
-    let e = error(fused.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)]).input.as_slice(), &want_grad);
-    rows.push(Row { model: "one-pole low-pass, 48k samples", library: "flux interpreter, contracted".into(), time: time(|| fused.run(&[scalar(cutoff)], &xs_nd, &[scalar(0.0)])), error: None });
-    rows.push(Row { model: "one-pole MSE gradient, 48k samples", library: "flux interpreter, contracted".into(), time: time(|| fused.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])), error: Some(e) });
+    let e = error(
+        fused
+            .loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])
+            .input
+            .as_slice(),
+        &want_grad,
+    );
+    rows.push(Row {
+        model: "one-pole low-pass, 48k samples",
+        library: "flux interpreter, contracted".into(),
+        time: time(|| fused.run(&[scalar(cutoff)], &xs_nd, &[scalar(0.0)])),
+        error: None,
+    });
+    rows.push(Row {
+        model: "one-pole MSE gradient, 48k samples",
+        library: "flux interpreter, contracted".into(),
+        time: time(|| fused.loss_grad(&[scalar(cutoff)], &xs_nd, &targets, &[scalar(0.0)])),
+        error: Some(e),
+    });
     // the EQ into drive, with the multi-resolution STFT loss
     let n = 2_048;
     let chain = Scan::trace(&[&[], &[], &[]], &[&[], &[]], &[], |p, s, x| {
-        let c = BiquadCoeffs::design(BiquadKind::Peaking, p[0].exp(), Tracer::lit(1.0), p[1] * Tracer::lit(10.0), Tracer::lit(FS));
+        let c = BiquadCoeffs::design(
+            BiquadKind::Peaking,
+            p[0].exp(),
+            Tracer::lit(1.0),
+            p[1] * Tracer::lit(10.0),
+            Tracer::lit(FS),
+        );
         let ([a, b], y) = c.tick([s[0], s[1]], x);
         (vec![a, b], Shape::Tanh.apply(y * p[2]))
     });
-    let stft = Loss::stft(&[n], &[StftResolution::overlapping(512), StftResolution::overlapping(128), StftResolution::overlapping(32)]);
-    let eq_in: Vec<Vec<f32>> = (0..7).map(|k| load("eq_drive_stft_grad", &format!("in{k}"))).collect();
+    let stft = Loss::stft(
+        &[n],
+        &[
+            StftResolution::overlapping(512),
+            StftResolution::overlapping(128),
+            StftResolution::overlapping(32),
+        ],
+    );
+    let eq_in: Vec<Vec<f32>> = (0..7)
+        .map(|k| load("eq_drive_stft_grad", &format!("in{k}")))
+        .collect();
     let eq_want = load("eq_drive_stft_grad", "out6");
-    let eq_params = [scalar(eq_in[0][0]), scalar(eq_in[1][0]), scalar(eq_in[2][0])];
+    let eq_params = [
+        scalar(eq_in[0][0]),
+        scalar(eq_in[1][0]),
+        scalar(eq_in[2][0]),
+    ];
     let eq_xs = NdArray::from_vec(eq_in[3].clone(), &[n]).unwrap();
     let eq_target = NdArray::from_vec(eq_in[4].clone(), &[n]).unwrap();
     let eq_s0 = [scalar(eq_in[5][0]), scalar(eq_in[6][0])];
-    let eq_run = || chain.grad(&eq_params, &eq_xs, &eq_s0, &stft, std::slice::from_ref(&eq_target));
+    let eq_run = || {
+        chain.grad(
+            &eq_params,
+            &eq_xs,
+            &eq_s0,
+            &stft,
+            std::slice::from_ref(&eq_target),
+        )
+    };
     let e = error(eq_run().input.as_slice(), &eq_want);
-    rows.push(Row { model: "EQ + drive, multi-resolution STFT loss gradient, 2048 samples", library: "flux interpreter".into(), time: time(eq_run), error: Some(e) });
+    rows.push(Row {
+        model: "EQ + drive, multi-resolution STFT loss gradient, 2048 samples",
+        library: "flux interpreter".into(),
+        time: time(eq_run),
+        error: Some(e),
+    });
 
     let (batch, len, width) = (256usize, 1_024usize, 64usize);
     let model = trace(&[&[batch, len], &[len / 2 + 1], &[len, width]], |v| {
         let (x, gain, w) = (v[0], v[1], v[2]);
-        let y = Tracer::irfft_complex(x.rfft_complex() * gain, len).dot(w).tanh();
+        let y = Tracer::irfft_complex(x.rfft_complex() * gain, len)
+            .dot(w)
+            .tanh();
         let loss = (y * y).mean_all();
         let d = vjp(&[loss], &[Tracer::lit(1.0)], &[gain, w]);
         vec![loss, d[0], d[1]]
@@ -421,7 +697,12 @@ fn run() {
         NdArray::from_vec(load("spectral_model_grad", "in1"), &[len / 2 + 1]).unwrap(),
         NdArray::from_vec(load("spectral_model_grad", "in2"), &[len, width]).unwrap(),
     ];
-    rows.push(Row { model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024", library: "flux interpreter".into(), time: time(|| model.eval(&inputs)), error: None });
+    rows.push(Row {
+        model: "rfft -> gain -> irfft -> dense -> tanh gradient, 256 x 1024",
+        library: "flux interpreter".into(),
+        time: time(|| model.eval(&inputs)),
+        error: None,
+    });
 
     burn_rows::<Autodiff<Flex>>("burn flex (autodiff)", dir, &mut rows);
     burn_rows::<Autodiff<BurnNdArray>>("burn ndarray (autodiff)", dir, &mut rows);

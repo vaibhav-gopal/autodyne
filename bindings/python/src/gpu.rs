@@ -103,18 +103,32 @@ mod enabled {
         fn complex(&self, py: Python<'_>, inverse: bool) -> PyResult<Py<PyAny>> {
             let shape = with!(&self.0, g => g.shape());
             if shape.len() < 2 || shape[shape.len() - 1] != 2 || shape[shape.len() - 2] == 0 {
-                return Err(PyValueError::new_err(format!("GpuArray.fft: interleaved complex data [..., n, 2], got {shape:?}")));
+                return Err(PyValueError::new_err(format!(
+                    "GpuArray.fft: interleaved complex data [..., n, 2], got {shape:?}"
+                )));
             }
-            wrap(py, map!(&self.0, g => if inverse { g.ifft() } else { g.fft() }))
+            wrap(
+                py,
+                map!(&self.0, g => if inverse { g.ifft() } else { g.fft() }),
+            )
         }
 
-        fn combine(&self, py: Python<'_>, other: &Bound<'_, PyAny>, op: Op, reflected: bool) -> PyResult<Py<PyAny>> {
+        fn combine(
+            &self,
+            py: Python<'_>,
+            other: &Bound<'_, PyAny>,
+            op: Op,
+            reflected: bool,
+        ) -> PyResult<Py<PyAny>> {
             if let Ok(o) = other.cast::<PyGpuArray>() {
-                let inner = match (&self.0, &o.get().0) {
-                    (Inner::F32(a), Inner::F32(b)) => Inner::F32(pair(a, b, op)?),
-                    (Inner::F64(a), Inner::F64(b)) => Inner::F64(pair(a, b, op)?),
-                    _ => return Err(PyTypeError::new_err("GpuArray: the operands have different dtypes (float32 and float64)")),
-                };
+                let inner =
+                    match (&self.0, &o.get().0) {
+                        (Inner::F32(a), Inner::F32(b)) => Inner::F32(pair(a, b, op)?),
+                        (Inner::F64(a), Inner::F64(b)) => Inner::F64(pair(a, b, op)?),
+                        _ => return Err(PyTypeError::new_err(
+                            "GpuArray: the operands have different dtypes (float32 and float64)",
+                        )),
+                    };
                 return wrap(py, inner);
             }
             if let Ok(s) = other.extract::<f64>() {
@@ -164,7 +178,10 @@ mod enabled {
             with!(&self.0, g => g.is_standard())
         }
         fn __len__(&self) -> PyResult<usize> {
-            self.shape().first().copied().ok_or_else(|| PyTypeError::new_err("len() of a 0-d GpuArray"))
+            self.shape()
+                .first()
+                .copied()
+                .ok_or_else(|| PyTypeError::new_err("len() of a 0-d GpuArray"))
         }
 
         /// The values as a NumPy array (waits for the GPU).
@@ -172,9 +189,16 @@ mod enabled {
             with!(&self.0, g => numpy_array(py, g.to_host()))
         }
         #[pyo3(signature = (dtype=None, copy=None))]
-        fn __array__(&self, py: Python<'_>, dtype: Option<&Bound<'_, PyAny>>, copy: Option<bool>) -> PyResult<Py<PyAny>> {
+        fn __array__(
+            &self,
+            py: Python<'_>,
+            dtype: Option<&Bound<'_, PyAny>>,
+            copy: Option<bool>,
+        ) -> PyResult<Py<PyAny>> {
             if copy == Some(false) {
-                return Err(PyValueError::new_err("a GpuArray's values are on the GPU: numpy needs a copy"));
+                return Err(PyValueError::new_err(
+                    "a GpuArray's values are on the GPU: numpy needs a copy",
+                ));
             }
             let a = self.numpy(py)?;
             match dtype {
@@ -187,12 +211,18 @@ mod enabled {
         #[allow(clippy::unnecessary_cast)]
         fn __float__(&self) -> PyResult<f64> {
             if self.size() != 1 {
-                return Err(PyTypeError::new_err("only one-element GpuArrays convert to float"));
+                return Err(PyTypeError::new_err(
+                    "only one-element GpuArrays convert to float",
+                ));
             }
             Ok(with!(&self.0, g => g.to_host().as_slice()[0] as f64))
         }
         fn __repr__(&self) -> String {
-            format!("autodyne.gpu.GpuArray(shape={:?}, dtype={})", self.shape(), self.dtype())
+            format!(
+                "autodyne.gpu.GpuArray(shape={:?}, dtype={})",
+                self.shape(),
+                self.dtype()
+            )
         }
 
         /// The axes reversed, or reordered as `axes` (`numpy.transpose`): a view.
@@ -202,10 +232,15 @@ mod enabled {
             if axes.is_empty() {
                 return wrap(py, map!(&self.0, g => g.transpose()));
             }
-            let axes = axes.iter().map(|&a| axis_index(a, n)).collect::<PyResult<Vec<_>>>()?;
+            let axes = axes
+                .iter()
+                .map(|&a| axis_index(a, n))
+                .collect::<PyResult<Vec<_>>>()?;
             let mut seen = vec![false; n];
             if axes.len() != n || axes.iter().any(|&a| std::mem::replace(&mut seen[a], true)) {
-                return Err(PyValueError::new_err(format!("transpose: {axes:?} is not a permutation of {n} axes")));
+                return Err(PyValueError::new_err(format!(
+                    "transpose: {axes:?} is not a permutation of {n} axes"
+                )));
             }
             wrap(py, map!(&self.0, g => g.permute(&axes)))
         }
@@ -293,7 +328,9 @@ mod enabled {
                     match n {
                         1 => wrap(py, map!(&self.0, g => g.sum())),
                         2 => wrap(py, map!(&self.0, g => g.sum_axis(a))),
-                        _ => Err(PyValueError::new_err("GpuArray.sum: an axis of a vector or a matrix (or no axis)")),
+                        _ => Err(PyValueError::new_err(
+                            "GpuArray.sum: an axis of a vector or a matrix (or no axis)",
+                        )),
                     }
                 }
             }
@@ -304,12 +341,18 @@ mod enabled {
             let (a, b) = (&self.0, &other.get().0);
             let (sa, sb) = (with!(a, g => g.shape()), with!(b, g => g.shape()));
             if sa.len() != 2 || sb.len() != 2 || sa[1] != sb[0] {
-                return Err(PyValueError::new_err(format!("GpuArray.matmul: matrices with matching inner dimensions, got {sa:?} @ {sb:?}")));
+                return Err(PyValueError::new_err(format!(
+                    "GpuArray.matmul: matrices with matching inner dimensions, got {sa:?} @ {sb:?}"
+                )));
             }
             let inner = match (a, b) {
                 (Inner::F32(a), Inner::F32(b)) => Inner::F32(a.matmul(b)),
                 (Inner::F64(a), Inner::F64(b)) => Inner::F64(a.matmul(b)),
-                _ => return Err(PyTypeError::new_err("GpuArray.matmul: the operands have different dtypes")),
+                _ => {
+                    return Err(PyTypeError::new_err(
+                        "GpuArray.matmul: the operands have different dtypes",
+                    ))
+                }
             };
             wrap(py, inner)
         }
@@ -320,8 +363,13 @@ mod enabled {
 
         /// The real FFT along the last axis: `[..., n]` to interleaved complex bins `[..., n // 2 + 1, 2]`.
         fn rfft(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-            if with!(&self.0, g => g.shape()).last().is_none_or(|&n| n == 0) {
-                return Err(PyValueError::new_err("GpuArray.rfft: a non-empty last axis"));
+            if with!(&self.0, g => g.shape())
+                .last()
+                .is_none_or(|&n| n == 0)
+            {
+                return Err(PyValueError::new_err(
+                    "GpuArray.rfft: a non-empty last axis",
+                ));
             }
             wrap(py, map!(&self.0, g => g.rfft()))
         }
@@ -329,9 +377,14 @@ mod enabled {
         /// The inverse of `rfft`: interleaved bins `[..., n // 2 + 1, 2]` to `[..., n]`.
         fn irfft(&self, py: Python<'_>, n: usize) -> PyResult<Py<PyAny>> {
             let shape = with!(&self.0, g => g.shape());
-            let ok = n >= 1 && shape.len() >= 2 && shape[shape.len() - 1] == 2 && shape[shape.len() - 2] == n / 2 + 1;
+            let ok = n >= 1
+                && shape.len() >= 2
+                && shape[shape.len() - 1] == 2
+                && shape[shape.len() - 2] == n / 2 + 1;
             if !ok {
-                return Err(PyValueError::new_err(format!("GpuArray.irfft: bins [..., n // 2 + 1, 2] for n = {n}, got {shape:?}")));
+                return Err(PyValueError::new_err(format!(
+                    "GpuArray.irfft: bins [..., n // 2 + 1, 2] for n = {n}, got {shape:?}"
+                )));
             }
             wrap(py, map!(&self.0, g => g.irfft(n)))
         }
@@ -351,7 +404,9 @@ mod enabled {
             wrap(
                 py,
                 match &self.0 {
-                    Inner::F32(g) => Inner::F32(g.fir(&taps.iter().map(|&t| t as f32).collect::<Vec<_>>())),
+                    Inner::F32(g) => {
+                        Inner::F32(g.fir(&taps.iter().map(|&t| t as f32).collect::<Vec<_>>()))
+                    }
                     Inner::F64(g) => Inner::F64(g.fir(&taps)),
                 },
             )

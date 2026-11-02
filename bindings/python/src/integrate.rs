@@ -14,7 +14,14 @@ type Obj = Py<PyAny>;
 
 /// `out = fun(t, y)` through Python; the first exception is kept and the derivative made NaN, so the
 /// integration stops shortly (its steps fail) and the exception is raised afterwards.
-fn call(py: Python<'_>, fun: &Bound<'_, PyAny>, t: f64, y: &[f64], out: &mut [f64], error: &RefCell<Option<PyErr>>) {
+fn call(
+    py: Python<'_>,
+    fun: &Bound<'_, PyAny>,
+    t: f64,
+    y: &[f64],
+    out: &mut [f64],
+    error: &RefCell<Option<PyErr>>,
+) {
     if error.borrow().is_some() {
         out.fill(f64::NAN);
         return;
@@ -28,9 +35,15 @@ fn call(py: Python<'_>, fun: &Bound<'_, PyAny>, t: f64, y: &[f64], out: &mut [f6
             Err(_) => numpy::PyArray1::from_vec(py, r.extract::<Vec<f64>>()?),
         };
         let ro = arr.readonly();
-        let s = ro.as_slice().map_err(|_| PyValueError::new_err("fun must return a 1-D array"))?;
+        let s = ro
+            .as_slice()
+            .map_err(|_| PyValueError::new_err("fun must return a 1-D array"))?;
         if s.len() != out.len() {
-            return Err(PyValueError::new_err(format!("fun returned {} values for {} states", s.len(), out.len())));
+            return Err(PyValueError::new_err(format!(
+                "fun returned {} values for {} states",
+                s.len(),
+                out.len()
+            )));
         }
         out.copy_from_slice(s);
         Ok(())
@@ -66,7 +79,11 @@ fn solve_ivp(
         "RK45" => OdeMethod::Rk45,
         "RK23" => OdeMethod::Rk23,
         "Rosenbrock23" | "ode23s" => OdeMethod::Rosenbrock23,
-        other => return Err(PyValueError::new_err(format!("unknown method {other:?} (RK45, RK23 or Rosenbrock23)"))),
+        other => {
+            return Err(PyValueError::new_err(format!(
+                "unknown method {other:?} (RK45, RK23 or Rosenbrock23)"
+            )))
+        }
     };
     let error = RefCell::new(None);
     let event_list: Vec<Event<'_>> = events
@@ -79,7 +96,10 @@ fn solve_ivp(
                     if error.borrow().is_some() {
                         return f64::NAN;
                     }
-                    match g.call1((t, PyArray1::from_slice(py, y))).and_then(|v| v.extract::<f64>()) {
+                    match g
+                        .call1((t, PyArray1::from_slice(py, y)))
+                        .and_then(|v| v.extract::<f64>())
+                    {
                         Ok(v) => v,
                         Err(e) => {
                             *error.borrow_mut() = Some(e);
@@ -92,8 +112,22 @@ fn solve_ivp(
             }
         })
         .collect();
-    let options = OdeOptions { method, rtol, atol, first_step, max_step, t_eval, events: event_list };
-    let sol = ode::solve_ivp(|t, y, dy| call(py, fun, t, y, dy, &error), (t0, t1), &y0, options).map_err(value_error)?;
+    let options = OdeOptions {
+        method,
+        rtol,
+        atol,
+        first_step,
+        max_step,
+        t_eval,
+        events: event_list,
+    };
+    let sol = ode::solve_ivp(
+        |t, y, dy| call(py, fun, t, y, dy, &error),
+        (t0, t1),
+        &y0,
+        options,
+    )
+    .map_err(value_error)?;
     if let Some(e) = error.into_inner() {
         return Err(e);
     }
@@ -109,17 +143,37 @@ fn solve_ivp(
     let out = PyDict::new(py);
     out.set_item("t", numpy_out(py, sol.t, &[points], None)?)?;
     out.set_item("y", numpy_out(py, y, &[n, points], None)?)?;
-    let t_events: Vec<Obj> = sol.t_events.into_iter().map(|t| { let k = t.len(); numpy_out(py, t, &[k], None) }).collect::<PyResult<_>>()?;
-    let y_events: Vec<Obj> = sol.y_events.into_iter().map(|ys| { let k = ys.len(); numpy_out(py, ys.concat(), &[k, n], None) }).collect::<PyResult<_>>()?;
+    let t_events: Vec<Obj> = sol
+        .t_events
+        .into_iter()
+        .map(|t| {
+            let k = t.len();
+            numpy_out(py, t, &[k], None)
+        })
+        .collect::<PyResult<_>>()?;
+    let y_events: Vec<Obj> = sol
+        .y_events
+        .into_iter()
+        .map(|ys| {
+            let k = ys.len();
+            numpy_out(py, ys.concat(), &[k, n], None)
+        })
+        .collect::<PyResult<_>>()?;
     out.set_item("t_events", t_events)?;
     out.set_item("y_events", y_events)?;
     out.set_item("nfev", sol.nfev)?;
     out.set_item("njev", sol.njev)?;
     out.set_item("nlu", sol.nlu)?;
     let (status, message) = match sol.status {
-        OdeStatus::Finished => (0, "The solver successfully reached the end of the integration interval."),
+        OdeStatus::Finished => (
+            0,
+            "The solver successfully reached the end of the integration interval.",
+        ),
         OdeStatus::Event => (1, "A termination event occurred."),
-        OdeStatus::StepTooSmall => (-1, "Required step size is less than spacing between numbers."),
+        OdeStatus::StepTooSmall => (
+            -1,
+            "Required step size is less than spacing between numbers.",
+        ),
     };
     out.set_item("status", status)?;
     out.set_item("message", message)?;
@@ -131,4 +185,3 @@ pub(crate) fn register(m: &Bound<'_, PyModule>) -> PyResult<()> {
     i.add_function(wrap_pyfunction!(solve_ivp, &i)?)?;
     m.add_submodule(&i)
 }
-
