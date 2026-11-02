@@ -4,7 +4,7 @@
 //!   builds plugin bundles (.clap, .vst3) in `target/bundled`, each with its third-party notices
 //!   (next to the bundle, and inside bundles that are directories).
 //! - `cargo xtask notices`: regenerates every plugin's `THIRD-PARTY-LICENSES.html` from its
-//!   dependency graph (needs `cargo install cargo-about`; CI does this on every change to main).
+//!   dependency graph (needs `cargo install cargo-about`; run it before building a plugin release).
 //!
 //! tend: Plugins
 

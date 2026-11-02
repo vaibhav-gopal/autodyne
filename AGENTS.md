@@ -206,14 +206,13 @@ a review the user asked for):
 - **env.no-secrets**: No secrets in the repo: no .env files or private keys are committed.
 - **env.version-managers** (advice): System tools come only from version managers (rustup, uv, bun, scoop, nix); never install them ad hoc.
 - **git.no-agent-trailers** (advice): Commits carry no agent or session trailers (a Co-Authored-By naming an agent, Claude-Session, a 'Generated with' line): a commit is the user's. A DCO Signed-off-by stays where the project's license asks for one.
-- **ci.contributors-only** (advice): Only a project open to contributions runs CI (it declares itself open, and its repo is public): on others' pull requests, and on its release tags when others build on its releases, on GitHub's hosted runners. Every other project has no workflows and GitHub Actions turned off; its checks run locally before every commit (the pre-commit hook, `tend code hook --install`). Projects are closed unless they say otherwise, and none is open yet.
+- **ci.closed** (warn): A project closed to contributions (the default) has no CI: no workflows, and GitHub Actions turned off. Its declared tests and gates run in git hooks (tend's checks and the tests a change reaches before a commit, all of them before a push), and checks for other systems run on your own machines through Nix remote builders. A check no machine here can run is the exception: its workflow stays, with a decision in the journal that waives ci.closed and says why.
 - **tests.with-features** (advice): Every feature ships with tests at the right level; they run before every commit, and in CI where the repo runs it.
 - **agents.subagents** (advice): Spawn subagents only for broad searches or truly parallel work, on the cheapest model that can do it, with tight prompts (see agents/conduct.md, Subagents).
 - **agents.fresh-checks** (advice): Work that needs checking is checked by a fresh agent given only the work and the standard, never by the agent that did it or its subagents' shared context (see agents/conduct.md, Checking work).
 - **rust.toolchain-pinned**: A Rust project pins its toolchain (and components) in rust-toolchain.toml.
 - **rust.lockfile** (warn): Binaries and workspaces commit Cargo.lock.
 - **rust.clippy-clean** (advice): Code is clippy-clean with warnings denied (cargo clippy --all-targets -- -D warnings), under every feature set the project builds.
-- **rust.ci-reads-toolchain** (advice): Where a project runs CI, it takes the toolchain from rust-toolchain.toml (rustup reads it when cargo runs); a workflow never pins a second version beside it, except a nightly where only nightly will do (Miri, fuzzing).
 - **rust.features-additive** (advice): Features only add: one never changes a type, a default or a behaviour another crate may rely on, since features unify across a build.
 
 ### Rust
@@ -231,7 +230,7 @@ a review the user asked for):
   tests that only ever built on one. Gate architecture-specific code together with its tests and constants.
 - Anything that decodes bytes it doesn't trust (a parser, a wire format) gets a fuzz target (cargo-fuzz,
   its own crate outside the workspace), run briefly on nightly before a release (`-max_total_time=60`).
-- A project open to contributions runs CI (rule ci.contributors-only): tools are installed on the runner
+- A project open to contributions runs CI (rule ci.open; the profile's deny.yml renders for it alone): tools are installed on the runner
   (`taiki-e/install-action`) rather than through an action's container, whose toolchain isn't the one
   `rust-toolchain.toml` asks for.
 - A heavy dependency comes in with `default-features = false` and only what's used, the package count
@@ -256,7 +255,7 @@ Numerics for signals, processes and systems in Rust, built to replace and outper
 - Zero copy where data lives: views over external memory (DynView, DLPack, ndarray interop) rather than copies.
 - autodyne is a general-purpose numerics library, not only DSP
 - Licensed under the baseline's library combo
-- CI takes the toolchain from rust-toolchain.toml
 - Ready for crates.io; the user publishes, with the combo's license expression tried first
+- CI cut to one manual job: arm and Miri before a release (rule ci.contributors-only)
 
 The full design (every area's intent, claims and the decisions behind them, and roadmap) is in tend: `tend design` (or `tend design render` for all of it as Markdown), and tend's MCP server (`tend`), which says where a change belongs and which claims apply before you make it.

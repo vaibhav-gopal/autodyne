@@ -20,9 +20,9 @@ Thanks for helping. Bug reports, fixes, new processors, tests, benchmarks and do
 - Linux: ALSA headers for the `live` example (`libasound2-dev` on Debian/Ubuntu).
 - Plugins: `cargo xtask bundle -p autodyne-reverb -p autodyne-synth --release`.
 
-## What CI checks
+## The checks
 
-Run these before pushing; a pull request must pass all of them:
+There is no CI on pull requests; run these before pushing, and a pull request must pass all of them:
 
 ```sh
 cargo test --workspace --all-targets
@@ -31,7 +31,7 @@ cargo test -p autodyne --features jit,gpu --lib -- flux:: gpu::
 cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux,autodyne/jit,autodyne/gpu
 cargo deny --workspace check advisories bans sources   # RustSec, bans, sources (install: cargo install cargo-deny)
-tend check --strict   # the design, licenses against LICENSE.md's three, sign-offs (not yet in CI)
+tend check --strict   # the design, licenses against LICENSE.md's three, sign-offs
 ```
 
 The Python bindings (`bindings/python`) and the comparison benchmarks (`bench/rust`) are workspaces of their
@@ -68,7 +68,7 @@ own: after changing a public API, build them too (`cargo check` in each).
 - **Match the surrounding code.** Naming, comment density and doc style as in the module you are changing. Put
   math in doc comments inside backticks.
 - **New dependencies** need a reason; they must pass `cargo deny` and `tend check`. Their license notices are
-  regenerated automatically on main (`cargo xtask notices` does it locally, with `cargo install cargo-about`).
+  regenerated with `cargo xtask notices` (needs `cargo install cargo-about`).
 
 ## Commits and pull requests
 

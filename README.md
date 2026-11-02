@@ -237,7 +237,7 @@ Copy the `.clap` into your CLAP folder (`%COMMONPROGRAMFILES%\CLAP` on Windows, 
 VST3 validator).
 
 ### Tests and benchmarks
-What CI runs (`.github/workflows/ci.yml`), to run locally before a pull request:
+The checks, run locally before every commit (autodyne has no CI):
 
 ```sh
 cargo test --workspace --all-targets                     # every processor against a known answer; tests/no_alloc.rs
@@ -251,6 +251,18 @@ cargo build -p autodyne --no-default-features --features dsp --lib --target wasm
 cargo test -p autodyne --no-default-features --lib        # lean: units, simd and geometry only
 cargo clippy --workspace --all-targets --features autodyne/ndarray,autodyne/bytemuck,autodyne/flux,autodyne/jit,autodyne/gpu -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --exclude xtask --no-deps --features autodyne/flux,autodyne/jit,autodyne/gpu
+cargo deny --workspace check advisories bans sources      # RustSec advisories, bans, sources (deny.toml)
+tend check                                                # the design, the baseline's rules, licenses
+```
+
+Before a release, also the NEON paths on an aarch64 machine, and Miri over the unsafe views (nightly; its float
+noise off so exact-equality assertions stay meaningful):
+
+```sh
+cargo test -p autodyne --lib --features bytemuck          # on aarch64
+cargo clippy -p autodyne --lib --tests --features bytemuck -- -D warnings
+MIRIFLAGS="-Zmiri-strict-provenance -Zmiri-deterministic-floats" \
+  cargo +nightly miri test --lib --features ndarray -- signal::nd dynamic:: dlpack interop
 ```
 
 Every public item is documented (`#![warn(missing_docs)]`, so clippy fails otherwise). The Python bindings test with
@@ -266,26 +278,26 @@ has each in full, the texts are in [LICENSES/](LICENSES/)):
   Exception: use, change and share it under the GPL, and other open-source projects may combine it with code under
   any OSI-approved license without relicensing that code under the GPL.
 - **Closed-source applications, free of charge:** the Royalty-Free License, while your revenue is under
-  USD 1,000,000, with attribution, not redistributed as an SDK, engine or toolkit, and not on embedded devices.
-- **Everything else** (above that, without attribution, SDKs and engines, embedded devices, support and
+  USD 1,000,000 and your funding under USD 3,000,000, with attribution, not redistributed as an SDK, engine or
+  toolkit, and not on embedded devices.
+- **Everything else** (above those limits, without attribution, SDKs and engines, embedded devices, support and
   warranties): a commercial agreement; open an issue or contact [@vaibhav-gopal](https://github.com/vaibhav-gopal).
 
 As an SPDX expression: `GPL-3.0-only WITH AdditionRef-Open-Project-Exception-1.0 OR LicenseRef-Royalty-Free-1.0 OR
-LicenseRef-Commercial-1.0`. The exception, the royalty-free and the commercial texts are drafts, not yet reviewed by a
-lawyer.
+LicenseRef-Commercial-1.0`. The exception, the royalty-free and the commercial texts are provisional: accepted for now
+without a lawyer's review.
 
 Every third-party dependency that ships is permissively licensed (MIT, Apache-2.0, ISC, BSD, Zlib, ...) or, with the
 `gpu` feature, under the file-level MPL-2.0, so none of them blocks any of the three licenses. Those licenses do
 require shipping each dependency's copyright and license text, which is automated:
 
 - **Policy:** `tend check` judges every shipping dependency's license against the three licenses (a GPL or LGPL one
-  would block the closed ones) and checks contributions' sign-offs; [cargo-deny](deny.toml) fails CI on a known
-  vulnerability (RustSec) or an unexpected source. `tend check` runs before each push, and in CI once Tend can run
-  there.
+  would block the closed ones) and checks contributions' sign-offs; [cargo-deny](deny.toml) fails on a known
+  vulnerability (RustSec) or an unexpected source. Both run with the checks before each commit.
 - **Notices:** each plugin has a `THIRD-PARTY-LICENSES.html` generated from its own dependency graph by
-  [cargo-about](about.toml) (`cargo xtask notices`). The Notices workflow regenerates and commits them whenever
-  dependencies change on main, and `cargo xtask bundle` ships them next to and inside every bundle.
-- **Updates:** Dependabot opens weekly dependency update pull requests, which go through the same checks.
+  [cargo-about](about.toml) (`cargo xtask notices`), regenerated before building a plugin release, and
+  `cargo xtask bundle` ships them next to and inside every bundle.
+- **Updates:** Dependabot opens weekly dependency update pull requests, checked locally before they're merged.
 
 ## Contributing
 Contributions are welcome, on the terms in [LICENSE.md](LICENSE.md#contributing): you license your contribution under

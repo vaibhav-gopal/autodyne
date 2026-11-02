@@ -1,4 +1,4 @@
-# cargo-deny policy: `cargo deny check advisories bans sources` (runs in CI).
+# cargo-deny policy: `cargo deny check advisories bans sources` (runs with the checks before each commit).
 #
 # Licenses are not checked here: autodyne is licensed under the vg-paradigms baseline's library combo
 # (.tend/extends.toml), and `tend check` judges every shipping dependency's license against what
