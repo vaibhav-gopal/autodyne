@@ -1,5 +1,6 @@
 [toolchain]
 channel = "stable"
 components = ["clippy", "rustfmt", "rust-analyzer"]
-# the core builds without std for the browser (cargo build --no-default-features --target wasm32-unknown-unknown)
-targets = ["wasm32-unknown-unknown"]
+# the core builds without std for the browser (cargo build --no-default-features --target wasm32-unknown-unknown);
+# geometry's simd128 tests run on wasm32-wasip1 under wasmtime (.cargo/config.toml)
+targets = ["wasm32-unknown-unknown", "wasm32-wasip1"]

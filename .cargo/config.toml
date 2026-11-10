@@ -1,3 +1,9 @@
 [alias]
-# plugin bundler: `cargo xtask bundle autodyne-reverb --release`
+# tasks cargo can't do alone: `cargo xtask bundle autodyne-reverb --release`, `cargo xtask miri`
 xtask = "run --package xtask --release --"
+
+# geometry's simd128 backend under wasmtime:
+# `cargo test -p autodyne --no-default-features --lib --target wasm32-wasip1 -- geometry`
+[target.wasm32-wasip1]
+runner = "wasmtime"
+rustflags = ["-C", "target-feature=+simd128"]

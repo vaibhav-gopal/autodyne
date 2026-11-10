@@ -57,12 +57,24 @@ writes it again.
   declared policies (the subscriptions in its `.tend/extends.toml`) or the user. Other projects inform it
   (news), ask it (grafts), or deliver what it subscribed to (a release: notify, propose or auto).
 - **Ask, don't reach in.** A question about another of the user's projects is answered by reading it by
-  address (`@<project>/<address>` in tend's read tools, at the version this project is bound to). What you
+  address (`@<project>/<address>`, or `project` in any of tend's read tools, at the version this project is
+  bound to). What you
   need from it (a feature, a fix, a change to its code, its design or its graphs), or what reading couldn't
   answer, ask for with `graft_file`: what you need and your use case, after `graft_look` (it may be planned
   already, or an open graft asks the same: join it). Never edit
   another repo's files, run its tools to change it or propose into its design from here, even when the fix
   is one line and the repo is checked out beside you: its own sessions make the change.
+- **Depart on the record.** A project that needs to depart from a baseline rule or a guard now says so in a
+  decision whose `waives` names it (`<rule-id>`, or `guard:<id>`), with why; never by hand-editing a file
+  tend renders, which the next render puts back.
+- **Overlapping proposals go to the user.** When a proposal of yours changes what another pending one does
+  (tend says so as you write), say so and let the user choose; don't race it in or file the same change twice.
+- **A hub session does hub jobs.** A session for the hub (`tend mcp --hub`, or started outside every repo)
+  works across your projects, a few at a time, on the hub's jobs: syncing a repo and committing its `.tend/`
+  state, rendering its baseline files, taking a release, triaging grafts, resolving news, and small file
+  edits on a branch of its own (`hub/<job>`) for the user to merge. Each call names the project it works in;
+  it changes a design only by a todo or a journal entry, meets each repo's own guards and conduct there, and
+  what it writes is marked as from a hub session.
 - **tend and the baseline are projects too.** When tend lacks a feature or gets something wrong, file a
   graft with tend; never patch tend's code from another project's session, or work around it by
   hand-editing what it writes. If a workaround can't wait, keep it to the least that unblocks you, say so,

@@ -1,10 +1,13 @@
-//! Plugin build tasks.
+//! The tasks cargo can't do alone, the same on every OS.
 //!
 //! - `cargo xtask bundle <plugin> [--release]`, `cargo xtask bundle -p <a> -p <b> [--release]`:
 //!   builds plugin bundles (.clap, .vst3) in `target/bundled`, each with its third-party notices
 //!   (next to the bundle, and inside bundles that are directories).
 //! - `cargo xtask notices`: regenerates every plugin's `THIRD-PARTY-LICENSES.html` from its
 //!   dependency graph (needs `cargo install cargo-about`; run it before building a plugin release).
+//! - `cargo xtask miri [test filters]`: the unsafe paths (strided views, runtime-typed arrays,
+//!   DLPack, interop) under Miri on nightly, with float maths made deterministic, since their tests
+//!   check that two routes give the same bits and Miri otherwise rounds each operation at random.
 //!
 //! tend: Plugins
 
@@ -23,6 +26,10 @@ fn main() -> Result<()> {
         Some("notices") => {
             nice_plug_xtask::chdir_workspace_root()?;
             notices()
+        }
+        Some("miri") => {
+            nice_plug_xtask::chdir_workspace_root()?;
+            miri(&args[1..])
         }
         Some("bundle" | "bundle-universal") => {
             nice_plug_xtask::main_with_args("cargo xtask", args.clone())?;
@@ -123,6 +130,52 @@ fn bundle_notices(packages: &[String]) -> Result<()> {
         println!("Added third-party notices to the '{package}' bundles");
     }
     Ok(())
+}
+
+/// The test filters `cargo xtask miri` runs when given none: the modules with unsafe code over
+/// memory autodyne doesn't own.
+const MIRI_FILTERS: [&str; 4] = ["signal::nd", "dynamic::", "dlpack", "interop"];
+
+/// Runs the library's tests under Miri (nightly), `filters` or else [`MIRI_FILTERS`].
+/// `-Zmiri-deterministic-floats` is added to any `MIRIFLAGS` already set: without it, Miri gives
+/// each float operation a random rounding error, and tests comparing two routes bit for bit fail
+/// though the code is sound (four did, 2026-11-09).
+fn miri(filters: &[String]) -> Result<()> {
+    let mut flags = std::env::var("MIRIFLAGS").unwrap_or_default();
+    if !flags
+        .split_whitespace()
+        .any(|f| f == "-Zmiri-deterministic-floats")
+    {
+        flags = format!("{flags} -Zmiri-deterministic-floats")
+            .trim()
+            .to_owned();
+    }
+    let mut command = Command::new("cargo");
+    command
+        .args([
+            "+nightly",
+            "miri",
+            "test",
+            "--lib",
+            "--locked",
+            "--features",
+            "ndarray",
+            "--",
+        ])
+        .env("MIRIFLAGS", flags);
+    if filters.is_empty() {
+        command.args(MIRI_FILTERS);
+    } else {
+        command.args(filters);
+    }
+    match command.status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(status) => anyhow_bail(format!("cargo miri test failed ({status})")),
+        Err(e) => anyhow_bail(format!(
+            "could not run cargo +nightly miri ({e}); install it with \
+             `rustup +nightly component add miri`"
+        )),
+    }
 }
 
 fn anyhow_bail(message: String) -> Result<()> {
