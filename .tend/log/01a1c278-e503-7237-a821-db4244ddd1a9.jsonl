@@ -1,0 +1,8 @@
+{"batch":"01a1c278-e503-7237-a821-db4244ddd1a9","after":"01a1c211-4e28-73f8-9672-8225526c58ff","author":"agent:claude-code","at":1794264065283,"message":"Housecleaning: three checks duplicated or superseded by others, and three baseline-release todos whose work is already in the repo (ci.yml, deny.yml and notices.yml removed in 7cda27d's predecessors, 7b44188; rendered at 2026.10.24, tend baseline check: 12 rules hold, 0 errors, ci.closed holds). (proposal 01a1c1e3-f3a4-71a4-b538-87bd4433fa83, proposed by agent:claude-code, accepted by user)"}
+{"op":"accepted","proposal":"01a1c1e3-f3a4-71a4-b538-87bd4433fa83","proposed_by":"agent:claude-code","accepted_by":"user"}
+{"op":"node.check.remove","node":"01a109e3-1684-7524-a84a-7bffca3db947","kind":"test","name":"rustfmt"}
+{"op":"node.check.remove","node":"01a10a6a-bc9d-7180-a558-83bb8873c3e5","kind":"test","name":"lean build"}
+{"op":"node.check.remove","node":"01a10a63-7b9e-7190-9274-80c6e4cf66a2","kind":"test","name":"library tests on aarch64 (NEON)"}
+{"op":"todo.status","id":"01a19408-21c0-7134-b611-fb0a18cc015b","status":"done","reason":null}
+{"op":"todo.status","id":"01a1998d-afdb-74b5-a93f-a70444131822","status":"done","reason":null}
+{"op":"todo.status","id":"01a199a3-3102-774b-b41f-49c024c0ac8a","status":"done","reason":null}
