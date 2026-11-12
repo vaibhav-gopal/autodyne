@@ -1,0 +1,58 @@
+{
+  "id": "01a10e54-c659-71ec-a2bb-8ec24bf9666a",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "Grafts: woodshed's singing trainer asks for voicing confidence and a streaming time stretch (planned as nodes here, for the user to accept); parda's measurements recorded where lanes M1 will read them.; parda's follow-up (graft 01a10a6b, point 7) puts the spring kernel in its own later milestone (M4); autodyne's lanes M2 already carries springs, so lanes M1's intent drops it.",
+  "why": "`record` trust commits journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "credit",
+      "ideated_by": "agent"
+    },
+    {
+      "op": "node.add",
+      "id": "01a10e54-7b13-7423-a484-d53c5a308bfb",
+      "parent": "01a109e4-7085-7026-b3c7-29655413e5ab",
+      "name": "voicing",
+      "kind": "feature",
+      "intent": "A voicing probability with each pitch estimate, pYIN-style (Mauch and Dixon 2014): YIN's dips weighed over a distribution of thresholds give each candidate period a probability, and a hidden Markov model over pitch and voiced / unvoiced states smooths the track with a fixed lag, so breathy and low voices are tracked where one fixed threshold drops them. Streaming like PitchDetector (no allocation after new); tested against known answers: synthetic voiced and unvoiced segments with noise and breath, and a reference pYIN implementation's outputs as fixtures.",
+      "status": "planned"
+    },
+    {
+      "op": "node.add",
+      "id": "01a10e54-7b13-7423-a484-d53d9ddcef91",
+      "parent": "01a109e4-7085-7026-b3c7-296314ef52a3",
+      "name": "streaming time stretch",
+      "kind": "feature",
+      "intent": "time_stretch as a real-time processor: the phase-locked vocoder PitchShifter uses, pulling input at the stretch rate (output length differs from input, so it reads from a source or a sample buffer rather than processing a block in place), with the rate changeable while running and loop points for looped playback (0.5-1x for practice and transcription, 0.1-10x supported). Never allocates after construction (tests/no_alloc.rs); tested against time_stretch's output, and for pitch and level kept at each rate.",
+      "status": "planned"
+    },
+    {
+      "op": "journal.add",
+      "id": "01a10e54-7b13-7423-a484-d53efb31d503",
+      "kind": "note",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "title": "What parda measured building the prototype",
+      "body": null,
+      "supersedes": null
+    },
+    {
+      "op": "milestone.update",
+      "id": "01a10a63-7b9e-7190-9274-80c0977dc9cf",
+      "name": null,
+      "intent": "What parda-2d's M1 needs: the small vector and matrix types (with compose_world and a SIMD Mat4 inverse) in a no_std build, at least as fast as glam."
+    }
+  ],
+  "at": 1791241799257,
+  "from_draft": "01a10e4b-b864-72d4-bb53-f1132a84d91f",
+  "origin": {
+    "harness": "claude-code 2.1.289",
+    "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "6780172",
+    "tend": "tend 0.1.0"
+  }
+}

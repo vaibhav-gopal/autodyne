@@ -1,0 +1,10 @@
+{
+  "id": "01a109f9-4175-7000-8de7-1c1419ab3634",
+  "proposal": "01a109e7-e14e-7663-8dbe-b30c4c637793",
+  "event": {
+    "kind": "rejected",
+    "reason": "the replacement: now redundant, since the rest of it is already in",
+    "by": "user",
+    "at": 1791168692597
+  }
+}

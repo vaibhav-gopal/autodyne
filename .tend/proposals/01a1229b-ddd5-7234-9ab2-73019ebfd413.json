@@ -1,0 +1,15 @@
+{
+  "id": "01a1229b-ddd5-7234-9ab2-73019ebfd413",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "baseline:vg-paradigms",
+  "rationale": "Upgrade to vg-paradigms release 2026.10.1 (The conduct enforced: 30 guards in agents/guards.toml; the owner's links in global/contact.toml and CONTACT.md, whose royalty-free row shows only where the license offers it; README blocks for contact and socials; statuses of the user's tools rest on their milestones): 0 rule change(s), 0 new todo(s)",
+  "why": "documents (the conduct, a baseline's toolbox and rules) are the user's: an agent's change to one is a proposal",
+  "ops": [
+    {
+      "op": "doc.set",
+      "path": "extends.toml",
+      "text": "baseline = \"vg-paradigms\"\nrev = \"816d0ce\"\nrelease = \"2026.10.1\"\nprofiles = [\"rust\"]\nmodules = []\n\n[license]\ncombo = \"library\"\n"
+    }
+  ],
+  "at": 1791582002645
+}

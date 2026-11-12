@@ -1,0 +1,26 @@
+{
+  "id": "01a15b66-ca6a-77c1-b70b-fc7889243c2e",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "The intent's 'lean feature set (todo)' is built (batch 01a15b66): say what it is.",
+  "why": "`record` trust commits claims (replacing only its own), journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "node.intent",
+      "id": "01a10a6a-bc9d-7180-a558-83bb8873c3e5",
+      "text": "One crate, two paths: the default `std` feature as today, and without it core + alloc, float maths through libm (units::float_math), compile-time target features in place of runtime CPU detection, lookup tables through a race-once cell (units::lazy) and no per-thread caches. flux, gpu, and linalg / systems (faer) stay behind std, as do streams over std::io. Without default features the build is also lean: only units, simd and geometry compile; the default feature `dsp` adds every other module, so the no_std DSP build is default-features = false with dsp. CI builds the no_std paths (lean and dsp) for wasm32 and runs the tests and clippy on each."
+    }
+  ],
+  "at": 1792534825578,
+  "from_draft": "01a15b51-5252-77fb-9951-83277aee17b1",
+  "origin": {
+    "harness": "claude-code 2.1.305",
+    "session": "34e13864-c916-4971-b8d3-2468864736bf",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "e10c502",
+    "tend": "tend 0.1.0"
+  }
+}

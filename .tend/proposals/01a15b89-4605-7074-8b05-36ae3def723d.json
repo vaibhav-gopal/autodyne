@@ -1,0 +1,26 @@
+{
+  "id": "01a15b89-4605-7074-8b05-36ae3def723d",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "spectral::TimeStretcher is built: bit-identical to time_stretch at constant speed, loops and speed changes tested, no allocation while playing.",
+  "why": "`record` trust commits claims (replacing only its own), journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "node.status",
+      "id": "01a10e54-7b13-7423-a484-d53d9ddcef91",
+      "status": "done"
+    }
+  ],
+  "at": 1792537085445,
+  "from_draft": "01a15b51-5252-77fb-9951-83277aee17b1",
+  "origin": {
+    "harness": "claude-code 2.1.305",
+    "session": "34e13864-c916-4971-b8d3-2468864736bf",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "aa9c692",
+    "tend": "tend 0.1.0"
+  }
+}

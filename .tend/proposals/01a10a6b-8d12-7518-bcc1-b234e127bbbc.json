@@ -1,0 +1,56 @@
+{
+  "id": "01a10a6b-8d12-7518-bcc1-b234e127bbbc",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "parda's replaced graft: its prototype of the small types already sits at glam parity except the Mat4 inverse, so lanes M1 becomes adopting it plus a SIMD Mat4 inverse and the NEON / simd128 paths, springs move to M2 with parda's timeline, and the no_std path gains a lean feature set for compile time. Also the cargo deny check's command after licenses moved to tend check.",
+  "why": "it builds on 1 change(s) still waiting, so it waits with them",
+  "ops": [
+    {
+      "op": "node.intent",
+      "id": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "text": "Vec2, Vec3, Vec4, Mat3 and Mat4 generic over Float: column-major, #[repr(C)], bytemuck Pod for f32 and f64, with products, transpose, determinant, inverses, rotations, translation, scale, project_point3, and compose_world (world[i] = world[parent[i]] * local[i] in one pass). Adopted from parda-2d's prototype (crates/autodyne-math in parda2D at 7912896, written against autodyne's units), with a SIMD Mat4 inverse at least as fast as glam's and single-value SSE, NEON and wasm simd128 paths."
+    },
+    {
+      "op": "milestone.assign",
+      "milestone": "01a10a63-7b9e-7190-9274-80c0977dc9cf",
+      "node": "01a10a63-7b9e-7190-9274-80c742302e87",
+      "on": false
+    },
+    {
+      "op": "milestone.assign",
+      "milestone": "01a10a63-7b9e-7190-9274-80c16394ea3b",
+      "node": "01a10a63-7b9e-7190-9274-80c742302e87",
+      "on": true
+    },
+    {
+      "op": "node.intent",
+      "id": "01a10a6a-bc9d-7180-a558-83bb8873c3e5",
+      "text": "One crate, two paths: the default `std` feature as today, and without it core + alloc, float maths through libm in the units traits, compile-time target features in place of runtime CPU detection, and no std-only caches. flux, gpu, linalg (faer) and what builds on it (systems, ode) stay behind std. A lean feature set (units, simd, geometry) compiles only those modules, in seconds rather than the ~90 s a release build with default-features = false takes today. CI builds the no_std path for wasm32 and runs the tests on both."
+    },
+    {
+      "op": "node.check.set",
+      "node": "01a109e3-1684-7524-a84a-7bffca3db947",
+      "check": {
+        "kind": "test",
+        "name": "cargo deny",
+        "run": "cargo deny --workspace check advisories bans sources",
+        "notes": "Advisories, bans and sources (deny.toml); licenses are tend check's."
+      }
+    }
+  ],
+  "at": 1791176183058,
+  "after": [
+    "01a10a6a-cd12-703f-9c31-f6c6f9af5cb6"
+  ],
+  "from_draft": "01a10a0c-a5c0-7302-a6bd-9423b649165e",
+  "origin": {
+    "harness": "claude-code 2.1.289",
+    "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "5fcf723",
+    "tend": "tend 0.1.0"
+  }
+}

@@ -1,0 +1,52 @@
+{
+  "id": "01a10ade-f939-738b-85a1-71fcaa55d4b1",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "The no_std path is built: the intent now says what it actually leaves behind std (ode compiles without it; streams don't), and that the lean feature set waits on geometry. Building until CI's new no-std job passes on GitHub; then done.",
+  "why": "`record` trust commits journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "credit",
+      "ideated_by": "agent"
+    },
+    {
+      "op": "node.intent",
+      "id": "01a10a6a-bc9d-7180-a558-83bb8873c3e5",
+      "text": "One crate, two paths: the default `std` feature as today, and without it core + alloc, float maths through libm (units::float_math), compile-time target features in place of runtime CPU detection, lookup tables through a race-once cell (units::lazy) and no per-thread caches. flux, gpu, and linalg / systems (faer) stay behind std, as do streams over std::io. CI builds the no_std path for wasm32 and runs the tests and clippy on both. A lean feature set (units, simd, geometry) that compiles only those modules comes with geometry (todo)."
+    },
+    {
+      "op": "node.status",
+      "id": "01a10a6a-bc9d-7180-a558-83bb8873c3e5",
+      "status": "building"
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a6a-bc9d-7180-a558-83bb8873c3e5",
+      "link": {
+        "kind": "path",
+        "value": "src/units/float_math.rs"
+      }
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a6a-bc9d-7180-a558-83bb8873c3e5",
+      "link": {
+        "kind": "path",
+        "value": "src/units/lazy.rs"
+      }
+    }
+  ],
+  "at": 1791183747385,
+  "from_draft": "01a10a0c-a5c0-7302-a6bd-9423b649165e",
+  "origin": {
+    "model": "claude-opus-5-5",
+    "harness": "claude-code 2.1.289",
+    "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "575bfa2",
+    "tend": "tend 0.1.0"
+  }
+}

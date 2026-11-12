@@ -1,0 +1,52 @@
+{
+  "id": "01a1909c-36d5-7213-b105-2165c9fffc3e",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "Baseline releases 2026.10.4 to 2026.10.6 rendered in one pass at 2026.10.6.",
+  "why": "`record` trust changes only the agent's own todos; changing another's (or a revision's waits or place) is a proposal",
+  "ops": [
+    {
+      "op": "todo.status",
+      "id": "01a16a6f-491c-73c8-94b1-deaa6dcce8cf",
+      "status": "done",
+      "reason": "Rendered at release 2026.10.6, which includes 2026.10.4's changes."
+    },
+    {
+      "op": "todo.status",
+      "id": "01a16a6f-491c-73c8-94b1-deab754ba16e",
+      "status": "done",
+      "reason": "LICENSE.md and LICENSES/ rendered at 2026.10.6; tend baseline render shows them Current."
+    },
+    {
+      "op": "todo.status",
+      "id": "01a16b9d-397b-72ac-b49a-133280cf4e60",
+      "status": "done",
+      "reason": "Rendered at release 2026.10.6, which includes 2026.10.5's changes."
+    },
+    {
+      "op": "todo.status",
+      "id": "01a16b9d-397b-72ac-b49a-1333fdd0e515",
+      "status": "done",
+      "reason": "LICENSE.md and LICENSES/ rendered at 2026.10.6; tend baseline render shows them Current."
+    },
+    {
+      "op": "todo.status",
+      "id": "01a19083-b7d3-70f7-8268-81df13024d91",
+      "status": "done",
+      "reason": "tend baseline render --write at 2026.10.6: everything Current but deny.yml, kept by hand for rust.ci-reads-toolchain and offered to the baseline (graft 01a1909b-bc42)."
+    }
+  ],
+  "at": 1793427519189,
+  "from_draft": "01a19096-ce6a-7653-99ac-c90671f70cee",
+  "origin": {
+    "model": "claude-opus-5-5",
+    "harness": "claude-code 2.1.314",
+    "session": "bbe2701d-9613-4a62-a06f-9f6a3751eb82",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "99bcc99",
+    "tend": "tend 0.1.0"
+  }
+}

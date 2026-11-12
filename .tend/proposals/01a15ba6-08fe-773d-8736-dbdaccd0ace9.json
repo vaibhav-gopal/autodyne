@@ -1,0 +1,53 @@
+{
+  "id": "01a15ba6-08fe-773d-8736-dbdaccd0ace9",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "The baseline renders the user ran (2026.10 to 2026.10.3) and the one rule they ask of CI.",
+  "why": "`record` trust changes only the agent's own todos; changing another's (or a revision's waits or place) is a proposal",
+  "ops": [
+    {
+      "op": "todo.status",
+      "id": "01a10dfc-54b3-7374-93cc-3a3f71436d31",
+      "status": "done",
+      "reason": null
+    },
+    {
+      "op": "todo.status",
+      "id": "01a122bf-eb42-7009-8de0-cecff8307334",
+      "status": "done",
+      "reason": null
+    },
+    {
+      "op": "todo.status",
+      "id": "01a14715-4b57-745b-8e4e-6dce7982cf7c",
+      "status": "done",
+      "reason": null
+    },
+    {
+      "op": "claim.add",
+      "id": "01a15ba5-f76a-7702-993e-5085583fb6f9",
+      "node": "01a109e3-1684-7524-a84a-7bffca3db947",
+      "text": "CI takes the toolchain from rust-toolchain.toml",
+      "why": "For the baseline's rust.ci-reads-toolchain (release 2026.10): the seven dtolnay/rust-toolchain@stable steps in ci.yml, deny.yml and notices.yml became `rustup toolchain install`, which installs what rust-toolchain.toml pins (channel, clippy / rustfmt / rust-analyzer, the wasm32-unknown-unknown target), so CI and a fresh clone build with the same toolchain and there is no second version to drift. The one exception is Miri's job: Miri exists only on nightly, so it keeps dtolnay/rust-toolchain@nightly and runs `cargo +nightly miri` (commented in ci.yml). Jobs needing more targets add them with rustup (wasm32-wasip1 in no-std). Rendered with the user's `tend baseline render --write` (releases 2026.10 to 2026.10.3, closing their three todos); ci.private-deps (deploy keys) has nothing to apply until CI reads a private repo (the tend check job, which waits on tend's releases).",
+      "rests_on": [
+        {
+          "of": "design:autodyne#intent",
+          "at": "fp:cd328e83bbdd",
+          "checked": "2026-10-20"
+        }
+      ]
+    }
+  ],
+  "at": 1792538970365,
+  "from_draft": "01a15b51-5252-77fb-9951-83277aee17b1",
+  "origin": {
+    "harness": "claude-code 2.1.305",
+    "session": "34e13864-c916-4971-b8d3-2468864736bf",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "d87a91b",
+    "tend": "tend 0.1.0"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "id": "01a15b91-d341-76fd-9840-ba3cac0ab25c",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "compose_world and transform_points work on Mat4 and Mat3 (batch.rs imports them): declared, as the drift report found.",
+  "why": "`record` trust commits claims (replacing only its own), journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "node.relate",
+      "from": "01a10a63-7b9e-7190-9274-80c91784a19d",
+      "kind": "uses",
+      "to": "01a10a63-7b9e-7190-9274-80c6e4cf66a2"
+    }
+  ],
+  "at": 1792537645888,
+  "from_draft": "01a15b51-5252-77fb-9951-83277aee17b1",
+  "origin": {
+    "harness": "claude-code 2.1.305",
+    "session": "34e13864-c916-4971-b8d3-2468864736bf",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "a5f3f9a",
+    "tend": "tend 0.1.0"
+  }
+}

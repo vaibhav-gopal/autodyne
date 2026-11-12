@@ -1,0 +1,45 @@
+{
+  "id": "01a109f8-437a-719e-8dc0-7de753b997a2",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "Corrects the accepted 01a109e6 batch (01a109e7 was its replacement and is now redundant: reject it): the three relations that were intra-doc links, not uses, and the layering-cycles todo they caused.",
+  "why": "`record` trust commits journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "node.unrelate",
+      "from": "01a109e4-7085-7026-b3c7-294e09ee996e",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-295070fe8a8c"
+    },
+    {
+      "op": "node.unrelate",
+      "from": "01a109e4-7085-7026-b3c7-295070fe8a8c",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2952d8f48f7e"
+    },
+    {
+      "op": "node.unrelate",
+      "from": "01a109e4-7085-7026-b3c7-295385ae3f21",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2952d8f48f7e"
+    },
+    {
+      "op": "todo.status",
+      "id": "01a109e6-f159-744b-a4b3-2961f314be0e",
+      "status": "dropped",
+      "reason": "There are no cycles: the three uses behind them were intra-doc links in doc comments ([`ArrayMath`](crate::signal::ArrayMath) and the like), which the measurement wrongly counted."
+    }
+  ],
+  "at": 1791168627578,
+  "from_draft": "01a109f8-2de4-7468-884d-3c41a2ffcd4e",
+  "origin": {
+    "harness": "claude-code 1",
+    "session": "01a109f8-2de4-7468-884d-3c41a2ffcd4e",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "7e34185",
+    "tend": "tend 0.1.0"
+  }
+}

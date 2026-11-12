@@ -1,0 +1,193 @@
+{
+  "id": "01a119e7-ee12-755c-a85f-8c8b3b8a7dee",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "lanes M1: autodyne's geometry module (small types, compose_world), adopted from parda's prototype, with the Mat4-inverse gap closed and NEON / simd128 backends; building until CI's arm and wasm jobs pass on GitHub.",
+  "why": "`record` trust commits journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "node.code.link",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "link": {
+        "kind": "path",
+        "value": "src/geometry/mod.rs"
+      }
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "link": {
+        "kind": "path",
+        "value": "src/geometry/vector.rs"
+      }
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "link": {
+        "kind": "path",
+        "value": "src/geometry/matrix.rs"
+      }
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "link": {
+        "kind": "path",
+        "value": "src/geometry/quad.rs"
+      }
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "link": {
+        "kind": "path",
+        "value": "src/geometry/batch.rs"
+      }
+    },
+    {
+      "op": "node.code.link",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "link": {
+        "kind": "path",
+        "value": "bench/geometry/src/main.rs"
+      }
+    },
+    {
+      "op": "node.check.set",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "check": {
+        "kind": "test",
+        "name": "geometry tests",
+        "run": "cargo test -p autodyne --lib --features bytemuck geometry",
+        "code": "src/geometry/matrix.rs"
+      }
+    },
+    {
+      "op": "node.check.set",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "check": {
+        "kind": "test",
+        "name": "geometry tests on wasm32 simd128",
+        "run": "cargo test -p autodyne --no-default-features --lib --target wasm32-wasip1 geometry (RUSTFLAGS=-C target-feature=+simd128, runner wasmtime; CI's no-std job)",
+        "code": "src/geometry/quad.rs"
+      }
+    },
+    {
+      "op": "node.check.set",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "check": {
+        "kind": "test",
+        "name": "library tests on aarch64 (NEON)",
+        "run": "cargo test -p autodyne --lib --features bytemuck (CI's arm job, ubuntu-24.04-arm)",
+        "code": "src/geometry/quad.rs"
+      }
+    },
+    {
+      "op": "node.check.set",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "check": {
+        "kind": "bench",
+        "name": "geometry against glam",
+        "run": "cd bench/geometry && cargo run --release -- --out RESULTS.md",
+        "code": "bench/geometry/src/main.rs"
+      }
+    },
+    {
+      "op": "node.status",
+      "id": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "status": "building"
+    },
+    {
+      "op": "claim.add",
+      "id": "01a119e7-e781-745c-9d5d-e817d6cc7f83",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "text": "The 4x4 inverse block-wise on four lanes",
+      "why": "The f32 Mat4 inverse uses 2x2 blocks M = [A B; C D] packed one per register: det M = |A||D| + |B||C| - tr(A#B D#C), and the blocks of the inverse are adj(|D|A - B D#C), adj(|B|C - D adj(A#B)), adj(|C|B - A adj(D#C)) and adj(|A|D - C A#B), each over det M (# the adjugate). They are polynomial identities, so no block needs to be invertible; A#B and D#C are shared, about 60 lane operations against about 150 scalar ones by cofactors. Measured (bench/geometry, 1,024 independent inverses, best of 101 alternating rounds): 6.4 us against glam's 8.0 (1.25x), where parda's scalar cofactors were 9.6 against 7.3. Accuracy: on 2,000 transforms with projective rows, its worst error is within 16 units of cond(M) * eps and no worse than cofactors (both about the same; the test asserts within 2x), and the native backend matches the portable arithmetic bit for bit. f64 keeps cofactors (no four-lane f64 register in SSE2), 1.06-1.14x glam's DMat4. Rejected: porting glam's GLM-derived factor shuffles (more shuffles, and the block form is derivable and testable on its own).",
+      "rests_on": [
+        {
+          "of": "design:autodyne / Geometry and lanes / small types#intent",
+          "at": "fp:3617b3e1804e",
+          "checked": "2026-10-08"
+        }
+      ]
+    },
+    {
+      "op": "claim.add",
+      "id": "01a119e7-e781-745c-9d5d-e818429786b7",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "text": "One set of kernels over a Quad trait, backends per instruction set",
+      "why": "src/geometry/quad.rs writes the kernels (mul_vec4, mul_mat4, inverse) once over Quad: load, store, splat, add, sub, mul, div, and shuffles whose pattern is a const generic in SSE's shufps encoding. SSE passes the pattern straight to _mm_shuffle_ps; NEON decodes it at compile time (inline const) into a tbl byte table; wasm into i8x16_swizzle tables (two swizzles and an or for two sources); Portable is plain arrays and runs the same kernels on every host, so the arithmetic is tested where the backend can't run. Dispatch: Mat4 checks TypeId of T against f32 and casts (same() in matrix.rs), constant per instance. Not verified in the assembly that the f64 instance carries no branch, but f64 measures 1.4-1.6x glam on Mat4 * Mat4, which leaves no room for one. Rejected: macro_rules per backend (hygiene-dependent and harder to read), and per-backend const generics for lane indices, which stable Rust can't compute from a pattern parameter (generic_const_exprs).",
+      "rests_on": [
+        {
+          "of": "design:autodyne / Geometry and lanes / small types#intent",
+          "at": "fp:3617b3e1804e",
+          "checked": "2026-10-08"
+        }
+      ]
+    },
+    {
+      "op": "claim.add",
+      "id": "01a119e7-e781-745c-9d5d-e819c3b7b7e9",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "text": "Summation orders: Mat4 * Vec4 in sequence, Mat4 * Mat4 in pairs, the same bits on every path",
+      "why": "Measured in bench/geometry (three builds, best of 101 rounds each): summing m * v column after column, as glam does, is 1.00-1.08x glam and gives glam's bits exactly; summing each product's columns in pairs is 1.01-1.07x glam for Mat4 * Mat4, where the sequence measured 0.91-0.92x. The plain-arithmetic paths (f64, targets without a backend, compose_world's f64) sum in the same orders, so f32 results are bit-identical whichever path runs. Storing the lanes straight into the result (Quad::store_to) instead of through an array took Mat4 * Vec4 from 0.94x to parity and better; loading Vec4<f32> in place as [f32; 4] (repr(C)) from 0.88x to 0.94x. Code placement alone moves the single-value cases by up to ~8% between builds (glam's own Mat4 product measured 3.14 and 3.40 us in two builds of the same harness), so within that they read as parity.",
+      "rests_on": [
+        {
+          "of": "design:autodyne / Geometry and lanes / small types#intent",
+          "at": "fp:3617b3e1804e",
+          "checked": "2026-10-08"
+        }
+      ]
+    },
+    {
+      "op": "claim.add",
+      "id": "01a119e7-e781-745c-9d5d-e81aa6fe3f21",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "text": "compose_world uses Mat4's SIMD product (reversing the prototype's finding)",
+      "why": "parda's prototype measured its SSE product 17% slower than glam inside compose_world and plain arithmetic 2% faster, because each product went through memory. Here the product loads the columns in place and stores straight into the result, and inside compose_world it measures 0.99-1.01x glam's loop at 10k and 100k nodes, where plain arithmetic measured 0.92-0.95x. So compose_world calls Mat4's own product; the prototype's note stays as what it measured then.",
+      "rests_on": [
+        {
+          "of": "design:autodyne / Geometry and lanes / small types#intent",
+          "at": "fp:3617b3e1804e",
+          "checked": "2026-10-08"
+        }
+      ]
+    },
+    {
+      "op": "journal.add",
+      "id": "01a119e7-e781-745c-9d5d-e81b03b8ac9a",
+      "kind": "misstep",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "title": "Aligning Mat4 to 16 bytes bought nothing",
+      "body": "To close a 0.92x on Mat4 * Mat4 (glam's Mat4 is 16-byte aligned, so SSE can fold its loads into the arithmetic), Mat4 became #[repr(C, align(16))] with aligned loads: 0.91x and 0.96x in two builds, inside the layout noise. Reverted (no layout change without a measured reason). What closed the gap was storing results straight into place. Lesson: when a single-value kernel trails by under 10%, look at loads and stores through temporaries first, and compare across at least two builds before believing a change (code placement moves these cases by ~8%).",
+      "supersedes": null
+    },
+    {
+      "op": "claim.add",
+      "id": "01a119e7-e781-745c-9d5d-e81c96bb6887",
+      "node": "01a10a63-7b9e-7190-9274-80c6e4cf66a2",
+      "text": "bytemuck as an optional feature; dev-dependencies off wasm",
+      "why": "Pod and Zeroable for the vectors and matrices (f32, f64) come with an optional `bytemuck` feature (default-features off, so no_std), as glam does: parda turns it on, nothing else pays for it, and it only adds impls (rust.features-additive). The crate's dev-dependencies (cpal, midir, criterion, hound, rtrb, serde_json) moved under cfg(not(target_family = \"wasm\")): no lib test uses them, and they don't build for wasm, where CI now runs the geometry tests under wasmtime with simd128.",
+      "rests_on": [
+        {
+          "of": "design:autodyne / Geometry and lanes / small types#intent",
+          "at": "fp:3617b3e1804e",
+          "checked": "2026-10-08"
+        }
+      ]
+    }
+  ],
+  "at": 1791435992594,
+  "from_draft": "01a119cb-43a2-7798-813c-1554930c40d5",
+  "origin": {
+    "harness": "claude-code 2.1.290",
+    "session": "34e13864-c916-4971-b8d3-2468864736bf",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "516925e",
+    "tend": "tend 0.1.0"
+  }
+}

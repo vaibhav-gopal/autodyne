@@ -1,0 +1,15 @@
+{
+  "id": "01a1933b-6695-7007-9a9c-f27b0253f168",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "baseline:vg-paradigms",
+  "rationale": "Upgrade to vg-paradigms release 2026.10.7 (The rust profile's deny.yml takes its toolchain from rust-toolchain.toml (rule rust.ci-reads-toolchain)), by your propose subscription: 0 rule change(s), 0 new todo(s)",
+  "why": "documents (the conduct, what a project builds on, its workflows) are the user's: an agent's change to one is a proposal; in a baseline's project, an agent with `trusted` records the baseline's own documents",
+  "ops": [
+    {
+      "op": "doc.set",
+      "path": "extends.toml",
+      "text": "baseline = \"vg-paradigms\"\nrev = \"bdafa40\"\nrelease = \"2026.10.7\"\nprofiles = [\"rust\"]\nmodules = []\n\n[license]\ncombo = \"library\"\n"
+    }
+  ],
+  "at": 1793471506069
+}

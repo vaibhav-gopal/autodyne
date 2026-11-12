@@ -1,0 +1,86 @@
+{
+  "id": "01a15c98-38e2-75c8-8542-984ceef46a3f",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "author": "agent:claude-code",
+  "agent": "01a0f61b-3e85-75a4-852f-0db7d9173b98",
+  "rationale": "Design cleanup the user asked for: the ten uses the code has that the design didn't declare (two of them cycles inside flux, where graph.rs calls the runtime and fuse.rs's planner that call back into it: declared as the code is, the module-level layering rule holds), and Geometry and lanes done now that every child is.",
+  "why": "`record` trust commits claims (replacing only its own), journal entries, todos, code links, citations being explored, and tests, benchmarks and warning gates; other changes are proposals",
+  "ops": [
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-2977bb046d46",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2976c08fe77d"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-29787a3548fc",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2977bb046d46"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-29787a3548fc",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2976c08fe77d"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-297993a0a672",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2976c08fe77d"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-2976c08fe77d",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-29787a3548fc"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-2976c08fe77d",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-297993a0a672"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-297cb9df84ff",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-297abd52a2a8"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a10a63-7b9e-7190-9274-80ca5799b895",
+      "kind": "uses",
+      "to": "01a10a63-7b9e-7190-9274-80c6e4cf66a2"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-295c0d9e9bb4",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-295b5a964093"
+    },
+    {
+      "op": "node.relate",
+      "from": "01a109e4-7085-7026-b3c7-29747c193448",
+      "kind": "uses",
+      "to": "01a109e4-7085-7026-b3c7-2957dd235033"
+    },
+    {
+      "op": "node.status",
+      "id": "01a10a63-7b9e-7190-9274-80c327fcb414",
+      "status": "done"
+    }
+  ],
+  "at": 1792554842338,
+  "from_draft": "01a15b51-5252-77fb-9951-83277aee17b1",
+  "origin": {
+    "harness": "claude-code 2.1.305",
+    "session": "34e13864-c916-4971-b8d3-2468864736bf",
+    "machine": "VGHYDRA",
+    "repo": "C:/vg-workspace/projects/autodyne",
+    "branch": "main",
+    "commit": "5ae3b49",
+    "tend": "tend 0.1.0"
+  }
+}
