@@ -1,0 +1,36 @@
+{
+  "id": "01a109e4-7eac-7000-9b5a-66ff41ab7029",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a109e4-7eac-765e-b1b1-7c829c705fa0",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-8ff4-7627-9028-8595922cfc11",
+        "kind": "fix",
+        "title": "Record the licensing files so projects can choose a combo",
+        "need": "licensing/ (combos.toml, contributing.md, LICENSE.md.tmpl, texts/, agreements/) is committed at f46f07a but not recorded in the baseline's signed log: `tend doc record --check` lists all eight as unrecorded, so `tend baseline license choose library` in a project fails with 'vg-paradigms has no licensing (licensing/combos.toml)'. Record them (`tend doc record`) and commit.",
+        "use_case": "autodyne adopts the library combo (GPL-3.0-only with the Open Project Exception, OR royalty-free, OR commercial): tend baseline license choose library, then tend baseline render for LICENSE.md, LICENSES/ and REUSE.toml.",
+        "refs": [
+          "design:autodyne"
+        ],
+        "at": 1791167332012,
+        "status": "withdrawn",
+        "origin": {
+          "harness": "claude-code 1",
+          "session": "01a109e4-68f2-768c-b799-b2d9abacdeb6",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "0cd2478",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

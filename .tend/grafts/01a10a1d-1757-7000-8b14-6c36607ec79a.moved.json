@@ -1,0 +1,46 @@
+{
+  "id": "01a10a1d-1757-7000-8b14-6c36607ec79a",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a109e4-7eb8-7762-8b86-e1f068b788bd",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "fix",
+        "title": "Say when a baseline file exists but isn't recorded",
+        "need": "`tend baseline license choose|show` says 'vg-paradigms has no licensing (licensing/combos.toml)' when the file is committed at the pinned rev but missing from the baseline's signed document log (Source::read returns None for DOC_DIRS paths not in the log). The message should say the file is there but unrecorded, and that `tend doc record` in the baseline records it; `tend baseline check` in a project could warn the same way.",
+        "use_case": "Adopting Tend in autodyne: the misleading message cost a dig through tend-core's Source::read to find the cause.",
+        "refs": [
+          "design:autodyne"
+        ],
+        "at": 1791167332024,
+        "status": "done",
+        "answer": {
+          "text": "Done in tend 9facf9e. In a baseline repo, every document under its document folders that's added or edited since it was recorded is a contract error, so `tend baseline check` and `tend check --strict` (CI) fail until `tend doc record` runs there. In a project, `tend baseline check` warns (baseline.recorded) and lists them, and a command that needs one, like `tend baseline license`, says it's there but not recorded and where to record it, instead of 'has no licensing'. vg-paradigms' licensing and workflows are recorded now (its batch 01a109fe), so autodyne's switch is unblocked once that batch is committed there.",
+          "node": "Tend / Core / Baselines",
+          "group": "01a10a1d-1757-704a-80d1-07328400a47b",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791171041111
+        },
+        "origin": {
+          "harness": "claude-code 1",
+          "session": "01a109e4-68f2-768c-b799-b2d9abacdeb6",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "0cd2478",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

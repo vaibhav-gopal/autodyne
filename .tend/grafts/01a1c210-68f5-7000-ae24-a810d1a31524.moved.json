@@ -1,0 +1,47 @@
+{
+  "id": "01a1c210-68f5-7000-ae24-a810d1a31524",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a1c1e4-d417-7350-91e5-0c120d58ceac",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "fix",
+        "title": "Found pytest checks: the venv of the pyproject they sit under, and `off` taking effect",
+        "need": "(1) The tests tend finds in Python test files run `pytest bindings/python/tests/test_X.py` from the repo root, which has no pytest; the interpreter should be the .venv beside the nearest pyproject.toml above the file (here bindings/python/.venv), run from that directory. A package built by maturin also needs `maturin develop` first, so where the extension isn't built the found test can't pass on its own: a declared test covering the same directory could stand in for the found ones. (2) In autodyne batch 01a1c1e4-5ba4 I declared each of the six found tests with `off: true` and a reason; `tend code checks` still lists all six under autodyne / Python bindings as FAILED and design_review counts them as broken. A found test declared off should be off, as an outer node's is.",
+        "use_case": "autodyne's declared `pytest` check (build the extension in bindings/python/.venv, run all six files: 227 passed, 1 skipped) is the real test; the six found ones fail in 0.5 s without running anything and keep the project's requirements from reading clean.",
+        "refs": [
+          "design:autodyne / Python bindings",
+          "code:bindings/python/tests"
+        ],
+        "at": 1794254361623,
+        "status": "planned",
+        "answer": {
+          "text": "Both are bugs. Planned: a found Python test runs with the .venv of the nearest pyproject.toml above it, from that folder (not the repo root's), and a found test declared with off: true is off for tend code checks and design_review, as the claim that a declared test takes a found one's place already says. Your declared pytest check stays the real test meanwhile.",
+          "node": "tend / Core / Checks",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1794257217781
+        },
+        "origin": {
+          "model": "claude-opus-5-5",
+          "harness": "claude-code 2.1.321",
+          "session": "bb932e8f-38b0-4d36-b9fd-8c82e8dd582b",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "95c0133",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

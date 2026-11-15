@@ -1,0 +1,50 @@
+{
+  "id": "01a10a1d-176c-7000-9702-45e5f998d9ae",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a109e7-e162-71b9-8cdd-d55227582250",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "fix",
+        "title": "Count Rust uses through qualified paths and macros",
+        "need": "drift calls relations unbacked that the code has: fully qualified calls without a `use` (`crate::linalg::matmul(...)` in src/stats/correlation.rs, `crate::simd::dot_kernel(...)` in src/linalg/schur.rs), a type in a signature (`crate::spectral::WindowSpec` in src/resample/poly.rs) and macro invocations (`crate::processor::forward_processor!(Echo)` in src/delay/mod.rs). In autodyne 20 of 147 declared relations read as unbacked this way. Intra-doc links in comments ((crate::dlpack::ForeignBuffer)) are rightly not uses.",
+        "use_case": "Keeping autodyne's declared relations and drift in agreement.",
+        "refs": [
+          "design:autodyne"
+        ],
+        "at": 1791167553890,
+        "status": "done",
+        "answer": {
+          "text": "Done in tend 9facf9e. (1) Test code apart: imports and name uses in a #[cfg(test)] module, a #[test] function (#[tokio::test] too) or a test file (tests/, tests.rs, *_test.rs, test_*.py, *.test.ts, *.spec.ts …) are counted on the code graph's edge as `test`. They still reach the code (for which tests reach a node), but drift no longer reads them as the design's uses. (2) Rust paths without a `use`: crate::/super::/self:: paths in calls, types and macro invocations count as uses of the module they name (through re-exports in mod.rs too); intra-doc links in comments aren't parsed, so they don't. They don't license method-name matching the way an import does. (3) A `raise NotImplementedError(...)` whose message names what's supported ('only', 'supports', 'unsupported', 'must be', 'one of' …, without 'yet' or 'not implemented'), or with a `# deliberate` comment on the line, isn't unfinished work. Caches move on, so the next drift recomputes.",
+          "node": "Tend / Code layer / Derived design",
+          "group": "01a10a1d-176c-73ef-b41b-86a247a7403f",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791171041132
+        },
+        "group": {
+          "id": "01a109e6-f6fb-76f5-92bc-0d00b889226b",
+          "title": "Code reading for Rust and Python"
+        },
+        "origin": {
+          "harness": "claude-code 1",
+          "session": "01a109e7-d6dd-7682-8511-ea0e345fcb3c",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "0cd2478",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

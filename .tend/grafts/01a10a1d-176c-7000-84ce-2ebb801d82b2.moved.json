@@ -1,0 +1,50 @@
+{
+  "id": "01a10a1d-176c-7000-84ce-2ebb801d82b2",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a109e6-f6fb-76f5-92bc-0d0116cd456f",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "change",
+        "title": "Leave test code out of a node's uses",
+        "need": "code drift counts uses from Rust `#[cfg(test)] mod tests` blocks and tests.rs files as design-level uses (autodyne: fft's tests build signals with osc::Sine, channels' tests use filter::Biquad, so drift asks to declare Numerics/fft uses Audio/osc). Either leave test-only uses out of undeclared_use, or report them separately (a test may use a higher layer).",
+        "use_case": "Declaring autodyne's relations from drift without recording test fixtures as architecture.",
+        "refs": [
+          "design:autodyne"
+        ],
+        "at": 1791167493883,
+        "status": "done",
+        "answer": {
+          "text": "Done in tend 9facf9e. (1) Test code apart: imports and name uses in a #[cfg(test)] module, a #[test] function (#[tokio::test] too) or a test file (tests/, tests.rs, *_test.rs, test_*.py, *.test.ts, *.spec.ts …) are counted on the code graph's edge as `test`. They still reach the code (for which tests reach a node), but drift no longer reads them as the design's uses. (2) Rust paths without a `use`: crate::/super::/self:: paths in calls, types and macro invocations count as uses of the module they name (through re-exports in mod.rs too); intra-doc links in comments aren't parsed, so they don't. They don't license method-name matching the way an import does. (3) A `raise NotImplementedError(...)` whose message names what's supported ('only', 'supports', 'unsupported', 'must be', 'one of' …, without 'yet' or 'not implemented'), or with a `# deliberate` comment on the line, isn't unfinished work. Caches move on, so the next drift recomputes.",
+          "node": "Tend / Code layer / Derived design",
+          "group": "01a10a1d-176c-73ef-b41b-86a247a7403f",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791171041132
+        },
+        "group": {
+          "id": "01a109e6-f6fb-76f5-92bc-0d00b889226b",
+          "title": "Code reading for Rust and Python"
+        },
+        "origin": {
+          "harness": "claude-code 1",
+          "session": "01a109e6-e954-703c-9c83-fe576f5c6ee3",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "0cd2478",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

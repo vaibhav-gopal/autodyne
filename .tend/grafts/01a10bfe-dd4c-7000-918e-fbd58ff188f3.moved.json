@@ -1,0 +1,50 @@
+{
+  "id": "01a10bfe-dd4c-7000-918e-fbd58ff188f3",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a10a22-14e6-75e3-8bc4-2ccb36ec78ea",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "feature",
+        "title": "Getting tend in CI from a public repo",
+        "need": "A documented way for a public repo's CI to get the tend binary: the check action (`uses: vaibhav-gopal/tend/.github/actions/check`) can't be used from a public repo while tend is private, and today tend has no GitHub remote or releases at all, so `Unable to resolve action vaibhav-gopal/tend, repository not found`. A release-download step (gh release download with a token, checksum verified) projects can paste or the baseline can render, or a public distribution of the binary.",
+        "use_case": "autodyne (public) took its tend check job out of CI until there is one; the baseline's CI workflow for every project (filed with vg-paradigms) needs it too.",
+        "refs": [
+          "design:autodyne",
+          "code:.github/workflows/ci.yml"
+        ],
+        "at": 1791171368166,
+        "status": "done",
+        "answer": {
+          "text": "Documented in tend README (In CI, readme version 9): a public repo cannot use an action from a private one, so it downloads the release with gh release download and a token secret (a fine-grained token that can read tend), checks the .sha256 the release carries, installs it and runs tend check --strict; the step is in the README. Still needed before it works: the first release tag (v0.1.0, which the user publishes) and the REPOS_TOKEN secret in your repo. Its own node, Tend / Clients / Releases and CI, is proposed (01a10b0c).",
+          "node": "Tend / Clients",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791202614604
+        },
+        "group": {
+          "id": "01a10a22-14ce-7453-8594-6dbf360fd281",
+          "title": "Licensing beyond the check"
+        },
+        "origin": {
+          "harness": "claude-code 2.1.289",
+          "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "01a9975",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "id": "01a10a1d-1757-7000-9323-c35b68e33eaf",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a109ff-7d4f-72f4-852f-fa7a8b804d8b",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "change",
+        "title": "A baseline's check should fail on documents it hasn't recorded",
+        "need": "In vg-paradigms, `tend check --strict` passes (exit 0) while `tend doc record --check` lists eight files under licensing/ as unrecorded: committed to git at f46f07a but never signed into the log, so every project reads the baseline as having no licensing. Report unrecorded or changed-but-unrecorded documents under DOC_DIRS in `tend check` (an error under --strict, so CI catches it), or offer a git hook that records or refuses on commit, so recording is never a separate step to remember.",
+        "use_case": "The baseline's owner edits rules, conduct and licensing as files and commits them; autodyne's licensing switch was blocked by an unrecorded commit that CI let through.",
+        "refs": [
+          "design:autodyne"
+        ],
+        "at": 1791169101135,
+        "status": "done",
+        "answer": {
+          "text": "Done in tend 9facf9e. In a baseline repo, every document under its document folders that's added or edited since it was recorded is a contract error, so `tend baseline check` and `tend check --strict` (CI) fail until `tend doc record` runs there. In a project, `tend baseline check` warns (baseline.recorded) and lists them, and a command that needs one, like `tend baseline license`, says it's there but not recorded and where to record it, instead of 'has no licensing'. vg-paradigms' licensing and workflows are recorded now (its batch 01a109fe), so autodyne's switch is unblocked once that batch is committed there.",
+          "node": "Tend / Core / Baselines",
+          "group": "01a10a1d-1757-704a-80d1-07328400a47b",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791171041111
+        },
+        "origin": {
+          "harness": "claude-code 1",
+          "session": "01a109ff-7211-7393-8453-7aee9bbd84c3",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "c1f58e4",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

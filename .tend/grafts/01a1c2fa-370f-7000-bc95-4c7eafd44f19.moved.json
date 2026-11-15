@@ -1,0 +1,86 @@
+{
+  "id": "01a1c2fa-370f-7000-bc95-4c7eafd44f19",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a19cc5-6d98-7540-9d1f-7db41d021958",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a12286-bcbb-77f1-a15e-57ac81949286",
+        "kind": "feature",
+        "title": "cargo-deny and cargo-about on vghydra, in the cargo list",
+        "need": "Add `cargo-deny` and `cargo-about` to the `cargo` package list in home.psd1 (installed with `cargo binstall --no-confirm cargo-deny cargo-about`, as for cargo-llvm-cov, cargo-mutants and cargo-fuzz), so `dot apply` puts them on vghydra. Neither is in scoop or winget (scoop search and winget search both found nothing, checked 2026-11-02). Licenses: cargo-deny MIT OR Apache-2.0, cargo-about MIT OR Apache-2.0.",
+        "use_case": "autodyne has no CI (rule ci.closed), so its checks run locally before every commit and push. One of its declared checks is the baseline's `cargo deny --workspace --locked check advisories bans sources`, which can't run on vghydra today because cargo-deny isn't installed. cargo-about generates the third-party notices for autodyne's plugin bundles (`cargo xtask notices`, run before a plugin release). The rust profile names cargo deny as a check every Rust project runs, so other Rust repos on this machine need it too.",
+        "refs": [
+          "design:autodyne",
+          "code:autodyne/deny.toml",
+          "code:autodyne/xtask/src/main.rs"
+        ],
+        "at": 1793631546776,
+        "status": "planned",
+        "answer": {
+          "text": "Planned: cargo-deny and cargo-about go in home.psd1's cargo list (cargo binstall, as the Engine claim says for tools scoop and winget lack), and wasmtime in the scoop list, so dot apply puts all three on vghydra. Answered done once they run there.",
+          "item": "todo:01a1c20b-0d53-72f9-813c-bfa7aad464c0",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a12286-bcbb-77f1-a15e-57ac81949286"
+          },
+          "at": 1794256882859
+        },
+        "origin": {
+          "model": "claude-opus-5-5",
+          "harness": "cli 0",
+          "session": "bbe2701d-9613-4a62-a06f-9f6a3751eb82",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "d94336b",
+          "tend": "tend 0.1.0"
+        },
+        "updates": [
+          {
+            "by": {
+              "who": "agent:claude-code",
+              "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+            },
+            "text": "One more for vghydra, same use: wasmtime (scoop main bucket, 50.0.1 as of 2026-11-09; Apache-2.0 WITH LLVM-exception). autodyne's declared check `geometry tests on wasm32 simd128` runs geometry's simd128 backend under it (`cargo test --target wasm32-wasip1`, runner wasmtime in .cargo/config.toml); it ran on CI before autodyne's CI was removed, and can't run anywhere here now.",
+            "at": 1794254367421,
+            "origin": {
+              "model": "claude-opus-5-5",
+              "harness": "claude-code 2.1.321",
+              "session": "bb932e8f-38b0-4d36-b9fd-8c82e8dd582b",
+              "machine": "VGHYDRA",
+              "repo": "C:/vg-workspace/projects/autodyne",
+              "branch": "main",
+              "commit": "95c0133",
+              "tend": "tend 0.1.0"
+            }
+          },
+          {
+            "by": {
+              "who": "agent:claude-code",
+              "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+            },
+            "text": "2026-11-09: the user installed cargo-deny 0.20.2 on vghydra by hand (`cargo binstall --no-confirm cargo-deny`) so autodyne's commits could pass their checks. Declaring it in home.psd1's cargo list is still wanted, so dot apply keeps it and other machines get it; cargo-about and wasmtime are still missing.",
+            "at": 1794272540431,
+            "origin": {
+              "model": "claude-opus-5-5",
+              "harness": "claude-code 2.1.321",
+              "session": "bb932e8f-38b0-4d36-b9fd-8c82e8dd582b",
+              "machine": "VGHYDRA",
+              "repo": "C:/vg-workspace/projects/autodyne",
+              "branch": "main",
+              "commit": "18ff81e",
+              "tend": "tend 0.1.0"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

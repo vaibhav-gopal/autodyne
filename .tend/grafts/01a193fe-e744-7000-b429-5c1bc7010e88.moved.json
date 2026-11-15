@@ -1,0 +1,52 @@
+{
+  "id": "01a193fe-e744-7000-b429-5c1bc7010e88",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a10a22-3392-7657-a390-c42215c8be6b",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-8ff4-7627-9028-8595922cfc11",
+        "kind": "feature",
+        "title": "A CI workflow every project gets, running tend check --strict",
+        "need": "A GitHub Actions workflow the baseline renders into each project (tend baseline render), that gets a tend binary and runs `tend check --strict`: signed batches, links and doc tags, the baseline's rules, and the license model (rendered files, manifest expression, dependencies against the combo's options, DCO sign-offs). It must fetch the tend release itself (gh release download with a token secret) rather than `uses:` tend's check action: a public repo can never use an action from a private one. Today each project hand-writes this job, and autodyne had to take it out.",
+        "use_case": "autodyne moved its license gating (the CLA workflow, cargo-deny's license list) to tend check, so CI only gates licenses again once tend check runs there; every project on the library combo needs the same job.",
+        "refs": [
+          "design:autodyne",
+          "code:.github/workflows/ci.yml"
+        ],
+        "waits_on": [
+          "tend published on GitHub with releases"
+        ],
+        "at": 1791171376018,
+        "status": "declined",
+        "answer": {
+          "text": "Declined by the user's decision (2026-10-31): no project runs CI unless it's open to contributions (declared per project, closed by default), and none is open yet. GitHub Actions is off on autodyne and ten other repos. `tend check --strict` runs before every commit from the pre-commit hook (`tend code hook --install`) instead, and that is the record. If a project opens, the baseline renders its CI then (rule ci.contributors-only).",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-8ff4-7627-9028-8595922cfc11"
+          },
+          "at": 1793484318532
+        },
+        "group": {
+          "id": "01a10a22-14b5-7714-a69d-1dc9777661ad",
+          "title": "What every project's CI gets from the baseline"
+        },
+        "origin": {
+          "harness": "claude-code 2.1.289",
+          "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "01a9975",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

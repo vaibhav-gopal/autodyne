@@ -1,0 +1,46 @@
+{
+  "id": "01a19334-8355-7000-89e3-030e8a68496a",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a1909b-bc42-721c-ab1b-f13d1859b8fc",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-8ff4-7627-9028-8595922cfc11",
+        "kind": "fix",
+        "title": "rust profile's deny.yml: take the toolchain from rust-toolchain.toml",
+        "need": "The rust profile's deny.yml template installs its toolchain with `uses: dtolnay/rust-toolchain@stable`, which pins a second toolchain beside rust-toolchain.toml, against the profile's own rule rust.ci-reads-toolchain. Replace that step with `- run: rustup toolchain install` (comment: the toolchain, components and targets rust-toolchain.toml pins), as autodyne's deny.yml has done since 2fb442c. Every other line of the template stays as it is.",
+        "use_case": "`tend check` in autodyne warns baseline.rendered: .github/workflows/deny.yml edited by hand. The edit is this one step. Once the template has it, a plain render clears the warning, and every Rust project's deny job gets the toolchain its rust-toolchain.toml pins (sylva's rendered deny.yml still uses dtolnay@stable).",
+        "refs": [
+          "code:.github/workflows/deny.yml"
+        ],
+        "at": 1793427487810,
+        "status": "done",
+        "answer": {
+          "text": "Done (batch 01a19334-3d3d): the rust profile's deny.yml runs `rustup toolchain install` (commented as you asked) in place of dtolnay/rust-toolchain@stable. One difference from autodyne's file: the step carries `working-directory: {{product.folder}}`, because the template checks the project out into that folder, and rustup reads rust-toolchain.toml from where it runs. It reaches you with the next release (after 2026.10.6). A plain render then gives the same step plus that working-directory line, which clears the baseline.rendered warning.",
+          "node": "vg-paradigms",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-8ff4-7627-9028-8595922cfc11"
+          },
+          "at": 1793471054677
+        },
+        "origin": {
+          "model": "claude-opus-5-5",
+          "harness": "claude-code 2.1.314",
+          "session": "bbe2701d-9613-4a62-a06f-9f6a3751eb82",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "99bcc99",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "id": "01a11a16-615c-7000-99ac-f7044a7ab966",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a119c6-38ef-751f-9c3f-6dcf35cc54a6",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "fix",
+        "title": "design_propose drops a change's unknown fields without saying so (journal text lost)",
+        "need": "design_propose accepts a change with fields it doesn't know and stores the change without them, reporting success. A `journal` change given its text as `text` (or `lesson`, `alternatives`) instead of `body` was committed and signed with `\"body\": null`: the entry has a title and nothing else, and the tool's answer (\"Committed batch ... Decision: <title>\") looks the same as when the text lands. In autodyne on 2026-10-05, four entries (batches 01a10ade-8a1d, 01a10b1f, 01a10e54/01a10e55-b5ac) lost their text this way and were re-recorded with `supersedes` (batch 01a10e56-83b8). Wanted: an unknown field in a change is an error that names the field and the ones the action takes (here: `text` isn't a journal field; did you mean `body`?), or at least a warning in the answer; and the answer echoes how much of the body was stored (e.g. 'Decision: <title> (1,114 chars)') so an empty entry is visible. The same likely applies to other actions (link's `code` vs `path` already errors, which is the behavior wanted everywhere).",
+        "use_case": "Agents record decisions and missteps as they go (the conduct asks for it); a silently empty entry defeats the journal, and nothing shows it until someone reads the log by hand.",
+        "refs": [
+          "design:autodyne / no_std"
+        ],
+        "at": 1791433783535,
+        "status": "done",
+        "answer": {
+          "text": "Fixed in tend 486176d (deployed). A change naming a field its action doesn't take is refused, saying what the action takes and, for the usual slips, what was meant: `journal takes no 'text' (it takes body, kind, node, rests_on, supersedes, title): did you mean body?`. The fields come from the change language's own reference (ACTIONS), which now lists everything the resolver reads; open ones (a toolbox entry's) aren't checked. design_propose's answer says how much text each journal entry holds ('Decision: … (1114 chars)', or 'no text'), so an empty one shows.",
+          "node": "Tend / Core / Change language",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791439036764
+        },
+        "origin": {
+          "harness": "claude-code 2.1.289",
+          "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "516925e",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

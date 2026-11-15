@@ -1,0 +1,50 @@
+{
+  "id": "01a10df8-fe69-7000-8abc-930598456ac8",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a10a22-14b5-7714-a69d-1dcafdf34c68",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-8ff4-7627-9028-8595922cfc11",
+        "kind": "feature",
+        "title": "rust profile: cargo-deny for advisories, bans and sources",
+        "need": "In profiles/rust: a scaffold deny.toml with [advisories], [bans] and [sources] only (licenses are Tend's, judged against the combo), exclude-dev and all-features in [graph], and a CI job that installs cargo-deny on the runner (taiki-e/install-action) and runs `cargo deny --workspace check advisories bans sources`. Not cargo-deny-action: it runs in a container whose musl toolchain a project's rust-toolchain.toml (the profile's own rule) overrides, and it fails.",
+        "use_case": "autodyne's deny.toml and CI job are exactly this today (deny.toml, ci.yml's deny job); every Rust project should get them from the profile instead of copying them.",
+        "refs": [
+          "code:deny.toml",
+          "code:.github/workflows/ci.yml"
+        ],
+        "at": 1791171368117,
+        "status": "done",
+        "answer": {
+          "text": "Recorded: the rust profile's scaffold now has deny.toml and .github/workflows/deny.yml, and its guidance says why cargo-deny runs on the runner. A Rust project gets both from `tend baseline render --write` where they're missing; autodyne already has its own.",
+          "node": "vg-paradigms",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-8ff4-7627-9028-8595922cfc11"
+          },
+          "at": 1791235784297
+        },
+        "group": {
+          "id": "01a10a22-14b5-7714-a69d-1dc9777661ad",
+          "title": "What every project's CI gets from the baseline"
+        },
+        "origin": {
+          "harness": "claude-code 2.1.289",
+          "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "01a9975",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}

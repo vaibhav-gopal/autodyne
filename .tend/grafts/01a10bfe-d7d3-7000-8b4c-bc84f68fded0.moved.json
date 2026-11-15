@@ -1,0 +1,51 @@
+{
+  "id": "01a10bfe-d7d3-7000-8b4c-bc84f68fded0",
+  "project": "01a109e3-1684-7524-a84a-7bffca3db947",
+  "event": {
+    "kind": "op",
+    "op": {
+      "type": "graft.restore",
+      "graft": {
+        "id": "01a10a22-14ce-7453-8594-6dc01c82a476",
+        "from": {
+          "who": "agent:claude-code",
+          "project": "01a109e3-1684-7524-a84a-7bffca3db947"
+        },
+        "to": "01a10430-904c-72df-bba3-5012964f3c60",
+        "kind": "feature",
+        "title": "Third-party notices for what a project ships",
+        "need": "Tend already reads every shipping dependency's license to judge it against the combo. Generate the notices those licenses require (each copyright and license text: MIT, Apache-2.0, BSD, ISC, MPL-2.0 ...) per shipped artifact (a crate, a target, a bundle), with a check that they're current, so a project doesn't keep its own cargo-about config and a workflow that regenerates and commits them.",
+        "use_case": "autodyne ships CLAP / VST3 plugin bundles with THIRD-PARTY-LICENSES.html, made by cargo-about (about.toml, `cargo xtask notices`) and a Notices workflow that commits them on main; the license model already lives in the baseline and Tend.",
+        "refs": [
+          "code:about.toml",
+          "code:.github/workflows/notices.yml",
+          "design:autodyne/Plugins"
+        ],
+        "at": 1791171368142,
+        "status": "done",
+        "answer": {
+          "text": "Built in tend 78f98c8 and 59513cb (deployed): tend baseline license notices [--package <crate>] [--out <file>] [--write] lists every package that ships (cargo normal deps through the lockfile, npm runtime deps), its version and license, then the license, NOTICE and COPYRIGHT files each carries, each distinct text once. A written file is kept in [license] notices in .tend/extends.toml and checked current by tend check (license.notices); packages without a text of their own are a warning (license.notices-texts). Where dependencies are not on disk (CI without cargo fetch or bun install) it says it was not checked instead of failing. Markdown, not HTML. Its own node, Licensing / Notices, is proposed (01a10b12).",
+          "node": "Tend / Core / Baselines / Licensing",
+          "by": {
+            "who": "agent:claude-code",
+            "project": "01a10430-904c-72df-bba3-5012964f3c60"
+          },
+          "at": 1791202613203
+        },
+        "group": {
+          "id": "01a10a22-14ce-7453-8594-6dbf360fd281",
+          "title": "Licensing beyond the check"
+        },
+        "origin": {
+          "harness": "claude-code 2.1.289",
+          "session": "497f1bd7-f55d-4414-853f-150189cc968a",
+          "machine": "VGHYDRA",
+          "repo": "C:/vg-workspace/projects/autodyne",
+          "branch": "main",
+          "commit": "01a9975",
+          "tend": "tend 0.1.0"
+        }
+      }
+    }
+  }
+}
